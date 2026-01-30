@@ -30,7 +30,9 @@ public struct ContentView: View {
         } detail: {
             VStack(spacing: 0) {
                 detailView
-                errorBanner
+                if appState.showConsole {
+                    SimulationConsoleView(appState: appState)
+                }
             }
             .toolbar {
                 toolbarContent
@@ -40,8 +42,10 @@ public struct ContentView: View {
             inspectorContent
                 .inspectorColumnWidth(min: 200, ideal: 280, max: 400)
         }
-        .onChange(of: appState.simulationResult?.id) { _, resultID in
-            if resultID != nil, let waveform = appState.simulationResult?.waveform {
+        .onChange(of: appState.isSimulating) { wasSimulating, isSimulating in
+            if wasSimulating, !isSimulating,
+               appState.simulationError == nil,
+               let waveform = appState.simulationResult?.waveform {
                 waveformViewModel.load(waveform: waveform)
                 appState.activeEditor = .waveform
             }
@@ -67,39 +71,7 @@ public struct ContentView: View {
         case .schematic:
             SchematicEditorView(viewModel: schematicViewModel)
         case .waveform:
-            HSplitView {
-                WaveformChartView(viewModel: waveformViewModel)
-                    .frame(minWidth: 400)
-                TraceListView(viewModel: waveformViewModel)
-                    .frame(minWidth: 180, idealWidth: 220, maxWidth: 300)
-            }
-        }
-    }
-
-    // MARK: - Error Banner
-
-    @ViewBuilder
-    private var errorBanner: some View {
-        if let error = appState.simulationError {
-            HStack {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
-                Spacer()
-                Button {
-                    appState.simulationError = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 6)
-            .background(.red.opacity(0.1))
+            WaveformResultView(viewModel: waveformViewModel)
         }
     }
 
@@ -121,17 +93,36 @@ public struct ContentView: View {
             .frame(width: 280)
         }
 
-        // Global actions
+        // Run / Stop
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                Task {
-                    await appState.runSimulation(service: services.simulationService)
+            if appState.isSimulating {
+                Button {
+                    appState.cancelSimulation(service: services.simulationService)
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
                 }
-            } label: {
-                Label("Run", systemImage: "play.fill")
+                .keyboardShortcut(".", modifiers: .command)
+            } else {
+                Button {
+                    Task {
+                        switch appState.activeEditor {
+                        case .schematic:
+                            await appState.runSchematicSimulation(
+                                document: schematicViewModel.document,
+                                analysisCommand: appState.selectedAnalysis,
+                                generator: services.netlistGenerator,
+                                service: services.simulationService
+                            )
+                        default:
+                            await appState.runSimulation(service: services.simulationService)
+                        }
+                    }
+                } label: {
+                    Label("Run", systemImage: "play.fill")
+                }
+                .disabled(runButtonDisabled)
+                .keyboardShortcut("r", modifiers: .command)
             }
-            .disabled(appState.spiceSource.isEmpty || appState.isSimulating)
-            .keyboardShortcut("r", modifiers: .command)
         }
 
         ToolbarItem(placement: .primaryAction) {
@@ -152,12 +143,26 @@ public struct ContentView: View {
             .keyboardShortcut("o", modifiers: [.command, .shift])
         }
 
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                do {
+                    try appState.saveSPICEFile()
+                } catch {
+                    appState.log("Save failed: \(error.localizedDescription)", kind: .error)
+                }
+            } label: {
+                Label("Save", systemImage: "square.and.arrow.down")
+            }
+            .keyboardShortcut("s", modifiers: .command)
+            .disabled(appState.spiceSource.isEmpty)
+        }
+
         // Context-dependent toolbar items
         switch appState.activeEditor {
         case .schematic:
             schematicToolbarItems
         case .waveform:
-            WaveformToolbarContent(viewModel: waveformViewModel)
+            waveformToolbarItems
         case .netlist:
             ToolbarItem(placement: .status) {
                 if let fileName = appState.spiceFileName {
@@ -165,6 +170,29 @@ public struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+
+        // Simulation status
+        ToolbarItem(placement: .status) {
+            if let status = appState.simulationStatus {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+
+        // Console toggle
+        ToolbarItem {
+            Button {
+                appState.showConsole.toggle()
+            } label: {
+                Label("Console", systemImage: "terminal")
             }
         }
 
@@ -176,13 +204,28 @@ public struct ContentView: View {
                 Label("Inspector", systemImage: "sidebar.trailing")
             }
         }
+    }
 
-        // Progress indicator
-        if appState.isSimulating {
-            ToolbarItem {
-                ProgressView()
-                    .controlSize(.small)
-            }
+    private var runButtonDisabled: Bool {
+        if appState.isSimulating { return true }
+        switch appState.activeEditor {
+        case .schematic:
+            return schematicViewModel.document.components.isEmpty
+                || schematicViewModel.hasErrors
+        default:
+            return appState.spiceSource.isEmpty
+        }
+    }
+
+    private var analysisLabel: String {
+        switch appState.selectedAnalysis {
+        case .op: return "OP"
+        case .tran: return "Tran"
+        case .ac: return "AC"
+        case .dcSweep: return "DC"
+        case .noise: return "Noise"
+        case .tf: return "TF"
+        case .pz: return "PZ"
         }
     }
 
@@ -210,6 +253,40 @@ public struct ContentView: View {
             }
             .help("Net label tool")
         }
+
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button("Operating Point") {
+                    appState.selectedAnalysis = .op
+                }
+                Button("Transient (1ms)") {
+                    appState.selectedAnalysis = .tran(TranSpec(stopTime: 1e-3, stepTime: 10e-6))
+                }
+                Button("AC Sweep (1Hz\u{2013}1MHz)") {
+                    appState.selectedAnalysis = .ac(ACSpec(
+                        scaleType: .decade, numberOfPoints: 20,
+                        startFrequency: 1, stopFrequency: 1e6
+                    ))
+                }
+            } label: {
+                Label(analysisLabel, systemImage: "function")
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var waveformToolbarItems: some ToolbarContent {
+        WaveformToolbarContent(viewModel: waveformViewModel)
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                waveformViewModel.exportWaveform()
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .disabled(waveformViewModel.waveformData == nil)
+            .help("Export waveform data")
+        }
     }
 
     // MARK: - Inspector
@@ -220,11 +297,9 @@ public struct ContentView: View {
         case .schematic:
             PropertyInspector(viewModel: schematicViewModel)
         case .waveform:
-            TraceListView(viewModel: waveformViewModel)
-        default:
-            Text("No inspector available")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            WaveformInspectorView(viewModel: waveformViewModel)
+        case .netlist:
+            NetlistInspectorView(appState: appState)
         }
     }
 
@@ -269,6 +344,67 @@ public struct ContentView: View {
     }
 }
 
+/// Inspector panel for the netlist editor showing file info and analysis settings.
+private struct NetlistInspectorView: View {
+    @Bindable var appState: AppState
+
+    var body: some View {
+        Form {
+            Section("File") {
+                LabeledContent("Name", value: appState.spiceFileName ?? "Untitled")
+                LabeledContent("Lines", value: "\(appState.spiceSource.components(separatedBy: "\n").count)")
+            }
+            Section("Analysis") {
+                Picker("Type", selection: $appState.selectedAnalysis) {
+                    Text("OP").tag(AnalysisCommand.op)
+                    Text("Tran").tag(AnalysisCommand.tran(TranSpec(stopTime: 1e-3, stepTime: 10e-6)))
+                    Text("AC").tag(AnalysisCommand.ac(ACSpec(
+                        scaleType: .decade, numberOfPoints: 20,
+                        startFrequency: 1, stopFrequency: 1e6
+                    )))
+                }
+            }
+            if let error = appState.simulationError {
+                Section("Error") {
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+/// Inspector panel for the waveform viewer showing data metadata.
+private struct WaveformInspectorView: View {
+    @Bindable var viewModel: WaveformViewModel
+
+    var body: some View {
+        Form {
+            Section("Data") {
+                LabeledContent("Sweep", value: viewModel.sweepLabel)
+                LabeledContent("Points", value: "\(viewModel.waveformData?.pointCount ?? 0)")
+                LabeledContent("Signals", value: "\(viewModel.document.traces.count)")
+                LabeledContent("Visible", value: "\(viewModel.document.traces.filter(\.isVisible).count)")
+            }
+            if viewModel.isComplex {
+                Section("Mode") {
+                    LabeledContent("Type", value: "Complex (AC)")
+                }
+            }
+            if let error = viewModel.exportError {
+                Section("Export Error") {
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
 /// Simple text editor view for SPICE netlist source.
 public struct NetlistEditorView: View {
     @Bindable var appState: AppState
@@ -287,18 +423,39 @@ public struct NetlistEditorView: View {
 
 // MARK: - Previews
 
-#Preview("Content — Netlist") {
+#Preview("OP — Voltage Divider") {
+    let state = AppState()
+    state.activeEditor = .netlist
+    state.spiceSource = """
+    * Voltage Divider
+    V1 in 0 DC 5
+    R1 in out 1k
+    R2 out 0 1k
+    .op
+    .end
+    """
+    state.spiceFileName = "voltage_divider.cir"
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        waveformViewModel: WaveformViewModel(),
+        schematicViewModel: SchematicViewModel()
+    )
+    .frame(width: 1200, height: 800)
+}
+
+#Preview("Tran — RC Step Response") {
     let state = AppState()
     state.activeEditor = .netlist
     state.spiceSource = """
     * RC Lowpass Filter
-    V1 in 0 5
+    V1 in 0 PULSE(0 5 1u 0.1u 0.1u 10u 20u)
     R1 in out 1k
     C1 out 0 1n
     .tran 0.1u 20u
     .end
     """
-    state.spiceFileName = "rc_lowpass.cir"
+    state.spiceFileName = "rc_tran.cir"
     return ContentView(
         appState: state,
         services: ServiceContainer(),
@@ -308,33 +465,36 @@ public struct NetlistEditorView: View {
     .frame(width: 1200, height: 800)
 }
 
-#Preview("Content — Schematic") {
+#Preview("AC — RC Lowpass") {
     let state = AppState()
-    state.activeEditor = .schematic
-    return ContentView(
-        appState: state,
-        services: ServiceContainer(),
-        waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicViewModel()
-    )
-    .frame(width: 1200, height: 800)
-}
-
-#Preview("Netlist Editor") {
-    let state = AppState()
+    state.activeEditor = .netlist
     state.spiceSource = """
-    * Simple RC
-    V1 in 0 DC 5
+    * RC Lowpass AC
+    V1 in 0 AC 1
     R1 in out 1k
     C1 out 0 1n
+    .ac dec 20 1 1G
     .end
     """
-    state.spiceFileName = "example.cir"
-    return NetlistEditorView(appState: state)
-        .frame(width: 1200, height: 800)
+    state.spiceFileName = "rc_ac.cir"
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        waveformViewModel: WaveformViewModel(),
+        schematicViewModel: SchematicViewModel()
+    )
+    .frame(width: 1200, height: 800)
 }
 
-#Preview("Netlist Editor — Empty") {
-    NetlistEditorView(appState: AppState())
-        .frame(width: 1200, height: 800)
+#Preview("Schematic — Voltage Divider") {
+    let state = AppState()
+    state.activeEditor = .schematic
+    state.selectedAnalysis = .op
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        waveformViewModel: WaveformViewModel(),
+        schematicViewModel: SchematicPreview.voltageDividerViewModel()
+    )
+    .frame(width: 1200, height: 800)
 }

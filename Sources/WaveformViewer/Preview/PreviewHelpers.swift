@@ -17,6 +17,13 @@ enum WaveformPreview {
         return vm
     }
 
+    /// ViewModel loaded with a sample operating point result (single-point data).
+    static func opViewModel() -> WaveformViewModel {
+        let vm = WaveformViewModel()
+        vm.load(waveform: sampleOPWaveform())
+        return vm
+    }
+
     /// ViewModel loaded with sample AC magnitude data.
     static func acViewModel() -> WaveformViewModel {
         let vm = WaveformViewModel()
@@ -25,6 +32,30 @@ enum WaveformPreview {
     }
 
     // MARK: - Sample Waveform Data
+
+    /// Generates a sample OP waveform (voltage divider: V1=5V, R1=R2=1k).
+    static func sampleOPWaveform() -> WaveformData {
+        let variables = [
+            VariableDescriptor.voltage(node: "in", index: 0),
+            VariableDescriptor.voltage(node: "out", index: 1),
+            VariableDescriptor.current(device: "V1", index: 2),
+        ]
+
+        let metadata = SimulationMetadata(
+            title: "Operating Point",
+            analysisType: .operatingPoint,
+            pointCount: 1,
+            variableCount: 3
+        )
+
+        return WaveformData(
+            metadata: metadata,
+            sweepVariable: VariableDescriptor(name: "point", unit: .dimensionless, type: .voltage, index: 0),
+            sweepValues: [0.0],
+            variables: variables,
+            realData: [[5.0, 2.5, -2.5e-3]]
+        )
+    }
 
     /// Generates a sample transient waveform resembling an RC step response.
     static func sampleTransientWaveform() -> WaveformData {

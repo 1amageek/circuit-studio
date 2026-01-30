@@ -60,6 +60,7 @@ public struct WaveformToolbarContent: ToolbarContent {
 
     private func formatSweep(_ value: Double) -> String {
         let absValue = abs(value)
+        if absValue == 0 { return "0" }
         if absValue >= 1e6 { return String(format: "%.3gM", value / 1e6) }
         if absValue >= 1e3 { return String(format: "%.3gk", value / 1e3) }
         if absValue >= 1 { return String(format: "%.4g", value) }

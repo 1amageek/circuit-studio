@@ -33,6 +33,10 @@ public protocol SimulationServiceProtocol: Sendable {
 public final class SimulationService: SimulationServiceProtocol, Sendable {
     private let jobs: Mutex<[UUID: SimulationJob]> = Mutex([:])
     private let continuations: Mutex<[UUID: AsyncStream<SimulationEvent>.Continuation]> = Mutex([:])
+    private let _activeJobID: Mutex<UUID?> = Mutex(nil)
+
+    /// The currently running job ID, if any. Used by UI to cancel.
+    public var activeJobID: UUID? { _activeJobID.withLock { $0 } }
 
     public init() {}
 
@@ -53,7 +57,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             cancellationToken: token
         )
         jobs.withLock { $0[jobID] = job }
+        _activeJobID.withLock { $0 = jobID }
         emit(jobID: jobID, event: .started)
+
+        defer { _activeJobID.withLock { $0 = nil } }
 
         do {
             let pipeline = try await loadPipeline(source: source, fileName: fileName)
@@ -103,7 +110,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             cancellationToken: token
         )
         jobs.withLock { $0[jobID] = job }
+        _activeJobID.withLock { $0 = jobID }
         emit(jobID: jobID, event: .started)
+
+        defer { _activeJobID.withLock { $0 = nil } }
 
         do {
             let pipeline = try await loadPipeline(source: source, fileName: fileName)

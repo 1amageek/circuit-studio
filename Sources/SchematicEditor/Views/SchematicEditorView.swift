@@ -9,14 +9,36 @@ public struct SchematicEditorView: View {
     }
 
     public var body: some View {
-        SchematicCanvas(viewModel: viewModel)
-            .overlay(alignment: .topLeading) {
-                ComponentPaletteOverlay(viewModel: viewModel)
+        VStack(spacing: 0) {
+            SchematicCanvas(viewModel: viewModel)
+                .overlay(alignment: .topLeading) {
+                    ComponentPaletteOverlay(viewModel: viewModel)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    MiniMapView(viewModel: viewModel)
+                        .padding(12)
+                }
+
+            if !viewModel.diagnostics.isEmpty {
+                DiagnosticsBar(diagnostics: viewModel.diagnostics) { componentID in
+                    if let id = componentID {
+                        viewModel.select(id)
+                    }
+                }
             }
-            .overlay(alignment: .bottomTrailing) {
-                MiniMapView(viewModel: viewModel)
-                    .padding(12)
-            }
+        }
+        .onChange(of: viewModel.document.components.count) {
+            viewModel.validateDocument()
+        }
+        .onChange(of: viewModel.document.wires.count) {
+            viewModel.validateDocument()
+        }
+        .onChange(of: viewModel.document.labels.count) {
+            viewModel.validateDocument()
+        }
+        .onAppear {
+            viewModel.validateDocument()
+        }
     }
 }
 

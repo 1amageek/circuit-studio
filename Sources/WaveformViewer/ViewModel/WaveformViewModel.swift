@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import CoreSpiceWaveform
 import CircuitStudioCore
 
@@ -27,8 +28,13 @@ public final class WaveformViewModel {
     public var sweepLabel: String = ""
     public var isComplex: Bool = false
 
-    private var waveformData: WaveformData?
+    public private(set) var waveformData: WaveformData?
     private let waveformService: WaveformService
+
+    /// True when loaded data is a single operating point (no sweep).
+    public var isSinglePoint: Bool {
+        waveformData?.pointCount == 1
+    }
 
     public init(waveformService: WaveformService = WaveformService()) {
         self.waveformService = waveformService
@@ -107,6 +113,32 @@ public final class WaveformViewModel {
         document.cursorPosition = position
     }
 
+    /// Last export error, surfaced to the UI.
+    public var exportError: String?
+
+    /// Export the current waveform data to a file chosen by the user.
+    public func exportWaveform() {
+        guard let waveform = waveformData else { return }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [
+            .init(filenameExtension: "csv")!,
+            .init(filenameExtension: "raw")!,
+        ]
+        panel.nameFieldStringValue = "simulation.csv"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        exportError = nil
+        Task {
+            do {
+                try await waveformService.export(waveform: waveform, to: url)
+            } catch {
+                exportError = error.localizedDescription
+            }
+        }
+    }
+
     /// Get the value of a trace at the cursor position.
     public func cursorValue(for trace: WaveformTrace) -> Double? {
         guard let waveform = waveformData,
@@ -138,28 +170,43 @@ public final class WaveformViewModel {
             return
         }
 
+        // Apply decimation for large datasets
+        let maxDisplayPoints = 2000
+        let displayWaveform: WaveformData
+        if waveform.pointCount > maxDisplayPoints, !waveform.isComplex {
+            displayWaveform = waveformService.fetch(
+                waveform: waveform,
+                variables: [],
+                range: document.visibleRange,
+                maxPoints: maxDisplayPoints
+            )
+        } else {
+            displayWaveform = waveform
+        }
+
         let visibleTraces = document.traces.filter(\.isVisible)
         var series: [ChartSeries] = []
+        let rangeAlreadyApplied = waveform.pointCount > maxDisplayPoints && !waveform.isComplex
 
         for trace in visibleTraces {
-            guard let varIdx = waveform.variableIndex(named: trace.variableName) else {
+            guard let varIdx = displayWaveform.variableIndex(named: trace.variableName) else {
                 continue
             }
 
             var points: [ChartPoint] = []
-            for pointIdx in 0..<waveform.pointCount {
-                let sweep = waveform.sweepValues[pointIdx]
+            for pointIdx in 0..<displayWaveform.pointCount {
+                let sweep = displayWaveform.sweepValues[pointIdx]
 
-                // Apply range filter
-                if let range = document.visibleRange {
+                // Skip range filter if decimation already applied it
+                if !rangeAlreadyApplied, let range = document.visibleRange {
                     guard range.contains(sweep) else { continue }
                 }
 
                 let value: Double
                 if isComplex {
-                    value = waveform.magnitudeDB(variable: varIdx, point: pointIdx) ?? 0
+                    value = displayWaveform.magnitudeDB(variable: varIdx, point: pointIdx) ?? 0
                 } else {
-                    value = waveform.realValue(variable: varIdx, point: pointIdx) ?? 0
+                    value = displayWaveform.realValue(variable: varIdx, point: pointIdx) ?? 0
                 }
 
                 points.append(ChartPoint(id: pointIdx, sweep: sweep, value: value))

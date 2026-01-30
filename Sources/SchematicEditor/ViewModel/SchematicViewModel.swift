@@ -31,17 +31,33 @@ public final class SchematicViewModel {
     public var gridSize: CGFloat = 10
     public var canvasSize: CGSize = .zero
 
+    /// First click point for two-click wire placement. nil = not started.
+    public var pendingWireStart: CGPoint?
+
     private var componentCounters: [String: Int] = [:]
     private var dragStartPositions: [UUID: CGPoint] = [:]
     private var wireEndOffsets: [UUID: CGSize] = [:]
     private var undoStack = UndoStack()
     private var clipboard: ClipboardContent?
 
+    public var diagnostics: [Diagnostic] = []
+
+    public var hasErrors: Bool {
+        diagnostics.contains { $0.severity == .error }
+    }
+
     public var canUndo: Bool { undoStack.canUndo }
     public var canRedo: Bool { undoStack.canRedo }
 
     public init(catalog: DeviceCatalog = .standard()) {
         self.catalog = catalog
+    }
+
+    // MARK: - Validation
+
+    public func validateDocument() {
+        let service = DesignService(catalog: catalog)
+        diagnostics = service.validate(document)
     }
 
     // MARK: - Component Name Generation
@@ -105,6 +121,11 @@ public final class SchematicViewModel {
 
     public func clearSelection() {
         document.selection.removeAll()
+    }
+
+    /// Cancel an in-progress two-click wire placement.
+    public func cancelPendingWire() {
+        pendingWireStart = nil
     }
 
     /// Toggle membership of an id in the selection set (Shift+click).

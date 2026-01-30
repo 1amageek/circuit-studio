@@ -1,5 +1,6 @@
 import Foundation
 import CoreSpiceWaveform
+import CoreSpiceIO
 
 /// Protocol for waveform data access.
 public protocol WaveformServiceProtocol: Sendable {
@@ -105,5 +106,11 @@ public struct WaveformService: WaveformServiceProtocol, Sendable {
             variables: waveform.variables,
             realData: decimatedData
         )
+    }
+
+    /// Export waveform data to a file. Format is inferred from the file extension.
+    public func export(waveform: WaveformData, to url: URL) async throws {
+        let registry = SPICEIO.defaultExporterRegistry()
+        _ = try await registry.export(waveform, toPath: url.path)
     }
 }

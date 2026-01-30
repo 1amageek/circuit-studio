@@ -18,6 +18,9 @@ public struct PropertyInspector: View {
             } else if let selectedID = viewModel.document.selection.first,
                       let index = viewModel.document.wires.firstIndex(where: { $0.id == selectedID }) {
                 wireInspector(index: index)
+            } else if let selectedID = viewModel.document.selection.first,
+                      let index = viewModel.document.labels.firstIndex(where: { $0.id == selectedID }) {
+                labelInspector(index: index)
             } else {
                 ContentUnavailableView(
                     "No Selection",
@@ -127,6 +130,37 @@ public struct PropertyInspector: View {
                     get: { viewModel.document.wires[index].netName ?? "" },
                     set: { viewModel.document.wires[index].netName = $0.isEmpty ? nil : $0 }
                 ))
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private func labelInspector(index: Int) -> some View {
+        Form {
+            Section("Net Label") {
+                TextField("Name", text: Binding(
+                    get: { viewModel.document.labels[index].name },
+                    set: { viewModel.document.labels[index].name = $0 }
+                ))
+            }
+            Section("Position") {
+                HStack {
+                    Text("X")
+                    TextField("X", value: Binding<Double>(
+                        get: { Double(viewModel.document.labels[index].position.x) },
+                        set: { viewModel.document.labels[index].position.x = CGFloat($0) }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                }
+                HStack {
+                    Text("Y")
+                    TextField("Y", value: Binding<Double>(
+                        get: { Double(viewModel.document.labels[index].position.y) },
+                        set: { viewModel.document.labels[index].position.y = CGFloat($0) }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                }
             }
         }
         .formStyle(.grouped)

@@ -11,6 +11,7 @@ public struct SchematicCanvas: View {
     @State private var selectionRect: CGRect?
     @State private var selectionRectStart: CGPoint?
     @State private var selectionRectLeftToRight: Bool = true
+    @State private var hoverPoint: CGPoint?
 
     /// Minimum screen-space movement to distinguish drag from tap.
     private let dragThreshold: CGFloat = 3
@@ -46,12 +47,29 @@ public struct SchematicCanvas: View {
                 WireRenderer.render(wire, in: &context, selected: selected)
             }
 
-            // In-progress wire
+            // In-progress wire (drag)
             if let start = wireStart, let end = wireEnd {
                 var path = Path()
                 path.move(to: start)
                 path.addLine(to: end)
                 context.stroke(path, with: .color(.green.opacity(0.5)), lineWidth: 1.5)
+            }
+
+            // Pending wire preview (two-click mode)
+            if let start = viewModel.pendingWireStart, let hover = hoverPoint {
+                let canvasHover = screenToCanvas(hover)
+                let snapped = viewModel.snapToGrid(canvasHover)
+                var path = Path()
+                path.move(to: start)
+                path.addLine(to: snapped)
+                context.stroke(
+                    path,
+                    with: .color(.green.opacity(0.4)),
+                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 3])
+                )
+                // Start point marker
+                let markerRect = CGRect(x: start.x - 3, y: start.y - 3, width: 6, height: 6)
+                context.fill(Path(ellipseIn: markerRect), with: .color(.green))
             }
 
             // Components
@@ -109,6 +127,14 @@ public struct SchematicCanvas: View {
             }
         })
         .gesture(unifiedDragGesture)
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let location):
+                hoverPoint = location
+            case .ended:
+                hoverPoint = nil
+            }
+        }
         .background(scrollEventOverlay)
         .onKeyPress(phases: .down) { keyPress in
             handleKeyPress(keyPress)
@@ -180,6 +206,7 @@ public struct SchematicCanvas: View {
             viewModel.deleteSelection()
             return .handled
         case .escape:
+            viewModel.cancelPendingWire()
             viewModel.tool = .select
             viewModel.clearSelection()
             return .handled
@@ -326,7 +353,18 @@ public struct SchematicCanvas: View {
             viewModel.tool = .select
 
         case .wire:
-            break
+            if let start = viewModel.pendingWireStart {
+                let snappedEnd = viewModel.snapToGrid(canvasPoint)
+                let dx = abs(snappedEnd.x - start.x)
+                let dy = abs(snappedEnd.y - start.y)
+                if dx > viewModel.gridSize || dy > viewModel.gridSize {
+                    viewModel.recordForUndo()
+                    viewModel.addWire(from: start, to: snappedEnd)
+                }
+                viewModel.pendingWireStart = nil
+            } else {
+                viewModel.pendingWireStart = viewModel.snapToGrid(canvasPoint)
+            }
 
         case .label:
             viewModel.recordForUndo()

@@ -18,6 +18,8 @@ public struct WaveformChartView: View {
                     systemImage: "waveform.path",
                     description: Text("Run a simulation to see waveforms")
                 )
+            } else if viewModel.isSinglePoint {
+                operatingPointView
             } else {
                 chartView
             }
@@ -90,7 +92,8 @@ public struct WaveformChartView: View {
     // MARK: - Gesture Handlers
 
     private func handleTap(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
-        let plotFrame = geometry[proxy.plotFrame!]
+        guard let frame = proxy.plotFrame else { return }
+        let plotFrame = geometry[frame]
         let relativeX = location.x - plotFrame.origin.x
         guard relativeX >= 0, relativeX <= plotFrame.width else {
             viewModel.setCursor(at: nil)
@@ -102,7 +105,8 @@ public struct WaveformChartView: View {
     }
 
     private func handleDrag(value: DragGesture.Value, proxy: ChartProxy, geometry: GeometryProxy) {
-        let plotFrame = geometry[proxy.plotFrame!]
+        guard let frame = proxy.plotFrame else { return }
+        let plotFrame = geometry[frame]
         let relativeX = value.location.x - plotFrame.origin.x
         guard relativeX >= 0, relativeX <= plotFrame.width else { return }
         if let sweepValue: Double = proxy.value(atX: relativeX) {
@@ -121,15 +125,58 @@ public struct WaveformChartView: View {
         viewModel.setVisibleRange(lower...upper)
     }
 
+    // MARK: - Operating Point Result Table
+
+    private var operatingPointView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Label("Operating Point", systemImage: "function")
+                    .font(.headline)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+
+                Divider()
+
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(viewModel.chartSeries) { series in
+                        if let point = series.points.first {
+                            HStack {
+                                Circle()
+                                    .fill(series.color)
+                                    .frame(width: 8, height: 8)
+
+                                Text(series.name)
+                                    .font(.body.monospaced())
+
+                                Spacer()
+
+                                Text(formatValue(point.value))
+                                    .font(.body.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+
+                            Divider()
+                                .padding(.leading, 32)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Domain
 
     private var xDomain: ClosedRange<Double> {
-        if let range = viewModel.document.visibleRange {
+        if let range = viewModel.document.visibleRange,
+           range.lowerBound < range.upperBound {
             return range
         }
         guard let first = viewModel.chartSeries.first,
               let firstPt = first.points.first,
-              let lastPt = first.points.last else {
+              let lastPt = first.points.last,
+              firstPt.sweep < lastPt.sweep else {
             return 0...1
         }
         return firstPt.sweep...lastPt.sweep
@@ -138,7 +185,16 @@ public struct WaveformChartView: View {
     // MARK: - Formatting
 
     private func formatSweep(_ value: Double) -> String {
+        formatEngineering(value)
+    }
+
+    private func formatValue(_ value: Double) -> String {
+        formatEngineering(value)
+    }
+
+    private func formatEngineering(_ value: Double) -> String {
         let absValue = abs(value)
+        if absValue == 0 { return "0" }
         if absValue >= 1e6 { return String(format: "%.3gM", value / 1e6) }
         if absValue >= 1e3 { return String(format: "%.3gk", value / 1e3) }
         if absValue >= 1 { return String(format: "%.4g", value) }
@@ -156,6 +212,11 @@ public struct WaveformChartView: View {
 
 #Preview("AC Waveform") {
     WaveformChartView(viewModel: WaveformPreview.acViewModel())
+        .frame(width: 600, height: 350)
+}
+
+#Preview("Operating Point") {
+    WaveformChartView(viewModel: WaveformPreview.opViewModel())
         .frame(width: 600, height: 350)
 }
 
