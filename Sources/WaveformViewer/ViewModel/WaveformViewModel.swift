@@ -69,6 +69,52 @@ public final class WaveformViewModel {
         updateChartSeries()
     }
 
+    /// Update waveform data progressively, preserving existing trace visibility.
+    ///
+    /// Unlike `load()`, this method keeps the user's trace visibility choices
+    /// and only updates the underlying data and sweep range.
+    public func updateStreaming(waveform: WaveformData) {
+        let previousVisibility: [String: Bool]
+        if !document.traces.isEmpty {
+            previousVisibility = Dictionary(
+                document.traces.map { ($0.variableName, $0.isVisible) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        } else {
+            previousVisibility = [:]
+        }
+
+        self.waveformData = waveform
+        self.isComplex = waveform.isComplex
+        self.isLogFrequency = waveform.sweepVariable.type == .frequency
+        self.sweepLabel = waveform.sweepVariable.name
+
+        let colors: [Color] = [.blue, .red, .green, .orange, .purple, .cyan, .yellow, .pink, .mint, .indigo]
+
+        // Rebuild traces, preserving visibility from previous state
+        if document.traces.isEmpty || document.traces.count != waveform.variables.count {
+            var traces: [WaveformTrace] = []
+            for (index, variable) in waveform.variables.enumerated() {
+                let isVisible = previousVisibility[variable.name] ?? true
+                let trace = WaveformTrace(
+                    variableName: variable.name,
+                    displayName: variable.name,
+                    color: colors[index % colors.count],
+                    isVisible: isVisible
+                )
+                traces.append(trace)
+            }
+            document.traces = traces
+        }
+
+        // Always expand the visible range to include all data
+        if let first = waveform.sweepValues.first, let last = waveform.sweepValues.last {
+            document.visibleRange = first...last
+        }
+
+        updateChartSeries()
+    }
+
     /// Toggle visibility of a trace.
     public func toggleTrace(_ traceID: UUID) {
         if let index = document.traces.firstIndex(where: { $0.id == traceID }) {

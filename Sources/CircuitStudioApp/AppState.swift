@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import CircuitStudioCore
 import CoreSpiceWaveform
+import Synchronization
 
 /// Editor mode for the main content area.
 public enum EditorMode: Hashable, Sendable {
@@ -56,6 +57,12 @@ public final class AppState {
     public var simulationResult: SimulationResult?
     public var simulationError: String?
     public var selectedAnalysis: AnalysisCommand = .op
+
+    /// Partial waveform data received during a running transient simulation.
+    /// Updated progressively as timesteps complete.
+    public var streamingWaveform: WaveformData?
+    /// Incremented each time `streamingWaveform` is updated, for observation.
+    public var streamingWaveformVersion: Int = 0
 
     // Console
     public var consoleEntries: [ConsoleEntry] = []
@@ -156,25 +163,46 @@ public final class AppState {
 
         isSimulating = true
         simulationError = nil
+        streamingWaveform = nil
         clearConsole()
         showConsole = true
+        activeEditor = .waveform
 
         let start = Date()
         log("Running simulation...")
 
+        // Bridge streaming callbacks from background queue to MainActor
+        let (stream, continuation) = AsyncStream<WaveformData>.makeStream()
+        let handler: @Sendable (WaveformData) -> Void = { waveform in
+            continuation.yield(waveform)
+        }
+
+        let updateTask = Task {
+            for await waveform in stream {
+                self.streamingWaveform = waveform
+                self.streamingWaveformVersion += 1
+            }
+        }
+
         do {
             let result = try await service.runSPICE(
                 source: spiceSource,
-                fileName: spiceFileName
+                fileName: spiceFileName,
+                onWaveformUpdate: handler
             )
+            continuation.finish()
+            _ = await updateTask.value
             simulationResult = result
             let elapsed = String(format: "%.2f", Date().timeIntervalSince(start))
             log("Completed (\(elapsed)s)", kind: .success)
         } catch {
+            continuation.finish()
+            updateTask.cancel()
             log(error.localizedDescription, kind: .error)
             simulationError = error.localizedDescription
         }
 
+        streamingWaveform = nil
         simulationStatus = nil
         isSimulating = false
     }
@@ -188,8 +216,10 @@ public final class AppState {
     ) async {
         isSimulating = true
         simulationError = nil
+        streamingWaveform = nil
         clearConsole()
         showConsole = true
+        activeEditor = .waveform
 
         let start = Date()
 
@@ -214,16 +244,38 @@ public final class AppState {
         }()
         log("Running \(analysisName) analysis...")
 
+        // Bridge streaming callbacks from background queue to MainActor
+        let (stream, continuation) = AsyncStream<WaveformData>.makeStream()
+        let handler: @Sendable (WaveformData) -> Void = { waveform in
+            continuation.yield(waveform)
+        }
+
+        let updateTask = Task {
+            for await waveform in stream {
+                self.streamingWaveform = waveform
+                self.streamingWaveformVersion += 1
+            }
+        }
+
         do {
-            let result = try await service.runSPICE(source: source, fileName: "schematic.cir")
+            let result = try await service.runSPICE(
+                source: source,
+                fileName: "schematic.cir",
+                onWaveformUpdate: handler
+            )
+            continuation.finish()
+            _ = await updateTask.value
             simulationResult = result
             let elapsed = String(format: "%.2f", Date().timeIntervalSince(start))
             log("Completed (\(elapsed)s)", kind: .success)
         } catch {
+            continuation.finish()
+            updateTask.cancel()
             log(error.localizedDescription, kind: .error)
             simulationError = error.localizedDescription
         }
 
+        streamingWaveform = nil
         simulationStatus = nil
         isSimulating = false
     }

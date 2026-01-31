@@ -2,11 +2,13 @@ import Foundation
 import Synchronization
 import CoreSpice
 import CoreSpiceIO
+import CoreSpiceWaveform
 
 /// Events emitted during simulation.
 public enum SimulationEvent: Sendable {
     case started
     case progress(Double, String)
+    case waveformUpdate(WaveformData)
     case completed
     case failed(String)
     case cancelled
@@ -16,7 +18,8 @@ public enum SimulationEvent: Sendable {
 public protocol SimulationServiceProtocol: Sendable {
     func runSPICE(
         source: String,
-        fileName: String?
+        fileName: String?,
+        onWaveformUpdate: (@Sendable (WaveformData) -> Void)?
     ) async throws -> SimulationResult
 
     func runAnalysis(
@@ -44,7 +47,8 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
 
     public func runSPICE(
         source: String,
-        fileName: String?
+        fileName: String?,
+        onWaveformUpdate: (@Sendable (WaveformData) -> Void)? = nil
     ) async throws -> SimulationResult {
         let jobID = UUID()
         let experimentID = UUID()
@@ -68,7 +72,9 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             let waveform = try await executeAnalysis(
                 command: command,
                 pipeline: pipeline,
-                cancellation: token
+                cancellation: token,
+                jobID: jobID,
+                onWaveformUpdate: onWaveformUpdate
             )
 
             let result = SimulationResult(
@@ -120,7 +126,8 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             let waveform = try await executeAnalysis(
                 command: command,
                 pipeline: pipeline,
-                cancellation: token
+                cancellation: token,
+                jobID: jobID
             )
 
             let result = SimulationResult(
@@ -243,7 +250,9 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
     private func executeAnalysis(
         command: AnalysisCommand,
         pipeline: Pipeline,
-        cancellation: CancellationToken
+        cancellation: CancellationToken,
+        jobID: UUID,
+        onWaveformUpdate: (@Sendable (WaveformData) -> Void)? = nil
     ) async throws -> WaveformData {
         let plan = pipeline.plan
         let devices = pipeline.devices
@@ -265,11 +274,47 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 maxTimeStep: spec.stepTime ?? spec.stopTime / 50.0,
                 initialTimeStep: spec.stepTime ?? spec.stopTime / 50.0
             )
-            let analysis = TransientAnalysis(config: config)
+
+            // Pull-based streaming: buffer + polling timer (decoupled from simulation)
+            let buffer = TransientProgressBuffer(
+                topology: topology,
+                variableMap: plan.topology.variableMap
+            )
+
+            let capturedJobID = jobID
+            let capturedCallback = onWaveformUpdate
+            let pollingTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    do {
+                        try await Task.sleep(for: .milliseconds(200))
+                    } catch {
+                        break
+                    }
+                    if let waveform = buffer.snapshot() {
+                        self?.emit(jobID: capturedJobID, event: .waveformUpdate(waveform))
+                        capturedCallback?(waveform)
+                    }
+                }
+            }
+
+            let analysis = TransientAnalysis(
+                config: config,
+                onStepAccepted: { time, solution in
+                    buffer.append(time: time, solution: solution)
+                }
+            )
             let result = try await analysis.run(
                 plan: plan, devices: devices, solver: solver,
                 observer: nil, cancellation: cancellation
             )
+
+            // Stop polling and emit final snapshot
+            pollingTask.cancel()
+            if let finalWaveform = buffer.snapshot() {
+                self.emit(jobID: capturedJobID, event: .waveformUpdate(finalWaveform))
+                capturedCallback?(finalWaveform)
+            }
+
             return WaveformData.from(transientResult: result, topology: topology, title: "Transient")
 
         case .ac(let spec):

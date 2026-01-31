@@ -42,12 +42,16 @@ public struct ContentView: View {
             inspectorContent
                 .inspectorColumnWidth(min: 200, ideal: 280, max: 400)
         }
+        .onChange(of: appState.streamingWaveformVersion) { _, _ in
+            if let waveform = appState.streamingWaveform {
+                waveformViewModel.updateStreaming(waveform: waveform)
+            }
+        }
         .onChange(of: appState.isSimulating) { wasSimulating, isSimulating in
             if wasSimulating, !isSimulating,
                appState.simulationError == nil,
                let waveform = appState.simulationResult?.waveform {
                 waveformViewModel.load(waveform: waveform)
-                appState.activeEditor = .waveform
             }
         }
         .onChange(of: appState.spiceSource) { _, _ in
