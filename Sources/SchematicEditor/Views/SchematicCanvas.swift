@@ -101,6 +101,19 @@ public struct SchematicCanvas: View {
                 )
             }
 
+            // Terminals (connection state indicators)
+            for terminal in viewModel.terminals {
+                SymbolRenderer.renderTerminal(terminal, in: &context)
+            }
+
+            // Probes
+            for probe in viewModel.document.probes {
+                if let pos = viewModel.probeIconPosition(for: probe) {
+                    let selected = viewModel.document.selection.contains(probe.id)
+                    ProbeRenderer.render(probe, in: &context, at: pos, selected: selected)
+                }
+            }
+
             // Net labels
             for label in viewModel.document.labels {
                 let text = Text(label.name).font(.caption2).bold()
@@ -213,6 +226,7 @@ public struct SchematicCanvas: View {
             return .handled
         case .escape:
             viewModel.cancelPendingWire()
+            viewModel.cancelPendingProbe()
             viewModel.tool = .select
             viewModel.clearSelection()
             return .handled
@@ -245,6 +259,9 @@ public struct SchematicCanvas: View {
         case "l":
             viewModel.tool = .label
             return .handled
+        case "p":
+            viewModel.tool = .probe
+            return .handled
         default:
             return .ignored
         }
@@ -273,6 +290,8 @@ public struct SchematicCanvas: View {
                     handleDragWire(start: canvasStart, current: canvasCurrent)
                 case .label:
                     break
+                case .probe:
+                    break
                 }
             }
             .onEnded { value in
@@ -286,6 +305,8 @@ public struct SchematicCanvas: View {
                     case .wire:
                         finishDragWire(value: value)
                     case .label:
+                        break
+                    case .probe:
                         break
                     }
                 } else {
@@ -332,7 +353,7 @@ public struct SchematicCanvas: View {
         case .select:
             let hit = viewModel.hitTest(at: canvasPoint)
             switch hit {
-            case .component(let id), .wire(let id), .label(let id), .junction(let id):
+            case .component(let id), .wire(let id), .label(let id), .junction(let id), .probe(let id):
                 if shiftHeld {
                     viewModel.toggleSelection(id)
                 } else {
@@ -379,6 +400,45 @@ public struct SchematicCanvas: View {
                 viewModel.select(placed.id)
             }
             viewModel.tool = .select
+
+        case .probe:
+            let hit = viewModel.hitTest(at: canvasPoint)
+            let optionHeld = NSEvent.modifierFlags.contains(.option)
+            let shiftHeld = NSEvent.modifierFlags.contains(.shift)
+
+            switch hit {
+            case .pin(let componentID, let portID):
+                let pinRef = PinReference(componentID: componentID, portID: portID)
+                if shiftHeld {
+                    // Differential probe: first click sets positive, second sets negative
+                    if let start = viewModel.pendingDifferentialProbeStart {
+                        viewModel.recordForUndo()
+                        viewModel.addDifferentialProbe(positive: start, negative: pinRef)
+                        viewModel.pendingDifferentialProbeStart = nil
+                    } else {
+                        viewModel.pendingDifferentialProbeStart = pinRef
+                    }
+                } else if optionHeld {
+                    viewModel.recordForUndo()
+                    viewModel.addCurrentProbe(at: pinRef)
+                } else {
+                    viewModel.recordForUndo()
+                    viewModel.addVoltageProbe(at: pinRef)
+                }
+
+            case .probe(let id):
+                if shiftHeld {
+                    viewModel.toggleSelection(id)
+                } else {
+                    viewModel.select(id)
+                }
+
+            default:
+                viewModel.cancelPendingProbe()
+                if !shiftHeld {
+                    viewModel.clearSelection()
+                }
+            }
         }
     }
 
@@ -389,7 +449,7 @@ public struct SchematicCanvas: View {
             let canvasStart = screenToCanvas(value.startLocation)
             let hit = viewModel.hitTest(at: canvasStart)
             switch hit {
-            case .component(let id), .wire(let id), .label(let id), .junction(let id):
+            case .component(let id), .wire(let id), .label(let id), .junction(let id), .probe(let id):
                 if !viewModel.document.selection.contains(id) {
                     viewModel.select(id)
                 }

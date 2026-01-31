@@ -210,6 +210,51 @@ public final class WaveformViewModel {
         }
     }
 
+    // MARK: - Probe Integration
+
+    /// Apply resolved probes to configure which traces are shown.
+    ///
+    /// When probes are provided, only the matching variables are shown as traces.
+    /// When probes is empty, falls back to showing all variables (existing behavior).
+    public func applyProbes(_ resolvedProbes: [ResolvedProbe]) {
+        guard let waveform = waveformData else { return }
+        guard !resolvedProbes.isEmpty else {
+            // No probes: show all variables (default behavior)
+            return
+        }
+
+        var traces: [WaveformTrace] = []
+        for probe in resolvedProbes {
+            let color = probeSwiftUIColor(probe.color)
+            for variableName in probe.variableNames {
+                guard waveform.variableIndex(named: variableName) != nil else { continue }
+                let trace = WaveformTrace(
+                    variableName: variableName,
+                    displayName: probe.label,
+                    color: color,
+                    isVisible: true
+                )
+                traces.append(trace)
+            }
+        }
+
+        document.traces = traces
+        updateChartSeries()
+    }
+
+    private func probeSwiftUIColor(_ color: ProbeColor) -> Color {
+        switch color {
+        case .blue: return .blue
+        case .red: return .red
+        case .green: return .green
+        case .orange: return .orange
+        case .purple: return .purple
+        case .cyan: return .cyan
+        case .yellow: return .yellow
+        case .pink: return .pink
+        }
+    }
+
     // MARK: - Private
 
     private func updateChartSeries() {

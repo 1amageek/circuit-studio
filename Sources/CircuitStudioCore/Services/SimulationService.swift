@@ -275,47 +275,60 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 initialTimeStep: spec.stepTime ?? spec.stopTime / 50.0
             )
 
-            // Pull-based streaming: buffer + polling timer (decoupled from simulation)
-            let buffer = TransientProgressBuffer(
-                topology: topology,
-                variableMap: plan.topology.variableMap
-            )
-
+            // Pull-based streaming: channel + polling task (decoupled from simulation)
+            let channel = TransientProgressChannel()
             let capturedJobID = jobID
             let capturedCallback = onWaveformUpdate
+            let variableMap = plan.topology.variableMap
+
+            // Polling task owns the builder (local variable, no sharing).
+            // Drains the channel every 200ms and builds incremental WaveformData.
             let pollingTask = Task { [weak self] in
+                var builder = TransientWaveformBuilder(variableMap: variableMap)
                 while !Task.isCancelled {
                     do {
                         try await Task.sleep(for: .milliseconds(200))
                     } catch {
                         break
                     }
-                    if let waveform = buffer.snapshot() {
+                    if let batch = channel.drain() {
+                        builder.appendBatch(timePoints: batch.timePoints, solutions: batch.solutions)
+                        let waveform = builder.buildWaveformData()
                         self?.emit(jobID: capturedJobID, event: .waveformUpdate(waveform))
                         capturedCallback?(waveform)
                     }
+                }
+                // Final drain: capture any data appended after the last poll cycle
+                if let batch = channel.drain() {
+                    builder.appendBatch(timePoints: batch.timePoints, solutions: batch.solutions)
+                    let waveform = builder.buildWaveformData()
+                    self?.emit(jobID: capturedJobID, event: .waveformUpdate(waveform))
+                    capturedCallback?(waveform)
                 }
             }
 
             let analysis = TransientAnalysis(
                 config: config,
                 onStepAccepted: { time, solution in
-                    buffer.append(time: time, solution: solution)
+                    channel.append(time: time, solution: solution)
                 }
             )
-            let result = try await analysis.run(
-                plan: plan, devices: devices, solver: solver,
-                observer: nil, cancellation: cancellation
-            )
 
-            // Stop polling and emit final snapshot
-            pollingTask.cancel()
-            if let finalWaveform = buffer.snapshot() {
-                self.emit(jobID: capturedJobID, event: .waveformUpdate(finalWaveform))
-                capturedCallback?(finalWaveform)
+            // Run simulation. Both paths cancel + await the polling task
+            // to ensure no callbacks fire after this scope exits.
+            do {
+                let result = try await analysis.run(
+                    plan: plan, devices: devices, solver: solver,
+                    observer: nil, cancellation: cancellation
+                )
+                pollingTask.cancel()
+                await pollingTask.value
+                return WaveformData.from(transientResult: result, topology: topology, title: "Transient")
+            } catch {
+                pollingTask.cancel()
+                await pollingTask.value
+                throw error
             }
-
-            return WaveformData.from(transientResult: result, topology: topology, title: "Transient")
 
         case .ac(let spec):
             let sweep: FrequencySweep

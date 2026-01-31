@@ -45,6 +45,7 @@ public struct SchematicDocument: Sendable {
     public var wires: [Wire]
     public var labels: [NetLabel]
     public var junctions: [Junction]
+    public var probes: [Probe]
     public var selection: Set<UUID>
 
     public init(
@@ -52,12 +53,14 @@ public struct SchematicDocument: Sendable {
         wires: [Wire] = [],
         labels: [NetLabel] = [],
         junctions: [Junction] = [],
+        probes: [Probe] = [],
         selection: Set<UUID> = []
     ) {
         self.components = components
         self.wires = wires
         self.labels = labels
         self.junctions = junctions
+        self.probes = probes
         self.selection = selection
     }
 }

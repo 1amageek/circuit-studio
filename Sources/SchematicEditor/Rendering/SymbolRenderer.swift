@@ -66,6 +66,36 @@ public struct SymbolRenderer {
         }
     }
 
+    /// Render a terminal indicator at the given world position.
+    ///
+    /// - `unconnected`: red hollow circle
+    /// - `connected`: green filled circle
+    /// - `probed`: orange filled circle with stroke
+    public static func renderTerminal(
+        _ terminal: Terminal,
+        in context: inout GraphicsContext
+    ) {
+        let pos = terminal.worldPosition
+
+        switch terminal.connectionState {
+        case .unconnected:
+            let radius: CGFloat = 3
+            let rect = CGRect(x: pos.x - radius, y: pos.y - radius, width: radius * 2, height: radius * 2)
+            context.stroke(Path(ellipseIn: rect), with: .color(.red), lineWidth: 1)
+
+        case .connected:
+            let radius: CGFloat = 3
+            let rect = CGRect(x: pos.x - radius, y: pos.y - radius, width: radius * 2, height: radius * 2)
+            context.fill(Path(ellipseIn: rect), with: .color(.green))
+
+        case .probed:
+            let radius: CGFloat = 4
+            let rect = CGRect(x: pos.x - radius, y: pos.y - radius, width: radius * 2, height: radius * 2)
+            context.fill(Path(ellipseIn: rect), with: .color(.orange))
+            context.stroke(Path(ellipseIn: rect), with: .color(.orange), lineWidth: 1.5)
+        }
+    }
+
     private static func renderCommand(
         _ command: DrawCommand,
         in context: inout GraphicsContext,

@@ -21,6 +21,9 @@ public struct PropertyInspector: View {
             } else if let selectedID = viewModel.document.selection.first,
                       let index = viewModel.document.labels.firstIndex(where: { $0.id == selectedID }) {
                 labelInspector(index: index)
+            } else if let selectedID = viewModel.document.selection.first,
+                      let index = viewModel.document.probes.firstIndex(where: { $0.id == selectedID }) {
+                probeInspector(index: index)
             } else {
                 ContentUnavailableView(
                     "No Selection",
@@ -133,6 +136,55 @@ public struct PropertyInspector: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private func probeInspector(index: Int) -> some View {
+        Form {
+            Section("Probe") {
+                TextField("Label", text: Binding(
+                    get: { viewModel.document.probes[index].label },
+                    set: { viewModel.document.probes[index].label = $0 }
+                ))
+
+                LabeledContent("Type") {
+                    Text(probeTypeDescription(viewModel.document.probes[index].probeType))
+                }
+
+                Picker("Color", selection: Binding(
+                    get: { viewModel.document.probes[index].color },
+                    set: { viewModel.document.probes[index].color = $0 }
+                )) {
+                    ForEach(ProbeColor.allCases, id: \.self) { color in
+                        Text(color.rawValue.capitalized).tag(color)
+                    }
+                }
+
+                Toggle("Enabled", isOn: Binding(
+                    get: { viewModel.document.probes[index].isEnabled },
+                    set: { newValue in
+                        viewModel.document.probes[index].isEnabled = newValue
+                        viewModel.recomputeTerminals()
+                    }
+                ))
+            }
+
+            Section {
+                Button("Remove Probe", role: .destructive) {
+                    viewModel.recordForUndo()
+                    viewModel.removeProbe(viewModel.document.probes[index].id)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func probeTypeDescription(_ probeType: ProbeType) -> String {
+        switch probeType {
+        case .voltage: return "Voltage"
+        case .differential: return "Differential"
+        case .current: return "Current"
+        }
     }
 
     @ViewBuilder
