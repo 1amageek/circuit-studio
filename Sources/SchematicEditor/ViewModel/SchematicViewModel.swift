@@ -8,7 +8,6 @@ public enum EditTool: Sendable {
     case place(String)
     case wire
     case label
-    case probe
 }
 
 /// Result of hit-testing on the canvas.
@@ -18,7 +17,6 @@ public enum HitResult: Sendable {
     case label(UUID)
     case junction(UUID)
     case pin(componentID: UUID, portID: String)
-    case probe(UUID)
     case none
 }
 
@@ -37,18 +35,11 @@ public final class SchematicViewModel {
     /// First click point for two-click wire placement. nil = not started.
     public var pendingWireStart: CGPoint?
 
-    /// First click PinReference for two-click differential probe. nil = not started.
-    public var pendingDifferentialProbeStart: PinReference?
-
-    /// Computed terminal objects, rebuilt when document structure changes.
-    public var terminals: [Terminal] = []
-
     private var componentCounters: [String: Int] = [:]
     private var dragStartPositions: [UUID: CGPoint] = [:]
     private var wireEndOffsets: [UUID: CGSize] = [:]
     private var undoStack = UndoStack()
     private var clipboard: ClipboardContent?
-    private var probeColorIndex: Int = 0
 
     public var diagnostics: [Diagnostic] = []
 
@@ -90,16 +81,6 @@ public final class SchematicViewModel {
                 let dist = hypot(point.x - pinWorld.x, point.y - pinWorld.y)
                 if dist < gridSize * 0.8 {
                     return .pin(componentID: component.id, portID: port.id)
-                }
-            }
-        }
-
-        // Check probes (icon positioned near terminal)
-        for probe in document.probes {
-            if let pos = probeIconPosition(for: probe) {
-                let dist = hypot(point.x - pos.x, point.y - pos.y)
-                if dist < gridSize * 1.0 {
-                    return .probe(probe.id)
                 }
             }
         }
@@ -156,11 +137,6 @@ public final class SchematicViewModel {
         pendingWireStart = nil
     }
 
-    /// Cancel an in-progress differential probe placement.
-    public func cancelPendingProbe() {
-        pendingDifferentialProbeStart = nil
-    }
-
     /// Toggle membership of an id in the selection set (Shift+click).
     public func toggleSelection(_ id: UUID) {
         if document.selection.contains(id) {
@@ -170,14 +146,13 @@ public final class SchematicViewModel {
         }
     }
 
-    /// Select every component, wire, label, junction, and probe.
+    /// Select every component, wire, label, and junction.
     public func selectAll() {
         var ids = Set<UUID>()
         for c in document.components { ids.insert(c.id) }
         for w in document.wires { ids.insert(w.id) }
         for l in document.labels { ids.insert(l.id) }
         for j in document.junctions { ids.insert(j.id) }
-        for p in document.probes { ids.insert(p.id) }
         document.selection = ids
     }
 
@@ -271,7 +246,6 @@ public final class SchematicViewModel {
         let components = document.components.filter { selectedIDs.contains($0.id) }
         let wires = document.wires.filter { selectedIDs.contains($0.id) }
         let labels = document.labels.filter { selectedIDs.contains($0.id) }
-        let probes = document.probes.filter { selectedIDs.contains($0.id) }
 
         let anchor = selectionCenter(components: components, wires: wires, labels: labels)
 
@@ -279,7 +253,6 @@ public final class SchematicViewModel {
             components: components,
             wires: wires,
             labels: labels,
-            probes: probes,
             anchorPoint: anchor
         )
     }
@@ -341,41 +314,15 @@ public final class SchematicViewModel {
             newLabels.append(newLabel)
         }
 
-        // Remap probe PinReferences to new component IDs
-        var newProbes: [Probe] = []
-        for probe in clip.probes {
-            let remappedType: ProbeType
-            switch probe.probeType {
-            case .voltage(let ref):
-                remappedType = .voltage(remapPinReference(ref, idMap: idMap))
-            case .differential(let pos, let neg):
-                remappedType = .differential(
-                    positive: remapPinReference(pos, idMap: idMap),
-                    negative: remapPinReference(neg, idMap: idMap)
-                )
-            case .current(let ref):
-                remappedType = .current(remapPinReference(ref, idMap: idMap))
-            }
-            let newProbe = Probe(
-                label: probe.label,
-                probeType: remappedType,
-                color: probe.color,
-                isEnabled: probe.isEnabled
-            )
-            newProbes.append(newProbe)
-        }
-
         document.components.append(contentsOf: newComponents)
         document.wires.append(contentsOf: newWires)
         document.labels.append(contentsOf: newLabels)
-        document.probes.append(contentsOf: newProbes)
 
         // Select newly pasted objects
         var newSelection = Set<UUID>()
         for c in newComponents { newSelection.insert(c.id) }
         for w in newWires { newSelection.insert(w.id) }
         for l in newLabels { newSelection.insert(l.id) }
-        for p in newProbes { newSelection.insert(p.id) }
         document.selection = newSelection
         recomputeJunctions()
     }
@@ -522,7 +469,78 @@ public final class SchematicViewModel {
             endPin: endRef
         )
         document.wires.append(wire)
+        splitWiresAtEndpoints(of: wire)
         recomputeJunctions()
+    }
+
+    /// Split existing wires when a new wire's endpoint lands on the interior of a segment.
+    ///
+    /// This ensures T-junctions are properly detected by `recomputeJunctions()`,
+    /// which only counts wire endpoints at each grid position.
+    private func splitWiresAtEndpoints(of newWire: Wire) {
+        let points = [newWire.startPoint, newWire.endPoint]
+        var indicesToRemove: [Int] = []
+        var wiresToAdd: [Wire] = []
+
+        for point in points {
+            let pk = JunctionPointKey(point)
+            for i in document.wires.indices {
+                let w = document.wires[i]
+                // Skip the new wire itself
+                guard w.id != newWire.id else { continue }
+                // Skip if point is already at an endpoint
+                if JunctionPointKey(w.startPoint) == pk || JunctionPointKey(w.endPoint) == pk { continue }
+                // Check if point lies on this wire segment
+                guard pointOnSegment(point, from: w.startPoint, to: w.endPoint) else { continue }
+
+                // Split: replace wire with two segments at the split point
+                indicesToRemove.append(i)
+                wiresToAdd.append(Wire(
+                    startPoint: w.startPoint,
+                    endPoint: point,
+                    startPin: w.startPin,
+                    endPin: nil,
+                    netName: w.netName
+                ))
+                wiresToAdd.append(Wire(
+                    startPoint: point,
+                    endPoint: w.endPoint,
+                    startPin: nil,
+                    endPin: w.endPin,
+                    netName: w.netName
+                ))
+            }
+        }
+
+        // Remove split wires in reverse order to preserve indices
+        for i in indicesToRemove.sorted().reversed() {
+            document.wires.remove(at: i)
+        }
+        document.wires.append(contentsOf: wiresToAdd)
+    }
+
+    /// Check if a point lies on an axis-aligned wire segment (horizontal or vertical).
+    private func pointOnSegment(_ point: CGPoint, from: CGPoint, to: CGPoint) -> Bool {
+        let px = round(point.x)
+        let py = round(point.y)
+        let fx = round(from.x)
+        let fy = round(from.y)
+        let tx = round(to.x)
+        let ty = round(to.y)
+
+        // Horizontal segment
+        if fy == ty && py == fy {
+            let minX = min(fx, tx)
+            let maxX = max(fx, tx)
+            return px > minX && px < maxX
+        }
+        // Vertical segment
+        if fx == tx && px == fx {
+            let minY = min(fy, ty)
+            let maxY = max(fy, ty)
+            return py > minY && py < maxY
+        }
+        return false
     }
 
     public func addLabel(name: String, at point: CGPoint) {
@@ -694,19 +712,10 @@ public final class SchematicViewModel {
         let selected = document.selection
         guard !selected.isEmpty else { return }
 
-        // Collect IDs of components being deleted for probe cleanup
-        let deletedComponentIDs = Set(
-            document.components.filter { selected.contains($0.id) }.map(\.id)
-        )
-
         document.components.removeAll { selected.contains($0.id) }
         document.wires.removeAll { selected.contains($0.id) }
         document.labels.removeAll { selected.contains($0.id) }
         document.junctions.removeAll { selected.contains($0.id) }
-        // Remove selected probes and probes referencing deleted components
-        document.probes.removeAll { probe in
-            selected.contains(probe.id) || probeReferencesAny(probe, componentIDs: deletedComponentIDs)
-        }
         document.selection.removeAll()
         recomputeJunctions()
     }
@@ -720,161 +729,6 @@ public final class SchematicViewModel {
                 updateConnectedWiresAfterTransform(componentIndex: idx)
             }
         }
-    }
-
-    // MARK: - Terminal Computation
-
-    /// Recompute terminals from current document state.
-    public func recomputeTerminals() {
-        let extractor = NetExtractor()
-        let nets = extractor.extract(from: document)
-        let probedPins = buildProbedPinSet()
-
-        // Build pin-to-net map
-        var pinNetMap: [String: String] = [:]
-        for net in nets {
-            for conn in net.connections {
-                pinNetMap["\(conn.componentID):\(conn.portID)"] = net.name
-            }
-        }
-
-        var result: [Terminal] = []
-
-        for component in document.components {
-            guard let kind = catalog.device(for: component.deviceKindID) else { continue }
-
-            for (index, port) in kind.portDefinitions.enumerated() {
-                let pinRef = PinReference(componentID: component.id, portID: port.id)
-                let key = "\(component.id):\(port.id)"
-                let netName = pinNetMap[key]
-
-                let connectionState: TerminalConnectionState
-                if let net = netName {
-                    if probedPins.contains(key) {
-                        connectionState = .probed(netName: net)
-                    } else {
-                        connectionState = .connected(netName: net)
-                    }
-                } else {
-                    connectionState = .unconnected
-                }
-
-                let worldPos = pinWorldPosition(port: port, component: component)
-
-                result.append(Terminal(
-                    pinReference: pinRef,
-                    displayName: port.displayName,
-                    portIndex: index,
-                    worldPosition: worldPos,
-                    netName: netName,
-                    connectionState: connectionState,
-                    componentName: component.name,
-                    spicePrefix: kind.spicePrefix
-                ))
-            }
-        }
-
-        terminals = result
-    }
-
-    private func buildProbedPinSet() -> Set<String> {
-        var set = Set<String>()
-        for probe in document.probes where probe.isEnabled {
-            switch probe.probeType {
-            case .voltage(let ref):
-                set.insert("\(ref.componentID):\(ref.portID)")
-            case .differential(let pos, let neg):
-                set.insert("\(pos.componentID):\(pos.portID)")
-                set.insert("\(neg.componentID):\(neg.portID)")
-            case .current(let ref):
-                set.insert("\(ref.componentID):\(ref.portID)")
-            }
-        }
-        return set
-    }
-
-    // MARK: - Probe Management
-
-    /// Place a voltage probe at a terminal.
-    public func addVoltageProbe(at pinRef: PinReference) {
-        let terminal = terminals.first { $0.pinReference == pinRef }
-        let label = terminal.map { "V(\($0.componentName).\($0.displayName))" }
-            ?? "V(probe)"
-        let probe = Probe(
-            label: label,
-            probeType: .voltage(pinRef),
-            color: nextProbeColor()
-        )
-        document.probes.append(probe)
-        recomputeTerminals()
-    }
-
-    /// Place a current probe at a terminal.
-    public func addCurrentProbe(at pinRef: PinReference) {
-        let terminal = terminals.first { $0.pinReference == pinRef }
-        let label = terminal.map { "I(\($0.componentName))" }
-            ?? "I(probe)"
-        let probe = Probe(
-            label: label,
-            probeType: .current(pinRef),
-            color: nextProbeColor()
-        )
-        document.probes.append(probe)
-        recomputeTerminals()
-    }
-
-    /// Place a differential voltage probe between two terminals.
-    public func addDifferentialProbe(positive: PinReference, negative: PinReference) {
-        let posTerminal = terminals.first { $0.pinReference == positive }
-        let negTerminal = terminals.first { $0.pinReference == negative }
-        let label: String
-        if let p = posTerminal, let n = negTerminal {
-            label = "V(\(p.componentName).\(p.displayName), \(n.componentName).\(n.displayName))"
-        } else {
-            label = "V(diff)"
-        }
-        let probe = Probe(
-            label: label,
-            probeType: .differential(positive: positive, negative: negative),
-            color: nextProbeColor()
-        )
-        document.probes.append(probe)
-        recomputeTerminals()
-    }
-
-    /// Remove a probe by ID.
-    public func removeProbe(_ probeID: UUID) {
-        document.probes.removeAll { $0.id == probeID }
-        recomputeTerminals()
-    }
-
-    /// Toggle a probe's enabled state.
-    public func toggleProbe(_ probeID: UUID) {
-        if let idx = document.probes.firstIndex(where: { $0.id == probeID }) {
-            document.probes[idx].isEnabled.toggle()
-            recomputeTerminals()
-        }
-    }
-
-    /// World position of a probe icon, offset from its target terminal.
-    public func probeIconPosition(for probe: Probe) -> CGPoint? {
-        let targetRef: PinReference
-        switch probe.probeType {
-        case .voltage(let ref): targetRef = ref
-        case .current(let ref): targetRef = ref
-        case .differential(let pos, _): targetRef = pos
-        }
-        guard let terminal = terminals.first(where: { $0.pinReference == targetRef }) else {
-            return nil
-        }
-        return CGPoint(x: terminal.worldPosition.x + 8, y: terminal.worldPosition.y - 8)
-    }
-
-    private func nextProbeColor() -> ProbeColor {
-        let colors = ProbeColor.allCases
-        let color = colors[probeColorIndex % colors.count]
-        probeColorIndex += 1
-        return color
     }
 
     // MARK: - Junction Computation
@@ -966,22 +820,6 @@ public final class SchematicViewModel {
             x: center.x + dx * cos - dy * sin,
             y: center.y + dx * sin + dy * cos
         )
-    }
-
-    private func remapPinReference(_ ref: PinReference, idMap: [UUID: UUID]) -> PinReference {
-        PinReference(componentID: idMap[ref.componentID] ?? ref.componentID, portID: ref.portID)
-    }
-
-    /// Check if a probe references any of the given component IDs.
-    private func probeReferencesAny(_ probe: Probe, componentIDs: Set<UUID>) -> Bool {
-        switch probe.probeType {
-        case .voltage(let ref):
-            return componentIDs.contains(ref.componentID)
-        case .differential(let pos, let neg):
-            return componentIDs.contains(pos.componentID) || componentIDs.contains(neg.componentID)
-        case .current(let ref):
-            return componentIDs.contains(ref.componentID)
-        }
     }
 }
 

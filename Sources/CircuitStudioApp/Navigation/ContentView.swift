@@ -52,6 +52,17 @@ public struct ContentView: View {
                appState.simulationError == nil,
                let waveform = appState.simulationResult?.waveform {
                 waveformViewModel.load(waveform: waveform)
+
+                // Filter waveform to PORT components if any are placed
+                let resolver = TerminalResolver()
+                let extractor = NetExtractor()
+                let nets = extractor.extract(from: schematicViewModel.document)
+                let resolved = resolver.resolve(
+                    document: schematicViewModel.document,
+                    nets: nets,
+                    catalog: services.netlistGenerator.catalog
+                )
+                waveformViewModel.applyTerminalComponents(resolved)
             }
         }
         .onChange(of: appState.spiceSource) { _, _ in
@@ -668,3 +679,4 @@ public struct NetlistEditorView: View {
     )
     .frame(width: 1200, height: 800)
 }
+

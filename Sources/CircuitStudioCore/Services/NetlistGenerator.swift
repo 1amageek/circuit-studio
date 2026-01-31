@@ -37,7 +37,8 @@ public struct NetlistGenerator: Sendable {
 
         // Components
         for component in document.components {
-            guard component.deviceKindID != "ground" else { continue }
+            guard component.deviceKindID != "ground",
+                  component.deviceKindID != "terminal" else { continue }
             guard let kind = catalog.device(for: component.deviceKindID) else { continue }
 
             let nodeNames = kind.portDefinitions.map { port -> String in

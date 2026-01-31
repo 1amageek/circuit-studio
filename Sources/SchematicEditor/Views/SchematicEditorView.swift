@@ -29,21 +29,15 @@ public struct SchematicEditorView: View {
         }
         .onChange(of: viewModel.document.components.count) {
             viewModel.validateDocument()
-            viewModel.recomputeTerminals()
         }
         .onChange(of: viewModel.document.wires.count) {
             viewModel.validateDocument()
-            viewModel.recomputeTerminals()
         }
         .onChange(of: viewModel.document.labels.count) {
             viewModel.validateDocument()
         }
-        .onChange(of: viewModel.document.probes.count) {
-            viewModel.recomputeTerminals()
-        }
         .onAppear {
             viewModel.validateDocument()
-            viewModel.recomputeTerminals()
         }
     }
 }

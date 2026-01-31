@@ -26,21 +26,22 @@ public struct SymbolRenderer {
         let scaleY: CGFloat = mirrorX ? -1 : 1
         context.scaleBy(x: scaleX, y: scaleY)
 
-        let strokeColor: Color = selected ? .accentColor : .primary
+        let strokeColor: Color = selected ? .accentColor : Color(nsColor: .labelColor)
         let lineWidth: CGFloat = selected ? 2 : 1.5
 
         renderShape(kind.symbol.shape, in: &context, strokeColor: strokeColor, lineWidth: lineWidth)
 
-        // Draw pin connection points
-        let pinRadius: CGFloat = 3
+        // Pin circles at port positions
         for port in kind.portDefinitions {
-            let pinRect = CGRect(
-                x: port.position.x - pinRadius,
-                y: port.position.y - pinRadius,
-                width: pinRadius * 2,
-                height: pinRadius * 2
+            let pinPos = port.position
+            let radius: CGFloat = 2.5
+            let rect = CGRect(
+                x: pinPos.x - radius,
+                y: pinPos.y - radius,
+                width: radius * 2,
+                height: radius * 2
             )
-            context.stroke(Path(ellipseIn: pinRect), with: .color(strokeColor), lineWidth: 1)
+            context.fill(Path(ellipseIn: rect), with: .color(strokeColor))
         }
 
         // Reverse transforms in opposite order (undo inner first, then outer)
@@ -66,52 +67,24 @@ public struct SymbolRenderer {
         }
     }
 
-    /// Render a terminal indicator at the given world position.
-    ///
-    /// - `unconnected`: red hollow circle
-    /// - `connected`: green filled circle
-    /// - `probed`: orange filled circle with stroke
-    public static func renderTerminal(
-        _ terminal: Terminal,
-        in context: inout GraphicsContext
-    ) {
-        let pos = terminal.worldPosition
-
-        switch terminal.connectionState {
-        case .unconnected:
-            let radius: CGFloat = 3
-            let rect = CGRect(x: pos.x - radius, y: pos.y - radius, width: radius * 2, height: radius * 2)
-            context.stroke(Path(ellipseIn: rect), with: .color(.red), lineWidth: 1)
-
-        case .connected:
-            let radius: CGFloat = 3
-            let rect = CGRect(x: pos.x - radius, y: pos.y - radius, width: radius * 2, height: radius * 2)
-            context.fill(Path(ellipseIn: rect), with: .color(.green))
-
-        case .probed:
-            let radius: CGFloat = 4
-            let rect = CGRect(x: pos.x - radius, y: pos.y - radius, width: radius * 2, height: radius * 2)
-            context.fill(Path(ellipseIn: rect), with: .color(.orange))
-            context.stroke(Path(ellipseIn: rect), with: .color(.orange), lineWidth: 1.5)
-        }
-    }
-
     private static func renderCommand(
         _ command: DrawCommand,
         in context: inout GraphicsContext,
         strokeColor: Color,
         lineWidth: CGFloat
     ) {
+        let style = StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+
         switch command {
         case .line(let from, let to):
             var path = Path()
             path.move(to: from)
             path.addLine(to: to)
-            context.stroke(path, with: .color(strokeColor), lineWidth: lineWidth)
+            context.stroke(path, with: .color(strokeColor), style: style)
 
         case .rect(let origin, let size):
             let rect = CGRect(origin: origin, size: size)
-            context.stroke(Path(rect), with: .color(strokeColor), lineWidth: lineWidth)
+            context.stroke(Path(rect), with: .color(strokeColor), style: style)
 
         case .circle(let center, let radius):
             let rect = CGRect(
@@ -120,7 +93,7 @@ public struct SymbolRenderer {
                 width: radius * 2,
                 height: radius * 2
             )
-            context.stroke(Path(ellipseIn: rect), with: .color(strokeColor), lineWidth: lineWidth)
+            context.stroke(Path(ellipseIn: rect), with: .color(strokeColor), style: style)
 
         case .arc(let center, let radius, let startAngle, let endAngle):
             var path = Path()
@@ -131,7 +104,7 @@ public struct SymbolRenderer {
                 endAngle: .radians(endAngle),
                 clockwise: false
             )
-            context.stroke(path, with: .color(strokeColor), lineWidth: lineWidth)
+            context.stroke(path, with: .color(strokeColor), style: style)
 
         case .text(let string, let at, let fontSize):
             let text = Text(string).font(.system(size: fontSize))

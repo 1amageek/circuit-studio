@@ -11,7 +11,7 @@ public enum BuiltInDevices {
             voltageSource, currentSource,
             vcvs, vccs, ccvs, cccs,
             diode, npn, pnp, nmosL1, pmosL1,
-            ground,
+            ground, terminal,
         ]
     }
 
@@ -452,23 +452,22 @@ public enum BuiltInDevices {
                 // Gate lead
                 .line(from: CGPoint(x: -20, y: 0), to: CGPoint(x: -8, y: 0)),
                 // Gate plate
-                .line(from: CGPoint(x: -8, y: -15), to: CGPoint(x: -8, y: 15)),
-                // Channel
-                .line(from: CGPoint(x: -4, y: -15), to: CGPoint(x: -4, y: -5)),
-                .line(from: CGPoint(x: -4, y: -1), to: CGPoint(x: -4, y: 5)),
-                .line(from: CGPoint(x: -4, y: 9), to: CGPoint(x: -4, y: 15)),
+                .line(from: CGPoint(x: -8, y: -14), to: CGPoint(x: -8, y: 14)),
+                // Channel (continuous)
+                .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -4, y: 14)),
                 // Drain
                 .line(from: CGPoint(x: -4, y: -10), to: CGPoint(x: 10, y: -10)),
                 .line(from: CGPoint(x: 10, y: -10), to: CGPoint(x: 10, y: -30)),
                 // Source
                 .line(from: CGPoint(x: -4, y: 10), to: CGPoint(x: 10, y: 10)),
                 .line(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 10, y: 30)),
-                // Bulk lead (separate terminal)
-                .line(from: CGPoint(x: -4, y: 0), to: CGPoint(x: -10, y: 0)),
-                .line(from: CGPoint(x: -10, y: 0), to: CGPoint(x: -10, y: 30)),
-                // Arrow on bulk (NMOS, pointing toward channel)
-                .line(from: CGPoint(x: -7, y: -3), to: CGPoint(x: -4, y: 0)),
-                .line(from: CGPoint(x: -7, y: 3), to: CGPoint(x: -4, y: 0)),
+                // Arrow on source (NMOS: pointing left into channel)
+                .line(from: CGPoint(x: 4, y: 5), to: CGPoint(x: -4, y: 10)),
+                .line(from: CGPoint(x: 4, y: 15), to: CGPoint(x: -4, y: 10)),
+                .line(from: CGPoint(x: 4, y: 5), to: CGPoint(x: 4, y: 15)),
+                // Bulk lead (routed from bottom of channel, avoiding gate)
+                .line(from: CGPoint(x: -4, y: 14), to: CGPoint(x: -10, y: 14)),
+                .line(from: CGPoint(x: -10, y: 14), to: CGPoint(x: -10, y: 30)),
             ]),
             size: CGSize(width: 30, height: 60),
             iconName: "memorychip"
@@ -498,27 +497,27 @@ public enum BuiltInDevices {
         ],
         symbol: SymbolDefinition(
             shape: .custom([
+                // Gate lead (shorter for bubble)
                 .line(from: CGPoint(x: -20, y: 0), to: CGPoint(x: -12, y: 0)),
                 // Gate bubble (PMOS inversion)
                 .circle(center: CGPoint(x: -10, y: 0), radius: 2),
                 // Gate plate
-                .line(from: CGPoint(x: -8, y: -15), to: CGPoint(x: -8, y: 15)),
-                // Channel
-                .line(from: CGPoint(x: -4, y: -15), to: CGPoint(x: -4, y: -5)),
-                .line(from: CGPoint(x: -4, y: -1), to: CGPoint(x: -4, y: 5)),
-                .line(from: CGPoint(x: -4, y: 9), to: CGPoint(x: -4, y: 15)),
+                .line(from: CGPoint(x: -8, y: -14), to: CGPoint(x: -8, y: 14)),
+                // Channel (continuous)
+                .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -4, y: 14)),
                 // Source (top for PMOS)
                 .line(from: CGPoint(x: -4, y: -10), to: CGPoint(x: 10, y: -10)),
                 .line(from: CGPoint(x: 10, y: -10), to: CGPoint(x: 10, y: -30)),
                 // Drain (bottom for PMOS)
                 .line(from: CGPoint(x: -4, y: 10), to: CGPoint(x: 10, y: 10)),
                 .line(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 10, y: 30)),
-                // Bulk lead (separate terminal)
-                .line(from: CGPoint(x: -4, y: 0), to: CGPoint(x: -10, y: 0)),
-                .line(from: CGPoint(x: -10, y: 0), to: CGPoint(x: -10, y: -30)),
-                // Arrow on bulk (PMOS, pointing away from channel)
-                .line(from: CGPoint(x: -4, y: -3), to: CGPoint(x: -7, y: 0)),
-                .line(from: CGPoint(x: -4, y: 3), to: CGPoint(x: -7, y: 0)),
+                // Arrow on source (PMOS: pointing right, away from channel)
+                .line(from: CGPoint(x: -4, y: -15), to: CGPoint(x: 4, y: -10)),
+                .line(from: CGPoint(x: -4, y: -5), to: CGPoint(x: 4, y: -10)),
+                .line(from: CGPoint(x: -4, y: -15), to: CGPoint(x: -4, y: -5)),
+                // Bulk lead (routed from top of channel, avoiding gate)
+                .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -10, y: -14)),
+                .line(from: CGPoint(x: -10, y: -14), to: CGPoint(x: -10, y: -30)),
             ]),
             size: CGSize(width: 30, height: 60),
             iconName: "memorychip"
@@ -545,6 +544,34 @@ public enum BuiltInDevices {
             ]),
             size: CGSize(width: 20, height: 20),
             iconName: "minus"
+        )
+    )
+
+    /// A user-placed terminal marking a named connection point on the schematic.
+    ///
+    /// The component's instance name (e.g. "IN", "OUT", "VDD") serves as the
+    /// terminal label. Terminals are not emitted into the SPICE netlist; they
+    /// exist purely as schematic-level annotations and probe targets.
+    public static let terminal = DeviceKind(
+        id: "terminal",
+        displayName: "Terminal",
+        category: .special,
+        spicePrefix: "PORT",
+        portDefinitions: [
+            PortDefinition(id: "pin", displayName: "Pin", position: CGPoint(x: 0, y: -10)),
+        ],
+        parameterSchema: [],
+        symbol: SymbolDefinition(
+            shape: .custom([
+                // Lead from pin (top) down to triangle base
+                .line(from: CGPoint(x: 0, y: -10), to: CGPoint(x: 0, y: -2)),
+                // Downward-pointing triangle (port flag)
+                .line(from: CGPoint(x: -7, y: -2), to: CGPoint(x: 7, y: -2)),
+                .line(from: CGPoint(x: -7, y: -2), to: CGPoint(x: 0, y: 8)),
+                .line(from: CGPoint(x: 7, y: -2), to: CGPoint(x: 0, y: 8)),
+            ]),
+            size: CGSize(width: 14, height: 18),
+            iconName: "arrowtriangle.down.fill"
         )
     )
 }

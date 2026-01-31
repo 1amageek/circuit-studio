@@ -77,7 +77,6 @@ struct MiniMapView: View {
     // MARK: - Drawing: Wires
 
     private func drawWires(in context: inout GraphicsContext, projection: MiniMapProjection) {
-        let lineWidth = 1.0 / projection.scale
         for wire in viewModel.document.wires {
             let selected = viewModel.document.selection.contains(wire.id)
             let start = projection.worldToMiniMap(wire.startPoint)
@@ -86,14 +85,13 @@ struct MiniMapView: View {
             path.move(to: start)
             path.addLine(to: end)
             let color: Color = selected ? .accentColor : .green
-            context.stroke(path, with: .color(color), lineWidth: lineWidth)
+            context.stroke(path, with: .color(color), lineWidth: 1)
         }
     }
 
     // MARK: - Drawing: Components
 
     private func drawComponents(in context: inout GraphicsContext, projection: MiniMapProjection) {
-        let strokeWidth = 1.0 / projection.scale
         for component in viewModel.document.components {
             let symbolSize = viewModel.catalog.device(for: component.deviceKindID)?.symbol.size
                 ?? CGSize(width: 40, height: 40)
@@ -128,27 +126,22 @@ struct MiniMapView: View {
             }
             path.closeSubpath()
 
-            let fillColor: Color = selected ? .accentColor.opacity(0.4) : .primary.opacity(0.2)
-            let borderColor: Color = selected ? .accentColor : .primary.opacity(0.5)
+            let fillColor: Color = selected ? .accentColor.opacity(0.6) : .secondary.opacity(0.5)
             context.fill(path, with: .color(fillColor))
-            context.stroke(path, with: .color(borderColor), lineWidth: strokeWidth)
         }
     }
 
     // MARK: - Drawing: Labels
 
     private func drawLabels(in context: inout GraphicsContext, projection: MiniMapProjection) {
-        let markerSize: CGFloat = 3.0
+        let radius: CGFloat = 2.0
         for label in viewModel.document.labels {
             let center = projection.worldToMiniMap(label.position)
-            // Diamond marker
-            var path = Path()
-            path.move(to: CGPoint(x: center.x, y: center.y - markerSize))
-            path.addLine(to: CGPoint(x: center.x + markerSize, y: center.y))
-            path.addLine(to: CGPoint(x: center.x, y: center.y + markerSize))
-            path.addLine(to: CGPoint(x: center.x - markerSize, y: center.y))
-            path.closeSubpath()
-            context.fill(path, with: .color(.orange))
+            let rect = CGRect(
+                x: center.x - radius, y: center.y - radius,
+                width: radius * 2, height: radius * 2
+            )
+            context.fill(Path(ellipseIn: rect), with: .color(.orange))
         }
     }
 

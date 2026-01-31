@@ -15,6 +15,7 @@ public struct WireRenderer {
         let color: Color = selected ? .accentColor : .green
         let lineWidth: CGFloat = selected ? 2.5 : 1.5
 
-        context.stroke(path, with: .color(color), lineWidth: lineWidth)
+        let style = StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+        context.stroke(path, with: .color(color), style: style)
     }
 }
