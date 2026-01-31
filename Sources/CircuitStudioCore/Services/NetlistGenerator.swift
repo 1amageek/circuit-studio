@@ -149,12 +149,37 @@ public struct NetlistGenerator: Sendable {
 
     private func formatSourceParameters(_ component: PlacedComponent) -> String {
         var parts: [String] = []
+
+        // DC value
         if let dc = component.parameters["dc"] {
             parts.append("dc \(formatValue(dc))")
         }
+
+        // AC magnitude
         if let ac = component.parameters["ac"] {
             parts.append("ac \(formatValue(ac))")
         }
+
+        // PULSE function: detected by presence of pulse_v2
+        if let v2 = component.parameters["pulse_v2"] {
+            let v1 = component.parameters["pulse_v1"] ?? 0
+            let td = component.parameters["pulse_td"] ?? 0
+            let tr = component.parameters["pulse_tr"] ?? 0
+            let tf = component.parameters["pulse_tf"] ?? 0
+            let pw = component.parameters["pulse_pw"] ?? 0
+            let per = component.parameters["pulse_per"] ?? 0
+            parts.append("PULSE(\(formatEngineering(v1)) \(formatEngineering(v2)) \(formatEngineering(td)) \(formatEngineering(tr)) \(formatEngineering(tf)) \(formatEngineering(pw)) \(formatEngineering(per)))")
+        }
+
+        // SIN function: detected by presence of sin_freq
+        if let freq = component.parameters["sin_freq"] {
+            let vo = component.parameters["sin_vo"] ?? 0
+            let va = component.parameters["sin_va"] ?? 0
+            let td = component.parameters["sin_td"] ?? 0
+            let theta = component.parameters["sin_theta"] ?? 0
+            parts.append("SIN(\(formatValue(vo)) \(formatValue(va)) \(formatEngineering(freq)) \(formatEngineering(td)) \(formatValue(theta)))")
+        }
+
         return parts.isEmpty ? "dc 0" : parts.joined(separator: " ")
     }
 

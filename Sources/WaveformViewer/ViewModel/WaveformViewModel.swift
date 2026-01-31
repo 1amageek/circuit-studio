@@ -27,6 +27,7 @@ public final class WaveformViewModel {
     public var chartSeries: [ChartSeries] = []
     public var sweepLabel: String = ""
     public var isComplex: Bool = false
+    public var isLogFrequency: Bool = false
 
     public private(set) var waveformData: WaveformData?
     private let waveformService: WaveformService
@@ -44,6 +45,7 @@ public final class WaveformViewModel {
     public func load(waveform: WaveformData) {
         self.waveformData = waveform
         self.isComplex = waveform.isComplex
+        self.isLogFrequency = waveform.sweepVariable.type == .frequency
         self.sweepLabel = waveform.sweepVariable.name
 
         let colors: [Color] = [.blue, .red, .green, .orange, .purple, .cyan, .yellow, .pink, .mint, .indigo]

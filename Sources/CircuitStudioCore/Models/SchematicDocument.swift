@@ -44,17 +44,20 @@ public struct SchematicDocument: Sendable {
     public var components: [PlacedComponent]
     public var wires: [Wire]
     public var labels: [NetLabel]
+    public var junctions: [Junction]
     public var selection: Set<UUID>
 
     public init(
         components: [PlacedComponent] = [],
         wires: [Wire] = [],
         labels: [NetLabel] = [],
+        junctions: [Junction] = [],
         selection: Set<UUID> = []
     ) {
         self.components = components
         self.wires = wires
         self.labels = labels
+        self.junctions = junctions
         self.selection = selection
     }
 }

@@ -31,15 +31,16 @@ public struct SymbolRenderer {
 
         renderShape(kind.symbol.shape, in: &context, strokeColor: strokeColor, lineWidth: lineWidth)
 
-        // Draw pin dots
+        // Draw pin connection points
+        let pinRadius: CGFloat = 3
         for port in kind.portDefinitions {
             let pinRect = CGRect(
-                x: port.position.x - 2,
-                y: port.position.y - 2,
-                width: 4,
-                height: 4
+                x: port.position.x - pinRadius,
+                y: port.position.y - pinRadius,
+                width: pinRadius * 2,
+                height: pinRadius * 2
             )
-            context.fill(Path(ellipseIn: pinRect), with: .color(.red))
+            context.stroke(Path(ellipseIn: pinRect), with: .color(strokeColor), lineWidth: 1)
         }
 
         // Reverse transforms in opposite order (undo inner first, then outer)

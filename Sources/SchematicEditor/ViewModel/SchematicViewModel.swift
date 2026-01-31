@@ -15,6 +15,7 @@ public enum HitResult: Sendable {
     case component(UUID)
     case wire(UUID)
     case label(UUID)
+    case junction(UUID)
     case pin(componentID: UUID, portID: String)
     case none
 }
@@ -101,6 +102,14 @@ public final class SchematicViewModel {
             }
         }
 
+        // Check junctions
+        for junction in document.junctions {
+            let dist = hypot(point.x - junction.position.x, point.y - junction.position.y)
+            if dist < gridSize * 0.5 {
+                return .junction(junction.id)
+            }
+        }
+
         // Check labels
         for label in document.labels {
             let dx = point.x - label.position.x
@@ -137,12 +146,13 @@ public final class SchematicViewModel {
         }
     }
 
-    /// Select every component, wire and label.
+    /// Select every component, wire, label and junction.
     public func selectAll() {
         var ids = Set<UUID>()
         for c in document.components { ids.insert(c.id) }
         for w in document.wires { ids.insert(w.id) }
         for l in document.labels { ids.insert(l.id) }
+        for j in document.junctions { ids.insert(j.id) }
         document.selection = ids
     }
 
@@ -198,6 +208,10 @@ public final class SchematicViewModel {
             } else {
                 if rect.intersects(labelRect) { ids.insert(label.id) }
             }
+        }
+
+        for junction in document.junctions {
+            if rect.contains(junction.position) { ids.insert(junction.id) }
         }
 
         document.selection = ids
@@ -310,6 +324,7 @@ public final class SchematicViewModel {
         for w in newWires { newSelection.insert(w.id) }
         for l in newLabels { newSelection.insert(l.id) }
         document.selection = newSelection
+        recomputeJunctions()
     }
 
     public func cutSelection() {
@@ -454,6 +469,7 @@ public final class SchematicViewModel {
             endPin: endRef
         )
         document.wires.append(wire)
+        recomputeJunctions()
     }
 
     public func addLabel(name: String, at point: CGPoint) {
@@ -628,7 +644,9 @@ public final class SchematicViewModel {
         document.components.removeAll { selected.contains($0.id) }
         document.wires.removeAll { selected.contains($0.id) }
         document.labels.removeAll { selected.contains($0.id) }
+        document.junctions.removeAll { selected.contains($0.id) }
         document.selection.removeAll()
+        recomputeJunctions()
     }
 
     // MARK: - Rotate
@@ -640,6 +658,33 @@ public final class SchematicViewModel {
                 updateConnectedWiresAfterTransform(componentIndex: idx)
             }
         }
+    }
+
+    // MARK: - Junction Computation
+
+    /// Recompute junctions from wire endpoints. A junction exists where 3+ wire endpoints meet.
+    public func recomputeJunctions() {
+        var counts: [JunctionPointKey: Int] = [:]
+        for wire in document.wires {
+            counts[JunctionPointKey(wire.startPoint), default: 0] += 1
+            counts[JunctionPointKey(wire.endPoint), default: 0] += 1
+        }
+
+        // Preserve existing junction IDs for stability
+        var existing: [JunctionPointKey: Junction] = [:]
+        for j in document.junctions {
+            existing[JunctionPointKey(j.position)] = j
+        }
+
+        var newJunctions: [Junction] = []
+        for (key, count) in counts where count >= 3 {
+            if let j = existing[key] {
+                newJunctions.append(j)
+            } else {
+                newJunctions.append(Junction(position: key.cgPoint))
+            }
+        }
+        document.junctions = newJunctions
     }
 
     // MARK: - Grid Snapping
@@ -705,4 +750,17 @@ public final class SchematicViewModel {
             y: center.y + dx * sin + dy * cos
         )
     }
+}
+
+/// Hashable point key with integer-snapped precision for junction computation.
+private struct JunctionPointKey: Hashable {
+    let x: Int
+    let y: Int
+
+    init(_ point: CGPoint) {
+        self.x = Int(round(point.x))
+        self.y = Int(round(point.y))
+    }
+
+    var cgPoint: CGPoint { CGPoint(x: CGFloat(x), y: CGFloat(y)) }
 }

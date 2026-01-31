@@ -75,6 +75,6 @@ public struct WaveformToolbarContent: ToolbarContent {
     Text("Chart Area")
         .frame(width: 500, height: 300)
         .toolbar {
-            WaveformToolbarContent(viewModel: WaveformPreview.transientViewModel())
+            WaveformToolbarContent(viewModel: WaveformPreview.emptyViewModel())
         }
 }

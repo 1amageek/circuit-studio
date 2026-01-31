@@ -47,6 +47,12 @@ public struct SchematicCanvas: View {
                 WireRenderer.render(wire, in: &context, selected: selected)
             }
 
+            // Junctions
+            for junction in viewModel.document.junctions {
+                let selected = viewModel.document.selection.contains(junction.id)
+                JunctionRenderer.render(junction, in: &context, selected: selected)
+            }
+
             // In-progress wire (drag)
             if let start = wireStart, let end = wireEnd {
                 var path = Path()
@@ -326,7 +332,7 @@ public struct SchematicCanvas: View {
         case .select:
             let hit = viewModel.hitTest(at: canvasPoint)
             switch hit {
-            case .component(let id), .wire(let id), .label(let id):
+            case .component(let id), .wire(let id), .label(let id), .junction(let id):
                 if shiftHeld {
                     viewModel.toggleSelection(id)
                 } else {
@@ -383,7 +389,7 @@ public struct SchematicCanvas: View {
             let canvasStart = screenToCanvas(value.startLocation)
             let hit = viewModel.hitTest(at: canvasStart)
             switch hit {
-            case .component(let id), .wire(let id), .label(let id):
+            case .component(let id), .wire(let id), .label(let id), .junction(let id):
                 if !viewModel.document.selection.contains(id) {
                     viewModel.select(id)
                 }

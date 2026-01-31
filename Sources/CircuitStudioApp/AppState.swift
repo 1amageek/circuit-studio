@@ -61,6 +61,10 @@ public final class AppState {
     public var consoleEntries: [ConsoleEntry] = []
     public var showConsole: Bool = false
 
+    // Live parsing
+    public var netlistInfo: NetlistInfo?
+    private var parseTask: Task<Void, Never>?
+
     public init() {}
 
     // MARK: - Console
@@ -92,6 +96,25 @@ public final class AppState {
         selectedFileURL = url
         simulationResult = nil
         simulationError = nil
+    }
+
+    // MARK: - Live Parsing
+
+    /// Schedule a debounced parse of the current SPICE source.
+    ///
+    /// Cancels any pending parse and waits 300ms before parsing.
+    /// This avoids redundant work while the user is typing.
+    public func scheduleNetlistParse(service: NetlistParsingService) {
+        parseTask?.cancel()
+        let source = spiceSource
+        let fileName = spiceFileName
+        parseTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            let info = await service.parse(source: source, fileName: fileName)
+            guard !Task.isCancelled else { return }
+            self.netlistInfo = info
+        }
     }
 
     /// Save the current SPICE source to the already-selected file, or prompt with Save As.

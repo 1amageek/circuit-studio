@@ -52,7 +52,7 @@ public struct TraceListView: View {
 }
 
 #Preview("Trace List") {
-    TraceListView(viewModel: WaveformPreview.transientViewModel())
+    SimulationPreviewView(spiceSource: SPICENetlists.rcPulseTransient)
         .frame(width: 250, height: 300)
 }
 

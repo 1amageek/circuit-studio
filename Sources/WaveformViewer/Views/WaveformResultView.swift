@@ -24,17 +24,27 @@ public struct WaveformResultView: View {
 
 // MARK: - Previews
 
-#Preview("Transient") {
-    WaveformResultView(viewModel: WaveformPreview.transientViewModel())
+#Preview("OP — Voltage Divider") {
+    SimulationPreviewView(spiceSource: SPICENetlists.voltageDividerOP)
         .frame(width: 900, height: 500)
 }
 
-#Preview("AC") {
-    WaveformResultView(viewModel: WaveformPreview.acViewModel())
+#Preview("Tran — RC PULSE Step") {
+    SimulationPreviewView(spiceSource: SPICENetlists.rcPulseTransient)
         .frame(width: 900, height: 500)
 }
 
-#Preview("Operating Point") {
-    WaveformResultView(viewModel: WaveformPreview.opViewModel())
+#Preview("AC — RC Lowpass") {
+    SimulationPreviewView(spiceSource: SPICENetlists.rcLowpassAC)
+        .frame(width: 900, height: 500)
+}
+
+#Preview("OP — Diode Bias") {
+    SimulationPreviewView(spiceSource: SPICENetlists.diodeOP)
+        .frame(width: 900, height: 500)
+}
+
+#Preview("OP — VCVS Gain") {
+    SimulationPreviewView(spiceSource: SPICENetlists.vcvsOP)
         .frame(width: 900, height: 500)
 }

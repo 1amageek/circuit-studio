@@ -50,6 +50,14 @@ public struct ContentView: View {
                 appState.activeEditor = .waveform
             }
         }
+        .onChange(of: appState.spiceSource) { _, _ in
+            appState.scheduleNetlistParse(service: services.netlistParsingService)
+        }
+        .onAppear {
+            if !appState.spiceSource.isEmpty {
+                appState.scheduleNetlistParse(service: services.netlistParsingService)
+            }
+        }
     }
 
     // MARK: - Sidebar (Project Navigator only)
@@ -212,8 +220,12 @@ public struct ContentView: View {
         case .schematic:
             return schematicViewModel.document.components.isEmpty
                 || schematicViewModel.hasErrors
-        default:
-            return appState.spiceSource.isEmpty
+        case .netlist:
+            if appState.spiceSource.isEmpty { return true }
+            guard let info = appState.netlistInfo else { return true }
+            return info.hasErrors || info.components.isEmpty
+        case .waveform:
+            return true
         }
     }
 
@@ -344,17 +356,42 @@ public struct ContentView: View {
     }
 }
 
-/// Inspector panel for the netlist editor showing file info and analysis settings.
+/// Inspector panel for the netlist editor showing parsed netlist info.
 private struct NetlistInspectorView: View {
     @Bindable var appState: AppState
 
     var body: some View {
         Form {
-            Section("File") {
-                LabeledContent("Name", value: appState.spiceFileName ?? "Untitled")
-                LabeledContent("Lines", value: "\(appState.spiceSource.components(separatedBy: "\n").count)")
+            fileSection
+            analysisSection
+            componentsSection
+            nodesSection
+            modelsSection
+            diagnosticsSection
+            simulationErrorSection
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: - File
+
+    private var fileSection: some View {
+        Section("File") {
+            LabeledContent("Name", value: appState.spiceFileName ?? "Untitled")
+            LabeledContent("Lines", value: "\(appState.spiceSource.components(separatedBy: "\n").count)")
+            if let title = appState.netlistInfo?.title {
+                LabeledContent("Title", value: title)
             }
-            Section("Analysis") {
+        }
+    }
+
+    // MARK: - Analysis
+
+    @ViewBuilder
+    private var analysisSection: some View {
+        let detected = appState.netlistInfo?.analyses ?? []
+        Section("Analysis") {
+            if detected.isEmpty {
                 Picker("Type", selection: $appState.selectedAnalysis) {
                     Text("OP").tag(AnalysisCommand.op)
                     Text("Tran").tag(AnalysisCommand.tran(TranSpec(stopTime: 1e-3, stepTime: 10e-6)))
@@ -363,16 +400,140 @@ private struct NetlistInspectorView: View {
                         startFrequency: 1, stopFrequency: 1e6
                     )))
                 }
-            }
-            if let error = appState.simulationError {
-                Section("Error") {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .font(.caption)
+            } else {
+                ForEach(detected) { analysis in
+                    LabeledContent(analysis.type) {
+                        Text(analysis.label)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
-        .formStyle(.grouped)
+    }
+
+    // MARK: - Components
+
+    @ViewBuilder
+    private var componentsSection: some View {
+        let components = appState.netlistInfo?.components ?? []
+        if !components.isEmpty {
+            Section("Components (\(components.count))") {
+                ForEach(components) { component in
+                    HStack {
+                        Text(component.name)
+                            .font(.system(.body, design: .monospaced))
+                            .fontWeight(.medium)
+                        Spacer()
+                        if let model = component.modelName {
+                            Text(model)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if let value = component.primaryValue {
+                            Text(value)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text(component.type)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Nodes
+
+    @ViewBuilder
+    private var nodesSection: some View {
+        let nodes = appState.netlistInfo?.nodes ?? []
+        if !nodes.isEmpty {
+            Section("Nodes (\(nodes.count))") {
+                ForEach(nodes, id: \.self) { node in
+                    Text(node)
+                        .font(.system(.body, design: .monospaced))
+                }
+            }
+        }
+    }
+
+    // MARK: - Models
+
+    @ViewBuilder
+    private var modelsSection: some View {
+        let models = appState.netlistInfo?.models ?? []
+        if !models.isEmpty {
+            Section("Models (\(models.count))") {
+                ForEach(models) { model in
+                    LabeledContent(model.name) {
+                        Text(model.type)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Diagnostics
+
+    @ViewBuilder
+    private var diagnosticsSection: some View {
+        let diagnostics = appState.netlistInfo?.diagnostics ?? []
+        if !diagnostics.isEmpty {
+            Section("Diagnostics") {
+                ForEach(diagnostics) { d in
+                    HStack(spacing: 6) {
+                        Image(systemName: diagnosticIcon(d.severity))
+                            .foregroundStyle(diagnosticColor(d.severity))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(d.message)
+                                .font(.caption)
+                            if let line = d.line {
+                                Text("Line \(line)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Simulation Error
+
+    @ViewBuilder
+    private var simulationErrorSection: some View {
+        if let error = appState.simulationError {
+            Section("Error") {
+                Text(error)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+        }
+    }
+
+    // MARK: - Diagnostic Helpers
+
+    private func diagnosticIcon(_ severity: NetlistDiagnostic.Severity) -> String {
+        switch severity {
+        case .error: return "xmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .info: return "info.circle.fill"
+        case .hint: return "lightbulb.fill"
+        }
+    }
+
+    private func diagnosticColor(_ severity: NetlistDiagnostic.Severity) -> Color {
+        switch severity {
+        case .error: return .red
+        case .warning: return .orange
+        case .info: return .blue
+        case .hint: return .secondary
+        }
     }
 }
 
@@ -425,69 +586,6 @@ public struct NetlistEditorView: View {
 
 #Preview("OP — Voltage Divider") {
     let state = AppState()
-    state.activeEditor = .netlist
-    state.spiceSource = """
-    * Voltage Divider
-    V1 in 0 DC 5
-    R1 in out 1k
-    R2 out 0 1k
-    .op
-    .end
-    """
-    state.spiceFileName = "voltage_divider.cir"
-    return ContentView(
-        appState: state,
-        services: ServiceContainer(),
-        waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicViewModel()
-    )
-    .frame(width: 1200, height: 800)
-}
-
-#Preview("Tran — RC Step Response") {
-    let state = AppState()
-    state.activeEditor = .netlist
-    state.spiceSource = """
-    * RC Lowpass Filter
-    V1 in 0 PULSE(0 5 1u 0.1u 0.1u 10u 20u)
-    R1 in out 1k
-    C1 out 0 1n
-    .tran 0.1u 20u
-    .end
-    """
-    state.spiceFileName = "rc_tran.cir"
-    return ContentView(
-        appState: state,
-        services: ServiceContainer(),
-        waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicViewModel()
-    )
-    .frame(width: 1200, height: 800)
-}
-
-#Preview("AC — RC Lowpass") {
-    let state = AppState()
-    state.activeEditor = .netlist
-    state.spiceSource = """
-    * RC Lowpass AC
-    V1 in 0 AC 1
-    R1 in out 1k
-    C1 out 0 1n
-    .ac dec 20 1 1G
-    .end
-    """
-    state.spiceFileName = "rc_ac.cir"
-    return ContentView(
-        appState: state,
-        services: ServiceContainer(),
-        waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicViewModel()
-    )
-    .frame(width: 1200, height: 800)
-}
-
-#Preview("Schematic — Voltage Divider") {
-    let state = AppState()
     state.activeEditor = .schematic
     state.selectedAnalysis = .op
     return ContentView(
@@ -495,6 +593,74 @@ public struct NetlistEditorView: View {
         services: ServiceContainer(),
         waveformViewModel: WaveformViewModel(),
         schematicViewModel: SchematicPreview.voltageDividerViewModel()
+    )
+    .frame(width: 1200, height: 800)
+}
+
+#Preview("OP — Diode Forward Bias") {
+    let state = AppState()
+    state.activeEditor = .schematic
+    state.selectedAnalysis = .op
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        waveformViewModel: WaveformViewModel(),
+        schematicViewModel: SchematicPreview.diodeForwardBiasViewModel()
+    )
+    .frame(width: 1200, height: 800)
+}
+
+#Preview("AC — RC Lowpass") {
+    let state = AppState()
+    state.activeEditor = .schematic
+    state.selectedAnalysis = .ac(ACSpec(
+        scaleType: .decade, numberOfPoints: 20,
+        startFrequency: 1, stopFrequency: 1e6
+    ))
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        waveformViewModel: WaveformViewModel(),
+        schematicViewModel: SchematicPreview.rcLowpassViewModel()
+    )
+    .frame(width: 1200, height: 800)
+}
+
+#Preview("Tran — RC Loaded Step") {
+    let state = AppState()
+    state.activeEditor = .schematic
+    state.selectedAnalysis = .tran(TranSpec(stopTime: 2e-6, stepTime: 1e-9))
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        waveformViewModel: WaveformViewModel(),
+        schematicViewModel: SchematicPreview.rcLoadedStepViewModel()
+    )
+    .frame(width: 1200, height: 800)
+}
+
+#Preview("Tran — RLC Damped") {
+    let state = AppState()
+    state.activeEditor = .schematic
+    state.selectedAnalysis = .tran(TranSpec(stopTime: 500e-9, stepTime: 0.5e-9))
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        waveformViewModel: WaveformViewModel(),
+        schematicViewModel: SchematicPreview.rlcDampedViewModel()
+    )
+    .frame(width: 1200, height: 800)
+}
+
+#Preview("Tran — CMOS Inverter") {
+    let state = AppState()
+    state.activeEditor = .schematic
+    state.selectedAnalysis = .tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9))
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        waveformViewModel: WaveformViewModel(),
+        schematicViewModel: SchematicPreview.cmosInverterViewModel()
     )
     .frame(width: 1200, height: 800)
 }

@@ -412,6 +412,27 @@ struct SimulationServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func runTranAnalysisPreviewCircuit() async throws {
+        let service = SimulationService()
+        let source = """
+        * RC Lowpass Filter
+        V1 in 0 PULSE(0 5 1u 0.1u 0.1u 10u 20u)
+        R1 in out 1k
+        C1 out 0 1n
+        .tran 0.1u 20u
+        .end
+        """
+
+        let result = try await service.runSPICE(source: source, fileName: nil)
+        #expect(result.status == .completed)
+        #expect(result.waveform != nil)
+        if let waveform = result.waveform {
+            #expect(waveform.pointCount > 0)
+            #expect(waveform.sweepVariable.name == "time")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func runACAnalysis() async throws {
         let service = SimulationService()
         let source = """
@@ -429,6 +450,31 @@ struct SimulationServiceTests {
         if let waveform = result.waveform {
             #expect(waveform.isComplex)
             #expect(waveform.pointCount > 0)
+
+            // V(in) should be ~0 dB (source node, magnitude ~1V)
+            if let inIdx = waveform.variableIndex(named: "V(1)") {
+                let mag = waveform.magnitudeDB(variable: inIdx, point: 0)
+                #expect(mag != nil)
+                if let db = mag {
+                    #expect(abs(db) < 1.0, Comment(rawValue: "V(in) at low freq should be ~0 dB, got \(db)"))
+                }
+            }
+
+            // V(out) at low freq should also be ~0 dB (below cutoff)
+            if let outIdx = waveform.variableIndex(named: "V(2)") {
+                let magLow = waveform.magnitudeDB(variable: outIdx, point: 0)
+                #expect(magLow != nil)
+                if let db = magLow {
+                    #expect(abs(db) < 1.0, Comment(rawValue: "V(out) at 1 Hz should be ~0 dB, got \(db)"))
+                }
+
+                // V(out) at high freq should be well below 0 dB (above cutoff ~159 kHz)
+                let lastPoint = waveform.pointCount - 1
+                let magHigh = waveform.magnitudeDB(variable: outIdx, point: lastPoint)
+                if let db = magHigh {
+                    #expect(db < -20.0, Comment(rawValue: "V(out) at 1 GHz should be < -20 dB, got \(db)"))
+                }
+            }
         }
     }
 

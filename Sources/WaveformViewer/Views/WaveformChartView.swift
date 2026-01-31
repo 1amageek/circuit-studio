@@ -54,7 +54,7 @@ public struct WaveformChartView: View {
         }
         .chartXAxisLabel(viewModel.sweepLabel)
         .chartYAxisLabel(viewModel.isComplex ? "Magnitude (dB)" : "Value")
-        .chartXScale(domain: xDomain)
+        .chartXScale(domain: xDomain, type: viewModel.isLogFrequency ? .log : .linear)
         .chartLegend(position: .top)
         .chartOverlay { proxy in
             GeometryReader { geometry in
@@ -205,18 +205,18 @@ public struct WaveformChartView: View {
     }
 }
 
-#Preview("Transient Waveform") {
-    WaveformChartView(viewModel: WaveformPreview.transientViewModel())
+#Preview("Tran — RC PULSE Step") {
+    SimulationPreviewView(spiceSource: SPICENetlists.rcPulseTransient)
         .frame(width: 600, height: 350)
 }
 
-#Preview("AC Waveform") {
-    WaveformChartView(viewModel: WaveformPreview.acViewModel())
+#Preview("AC — RC Lowpass") {
+    SimulationPreviewView(spiceSource: SPICENetlists.rcLowpassAC)
         .frame(width: 600, height: 350)
 }
 
-#Preview("Operating Point") {
-    WaveformChartView(viewModel: WaveformPreview.opViewModel())
+#Preview("OP — Voltage Divider") {
+    SimulationPreviewView(spiceSource: SPICENetlists.voltageDividerOP)
         .frame(width: 600, height: 350)
 }
 

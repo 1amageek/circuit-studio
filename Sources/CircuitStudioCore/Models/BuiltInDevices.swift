@@ -104,6 +104,20 @@ public enum BuiltInDevices {
         parameterSchema: [
             ParameterSchema(id: "dc", displayName: "DC Voltage", unit: "V", defaultValue: 5.0),
             ParameterSchema(id: "ac", displayName: "AC Magnitude", unit: "V", defaultValue: nil),
+            // PULSE parameters
+            ParameterSchema(id: "pulse_v1", displayName: "PULSE Initial", unit: "V", defaultValue: nil),
+            ParameterSchema(id: "pulse_v2", displayName: "PULSE Pulsed", unit: "V", defaultValue: nil),
+            ParameterSchema(id: "pulse_td", displayName: "PULSE Delay", unit: "s", defaultValue: nil),
+            ParameterSchema(id: "pulse_tr", displayName: "PULSE Rise", unit: "s", defaultValue: nil),
+            ParameterSchema(id: "pulse_tf", displayName: "PULSE Fall", unit: "s", defaultValue: nil),
+            ParameterSchema(id: "pulse_pw", displayName: "PULSE Width", unit: "s", defaultValue: nil),
+            ParameterSchema(id: "pulse_per", displayName: "PULSE Period", unit: "s", defaultValue: nil),
+            // SIN parameters
+            ParameterSchema(id: "sin_vo", displayName: "SIN Offset", unit: "V", defaultValue: nil),
+            ParameterSchema(id: "sin_va", displayName: "SIN Amplitude", unit: "V", defaultValue: nil),
+            ParameterSchema(id: "sin_freq", displayName: "SIN Frequency", unit: "Hz", defaultValue: nil),
+            ParameterSchema(id: "sin_td", displayName: "SIN Delay", unit: "s", defaultValue: nil),
+            ParameterSchema(id: "sin_theta", displayName: "SIN Damping", unit: "1/s", defaultValue: nil),
         ],
         symbol: SymbolDefinition(
             shape: .custom([
@@ -130,6 +144,20 @@ public enum BuiltInDevices {
         parameterSchema: [
             ParameterSchema(id: "dc", displayName: "DC Current", unit: "A", defaultValue: 0.001),
             ParameterSchema(id: "ac", displayName: "AC Magnitude", unit: "A", defaultValue: nil),
+            // PULSE parameters
+            ParameterSchema(id: "pulse_v1", displayName: "PULSE Initial", unit: "A", defaultValue: nil),
+            ParameterSchema(id: "pulse_v2", displayName: "PULSE Pulsed", unit: "A", defaultValue: nil),
+            ParameterSchema(id: "pulse_td", displayName: "PULSE Delay", unit: "s", defaultValue: nil),
+            ParameterSchema(id: "pulse_tr", displayName: "PULSE Rise", unit: "s", defaultValue: nil),
+            ParameterSchema(id: "pulse_tf", displayName: "PULSE Fall", unit: "s", defaultValue: nil),
+            ParameterSchema(id: "pulse_pw", displayName: "PULSE Width", unit: "s", defaultValue: nil),
+            ParameterSchema(id: "pulse_per", displayName: "PULSE Period", unit: "s", defaultValue: nil),
+            // SIN parameters
+            ParameterSchema(id: "sin_vo", displayName: "SIN Offset", unit: "A", defaultValue: nil),
+            ParameterSchema(id: "sin_va", displayName: "SIN Amplitude", unit: "A", defaultValue: nil),
+            ParameterSchema(id: "sin_freq", displayName: "SIN Frequency", unit: "Hz", defaultValue: nil),
+            ParameterSchema(id: "sin_td", displayName: "SIN Delay", unit: "s", defaultValue: nil),
+            ParameterSchema(id: "sin_theta", displayName: "SIN Damping", unit: "1/s", defaultValue: nil),
         ],
         symbol: SymbolDefinition(
             shape: .custom([
