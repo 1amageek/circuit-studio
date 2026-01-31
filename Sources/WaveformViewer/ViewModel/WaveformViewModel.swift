@@ -295,6 +295,8 @@ public final class WaveformViewModel {
             ))
         }
 
-        chartSeries = series
+        withAnimation(.easeInOut(duration: 0.3)) {
+            chartSeries = series
+        }
     }
 }
