@@ -30,8 +30,10 @@ public struct ContentView: View {
         } detail: {
             VStack(spacing: 0) {
                 detailView
+                    .layoutPriority(1)
                 if appState.showConsole {
                     SimulationConsoleView(appState: appState)
+                        .frame(maxHeight: 200)
                 }
             }
             .toolbar {
@@ -88,13 +90,24 @@ public struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
+        HSplitView {
+            editorView
+                .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+            if appState.showSimulationResults {
+                WaveformResultView(viewModel: waveformViewModel)
+                    .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var editorView: some View {
         switch appState.activeEditor {
         case .netlist:
             NetlistEditorView(appState: appState)
         case .schematic:
             SchematicEditorView(viewModel: schematicViewModel)
-        case .waveform:
-            WaveformResultView(viewModel: waveformViewModel)
         }
     }
 
@@ -109,11 +122,9 @@ public struct ContentView: View {
                     .tag(EditorMode.netlist)
                 Label("Schematic", systemImage: "square.grid.3x3")
                     .tag(EditorMode.schematic)
-                Label("Waveform", systemImage: "waveform.path")
-                    .tag(EditorMode.waveform)
             }
             .pickerStyle(.segmented)
-            .frame(width: 280)
+            .frame(width: 200)
         }
 
         // Run / Stop
@@ -184,8 +195,6 @@ public struct ContentView: View {
         switch appState.activeEditor {
         case .schematic:
             schematicToolbarItems
-        case .waveform:
-            waveformToolbarItems
         case .netlist:
             ToolbarItem(placement: .status) {
                 if let fileName = appState.spiceFileName {
@@ -194,6 +203,10 @@ public struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+
+        if appState.showSimulationResults {
+            waveformToolbarItems
         }
 
         // Simulation status
@@ -210,17 +223,24 @@ public struct ContentView: View {
             }
         }
 
-        // Console toggle
-        ToolbarItem {
+        // Panel toggles
+        ToolbarItemGroup {
+            Button {
+                appState.showSimulationResults.toggle()
+            } label: {
+                Label("Simulation Results",
+                      systemImage: appState.showSimulationResults
+                          ? "rectangle.righthalf.inset.filled"
+                          : "rectangle.righthalf.inset.filled")
+            }
+            .disabled(appState.simulationResult == nil && !appState.isSimulating)
+
             Button {
                 appState.showConsole.toggle()
             } label: {
                 Label("Console", systemImage: "terminal")
             }
-        }
 
-        // Inspector toggle (trailing)
-        ToolbarItem {
             Button {
                 appState.showInspector.toggle()
             } label: {
@@ -239,8 +259,6 @@ public struct ContentView: View {
             if appState.spiceSource.isEmpty { return true }
             guard let info = appState.netlistInfo else { return true }
             return info.hasErrors || info.components.isEmpty
-        case .waveform:
-            return true
         }
     }
 
@@ -320,13 +338,15 @@ public struct ContentView: View {
 
     @ViewBuilder
     private var inspectorContent: some View {
-        switch appState.activeEditor {
-        case .schematic:
-            PropertyInspector(viewModel: schematicViewModel)
-        case .waveform:
+        if appState.showSimulationResults {
             WaveformInspectorView(viewModel: waveformViewModel)
-        case .netlist:
-            NetlistInspectorView(appState: appState)
+        } else {
+            switch appState.activeEditor {
+            case .schematic:
+                PropertyInspector(viewModel: schematicViewModel)
+            case .netlist:
+                NetlistInspectorView(appState: appState)
+            }
         }
     }
 

@@ -9,31 +9,6 @@ public struct WaveformToolbarContent: ToolbarContent {
     }
 
     public var body: some ToolbarContent {
-        ToolbarItemGroup(placement: .secondaryAction) {
-            Button {
-                viewModel.resetZoom()
-            } label: {
-                Label("Fit All", systemImage: "arrow.up.left.and.arrow.down.right")
-            }
-            .help("Reset zoom to show all data")
-
-            Button {
-                viewModel.zoomIn()
-            } label: {
-                Label("Zoom In", systemImage: "plus.magnifyingglass")
-            }
-            .help("Zoom in 2x")
-            .keyboardShortcut("+", modifiers: .command)
-
-            Button {
-                viewModel.zoomOut()
-            } label: {
-                Label("Zoom Out", systemImage: "minus.magnifyingglass")
-            }
-            .help("Zoom out 2x")
-            .keyboardShortcut("-", modifiers: .command)
-        }
-
         ToolbarItem(placement: .status) {
             HStack(spacing: 8) {
                 if let cursor = viewModel.document.cursorPosition {

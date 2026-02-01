@@ -32,6 +32,27 @@ public final class WaveformViewModel {
     public private(set) var waveformData: WaveformData?
     private let waveformService: WaveformService
 
+    /// Maximum zoom level (2^10 = 1024x).
+    private static let maxZoomLevel: Double = 10
+
+    /// Full data range (first...last sweep value).
+    public var fullRange: ClosedRange<Double>? {
+        guard let waveform = waveformData,
+              let first = waveform.sweepValues.first,
+              let last = waveform.sweepValues.last,
+              first < last else { return nil }
+        return first...last
+    }
+
+    /// Current zoom level (0 = fit all, higher = more zoomed in).
+    public var zoomLevel: Double {
+        guard let full = fullRange, let visible = document.visibleRange else { return 0 }
+        let fullSpan = full.upperBound - full.lowerBound
+        let visibleSpan = visible.upperBound - visible.lowerBound
+        guard visibleSpan > 0 else { return Self.maxZoomLevel }
+        return min(max(log2(fullSpan / visibleSpan), 0), Self.maxZoomLevel)
+    }
+
     /// True when loaded data is a single operating point (no sweep).
     public var isSinglePoint: Bool {
         waveformData?.pointCount == 1
@@ -123,9 +144,31 @@ public final class WaveformViewModel {
         }
     }
 
-    /// Set the visible sweep range (for zoom/pan).
+    /// Set the visible sweep range (for zoom/pan), clamped to data bounds and zoom limits.
     public func setVisibleRange(_ range: ClosedRange<Double>) {
-        document.visibleRange = range
+        if let full = fullRange {
+            let fullSpan = full.upperBound - full.lowerBound
+            let minSpan = fullSpan / pow(2, Self.maxZoomLevel)
+            let requestedSpan = range.upperBound - range.lowerBound
+            let span = max(min(requestedSpan, fullSpan), minSpan)
+            let center = range.lowerBound + requestedSpan / 2
+            document.visibleRange = clampRange(center: center, span: span, within: full)
+        } else {
+            document.visibleRange = range
+        }
+        updateChartSeries()
+    }
+
+    /// Set zoom level from slider (0 = fit all, maxZoomLevel = maximum zoom).
+    public func setZoomLevel(_ level: Double) {
+        guard let full = fullRange, let current = document.visibleRange else { return }
+        let fullSpan = full.upperBound - full.lowerBound
+        let clampedLevel = min(max(level, 0), Self.maxZoomLevel)
+        let newSpan = fullSpan / pow(2, clampedLevel)
+        let currentSpan = current.upperBound - current.lowerBound
+        let center = document.cursorPosition ?? (current.lowerBound + currentSpan / 2)
+        let clamped = clampRange(center: center, span: newSpan, within: full)
+        document.visibleRange = clamped
         updateChartSeries()
     }
 
@@ -154,6 +197,28 @@ public final class WaveformViewModel {
         let center = document.cursorPosition ?? (range.lowerBound + span / 2)
         let newSpan = span * 2
         setVisibleRange((center - newSpan / 2)...(center + newSpan / 2))
+    }
+
+    /// Pan the visible range by a fraction of its current span.
+    ///
+    /// Positive fraction shifts toward higher values (right),
+    /// negative toward lower values (left). Clamped to data bounds.
+    public func pan(byFraction fraction: Double) {
+        guard let range = document.visibleRange, let full = fullRange else { return }
+        let span = range.upperBound - range.lowerBound
+        let offset = span * fraction
+        var newLower = range.lowerBound + offset
+        var newUpper = range.upperBound + offset
+        if newLower < full.lowerBound {
+            newLower = full.lowerBound
+            newUpper = full.lowerBound + span
+        }
+        if newUpper > full.upperBound {
+            newUpper = full.upperBound
+            newLower = full.upperBound - span
+        }
+        document.visibleRange = newLower...newUpper
+        updateChartSeries()
     }
 
     /// Set cursor position.
@@ -237,6 +302,24 @@ public final class WaveformViewModel {
     }
 
     // MARK: - Private
+
+    /// Clamp a range defined by center+span to stay within the full data bounds.
+    private func clampRange(
+        center: Double, span: Double, within full: ClosedRange<Double>
+    ) -> ClosedRange<Double> {
+        var lower = center - span / 2
+        var upper = center + span / 2
+        if lower < full.lowerBound {
+            lower = full.lowerBound
+            upper = full.lowerBound + span
+        }
+        if upper > full.upperBound {
+            upper = full.upperBound
+            lower = full.upperBound - span
+        }
+        lower = max(lower, full.lowerBound)
+        return lower...upper
+    }
 
     private func updateChartSeries() {
         guard let waveform = waveformData else {

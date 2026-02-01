@@ -502,4 +502,113 @@ struct EndToEndTests {
             }
         }
     }
+
+    // MARK: - J16: CMOS Inverter
+
+    @Test("J16: CMOS inverter DC operating point", .timeLimit(.minutes(1)))
+    func cmosInverterOP() async throws {
+        let source = """
+        CMOS Inverter OP
+        V1 vdd 0 dc 3.3
+        V2 in 0 dc 0
+        MP1 out in vdd vdd PMOS_MP1 W=20u L=1u
+        MN1 out in 0 0 NMOS_MN1 W=10u L=1u
+        C1 out 0 100f
+        .model PMOS_MP1 PMOS level=1 vto=-0.7 kp=5e-05
+        .model NMOS_MN1 NMOS level=1 vto=0.7 kp=0.00011
+        .op
+        .end
+        """
+
+        let result = try await service.runSPICE(source: source, fileName: nil)
+        #expect(result.status == .completed)
+
+        guard let waveform = result.waveform else {
+            Issue.record("Waveform data is nil")
+            return
+        }
+
+        // With Vin=0: NMOS off, PMOS on → Vout ≈ VDD (3.3V)
+        #expect(waveform.pointCount > 0)
+    }
+
+    // MARK: - J17: MOSFET Transient
+
+    @Test("J17: NMOS common source transient with PULSE", .timeLimit(.minutes(2)))
+    func nmosPulseTransient() async throws {
+        let source = """
+        Simple NMOS PULSE
+        VDD vdd 0 dc 5
+        RD vdd drain 1k
+        V2 gate 0 PULSE(0 5 1u 0.1u 0.1u 5u 10u)
+        M1 drain gate 0 0 NMOD W=10u L=1u
+        .model NMOD NMOS level=1 vto=0.7 kp=110u
+        .tran 0.1u 20u
+        .end
+        """
+
+        let result = try await service.runSPICE(source: source, fileName: nil)
+        #expect(result.status == .completed)
+
+        guard let waveform = result.waveform else {
+            Issue.record("Waveform data is nil")
+            return
+        }
+
+        #expect(waveform.pointCount > 10, "Should have multiple time points")
+    }
+
+    // MARK: - J18: CMOS Inverter Transient
+
+    @Test("J18: CMOS inverter transient simulation", .timeLimit(.minutes(2)))
+    func cmosInverterTran() async throws {
+        let source = """
+        CMOS Inverter
+        V1 vdd 0 dc 3.3
+        V2 in 0 PULSE(0 3.3 1n 0.5n 0.5n 10n 22n)
+        MP1 out in vdd vdd PMOS_MP1 W=20u L=1u
+        MN1 out in 0 0 NMOS_MN1 W=10u L=1u
+        C1 out 0 100f
+        .model PMOS_MP1 PMOS level=1 vto=-0.7 kp=5e-05
+        .model NMOS_MN1 NMOS level=1 vto=0.7 kp=0.00011
+        .tran 0.1n 100n
+        .end
+        """
+
+        let startTime = Date()
+        do {
+            let result = try await service.runSPICE(source: source, fileName: nil)
+            let elapsed = Date().timeIntervalSince(startTime)
+            print("=== CMOS Tran: status=\(result.status), elapsed=\(String(format: "%.3f", elapsed))s ===")
+
+            guard let waveform = result.waveform else {
+                Issue.record("Waveform is nil")
+                return
+            }
+
+            print("Point count: \(waveform.pointCount)")
+            print("Variables: \(waveform.variables.map(\.name))")
+            print("Sweep: \(waveform.sweepValues.first ?? -1) ... \(waveform.sweepValues.last ?? -1)")
+
+            // Sample key time points
+            for t in [0.0, 1e-9, 5e-9, 12e-9, 50e-9, 100e-9] {
+                if let idx = waveform.sweepValues.firstIndex(where: { $0 >= t }) {
+                    var vals: [String] = []
+                    for (vi, v) in waveform.variables.enumerated() {
+                        if let val = waveform.realValue(variable: vi, point: idx) {
+                            vals.append("\(v.name)=\(String(format: "%.4f", val))")
+                        }
+                    }
+                    print("  t=\(String(format: "%.2e", waveform.sweepValues[idx])): \(vals.joined(separator: ", "))")
+                }
+            }
+
+            #expect(result.status == .completed)
+            #expect(waveform.pointCount > 50, "Should reach 100ns with many points, got \(waveform.pointCount)")
+        } catch {
+            let elapsed = Date().timeIntervalSince(startTime)
+            print("=== CMOS Tran ERROR: \(error), elapsed=\(String(format: "%.3f", elapsed))s ===")
+            throw error
+        }
+    }
 }

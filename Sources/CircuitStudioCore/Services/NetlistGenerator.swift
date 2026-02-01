@@ -48,7 +48,33 @@ public struct NetlistGenerator: Sendable {
 
             if let modelType = kind.modelType {
                 // Semiconductor device: instance line with model name + .model card
-                let modelName = "\(modelType)_\(component.name)"
+                let modelName: String
+                let resolvedModelParams: [String: Double]
+
+                if let presetID = component.modelPresetID,
+                   let preset = catalog.preset(for: presetID) {
+                    // Preset mode: share model card across instances using the same preset
+                    modelName = presetID.uppercased()
+                    // Start from preset parameters, overlay with component overrides
+                    var merged = preset.parameters
+                    for schema in kind.parameterSchema where schema.isModelParameter {
+                        if let override = component.parameters[schema.id],
+                           override != preset.parameters[schema.id] {
+                            merged[schema.id] = override
+                        }
+                    }
+                    resolvedModelParams = merged
+                } else {
+                    // Custom mode: per-instance model card
+                    modelName = "\(modelType)_\(component.name)"
+                    var params: [String: Double] = [:]
+                    for schema in kind.parameterSchema where schema.isModelParameter {
+                        if let value = component.parameters[schema.id] {
+                            params[schema.id] = value
+                        }
+                    }
+                    resolvedModelParams = params
+                }
 
                 // Instance parameters (non-model parameters like W, L)
                 let instanceParams = kind.parameterSchema
@@ -68,12 +94,9 @@ public struct NetlistGenerator: Sendable {
                 if !generatedModels.contains(modelName) {
                     generatedModels.insert(modelName)
 
-                    let modelParams = kind.parameterSchema
-                        .filter { $0.isModelParameter }
-                        .compactMap { schema -> String? in
-                            guard let value = component.parameters[schema.id] else { return nil }
-                            return "\(schema.id)=\(formatValue(value))"
-                        }
+                    let modelParams = resolvedModelParams
+                        .sorted { $0.key < $1.key }
+                        .map { "\($0.key)=\(formatValue($0.value))" }
 
                     var modelLine = ".model \(modelName) \(modelType)"
                     if modelType == "NMOS" || modelType == "PMOS" {

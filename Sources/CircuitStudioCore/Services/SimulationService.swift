@@ -259,9 +259,19 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         let solver = SparseLUSolver()
         let topology = plan.topology.circuitTopology
 
+        // Robust convergence config for circuits with nonlinear devices
+        // (MOSFETs, BJTs, diodes). Slightly elevated gmin and iteration
+        // limit compared to defaults to handle threshold transitions.
+        let convergenceConfig = ConvergenceConfig(
+            reltol: 1e-3,
+            vntol: 1e-4,
+            maxIterations: 150,
+            gmin: 1e-9
+        )
+
         switch command {
         case .op:
-            let analysis = DCAnalysis()
+            let analysis = DCAnalysis(config: convergenceConfig)
             let result = try await analysis.run(
                 plan: plan, devices: devices, solver: solver,
                 observer: nil, cancellation: cancellation
@@ -309,6 +319,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
 
             let analysis = TransientAnalysis(
                 config: config,
+                convergenceConfig: convergenceConfig,
                 onStepAccepted: { time, solution in
                     channel.append(time: time, solution: solution)
                 }
@@ -361,7 +372,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                     plan: plan,
                     overrideSource: (spec.source, value)
                 )
-                let dc = DCAnalysis()
+                let dc = DCAnalysis(config: convergenceConfig)
                 let result = try await dc.run(
                     plan: plan, devices: overrideDevices, solver: solver,
                     observer: nil, cancellation: cancellation

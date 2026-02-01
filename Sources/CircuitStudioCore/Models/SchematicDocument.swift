@@ -17,6 +17,8 @@ public struct PlacedComponent: Sendable, Identifiable {
     public var mirrorY: Bool
     /// Parameter values keyed by ParameterSchema.id.
     public var parameters: [String: Double]
+    /// Model preset ID. `nil` means custom (parameters set manually).
+    public var modelPresetID: String?
 
     public init(
         id: UUID = UUID(),
@@ -26,7 +28,8 @@ public struct PlacedComponent: Sendable, Identifiable {
         rotation: Double = 0,
         mirrorX: Bool = false,
         mirrorY: Bool = false,
-        parameters: [String: Double] = [:]
+        parameters: [String: Double] = [:],
+        modelPresetID: String? = nil
     ) {
         self.id = id
         self.deviceKindID = deviceKindID
@@ -36,6 +39,7 @@ public struct PlacedComponent: Sendable, Identifiable {
         self.mirrorX = mirrorX
         self.mirrorY = mirrorY
         self.parameters = parameters
+        self.modelPresetID = modelPresetID
     }
 }
 

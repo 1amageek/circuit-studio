@@ -441,8 +441,8 @@ public enum BuiltInDevices {
         parameterSchema: [
             ParameterSchema(id: "w", displayName: "Width", unit: "m", defaultValue: 10e-6, range: 1e-9...1, isRequired: true),
             ParameterSchema(id: "l", displayName: "Length", unit: "m", defaultValue: 1e-6, range: 1e-9...1, isRequired: true),
-            ParameterSchema(id: "vto", displayName: "Threshold Voltage", unit: "V", defaultValue: 0.7, isModelParameter: true),
-            ParameterSchema(id: "kp", displayName: "Transconductance", unit: "A/V\u{00B2}", defaultValue: 110e-6, isModelParameter: true),
+            ParameterSchema(id: "vto", displayName: "Threshold Voltage", unit: "V", defaultValue: 0.0, isModelParameter: true),
+            ParameterSchema(id: "kp", displayName: "Transconductance", unit: "A/V\u{00B2}", defaultValue: 2e-5, isModelParameter: true),
             ParameterSchema(id: "gamma", displayName: "Body Effect", unit: "V^0.5", defaultValue: 0.0, isModelParameter: true),
             ParameterSchema(id: "phi", displayName: "Surface Potential", unit: "V", defaultValue: 0.6, isModelParameter: true),
             ParameterSchema(id: "lambda", displayName: "Channel-Length Modulation", unit: "1/V", defaultValue: 0.0, isModelParameter: true),
@@ -489,8 +489,8 @@ public enum BuiltInDevices {
         parameterSchema: [
             ParameterSchema(id: "w", displayName: "Width", unit: "m", defaultValue: 10e-6, range: 1e-9...1, isRequired: true),
             ParameterSchema(id: "l", displayName: "Length", unit: "m", defaultValue: 1e-6, range: 1e-9...1, isRequired: true),
-            ParameterSchema(id: "vto", displayName: "Threshold Voltage", unit: "V", defaultValue: -0.7, isModelParameter: true),
-            ParameterSchema(id: "kp", displayName: "Transconductance", unit: "A/V\u{00B2}", defaultValue: 50e-6, isModelParameter: true),
+            ParameterSchema(id: "vto", displayName: "Threshold Voltage", unit: "V", defaultValue: 0.0, isModelParameter: true),
+            ParameterSchema(id: "kp", displayName: "Transconductance", unit: "A/V\u{00B2}", defaultValue: 2e-5, isModelParameter: true),
             ParameterSchema(id: "gamma", displayName: "Body Effect", unit: "V^0.5", defaultValue: 0.0, isModelParameter: true),
             ParameterSchema(id: "phi", displayName: "Surface Potential", unit: "V", defaultValue: 0.6, isModelParameter: true),
             ParameterSchema(id: "lambda", displayName: "Channel-Length Modulation", unit: "1/V", defaultValue: 0.0, isModelParameter: true),

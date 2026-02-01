@@ -439,10 +439,30 @@ public final class SchematicViewModel {
 
         // Populate default parameter values from catalog
         var defaults: [String: Double] = [:]
+        var presetID: String?
+
         if let kind = catalog.device(for: deviceKindID) {
-            for schema in kind.parameterSchema {
-                if let value = schema.defaultValue {
-                    defaults[schema.id] = value
+            // Check for a default model preset
+            if let defaultPreset = catalog.defaultPresetID(for: deviceKindID),
+               let preset = catalog.preset(for: defaultPreset) {
+                presetID = defaultPreset
+                // Use preset values for model parameters
+                for schema in kind.parameterSchema {
+                    if schema.isModelParameter {
+                        if let presetValue = preset.parameters[schema.id] {
+                            defaults[schema.id] = presetValue
+                        } else if let value = schema.defaultValue {
+                            defaults[schema.id] = value
+                        }
+                    } else if let value = schema.defaultValue {
+                        defaults[schema.id] = value
+                    }
+                }
+            } else {
+                for schema in kind.parameterSchema {
+                    if let value = schema.defaultValue {
+                        defaults[schema.id] = value
+                    }
                 }
             }
         }
@@ -451,7 +471,8 @@ public final class SchematicViewModel {
             deviceKindID: deviceKindID,
             name: name,
             position: snapped,
-            parameters: defaults
+            parameters: defaults,
+            modelPresetID: presetID
         )
         document.components.append(placed)
     }

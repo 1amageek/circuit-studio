@@ -89,11 +89,49 @@ public struct PropertyInspector: View {
                 ))
             }
 
+            if let kind, kind.modelType != nil {
+                modelPresetSection(index: index, kind: kind)
+            }
+
             Section("Parameters") {
                 parameterEditor(index: index, kind: kind)
             }
         }
         .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private func modelPresetSection(index: Int, kind: DeviceKind) -> some View {
+        Section("Model") {
+            Picker("Preset", selection: Binding<String?>(
+                get: {
+                    viewModel.document.components[index].modelPresetID
+                },
+                set: { newPresetID in
+                    viewModel.document.components[index].modelPresetID = newPresetID
+                    if let presetID = newPresetID,
+                       let preset = viewModel.catalog.preset(for: presetID) {
+                        for (key, value) in preset.parameters {
+                            viewModel.document.components[index].parameters[key] = value
+                        }
+                    }
+                }
+            )) {
+                Text("Custom").tag(String?.none)
+                if let modelType = kind.modelType {
+                    ForEach(viewModel.catalog.presets(forModelType: modelType)) { preset in
+                        Text(preset.displayName).tag(Optional(preset.id))
+                    }
+                }
+            }
+
+            if let presetID = viewModel.document.components[index].modelPresetID,
+               let preset = viewModel.catalog.preset(for: presetID) {
+                Text(preset.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     @ViewBuilder
@@ -110,6 +148,14 @@ public struct PropertyInspector: View {
                         },
                         set: { newValue in
                             viewModel.document.components[index].parameters[schema.id] = newValue
+                            // Clear preset when model parameter is manually changed
+                            if schema.isModelParameter {
+                                if let presetID = viewModel.document.components[index].modelPresetID,
+                                   let preset = viewModel.catalog.preset(for: presetID),
+                                   preset.parameters[schema.id] != newValue {
+                                    viewModel.document.components[index].modelPresetID = nil
+                                }
+                            }
                         }
                     ), format: .number)
                     .textFieldStyle(.roundedBorder)

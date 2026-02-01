@@ -8,7 +8,6 @@ import Synchronization
 public enum EditorMode: Hashable, Sendable {
     case netlist
     case schematic
-    case waveform
 }
 
 /// A single entry in the simulation console.
@@ -41,6 +40,7 @@ public final class AppState {
     // Navigation
     public var activeEditor: EditorMode = .netlist
     public var showInspector: Bool = false
+    public var showSimulationResults: Bool = false
 
     // Project
     public var projectRootURL: URL?
@@ -166,7 +166,7 @@ public final class AppState {
         streamingWaveform = nil
         clearConsole()
         showConsole = true
-        activeEditor = .waveform
+        showSimulationResults = true
 
         let start = Date()
         log("Running simulation...")
@@ -219,7 +219,7 @@ public final class AppState {
         streamingWaveform = nil
         clearConsole()
         showConsole = true
-        activeEditor = .waveform
+        showSimulationResults = true
 
         let start = Date()
 
