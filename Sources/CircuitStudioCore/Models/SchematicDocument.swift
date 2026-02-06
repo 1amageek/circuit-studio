@@ -19,6 +19,8 @@ public struct PlacedComponent: Sendable, Identifiable {
     public var parameters: [String: Double]
     /// Model preset ID. `nil` means custom (parameters set manually).
     public var modelPresetID: String?
+    /// External model name override. When set, uses this model instead of presets.
+    public var modelName: String?
 
     public init(
         id: UUID = UUID(),
@@ -29,7 +31,8 @@ public struct PlacedComponent: Sendable, Identifiable {
         mirrorX: Bool = false,
         mirrorY: Bool = false,
         parameters: [String: Double] = [:],
-        modelPresetID: String? = nil
+        modelPresetID: String? = nil,
+        modelName: String? = nil
     ) {
         self.id = id
         self.deviceKindID = deviceKindID
@@ -40,6 +43,7 @@ public struct PlacedComponent: Sendable, Identifiable {
         self.mirrorY = mirrorY
         self.parameters = parameters
         self.modelPresetID = modelPresetID
+        self.modelName = modelName
     }
 }
 

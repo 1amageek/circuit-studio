@@ -13,7 +13,8 @@ public struct NetlistGenerator: Sendable {
     public func generate(
         from document: SchematicDocument,
         title: String = "Untitled",
-        testbench: Testbench? = nil
+        testbench: Testbench? = nil,
+        processConfiguration: ProcessConfiguration? = nil
     ) -> String {
         let extractor = NetExtractor()
         let nets = extractor.extract(from: document)
@@ -35,6 +36,10 @@ public struct NetlistGenerator: Sendable {
         lines.append("* \(title)")
         lines.append("")
 
+        if let processConfiguration {
+            appendProcessHeader(processConfiguration, to: &lines)
+        }
+
         // Components
         for component in document.components {
             guard component.deviceKindID != "ground",
@@ -50,8 +55,14 @@ public struct NetlistGenerator: Sendable {
                 // Semiconductor device: instance line with model name + .model card
                 let modelName: String
                 let resolvedModelParams: [String: Double]
+                let usesExternalModel: Bool
 
-                if let presetID = component.modelPresetID,
+                if let overrideName = component.modelName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !overrideName.isEmpty {
+                    modelName = overrideName
+                    resolvedModelParams = [:]
+                    usesExternalModel = true
+                } else if let presetID = component.modelPresetID,
                    let preset = catalog.preset(for: presetID) {
                     // Preset mode: share model card across instances using the same preset
                     modelName = presetID.uppercased()
@@ -64,6 +75,7 @@ public struct NetlistGenerator: Sendable {
                         }
                     }
                     resolvedModelParams = merged
+                    usesExternalModel = false
                 } else {
                     // Custom mode: per-instance model card
                     modelName = "\(modelType)_\(component.name)"
@@ -74,6 +86,7 @@ public struct NetlistGenerator: Sendable {
                         }
                     }
                     resolvedModelParams = params
+                    usesExternalModel = false
                 }
 
                 // Instance parameters (non-model parameters like W, L)
@@ -91,7 +104,8 @@ public struct NetlistGenerator: Sendable {
                 lines.append(parts.joined(separator: " "))
 
                 // Generate .model card (once per model name)
-                if !generatedModels.contains(modelName) {
+                if !usesExternalModel,
+                   !generatedModels.contains(modelName) {
                     generatedModels.insert(modelName)
 
                     let modelParams = resolvedModelParams
@@ -100,7 +114,8 @@ public struct NetlistGenerator: Sendable {
 
                     var modelLine = ".model \(modelName) \(modelType)"
                     if modelType == "NMOS" || modelType == "PMOS" {
-                        modelLine += " level=1"
+                        let level = modelLevel(for: kind.id) ?? 1
+                        modelLine += " level=\(level)"
                     }
                     if !modelParams.isEmpty {
                         modelLine += " " + modelParams.joined(separator: " ")
@@ -139,6 +154,53 @@ public struct NetlistGenerator: Sendable {
         return lines.joined(separator: "\n")
     }
 
+    // MARK: - Process Header
+
+    private func appendProcessHeader(_ configuration: ProcessConfiguration, to lines: inout [String]) {
+        let hasLibraries = (configuration.technology?.libraries.contains { $0.isEnabled }) == true
+        let parameters = configuration.effectiveParameters()
+        let temperature = configuration.temperatureOverride
+            ?? configuration.effectiveCorner()?.temperature
+            ?? configuration.technology?.defaultTemperature
+
+        if let technology = configuration.technology {
+            lines.append("* Process: \(technology.name)")
+            if let corner = configuration.effectiveCorner() {
+                lines.append("* Corner: \(corner.name)")
+            }
+        }
+
+        if hasLibraries {
+            for library in configuration.technology?.libraries ?? [] where library.isEnabled {
+                let path = quotePath(library.path)
+                switch library.kind {
+                case .include:
+                    lines.append(".include \(path)")
+                case .library:
+                    if let section = configuration.librarySection(for: library) {
+                        lines.append(".lib \(path) \(section)")
+                    } else {
+                        lines.append(".lib \(path)")
+                    }
+                }
+            }
+        }
+
+        if !parameters.isEmpty {
+            for (name, value) in parameters.sorted(by: { $0.key < $1.key }) {
+                lines.append(".param \(name)=\(formatValue(value))")
+            }
+        }
+
+        if let temperature {
+            lines.append(".temp \(formatValue(temperature))")
+        }
+
+        if hasLibraries || !parameters.isEmpty || temperature != nil {
+            lines.append("")
+        }
+    }
+
     // MARK: - Parameter Formatting
 
     private func formatParameters(component: PlacedComponent, kind: DeviceKind) -> String {
@@ -168,6 +230,19 @@ public struct NetlistGenerator: Sendable {
                 .sorted(by: { $0.key < $1.key })
                 .map { "\($0.key)=\(formatValue($0.value))" }
                 .joined(separator: " ")
+        }
+    }
+
+    private func modelLevel(for deviceKindID: String) -> Int? {
+        switch deviceKindID {
+        case "nmos_l1", "pmos_l1":
+            return 1
+        case "nmos_l2", "pmos_l2":
+            return 2
+        case "nmos_l3", "pmos_l3":
+            return 3
+        default:
+            return nil
         }
     }
 
@@ -263,5 +338,10 @@ public struct NetlistGenerator: Sendable {
         if absValue >= 1e-9 { return String(format: "%.4gn", value * 1e9) }
         if absValue >= 1e-12 { return String(format: "%.4gp", value * 1e12) }
         return String(format: "%.4gf", value * 1e15)
+    }
+
+    private func quotePath(_ path: String) -> String {
+        let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 }

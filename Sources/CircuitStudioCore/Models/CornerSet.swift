@@ -19,16 +19,19 @@ public struct Corner: Sendable, Identifiable, Codable, Hashable {
     public var name: String
     public var temperature: Double
     public var parameterOverrides: [String: Double]
+    public var librarySectionOverrides: [String: String]
 
     public init(
         id: UUID = UUID(),
         name: String,
         temperature: Double = 27.0,
-        parameterOverrides: [String: Double] = [:]
+        parameterOverrides: [String: Double] = [:],
+        librarySectionOverrides: [String: String] = [:]
     ) {
         self.id = id
         self.name = name
         self.temperature = temperature
         self.parameterOverrides = parameterOverrides
+        self.librarySectionOverrides = librarySectionOverrides
     }
 }

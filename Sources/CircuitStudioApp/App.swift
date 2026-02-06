@@ -2,12 +2,14 @@ import SwiftUI
 import CircuitStudioCore
 import WaveformViewer
 import SchematicEditor
+import LayoutEditor
 
 public struct CircuitStudioApp: App {
     @State private var appState = AppState()
     @State private var services = ServiceContainer()
     @State private var waveformViewModel = WaveformViewModel()
     @State private var schematicViewModel = SchematicViewModel()
+    @State private var layoutViewModel = LayoutEditorViewModel()
 
     public init() {}
 
@@ -17,7 +19,8 @@ public struct CircuitStudioApp: App {
                 appState: appState,
                 services: services,
                 waveformViewModel: waveformViewModel,
-                schematicViewModel: schematicViewModel
+                schematicViewModel: schematicViewModel,
+                layoutViewModel: layoutViewModel
             )
             .frame(minWidth: 800, minHeight: 500)
         }

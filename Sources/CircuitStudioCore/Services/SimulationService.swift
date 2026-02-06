@@ -19,12 +19,14 @@ public protocol SimulationServiceProtocol: Sendable {
     func runSPICE(
         source: String,
         fileName: String?,
+        processConfiguration: ProcessConfiguration?,
         onWaveformUpdate: (@Sendable (WaveformData) -> Void)?
     ) async throws -> SimulationResult
 
     func runAnalysis(
         source: String,
         fileName: String?,
+        processConfiguration: ProcessConfiguration?,
         command: AnalysisCommand
     ) async throws -> SimulationResult
 
@@ -37,6 +39,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
     private let jobs: Mutex<[UUID: SimulationJob]> = Mutex([:])
     private let continuations: Mutex<[UUID: AsyncStream<SimulationEvent>.Continuation]> = Mutex([:])
     private let _activeJobID: Mutex<UUID?> = Mutex(nil)
+    private let externalSimulator = ExternalSpiceSimulator()
 
     /// The currently running job ID, if any. Used by UI to cancel.
     public var activeJobID: UUID? { _activeJobID.withLock { $0 } }
@@ -48,6 +51,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
     public func runSPICE(
         source: String,
         fileName: String?,
+        processConfiguration: ProcessConfiguration? = nil,
         onWaveformUpdate: (@Sendable (WaveformData) -> Void)? = nil
     ) async throws -> SimulationResult {
         let jobID = UUID()
@@ -67,7 +71,37 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         defer { _activeJobID.withLock { $0 = nil } }
 
         do {
-            let pipeline = try await loadPipeline(source: source, fileName: fileName)
+            if externalSimulator.requiresExternalSimulation(
+                source: source,
+                fileName: fileName,
+                processConfiguration: processConfiguration
+            ) {
+                let waveform = try await externalSimulator.run(
+                    source: source,
+                    fileName: fileName,
+                    processConfiguration: processConfiguration,
+                    command: nil,
+                    cancellation: token
+                )
+                onWaveformUpdate?(waveform)
+
+                let result = SimulationResult(
+                    experimentID: experimentID,
+                    status: .completed,
+                    finishedAt: Date(),
+                    waveform: waveform
+                )
+
+                jobs.withLock { $0[jobID]?.status = .completed }
+                emit(jobID: jobID, event: .completed)
+                return result
+            }
+
+            let pipeline = try await loadPipeline(
+                source: source,
+                fileName: fileName,
+                processConfiguration: processConfiguration
+            )
             let command = detectAnalysis(in: pipeline.netlist) ?? .op
             let waveform = try await executeAnalysis(
                 command: command,
@@ -103,6 +137,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
     public func runAnalysis(
         source: String,
         fileName: String?,
+        processConfiguration: ProcessConfiguration? = nil,
         command: AnalysisCommand
     ) async throws -> SimulationResult {
         let jobID = UUID()
@@ -122,7 +157,36 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         defer { _activeJobID.withLock { $0 = nil } }
 
         do {
-            let pipeline = try await loadPipeline(source: source, fileName: fileName)
+            if externalSimulator.requiresExternalSimulation(
+                source: source,
+                fileName: fileName,
+                processConfiguration: processConfiguration
+            ) {
+                let waveform = try await externalSimulator.run(
+                    source: source,
+                    fileName: fileName,
+                    processConfiguration: processConfiguration,
+                    command: command,
+                    cancellation: token
+                )
+
+                let result = SimulationResult(
+                    experimentID: experimentID,
+                    status: .completed,
+                    finishedAt: Date(),
+                    waveform: waveform
+                )
+
+                jobs.withLock { $0[jobID]?.status = .completed }
+                emit(jobID: jobID, event: .completed)
+                return result
+            }
+
+            let pipeline = try await loadPipeline(
+                source: source,
+                fileName: fileName,
+                processConfiguration: processConfiguration
+            )
             let waveform = try await executeAnalysis(
                 command: command,
                 pipeline: pipeline,
@@ -180,8 +244,16 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         let nodeNameMap: [String: Node]
     }
 
-    private func loadPipeline(source: String, fileName: String?) async throws -> Pipeline {
-        let parseResult = await SPICEIO.parse(source, fileName: fileName)
+    private func loadPipeline(
+        source: String,
+        fileName: String?,
+        processConfiguration: ProcessConfiguration?
+    ) async throws -> Pipeline {
+        let parseResult = await parseNetlist(
+            source: source,
+            fileName: fileName,
+            processConfiguration: processConfiguration
+        )
         let netlist: ParsedNetlist
         do {
             netlist = try parseResult.get()
@@ -191,7 +263,11 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
 
         let ir: CircuitIR
         do {
-            ir = try SPICEIO.lower(netlist, configuration: .default)
+            let loweringConfig = loweringConfiguration(
+                for: netlist,
+                processConfiguration: processConfiguration
+            )
+            ir = try SPICEIO.lower(netlist, configuration: loweringConfig)
         } catch {
             throw StudioError.loweringFailure("\(error)")
         }
@@ -215,6 +291,85 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         let nodeNameMap = Self.buildNodeNameMap(netlist: netlist, ir: ir)
 
         return Pipeline(netlist: netlist, ir: ir, plan: plan, devices: devices, nodeNameMap: nodeNameMap)
+    }
+
+    private func parseNetlist(
+        source: String,
+        fileName: String?,
+        processConfiguration: ProcessConfiguration?
+    ) async -> ParseResult {
+        var parserConfig = ParserConfiguration.default
+        let includePaths = processConfiguration?.effectiveIncludePaths() ?? []
+        let hasLibraries = (processConfiguration?.technology?.libraries.contains { $0.isEnabled }) == true
+        let resolveIncludes = processConfiguration?.resolveIncludes == true
+            || hasLibraries
+            || !includePaths.isEmpty
+
+        parserConfig.resolveIncludes = resolveIncludes
+        parserConfig.includePaths = includePaths
+        if let processConfiguration {
+            parserConfig.defaultTemperature = processConfiguration.effectiveTemperature(
+                defaultValue: parserConfig.defaultTemperature
+            )
+        }
+
+        let resolver = LocalFileResolver(
+            searchPaths: parserConfig.includePaths,
+            maxDepth: parserConfig.maxIncludeDepth
+        )
+        let parser = SPICEParser()
+        return await parser.parse(
+            source: source,
+            fileName: fileName,
+            configuration: parserConfig,
+            fileResolver: resolver
+        )
+    }
+
+    private func loweringConfiguration(
+        for netlist: ParsedNetlist,
+        processConfiguration: ProcessConfiguration?
+    ) -> NetlistLowering.Configuration {
+        var config = NetlistLowering.Configuration.default
+        let netlistTemp = extractTemperature(from: netlist)
+
+        if let processConfiguration {
+            config.parameterOverrides = processConfiguration.effectiveParameters()
+            let resolvedTemp = processConfiguration.temperatureOverride
+                ?? processConfiguration.effectiveCorner()?.temperature
+                ?? processConfiguration.technology?.defaultTemperature
+                ?? netlistTemp
+                ?? config.temperature
+            config.temperature = resolvedTemp
+        } else if let netlistTemp {
+            config.temperature = netlistTemp
+        }
+
+        return config
+    }
+
+    private func extractTemperature(from netlist: ParsedNetlist) -> Double? {
+        var resolved: Double?
+        for control in netlist.controls {
+            if case .temp(let value, _) = control,
+               let numeric = numericValue(from: value) {
+                resolved = numeric
+            }
+        }
+        return resolved
+    }
+
+    private func numericValue(from value: ParsedParameterValue) -> Double? {
+        switch value {
+        case .numeric(let n):
+            return n
+        case .string(let s):
+            return Double(s)
+        case .boolean(let b):
+            return b ? 1.0 : 0.0
+        case .expression:
+            return nil
+        }
     }
 
     /// Builds a mapping from node name strings to Node objects.

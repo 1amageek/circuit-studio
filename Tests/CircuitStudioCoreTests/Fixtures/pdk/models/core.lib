@@ -1,0 +1,15 @@
+* Virtual PDK core models
+.lib tt
+.model NMOS NMOS level=1 vto=0.7 kp=110u
+.model PMOS PMOS level=1 vto=-0.7 kp=50u
+.endl
+
+.lib ff
+.model NMOS NMOS level=1 vto=0.6 kp=140u
+.model PMOS PMOS level=1 vto=-0.6 kp=70u
+.endl
+
+.lib ss
+.model NMOS NMOS level=1 vto=0.8 kp=90u
+.model PMOS PMOS level=1 vto=-0.8 kp=40u
+.endl

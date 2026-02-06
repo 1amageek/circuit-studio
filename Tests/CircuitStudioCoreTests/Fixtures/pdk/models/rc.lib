@@ -1,0 +1,5 @@
+* Virtual PDK RC models
+.lib tt
+.param rsh=50
+.param csh=1p
+.endl

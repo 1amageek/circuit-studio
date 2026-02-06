@@ -492,6 +492,7 @@ struct SimulationServiceTests {
         let result = try await service.runAnalysis(
             source: source,
             fileName: nil,
+            processConfiguration: nil,
             command: .op
         )
         #expect(result.status == .completed)

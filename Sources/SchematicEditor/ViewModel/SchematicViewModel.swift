@@ -282,7 +282,9 @@ public final class SchematicViewModel {
                 rotation: comp.rotation,
                 mirrorX: comp.mirrorX,
                 mirrorY: comp.mirrorY,
-                parameters: comp.parameters
+                parameters: comp.parameters,
+                modelPresetID: comp.modelPresetID,
+                modelName: comp.modelName
             )
             newComponents.append(comp)
         }

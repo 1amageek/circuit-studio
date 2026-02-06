@@ -10,7 +10,11 @@ public final class NetlistParsingService: Sendable {
     public init() {}
 
     /// Parse SPICE source and return a UI-facing summary.
-    public func parse(source: String, fileName: String?) async -> NetlistInfo {
+    public func parse(
+        source: String,
+        fileName: String?,
+        processConfiguration: ProcessConfiguration? = nil
+    ) async -> NetlistInfo {
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return NetlistInfo(
                 title: nil, components: [], nodes: [],
@@ -19,7 +23,11 @@ public final class NetlistParsingService: Sendable {
             )
         }
 
-        let result = await SPICEIO.parse(source, fileName: fileName)
+        let result = await parseNetlist(
+            source: source,
+            fileName: fileName,
+            processConfiguration: processConfiguration
+        )
 
         let diagnostics = result.diagnostics.map { d in
             NetlistDiagnostic(
@@ -73,6 +81,39 @@ public final class NetlistParsingService: Sendable {
             models: models,
             diagnostics: diagnostics,
             hasErrors: result.hasErrors
+        )
+    }
+
+    private func parseNetlist(
+        source: String,
+        fileName: String?,
+        processConfiguration: ProcessConfiguration?
+    ) async -> ParseResult {
+        var parserConfig = ParserConfiguration.default
+        let includePaths = processConfiguration?.effectiveIncludePaths() ?? []
+        let hasLibraries = (processConfiguration?.technology?.libraries.contains { $0.isEnabled }) == true
+        let resolveIncludes = processConfiguration?.resolveIncludes == true
+            || hasLibraries
+            || !includePaths.isEmpty
+
+        parserConfig.resolveIncludes = resolveIncludes
+        parserConfig.includePaths = includePaths
+        if let processConfiguration {
+            parserConfig.defaultTemperature = processConfiguration.effectiveTemperature(
+                defaultValue: parserConfig.defaultTemperature
+            )
+        }
+
+        let resolver = LocalFileResolver(
+            searchPaths: parserConfig.includePaths,
+            maxDepth: parserConfig.maxIncludeDepth
+        )
+        let parser = SPICEParser()
+        return await parser.parse(
+            source: source,
+            fileName: fileName,
+            configuration: parserConfig,
+            fileResolver: resolver
         )
     }
 

@@ -8,6 +8,7 @@ import Synchronization
 public enum EditorMode: Hashable, Sendable {
     case netlist
     case schematic
+    case layout
 }
 
 /// A single entry in the simulation console.
@@ -57,6 +58,7 @@ public final class AppState {
     public var simulationResult: SimulationResult?
     public var simulationError: String?
     public var selectedAnalysis: AnalysisCommand = .op
+    public var processConfiguration: ProcessConfiguration = ProcessConfiguration()
 
     /// Partial waveform data received during a running transient simulation.
     /// Updated progressively as timesteps complete.
@@ -115,10 +117,19 @@ public final class AppState {
         parseTask?.cancel()
         let source = spiceSource
         let fileName = spiceFileName
+        let process = processConfiguration.isEmpty ? nil : processConfiguration
         parseTask = Task {
-            try? await Task.sleep(for: .milliseconds(300))
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+            } catch {
+                return
+            }
             guard !Task.isCancelled else { return }
-            let info = await service.parse(source: source, fileName: fileName)
+            let info = await service.parse(
+                source: source,
+                fileName: fileName,
+                processConfiguration: process
+            )
             guard !Task.isCancelled else { return }
             self.netlistInfo = info
         }
@@ -170,6 +181,7 @@ public final class AppState {
 
         let start = Date()
         log("Running simulation...")
+        let process = processConfiguration.isEmpty ? nil : processConfiguration
 
         // Bridge streaming callbacks from background queue to MainActor
         let (stream, continuation) = AsyncStream<WaveformData>.makeStream()
@@ -188,6 +200,7 @@ public final class AppState {
             let result = try await service.runSPICE(
                 source: spiceSource,
                 fileName: spiceFileName,
+                processConfiguration: process,
                 onWaveformUpdate: handler
             )
             continuation.finish()
@@ -228,7 +241,12 @@ public final class AppState {
             name: "Quick",
             analysisCommands: [analysisCommand]
         )
-        let source = generator.generate(from: document, testbench: testbench)
+        let process = processConfiguration.isEmpty ? nil : processConfiguration
+        let source = generator.generate(
+            from: document,
+            testbench: testbench,
+            processConfiguration: process
+        )
         log(source, kind: .output)
 
         let analysisName: String = {
@@ -261,6 +279,7 @@ public final class AppState {
             let result = try await service.runSPICE(
                 source: source,
                 fileName: "schematic.cir",
+                processConfiguration: process,
                 onWaveformUpdate: handler
             )
             continuation.finish()
@@ -299,6 +318,7 @@ public final class AppState {
             let result = try await service.runAnalysis(
                 source: spiceSource,
                 fileName: spiceFileName,
+                processConfiguration: processConfiguration.isEmpty ? nil : processConfiguration,
                 command: command
             )
             simulationResult = result

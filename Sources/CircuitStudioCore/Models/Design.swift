@@ -35,6 +35,7 @@ public struct Component: Sendable, Identifiable, Codable, Hashable {
     public var typeName: String
     public var pins: [Pin]
     public var parameters: [String: Double]
+    public var modelName: String?
     public var position: CGPoint
     public var rotation: Double
 
@@ -44,6 +45,7 @@ public struct Component: Sendable, Identifiable, Codable, Hashable {
         typeName: String,
         pins: [Pin] = [],
         parameters: [String: Double] = [:],
+        modelName: String? = nil,
         position: CGPoint = .zero,
         rotation: Double = 0
     ) {
@@ -52,6 +54,7 @@ public struct Component: Sendable, Identifiable, Codable, Hashable {
         self.typeName = typeName
         self.pins = pins
         self.parameters = parameters
+        self.modelName = modelName
         self.position = position
         self.rotation = rotation
     }

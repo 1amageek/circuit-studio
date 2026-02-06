@@ -10,9 +10,131 @@ public enum BuiltInDevices {
             resistor, capacitor, inductor,
             voltageSource, currentSource,
             vcvs, vccs, ccvs, cccs,
-            diode, npn, pnp, nmosL1, pmosL1,
+            diode, npn, pnp,
+            nmosL1, pmosL1, nmosL2, pmosL2, nmosL3, pmosL3,
             ground, terminal,
         ]
+    }
+
+    // MARK: - MOSFET Shared
+
+    private static let nmosPortDefinitions: [PortDefinition] = [
+        PortDefinition(id: "drain", displayName: "Drain", position: CGPoint(x: 10, y: -30)),
+        PortDefinition(id: "gate", displayName: "Gate", position: CGPoint(x: -20, y: 0)),
+        PortDefinition(id: "source", displayName: "Source", position: CGPoint(x: 10, y: 30)),
+        PortDefinition(id: "bulk", displayName: "Bulk", position: CGPoint(x: -10, y: 30)),
+    ]
+
+    private static let pmosPortDefinitions: [PortDefinition] = [
+        PortDefinition(id: "drain", displayName: "Drain", position: CGPoint(x: 10, y: 30)),
+        PortDefinition(id: "gate", displayName: "Gate", position: CGPoint(x: -20, y: 0)),
+        PortDefinition(id: "source", displayName: "Source", position: CGPoint(x: 10, y: -30)),
+        PortDefinition(id: "bulk", displayName: "Bulk", position: CGPoint(x: -10, y: -30)),
+    ]
+
+    private static let nmosSymbolDefinition = SymbolDefinition(
+        shape: .custom([
+            // Gate lead
+            .line(from: CGPoint(x: -20, y: 0), to: CGPoint(x: -8, y: 0)),
+            // Gate plate
+            .line(from: CGPoint(x: -8, y: -14), to: CGPoint(x: -8, y: 14)),
+            // Channel (continuous)
+            .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -4, y: 14)),
+            // Drain
+            .line(from: CGPoint(x: -4, y: -10), to: CGPoint(x: 10, y: -10)),
+            .line(from: CGPoint(x: 10, y: -10), to: CGPoint(x: 10, y: -30)),
+            // Source
+            .line(from: CGPoint(x: -4, y: 10), to: CGPoint(x: 10, y: 10)),
+            .line(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 10, y: 30)),
+            // Arrow on source (NMOS: pointing left into channel)
+            .line(from: CGPoint(x: 4, y: 5), to: CGPoint(x: -4, y: 10)),
+            .line(from: CGPoint(x: 4, y: 15), to: CGPoint(x: -4, y: 10)),
+            .line(from: CGPoint(x: 4, y: 5), to: CGPoint(x: 4, y: 15)),
+            // Bulk lead (routed from bottom of channel, avoiding gate)
+            .line(from: CGPoint(x: -4, y: 14), to: CGPoint(x: -10, y: 14)),
+            .line(from: CGPoint(x: -10, y: 14), to: CGPoint(x: -10, y: 30)),
+        ]),
+        size: CGSize(width: 30, height: 60),
+        iconName: "memorychip"
+    )
+
+    private static let pmosSymbolDefinition = SymbolDefinition(
+        shape: .custom([
+            // Gate lead (shorter for bubble)
+            .line(from: CGPoint(x: -20, y: 0), to: CGPoint(x: -12, y: 0)),
+            // Gate bubble (PMOS inversion)
+            .circle(center: CGPoint(x: -10, y: 0), radius: 2),
+            // Gate plate
+            .line(from: CGPoint(x: -8, y: -14), to: CGPoint(x: -8, y: 14)),
+            // Channel (continuous)
+            .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -4, y: 14)),
+            // Source (top for PMOS)
+            .line(from: CGPoint(x: -4, y: -10), to: CGPoint(x: 10, y: -10)),
+            .line(from: CGPoint(x: 10, y: -10), to: CGPoint(x: 10, y: -30)),
+            // Drain (bottom for PMOS)
+            .line(from: CGPoint(x: -4, y: 10), to: CGPoint(x: 10, y: 10)),
+            .line(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 10, y: 30)),
+            // Arrow on source (PMOS: pointing right, away from channel)
+            .line(from: CGPoint(x: -4, y: -15), to: CGPoint(x: 4, y: -10)),
+            .line(from: CGPoint(x: -4, y: -5), to: CGPoint(x: 4, y: -10)),
+            .line(from: CGPoint(x: -4, y: -15), to: CGPoint(x: -4, y: -5)),
+            // Bulk lead (routed from top of channel, avoiding gate)
+            .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -10, y: -14)),
+            .line(from: CGPoint(x: -10, y: -14), to: CGPoint(x: -10, y: -30)),
+        ]),
+        size: CGSize(width: 30, height: 60),
+        iconName: "memorychip"
+    )
+
+    private static let mosfetInstanceParameters: [ParameterSchema] = [
+        ParameterSchema(id: "w", displayName: "Width", unit: "m", defaultValue: 10e-6, range: 1e-9...1, isRequired: true),
+        ParameterSchema(id: "l", displayName: "Length", unit: "m", defaultValue: 1e-6, range: 1e-9...1, isRequired: true),
+    ]
+
+    private static let mosfetBaseModelParameters: [ParameterSchema] = [
+        ParameterSchema(id: "vto", displayName: "Threshold Voltage", unit: "V", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "kp", displayName: "Transconductance", unit: "A/V\u{00B2}", defaultValue: 2e-5, isModelParameter: true),
+        ParameterSchema(id: "gamma", displayName: "Body Effect", unit: "V^0.5", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "phi", displayName: "Surface Potential", unit: "V", defaultValue: 0.6, isModelParameter: true),
+        ParameterSchema(id: "lambda", displayName: "Channel-Length Modulation", unit: "1/V", defaultValue: 0.0, isModelParameter: true),
+    ]
+
+    private static let mosfetLevel2Parameters: [ParameterSchema] = [
+        ParameterSchema(id: "theta", displayName: "Mobility Degradation", unit: "1/V", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "eta", displayName: "DIBL Coefficient", unit: "V/V", defaultValue: 0.0, isModelParameter: true),
+    ]
+
+    private static let mosfetLevel3Parameters: [ParameterSchema] = [
+        ParameterSchema(id: "kappa", displayName: "Velocity Saturation", unit: "1/V", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "vmax", displayName: "Saturation Velocity", unit: "m/s", defaultValue: 0.0, isModelParameter: true),
+    ]
+
+    private static let mosfetCapacitanceParameters: [ParameterSchema] = [
+        ParameterSchema(id: "tox", displayName: "Gate Oxide Thickness", unit: "m", defaultValue: 100e-9, isModelParameter: true),
+        ParameterSchema(id: "cgso", displayName: "Gate-Source Overlap", unit: "F/m", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "cgdo", displayName: "Gate-Drain Overlap", unit: "F/m", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "cgbo", displayName: "Gate-Bulk Overlap", unit: "F/m", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "cj", displayName: "Junction Capacitance", unit: "F/m\u{00B2}", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "cjsw", displayName: "Sidewall Capacitance", unit: "F/m", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "mj", displayName: "Junction Grading", unit: "", defaultValue: 0.5, isModelParameter: true),
+        ParameterSchema(id: "mjsw", displayName: "Sidewall Grading", unit: "", defaultValue: 0.33, isModelParameter: true),
+        ParameterSchema(id: "pb", displayName: "Junction Potential", unit: "V", defaultValue: 0.8, isModelParameter: true),
+        ParameterSchema(id: "ad", displayName: "Drain Area", unit: "m\u{00B2}", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "as", displayName: "Source Area", unit: "m\u{00B2}", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "pd", displayName: "Drain Perimeter", unit: "m", defaultValue: 0.0, isModelParameter: true),
+        ParameterSchema(id: "ps", displayName: "Source Perimeter", unit: "m", defaultValue: 0.0, isModelParameter: true),
+    ]
+
+    private static func mosfetParameters(level: Int) -> [ParameterSchema] {
+        var params = mosfetInstanceParameters + mosfetBaseModelParameters
+        if level >= 2 {
+            params += mosfetLevel2Parameters
+        }
+        if level >= 3 {
+            params += mosfetLevel3Parameters
+        }
+        params += mosfetCapacitanceParameters
+        return params
     }
 
     // MARK: - Passive
@@ -428,100 +550,68 @@ public enum BuiltInDevices {
 
     public static let nmosL1 = DeviceKind(
         id: "nmos_l1",
-        displayName: "NMOS",
+        displayName: "NMOS L1",
         category: .semiconductor,
         spicePrefix: "M",
         modelType: "NMOS",
-        portDefinitions: [
-            PortDefinition(id: "drain", displayName: "Drain", position: CGPoint(x: 10, y: -30)),
-            PortDefinition(id: "gate", displayName: "Gate", position: CGPoint(x: -20, y: 0)),
-            PortDefinition(id: "source", displayName: "Source", position: CGPoint(x: 10, y: 30)),
-            PortDefinition(id: "bulk", displayName: "Bulk", position: CGPoint(x: -10, y: 30)),
-        ],
-        parameterSchema: [
-            ParameterSchema(id: "w", displayName: "Width", unit: "m", defaultValue: 10e-6, range: 1e-9...1, isRequired: true),
-            ParameterSchema(id: "l", displayName: "Length", unit: "m", defaultValue: 1e-6, range: 1e-9...1, isRequired: true),
-            ParameterSchema(id: "vto", displayName: "Threshold Voltage", unit: "V", defaultValue: 0.0, isModelParameter: true),
-            ParameterSchema(id: "kp", displayName: "Transconductance", unit: "A/V\u{00B2}", defaultValue: 2e-5, isModelParameter: true),
-            ParameterSchema(id: "gamma", displayName: "Body Effect", unit: "V^0.5", defaultValue: 0.0, isModelParameter: true),
-            ParameterSchema(id: "phi", displayName: "Surface Potential", unit: "V", defaultValue: 0.6, isModelParameter: true),
-            ParameterSchema(id: "lambda", displayName: "Channel-Length Modulation", unit: "1/V", defaultValue: 0.0, isModelParameter: true),
-        ],
-        symbol: SymbolDefinition(
-            shape: .custom([
-                // Gate lead
-                .line(from: CGPoint(x: -20, y: 0), to: CGPoint(x: -8, y: 0)),
-                // Gate plate
-                .line(from: CGPoint(x: -8, y: -14), to: CGPoint(x: -8, y: 14)),
-                // Channel (continuous)
-                .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -4, y: 14)),
-                // Drain
-                .line(from: CGPoint(x: -4, y: -10), to: CGPoint(x: 10, y: -10)),
-                .line(from: CGPoint(x: 10, y: -10), to: CGPoint(x: 10, y: -30)),
-                // Source
-                .line(from: CGPoint(x: -4, y: 10), to: CGPoint(x: 10, y: 10)),
-                .line(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 10, y: 30)),
-                // Arrow on source (NMOS: pointing left into channel)
-                .line(from: CGPoint(x: 4, y: 5), to: CGPoint(x: -4, y: 10)),
-                .line(from: CGPoint(x: 4, y: 15), to: CGPoint(x: -4, y: 10)),
-                .line(from: CGPoint(x: 4, y: 5), to: CGPoint(x: 4, y: 15)),
-                // Bulk lead (routed from bottom of channel, avoiding gate)
-                .line(from: CGPoint(x: -4, y: 14), to: CGPoint(x: -10, y: 14)),
-                .line(from: CGPoint(x: -10, y: 14), to: CGPoint(x: -10, y: 30)),
-            ]),
-            size: CGSize(width: 30, height: 60),
-            iconName: "memorychip"
-        )
+        portDefinitions: nmosPortDefinitions,
+        parameterSchema: mosfetParameters(level: 1),
+        symbol: nmosSymbolDefinition
     )
 
     public static let pmosL1 = DeviceKind(
         id: "pmos_l1",
-        displayName: "PMOS",
+        displayName: "PMOS L1",
         category: .semiconductor,
         spicePrefix: "M",
         modelType: "PMOS",
-        portDefinitions: [
-            PortDefinition(id: "drain", displayName: "Drain", position: CGPoint(x: 10, y: 30)),
-            PortDefinition(id: "gate", displayName: "Gate", position: CGPoint(x: -20, y: 0)),
-            PortDefinition(id: "source", displayName: "Source", position: CGPoint(x: 10, y: -30)),
-            PortDefinition(id: "bulk", displayName: "Bulk", position: CGPoint(x: -10, y: -30)),
-        ],
-        parameterSchema: [
-            ParameterSchema(id: "w", displayName: "Width", unit: "m", defaultValue: 10e-6, range: 1e-9...1, isRequired: true),
-            ParameterSchema(id: "l", displayName: "Length", unit: "m", defaultValue: 1e-6, range: 1e-9...1, isRequired: true),
-            ParameterSchema(id: "vto", displayName: "Threshold Voltage", unit: "V", defaultValue: 0.0, isModelParameter: true),
-            ParameterSchema(id: "kp", displayName: "Transconductance", unit: "A/V\u{00B2}", defaultValue: 2e-5, isModelParameter: true),
-            ParameterSchema(id: "gamma", displayName: "Body Effect", unit: "V^0.5", defaultValue: 0.0, isModelParameter: true),
-            ParameterSchema(id: "phi", displayName: "Surface Potential", unit: "V", defaultValue: 0.6, isModelParameter: true),
-            ParameterSchema(id: "lambda", displayName: "Channel-Length Modulation", unit: "1/V", defaultValue: 0.0, isModelParameter: true),
-        ],
-        symbol: SymbolDefinition(
-            shape: .custom([
-                // Gate lead (shorter for bubble)
-                .line(from: CGPoint(x: -20, y: 0), to: CGPoint(x: -12, y: 0)),
-                // Gate bubble (PMOS inversion)
-                .circle(center: CGPoint(x: -10, y: 0), radius: 2),
-                // Gate plate
-                .line(from: CGPoint(x: -8, y: -14), to: CGPoint(x: -8, y: 14)),
-                // Channel (continuous)
-                .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -4, y: 14)),
-                // Source (top for PMOS)
-                .line(from: CGPoint(x: -4, y: -10), to: CGPoint(x: 10, y: -10)),
-                .line(from: CGPoint(x: 10, y: -10), to: CGPoint(x: 10, y: -30)),
-                // Drain (bottom for PMOS)
-                .line(from: CGPoint(x: -4, y: 10), to: CGPoint(x: 10, y: 10)),
-                .line(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 10, y: 30)),
-                // Arrow on source (PMOS: pointing right, away from channel)
-                .line(from: CGPoint(x: -4, y: -15), to: CGPoint(x: 4, y: -10)),
-                .line(from: CGPoint(x: -4, y: -5), to: CGPoint(x: 4, y: -10)),
-                .line(from: CGPoint(x: -4, y: -15), to: CGPoint(x: -4, y: -5)),
-                // Bulk lead (routed from top of channel, avoiding gate)
-                .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -10, y: -14)),
-                .line(from: CGPoint(x: -10, y: -14), to: CGPoint(x: -10, y: -30)),
-            ]),
-            size: CGSize(width: 30, height: 60),
-            iconName: "memorychip"
-        )
+        portDefinitions: pmosPortDefinitions,
+        parameterSchema: mosfetParameters(level: 1),
+        symbol: pmosSymbolDefinition
+    )
+
+    public static let nmosL2 = DeviceKind(
+        id: "nmos_l2",
+        displayName: "NMOS L2",
+        category: .semiconductor,
+        spicePrefix: "M",
+        modelType: "NMOS",
+        portDefinitions: nmosPortDefinitions,
+        parameterSchema: mosfetParameters(level: 2),
+        symbol: nmosSymbolDefinition
+    )
+
+    public static let pmosL2 = DeviceKind(
+        id: "pmos_l2",
+        displayName: "PMOS L2",
+        category: .semiconductor,
+        spicePrefix: "M",
+        modelType: "PMOS",
+        portDefinitions: pmosPortDefinitions,
+        parameterSchema: mosfetParameters(level: 2),
+        symbol: pmosSymbolDefinition
+    )
+
+    public static let nmosL3 = DeviceKind(
+        id: "nmos_l3",
+        displayName: "NMOS L3",
+        category: .semiconductor,
+        spicePrefix: "M",
+        modelType: "NMOS",
+        portDefinitions: nmosPortDefinitions,
+        parameterSchema: mosfetParameters(level: 3),
+        symbol: nmosSymbolDefinition
+    )
+
+    public static let pmosL3 = DeviceKind(
+        id: "pmos_l3",
+        displayName: "PMOS L3",
+        category: .semiconductor,
+        spicePrefix: "M",
+        modelType: "PMOS",
+        portDefinitions: pmosPortDefinitions,
+        parameterSchema: mosfetParameters(level: 3),
+        symbol: pmosSymbolDefinition
     )
 
     // MARK: - Special

@@ -1,0 +1,85 @@
+{
+  "id": "c1f6a0c2-6c71-4c4b-9c21-1c46a625c2f4",
+  "name": "Virtual45",
+  "version": "1.0",
+  "foundry": "VirtualFoundry",
+  "defaultTemperature": 27.0,
+  "includePaths": [
+    "./pdk",
+    "./pdk/models"
+  ],
+  "libraries": [
+    {
+      "id": "core_models",
+      "name": "Core Models",
+      "path": "models/core.lib",
+      "kind": "library",
+      "defaultSection": "tt",
+      "isEnabled": true
+    },
+    {
+      "id": "passives",
+      "name": "Passives",
+      "path": "models/passives.inc",
+      "kind": "include",
+      "isEnabled": true
+    },
+    {
+      "id": "rc_extract",
+      "name": "RC Extract",
+      "path": "models/rc.lib",
+      "kind": "library",
+      "defaultSection": "tt",
+      "isEnabled": false
+    }
+  ],
+  "globalParameters": {
+    "vdd": 1.0,
+    "tox": 2e-9,
+    "u0": 0.045
+  },
+  "cornerSet": {
+    "id": "a2d116d8-3c03-4c9f-9b2a-3a1a27c3fe6a",
+    "name": "PVT",
+    "corners": [
+      {
+        "id": "dfb9ae1f-6f04-4bda-8d58-3398e58f6f6a",
+        "name": "TT",
+        "temperature": 27.0,
+        "parameterOverrides": {
+          "vdd": 1.0,
+          "u0": 0.045
+        },
+        "librarySectionOverrides": {
+          "core_models": "tt"
+        }
+      },
+      {
+        "id": "b6af1c1f-409d-4705-8b97-1e2f90c7c1b2",
+        "name": "FF",
+        "temperature": 125.0,
+        "parameterOverrides": {
+          "vdd": 1.1,
+          "u0": 0.05
+        },
+        "librarySectionOverrides": {
+          "core_models": "ff"
+        }
+      },
+      {
+        "id": "36cd0e3e-2d58-4fb2-9a9c-0d5d5f3b58b8",
+        "name": "SS",
+        "temperature": -40.0,
+        "parameterOverrides": {
+          "vdd": 0.9,
+          "u0": 0.04
+        },
+        "librarySectionOverrides": {
+          "core_models": "ss"
+        }
+      }
+    ]
+  },
+  "defaultCornerID": "b6af1c1f-409d-4705-8b97-1e2f90c7c1b2",
+  "notes": "Virtual PDK used for tests."
+}

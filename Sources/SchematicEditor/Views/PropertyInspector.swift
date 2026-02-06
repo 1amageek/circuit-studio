@@ -103,12 +103,31 @@ public struct PropertyInspector: View {
     @ViewBuilder
     private func modelPresetSection(index: Int, kind: DeviceKind) -> some View {
         Section("Model") {
+            let externalModel = viewModel.document.components[index].modelName?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
+            TextField("Model Name", text: Binding(
+                get: { externalModel },
+                set: { newValue in
+                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty {
+                        viewModel.document.components[index].modelName = nil
+                    } else {
+                        viewModel.document.components[index].modelName = trimmed
+                        viewModel.document.components[index].modelPresetID = nil
+                    }
+                }
+            ))
+
             Picker("Preset", selection: Binding<String?>(
                 get: {
                     viewModel.document.components[index].modelPresetID
                 },
                 set: { newPresetID in
                     viewModel.document.components[index].modelPresetID = newPresetID
+                    if newPresetID != nil {
+                        viewModel.document.components[index].modelName = nil
+                    }
                     if let presetID = newPresetID,
                        let preset = viewModel.catalog.preset(for: presetID) {
                         for (key, value) in preset.parameters {
@@ -123,6 +142,13 @@ public struct PropertyInspector: View {
                         Text(preset.displayName).tag(Optional(preset.id))
                     }
                 }
+            }
+            .disabled(!externalModel.isEmpty)
+
+            if !externalModel.isEmpty {
+                Text("Using external model '\(externalModel)'. Presets are disabled.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             if let presetID = viewModel.document.components[index].modelPresetID,

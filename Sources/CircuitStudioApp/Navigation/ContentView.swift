@@ -2,6 +2,7 @@ import SwiftUI
 import CircuitStudioCore
 import SchematicEditor
 import WaveformViewer
+import LayoutEditor
 
 /// Main content area with macOS HIG-compliant layout:
 /// Sidebar (navigator) | Editor Area | Inspector
@@ -10,17 +11,20 @@ public struct ContentView: View {
     let services: ServiceContainer
     @Bindable var waveformViewModel: WaveformViewModel
     @Bindable var schematicViewModel: SchematicViewModel
+    @Bindable var layoutViewModel: LayoutEditorViewModel
 
     public init(
         appState: AppState,
         services: ServiceContainer,
         waveformViewModel: WaveformViewModel,
-        schematicViewModel: SchematicViewModel
+        schematicViewModel: SchematicViewModel,
+        layoutViewModel: LayoutEditorViewModel
     ) {
         self.appState = appState
         self.services = services
         self.waveformViewModel = waveformViewModel
         self.schematicViewModel = schematicViewModel
+        self.layoutViewModel = layoutViewModel
     }
 
     public var body: some View {
@@ -108,6 +112,8 @@ public struct ContentView: View {
             NetlistEditorView(appState: appState)
         case .schematic:
             SchematicEditorView(viewModel: schematicViewModel)
+        case .layout:
+            LayoutEditorView(viewModel: layoutViewModel)
         }
     }
 
@@ -122,9 +128,11 @@ public struct ContentView: View {
                     .tag(EditorMode.netlist)
                 Label("Schematic", systemImage: "square.grid.3x3")
                     .tag(EditorMode.schematic)
+                Label("Layout", systemImage: "square.dashed")
+                    .tag(EditorMode.layout)
             }
             .pickerStyle(.segmented)
-            .frame(width: 200)
+            .frame(width: 260)
         }
 
         // Run / Stop
@@ -147,6 +155,8 @@ public struct ContentView: View {
                                 generator: services.netlistGenerator,
                                 service: services.simulationService
                             )
+                        case .layout:
+                            break
                         default:
                             await appState.runSimulation(service: services.simulationService)
                         }
@@ -202,6 +212,12 @@ public struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+        case .layout:
+            ToolbarItem(placement: .status) {
+                Text("Layout")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
 
@@ -259,6 +275,8 @@ public struct ContentView: View {
             if appState.spiceSource.isEmpty { return true }
             guard let info = appState.netlistInfo else { return true }
             return info.hasErrors || info.components.isEmpty
+        case .layout:
+            return true
         }
     }
 
@@ -346,6 +364,8 @@ public struct ContentView: View {
                 PropertyInspector(viewModel: schematicViewModel)
             case .netlist:
                 NetlistInspectorView(appState: appState)
+            case .layout:
+                EmptyView()
             }
         }
     }
@@ -398,6 +418,7 @@ private struct NetlistInspectorView: View {
     var body: some View {
         Form {
             fileSection
+            processSection
             analysisSection
             componentsSection
             nodesSection
@@ -418,6 +439,95 @@ private struct NetlistInspectorView: View {
                 LabeledContent("Title", value: title)
             }
         }
+    }
+
+    // MARK: - Process
+
+    @ViewBuilder
+    private var processSection: some View {
+        Section("Process") {
+            if let technology = appState.processConfiguration.technology {
+                LabeledContent("Name", value: technology.name)
+                if let version = technology.version, !version.isEmpty {
+                    LabeledContent("Version", value: version)
+                }
+                if let foundry = technology.foundry, !foundry.isEmpty {
+                    LabeledContent("Foundry", value: foundry)
+                }
+
+                if !technology.cornerSet.corners.isEmpty {
+                    Picker("Corner", selection: Binding<UUID?>(
+                        get: { appState.processConfiguration.cornerID },
+                        set: { appState.processConfiguration.cornerID = $0 }
+                    )) {
+                        Text("Default").tag(UUID?.none)
+                        ForEach(technology.cornerSet.corners) { corner in
+                            Text(corner.name).tag(Optional(corner.id))
+                        }
+                    }
+                }
+
+                TextField("Temp Override (C)", text: temperatureOverrideBinding)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack {
+                    Button("Change...") { openProcessFile() }
+                    Button("Clear") { clearProcessConfiguration() }
+                }
+            } else {
+                Text("No process loaded")
+                    .foregroundStyle(.secondary)
+                Button("Load Process...") { openProcessFile() }
+            }
+        }
+    }
+
+    private var temperatureOverrideBinding: Binding<String> {
+        Binding(
+            get: {
+                if let value = appState.processConfiguration.temperatureOverride {
+                    return String(format: "%.4g", value)
+                }
+                return ""
+            },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    appState.processConfiguration.temperatureOverride = nil
+                    return
+                }
+                if let parsed = Double(trimmed) {
+                    appState.processConfiguration.temperatureOverride = parsed
+                }
+            }
+        )
+    }
+
+    private func openProcessFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [
+            .init(filenameExtension: "json")!,
+            .plainText,
+        ]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                let data = try Data(contentsOf: url)
+                let technology = try JSONDecoder().decode(ProcessTechnology.self, from: data)
+                appState.processConfiguration.technology = technology
+                appState.processConfiguration.cornerID = technology.defaultCornerID
+                appState.processConfiguration.resolveIncludes = true
+                appState.log("Loaded process: \(technology.name)", kind: .success)
+            } catch {
+                appState.simulationError = "Failed to load process: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func clearProcessConfiguration() {
+        appState.processConfiguration = ProcessConfiguration()
     }
 
     // MARK: - Analysis
@@ -627,7 +737,8 @@ public struct NetlistEditorView: View {
         appState: state,
         services: ServiceContainer(),
         waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.voltageDividerViewModel()
+        schematicViewModel: SchematicPreview.voltageDividerViewModel(),
+        layoutViewModel: LayoutEditorViewModel()
     )
     .frame(width: 1200, height: 800)
 }
@@ -640,7 +751,8 @@ public struct NetlistEditorView: View {
         appState: state,
         services: ServiceContainer(),
         waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.diodeForwardBiasViewModel()
+        schematicViewModel: SchematicPreview.diodeForwardBiasViewModel(),
+        layoutViewModel: LayoutEditorViewModel()
     )
     .frame(width: 1200, height: 800)
 }
@@ -656,7 +768,8 @@ public struct NetlistEditorView: View {
         appState: state,
         services: ServiceContainer(),
         waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.rcLowpassViewModel()
+        schematicViewModel: SchematicPreview.rcLowpassViewModel(),
+        layoutViewModel: LayoutEditorViewModel()
     )
     .frame(width: 1200, height: 800)
 }
@@ -669,7 +782,8 @@ public struct NetlistEditorView: View {
         appState: state,
         services: ServiceContainer(),
         waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.rcLoadedStepViewModel()
+        schematicViewModel: SchematicPreview.rcLoadedStepViewModel(),
+        layoutViewModel: LayoutEditorViewModel()
     )
     .frame(width: 1200, height: 800)
 }
@@ -682,7 +796,8 @@ public struct NetlistEditorView: View {
         appState: state,
         services: ServiceContainer(),
         waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.rlcDampedViewModel()
+        schematicViewModel: SchematicPreview.rlcDampedViewModel(),
+        layoutViewModel: LayoutEditorViewModel()
     )
     .frame(width: 1200, height: 800)
 }
@@ -695,8 +810,8 @@ public struct NetlistEditorView: View {
         appState: state,
         services: ServiceContainer(),
         waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.cmosInverterViewModel()
+        schematicViewModel: SchematicPreview.cmosInverterViewModel(),
+        layoutViewModel: LayoutEditorViewModel()
     )
     .frame(width: 1200, height: 800)
 }
-
