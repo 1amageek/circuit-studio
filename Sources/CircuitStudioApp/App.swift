@@ -7,9 +7,7 @@ import LayoutEditor
 public struct CircuitStudioApp: App {
     @State private var appState = AppState()
     @State private var services = ServiceContainer()
-    @State private var waveformViewModel = WaveformViewModel()
-    @State private var schematicViewModel = SchematicViewModel()
-    @State private var layoutViewModel = LayoutEditorViewModel()
+    @State private var project = DesignProject()
 
     public init() {}
 
@@ -18,9 +16,7 @@ public struct CircuitStudioApp: App {
             ContentView(
                 appState: appState,
                 services: services,
-                waveformViewModel: waveformViewModel,
-                schematicViewModel: schematicViewModel,
-                layoutViewModel: layoutViewModel
+                project: project
             )
             .frame(minWidth: 800, minHeight: 500)
         }

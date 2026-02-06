@@ -53,7 +53,8 @@ struct ProjectNavigatorView: View {
         }
         do {
             try appState.loadSPICEFile(url: url)
-            appState.activeEditor = .netlist
+            appState.workspace = .schematicCapture
+            appState.schematicMode = .netlist
         } catch {
             appState.simulationError = "Failed to load file: \(error.localizedDescription)"
         }

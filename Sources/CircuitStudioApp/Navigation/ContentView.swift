@@ -5,27 +5,25 @@ import WaveformViewer
 import LayoutEditor
 
 /// Main content area with macOS HIG-compliant layout:
-/// Sidebar (navigator) | Editor Area | Inspector
+/// Sidebar (navigator) | Workspace Content | Inspector
 public struct ContentView: View {
     @Bindable var appState: AppState
     let services: ServiceContainer
-    @Bindable var waveformViewModel: WaveformViewModel
-    @Bindable var schematicViewModel: SchematicViewModel
-    @Bindable var layoutViewModel: LayoutEditorViewModel
+    @Bindable var project: DesignProject
 
     public init(
         appState: AppState,
         services: ServiceContainer,
-        waveformViewModel: WaveformViewModel,
-        schematicViewModel: SchematicViewModel,
-        layoutViewModel: LayoutEditorViewModel
+        project: DesignProject
     ) {
         self.appState = appState
         self.services = services
-        self.waveformViewModel = waveformViewModel
-        self.schematicViewModel = schematicViewModel
-        self.layoutViewModel = layoutViewModel
+        self.project = project
     }
+
+    private var schematicViewModel: SchematicViewModel { project.schematicViewModel }
+    private var layoutViewModel: LayoutEditorViewModel { project.layoutViewModel }
+    private var waveformViewModel: WaveformViewModel { project.waveformViewModel }
 
     public var body: some View {
         NavigationSplitView {
@@ -33,7 +31,7 @@ public struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
         } detail: {
             VStack(spacing: 0) {
-                detailView
+                workspaceContent
                     .layoutPriority(1)
                 if appState.showConsole {
                     SimulationConsoleView(appState: appState)
@@ -90,12 +88,25 @@ public struct ContentView: View {
         )
     }
 
-    // MARK: - Detail View
+    // MARK: - Workspace Content
 
     @ViewBuilder
-    private var detailView: some View {
+    private var workspaceContent: some View {
+        switch appState.workspace {
+        case .schematicCapture:
+            schematicCaptureContent
+        case .layout:
+            layoutContent
+        case .integration:
+            integrationContent
+        }
+    }
+
+    /// schematicCapture workspace: schematic or netlist editor + optional waveform panel
+    @ViewBuilder
+    private var schematicCaptureContent: some View {
         HSplitView {
-            editorView
+            schematicEditorContent
                 .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
             if appState.showSimulationResults {
                 WaveformResultView(viewModel: waveformViewModel)
@@ -106,33 +117,63 @@ public struct ContentView: View {
     }
 
     @ViewBuilder
-    private var editorView: some View {
-        switch appState.activeEditor {
+    private var schematicEditorContent: some View {
+        switch appState.schematicMode {
+        case .visual:
+            SchematicEditorView(viewModel: schematicViewModel)
         case .netlist:
             NetlistEditorView(appState: appState)
-        case .schematic:
-            SchematicEditorView(viewModel: schematicViewModel)
-        case .layout:
-            LayoutEditorView(viewModel: layoutViewModel)
         }
+    }
+
+    /// layout workspace: layout editor (DRC built-in)
+    private var layoutContent: some View {
+        LayoutEditorView(viewModel: layoutViewModel)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// integration workspace: schematic + layout side by side
+    @ViewBuilder
+    private var integrationContent: some View {
+        HSplitView {
+            SchematicEditorView(viewModel: schematicViewModel)
+                .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+            LayoutEditorView(viewModel: layoutViewModel)
+                .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Editor mode picker (center)
+        // Workspace picker (center)
         ToolbarItem(placement: .principal) {
-            Picker("Editor", selection: $appState.activeEditor) {
-                Label("Netlist", systemImage: "doc.text")
-                    .tag(EditorMode.netlist)
-                Label("Schematic", systemImage: "square.grid.3x3")
-                    .tag(EditorMode.schematic)
-                Label("Layout", systemImage: "square.dashed")
-                    .tag(EditorMode.layout)
+            HStack(spacing: 8) {
+                Picker("Workspace", selection: $appState.workspace) {
+                    Label("Schematic", systemImage: "square.grid.3x3")
+                        .tag(Workspace.schematicCapture)
+                    Label("Layout", systemImage: "square.dashed")
+                        .tag(Workspace.layout)
+                    Label("Integration", systemImage: "rectangle.split.2x1")
+                        .tag(Workspace.integration)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 300)
+
+                // SchematicMode toggle (only in schematicCapture)
+                if appState.workspace == .schematicCapture {
+                    Picker("Mode", selection: $appState.schematicMode) {
+                        Label("Visual", systemImage: "square.grid.3x3")
+                            .tag(SchematicMode.visual)
+                        Label("Netlist", systemImage: "doc.text")
+                            .tag(SchematicMode.netlist)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 160)
+                }
             }
-            .pickerStyle(.segmented)
-            .frame(width: 260)
         }
 
         // Run / Stop
@@ -147,18 +188,21 @@ public struct ContentView: View {
             } else {
                 Button {
                     Task {
-                        switch appState.activeEditor {
-                        case .schematic:
-                            await appState.runSchematicSimulation(
-                                document: schematicViewModel.document,
-                                analysisCommand: appState.selectedAnalysis,
-                                generator: services.netlistGenerator,
-                                service: services.simulationService
-                            )
-                        case .layout:
+                        switch appState.workspace {
+                        case .schematicCapture:
+                            switch appState.schematicMode {
+                            case .visual:
+                                await appState.runSchematicSimulation(
+                                    document: schematicViewModel.document,
+                                    analysisCommand: appState.selectedAnalysis,
+                                    generator: services.netlistGenerator,
+                                    service: services.simulationService
+                                )
+                            case .netlist:
+                                await appState.runSimulation(service: services.simulationService)
+                            }
+                        case .layout, .integration:
                             break
-                        default:
-                            await appState.runSimulation(service: services.simulationService)
                         }
                     }
                 } label: {
@@ -202,24 +246,7 @@ public struct ContentView: View {
         }
 
         // Context-dependent toolbar items
-        switch appState.activeEditor {
-        case .schematic:
-            schematicToolbarItems
-        case .netlist:
-            ToolbarItem(placement: .status) {
-                if let fileName = appState.spiceFileName {
-                    Text(fileName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        case .layout:
-            ToolbarItem(placement: .status) {
-                Text("Layout")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
+        contextToolbarItems
 
         if appState.showSimulationResults {
             waveformToolbarItems
@@ -241,15 +268,15 @@ public struct ContentView: View {
 
         // Panel toggles
         ToolbarItemGroup {
-            Button {
-                appState.showSimulationResults.toggle()
-            } label: {
-                Label("Simulation Results",
-                      systemImage: appState.showSimulationResults
-                          ? "rectangle.righthalf.inset.filled"
-                          : "rectangle.righthalf.inset.filled")
+            if appState.workspace == .schematicCapture {
+                Button {
+                    appState.showSimulationResults.toggle()
+                } label: {
+                    Label("Simulation Results",
+                          systemImage: "rectangle.righthalf.inset.filled")
+                }
+                .disabled(appState.simulationResult == nil && !appState.isSimulating)
             }
-            .disabled(appState.simulationResult == nil && !appState.isSimulating)
 
             Button {
                 appState.showConsole.toggle()
@@ -265,17 +292,51 @@ public struct ContentView: View {
         }
     }
 
+    @ToolbarContentBuilder
+    private var contextToolbarItems: some ToolbarContent {
+        switch appState.workspace {
+        case .schematicCapture:
+            switch appState.schematicMode {
+            case .visual:
+                schematicToolbarItems
+            case .netlist:
+                ToolbarItem(placement: .status) {
+                    if let fileName = appState.spiceFileName {
+                        Text(fileName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        case .layout:
+            ToolbarItem(placement: .status) {
+                Text("Layout")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        case .integration:
+            ToolbarItem(placement: .status) {
+                Text("Integration")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private var runButtonDisabled: Bool {
         if appState.isSimulating { return true }
-        switch appState.activeEditor {
-        case .schematic:
-            return schematicViewModel.document.components.isEmpty
-                || schematicViewModel.hasErrors
-        case .netlist:
-            if appState.spiceSource.isEmpty { return true }
-            guard let info = appState.netlistInfo else { return true }
-            return info.hasErrors || info.components.isEmpty
-        case .layout:
+        switch appState.workspace {
+        case .schematicCapture:
+            switch appState.schematicMode {
+            case .visual:
+                return schematicViewModel.document.components.isEmpty
+                    || schematicViewModel.hasErrors
+            case .netlist:
+                if appState.spiceSource.isEmpty { return true }
+                guard let info = appState.netlistInfo else { return true }
+                return info.hasErrors || info.components.isEmpty
+            }
+        case .layout, .integration:
             return true
         }
     }
@@ -356,17 +417,22 @@ public struct ContentView: View {
 
     @ViewBuilder
     private var inspectorContent: some View {
-        if appState.showSimulationResults {
-            WaveformInspectorView(viewModel: waveformViewModel)
-        } else {
-            switch appState.activeEditor {
-            case .schematic:
-                PropertyInspector(viewModel: schematicViewModel)
-            case .netlist:
-                NetlistInspectorView(appState: appState)
-            case .layout:
-                EmptyView()
+        switch appState.workspace {
+        case .schematicCapture:
+            if appState.showSimulationResults {
+                WaveformInspectorView(viewModel: waveformViewModel)
+            } else {
+                switch appState.schematicMode {
+                case .visual:
+                    PropertyInspector(viewModel: schematicViewModel)
+                case .netlist:
+                    NetlistInspectorView(appState: appState)
+                }
             }
+        case .layout:
+            LayoutInspectorView(viewModel: layoutViewModel)
+        case .integration:
+            LayoutInspectorView(viewModel: layoutViewModel)
         }
     }
 
@@ -727,91 +793,75 @@ public struct NetlistEditorView: View {
     }
 }
 
+// MARK: - Preview Helpers
+
+@MainActor
+private func makePreviewState(
+    schematicMode: SchematicMode = .visual,
+    analysis: AnalysisCommand = .op
+) -> AppState {
+    let state = AppState()
+    state.workspace = .schematicCapture
+    state.schematicMode = schematicMode
+    state.selectedAnalysis = analysis
+    return state
+}
+
 // MARK: - Previews
 
 #Preview("OP — Voltage Divider") {
-    let state = AppState()
-    state.activeEditor = .schematic
-    state.selectedAnalysis = .op
-    return ContentView(
-        appState: state,
+    ContentView(
+        appState: makePreviewState(),
         services: ServiceContainer(),
-        waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.voltageDividerViewModel(),
-        layoutViewModel: LayoutEditorViewModel()
+        project: DesignProject(schematicViewModel: SchematicPreview.voltageDividerViewModel())
     )
     .frame(width: 1200, height: 800)
 }
 
 #Preview("OP — Diode Forward Bias") {
-    let state = AppState()
-    state.activeEditor = .schematic
-    state.selectedAnalysis = .op
-    return ContentView(
-        appState: state,
+    ContentView(
+        appState: makePreviewState(),
         services: ServiceContainer(),
-        waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.diodeForwardBiasViewModel(),
-        layoutViewModel: LayoutEditorViewModel()
+        project: DesignProject(schematicViewModel: SchematicPreview.diodeForwardBiasViewModel())
     )
     .frame(width: 1200, height: 800)
 }
 
 #Preview("AC — RC Lowpass") {
-    let state = AppState()
-    state.activeEditor = .schematic
-    state.selectedAnalysis = .ac(ACSpec(
-        scaleType: .decade, numberOfPoints: 20,
-        startFrequency: 1, stopFrequency: 1e6
-    ))
-    return ContentView(
-        appState: state,
+    ContentView(
+        appState: makePreviewState(analysis: .ac(ACSpec(
+            scaleType: .decade, numberOfPoints: 20,
+            startFrequency: 1, stopFrequency: 1e6
+        ))),
         services: ServiceContainer(),
-        waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.rcLowpassViewModel(),
-        layoutViewModel: LayoutEditorViewModel()
+        project: DesignProject(schematicViewModel: SchematicPreview.rcLowpassViewModel())
     )
     .frame(width: 1200, height: 800)
 }
 
 #Preview("Tran — RC Loaded Step") {
-    let state = AppState()
-    state.activeEditor = .schematic
-    state.selectedAnalysis = .tran(TranSpec(stopTime: 2e-6, stepTime: 1e-9))
-    return ContentView(
-        appState: state,
+    ContentView(
+        appState: makePreviewState(analysis: .tran(TranSpec(stopTime: 2e-6, stepTime: 1e-9))),
         services: ServiceContainer(),
-        waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.rcLoadedStepViewModel(),
-        layoutViewModel: LayoutEditorViewModel()
+        project: DesignProject(schematicViewModel: SchematicPreview.rcLoadedStepViewModel())
     )
     .frame(width: 1200, height: 800)
 }
 
 #Preview("Tran — RLC Damped") {
-    let state = AppState()
-    state.activeEditor = .schematic
-    state.selectedAnalysis = .tran(TranSpec(stopTime: 500e-9, stepTime: 0.5e-9))
-    return ContentView(
-        appState: state,
+    ContentView(
+        appState: makePreviewState(analysis: .tran(TranSpec(stopTime: 500e-9, stepTime: 0.5e-9))),
         services: ServiceContainer(),
-        waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.rlcDampedViewModel(),
-        layoutViewModel: LayoutEditorViewModel()
+        project: DesignProject(schematicViewModel: SchematicPreview.rlcDampedViewModel())
     )
     .frame(width: 1200, height: 800)
 }
 
 #Preview("Tran — CMOS Inverter") {
-    let state = AppState()
-    state.activeEditor = .schematic
-    state.selectedAnalysis = .tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9))
-    return ContentView(
-        appState: state,
+    ContentView(
+        appState: makePreviewState(analysis: .tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9))),
         services: ServiceContainer(),
-        waveformViewModel: WaveformViewModel(),
-        schematicViewModel: SchematicPreview.cmosInverterViewModel(),
-        layoutViewModel: LayoutEditorViewModel()
+        project: DesignProject(schematicViewModel: SchematicPreview.cmosInverterViewModel())
     )
     .frame(width: 1200, height: 800)
 }

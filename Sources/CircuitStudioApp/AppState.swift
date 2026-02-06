@@ -4,11 +4,22 @@ import CircuitStudioCore
 import CoreSpiceWaveform
 import Synchronization
 
-/// Editor mode for the main content area.
-public enum EditorMode: Hashable, Sendable {
-    case netlist
-    case schematic
+/// Design flow workspace defining the panel layout and available actions.
+public enum Workspace: Hashable, Sendable {
+    /// Circuit design & simulation: schematic or netlist editor + waveform viewer
+    case schematicCapture
+    /// Physical layout editing with DRC
     case layout
+    /// Side-by-side schematic + layout for SDL/LVS workflows
+    case integration
+}
+
+/// Sub-mode within the schematicCapture workspace.
+public enum SchematicMode: Hashable, Sendable {
+    /// Visual schematic editor (SchematicEditorView)
+    case visual
+    /// Text-based SPICE netlist editor (NetlistEditorView)
+    case netlist
 }
 
 /// A single entry in the simulation console.
@@ -39,7 +50,8 @@ public struct ConsoleEntry: Identifiable, Sendable {
 @MainActor
 public final class AppState {
     // Navigation
-    public var activeEditor: EditorMode = .netlist
+    public var workspace: Workspace = .schematicCapture
+    public var schematicMode: SchematicMode = .netlist
     public var showInspector: Bool = false
     public var showSimulationResults: Bool = false
 
