@@ -232,24 +232,24 @@ public struct NgspiceRawParser: Sendable {
     private func analysisKind(plotName: String?, fallback: AnalysisCommand?) -> AnalysisKind {
         if let fallback {
             switch fallback {
-            case .op: return .op
-            case .tran: return .tran
+            case .op: return .operatingPoint
+            case .tran: return .transient
             case .ac: return .ac
             case .dcSweep: return .dc
             case .noise: return .noise
-            case .tf: return .tf
-            case .pz: return .pz
+            case .tf: return .transferFunction
+            case .pz: return .poleZero
             }
         }
 
         let lower = plotName?.lowercased() ?? ""
         if lower.contains("ac") { return .ac }
-        if lower.contains("tran") || lower.contains("transient") { return .tran }
+        if lower.contains("tran") || lower.contains("transient") { return .transient }
         if lower.contains("dc") { return .dc }
         if lower.contains("noise") { return .noise }
-        if lower.contains("transfer") { return .tf }
-        if lower.contains("pole") { return .pz }
-        return .op
+        if lower.contains("transfer") { return .transferFunction }
+        if lower.contains("pole") { return .poleZero }
+        return .operatingPoint
     }
 
     private struct RawVariable: Sendable {

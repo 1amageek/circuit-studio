@@ -108,7 +108,7 @@ public struct ExternalModelDetector: Sendable {
     ) -> URL? {
         let unquoted = rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
         let candidate = URL(fileURLWithPath: unquoted)
-        if candidate.isAbsoluteURL, FileManager.default.fileExists(atPath: candidate.path) {
+        if unquoted.hasPrefix("/"), FileManager.default.fileExists(atPath: candidate.path) {
             return candidate
         }
 
