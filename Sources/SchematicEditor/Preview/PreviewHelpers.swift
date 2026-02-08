@@ -333,7 +333,7 @@ public enum SchematicPreview {
         let vin = PlacedComponent(deviceKindID: "vsource", name: "V2", position: CGPoint(x: 120, y: 350), parameters: ["pulse_v1": 0, "pulse_v2": 3.3, "pulse_td": 1e-9, "pulse_tr": 0.5e-9, "pulse_tf": 0.5e-9, "pulse_pw": 10e-9, "pulse_per": 22e-9])
         let mp = PlacedComponent(deviceKindID: "pmos_l1", name: "MP1", position: CGPoint(x: 250, y: 150), parameters: ["w": 20e-6, "l": 1e-6, "vto": -0.7, "kp": 50e-6])
         let mn = PlacedComponent(deviceKindID: "nmos_l1", name: "MN1", position: CGPoint(x: 250, y: 310), parameters: ["w": 10e-6, "l": 1e-6, "vto": 0.7, "kp": 110e-6])
-        let cload = PlacedComponent(deviceKindID: "capacitor", name: "C1", position: CGPoint(x: 380, y: 230), parameters: ["c": 100e-15])
+        let cload = PlacedComponent(deviceKindID: "capacitor", name: "C1", position: CGPoint(x: 380, y: 260), parameters: ["c": 100e-15])
         let gnd = PlacedComponent(deviceKindID: "ground", name: "GND1", position: CGPoint(x: 50, y: 440))
 
         vm.document.components = [vdd, vin, mp, mn, cload, gnd]
@@ -355,15 +355,14 @@ public enum SchematicPreview {
         // Output net
         let wO1 = Wire(startPoint: CGPoint(x: 260, y: 180), endPoint: CGPoint(x: 260, y: 230), startPin: PinReference(componentID: mp.id, portID: "drain"))
         let wO2 = Wire(startPoint: CGPoint(x: 260, y: 280), endPoint: CGPoint(x: 260, y: 230), startPin: PinReference(componentID: mn.id, portID: "drain"))
-        let wO3 = Wire(startPoint: CGPoint(x: 260, y: 230), endPoint: CGPoint(x: 380, y: 230))
-        let wO4 = Wire(startPoint: CGPoint(x: 380, y: 200), endPoint: CGPoint(x: 380, y: 230), startPin: PinReference(componentID: cload.id, portID: "pos"))
+        let wO3 = Wire(startPoint: CGPoint(x: 260, y: 230), endPoint: CGPoint(x: 380, y: 230), endPin: PinReference(componentID: cload.id, portID: "pos"))
 
         // GND net
         let wG_bs = Wire(startPoint: CGPoint(x: 240, y: 340), endPoint: CGPoint(x: 260, y: 340), startPin: PinReference(componentID: mn.id, portID: "bulk"))
         let wG_s = Wire(startPoint: CGPoint(x: 260, y: 340), endPoint: CGPoint(x: 260, y: 410), startPin: PinReference(componentID: mn.id, portID: "source"))
         let wG_vdd = Wire(startPoint: CGPoint(x: 50, y: 110), endPoint: CGPoint(x: 50, y: 410), startPin: PinReference(componentID: vdd.id, portID: "neg"))
         let wG_vin = Wire(startPoint: CGPoint(x: 120, y: 380), endPoint: CGPoint(x: 120, y: 410), startPin: PinReference(componentID: vin.id, portID: "neg"))
-        let wG_c = Wire(startPoint: CGPoint(x: 380, y: 260), endPoint: CGPoint(x: 380, y: 410), startPin: PinReference(componentID: cload.id, portID: "neg"))
+        let wG_c = Wire(startPoint: CGPoint(x: 380, y: 290), endPoint: CGPoint(x: 380, y: 410), startPin: PinReference(componentID: cload.id, portID: "neg"))
         let wG_r1 = Wire(startPoint: CGPoint(x: 50, y: 410), endPoint: CGPoint(x: 120, y: 410))
         let wG_r2 = Wire(startPoint: CGPoint(x: 120, y: 410), endPoint: CGPoint(x: 260, y: 410))
         let wG_r3 = Wire(startPoint: CGPoint(x: 260, y: 410), endPoint: CGPoint(x: 380, y: 410))
@@ -372,7 +371,7 @@ public enum SchematicPreview {
         vm.document.wires = [
             wV1, wV2, wV3, wV4,
             wI1, wI2, wI3, wI4, wI5, wI6,
-            wO1, wO2, wO3, wO4,
+            wO1, wO2, wO3,
             wG_bs, wG_s, wG_vdd, wG_vin, wG_c,
             wG_r1, wG_r2, wG_r3, wG_gnd,
         ]

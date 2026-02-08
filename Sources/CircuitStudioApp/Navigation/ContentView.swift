@@ -3,6 +3,7 @@ import CircuitStudioCore
 import SchematicEditor
 import WaveformViewer
 import LayoutEditor
+import UniformTypeIdentifiers
 
 /// Main content area with macOS HIG-compliant layout:
 /// Sidebar (navigator) | Workspace Content | Inspector
@@ -130,18 +131,97 @@ public struct ContentView: View {
     private var layoutContent: some View {
         LayoutEditorView(viewModel: layoutViewModel)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { layoutViewModel.fitAll() }
     }
 
     /// integration workspace: schematic + layout side by side
     @ViewBuilder
     private var integrationContent: some View {
-        HSplitView {
-            SchematicEditorView(viewModel: schematicViewModel)
-                .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
-            LayoutEditorView(viewModel: layoutViewModel)
-                .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 0) {
+            if project.isLayoutStale {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Layout is out of date. Regenerate to reflect schematic changes.")
+                        .font(.caption)
+                    Spacer()
+                    Button("Regenerate") {
+                        project.generateLayout(catalog: services.catalog)
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.orange.opacity(0.1))
+            }
+            if let error = project.layoutGenerationError {
+                HStack(spacing: 6) {
+                    Image(systemName: "xmark.octagon.fill")
+                        .foregroundStyle(.red)
+                    Text(error)
+                        .font(.caption)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.red.opacity(0.1))
+            }
+            if !project.skippedComponents.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(.blue)
+                    Text("Skipped: \(project.skippedComponents.joined(separator: ", "))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if let name = project.techName {
+                        Text(name)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(.blue.opacity(0.05))
+            }
+            HSplitView {
+                SchematicEditorView(viewModel: schematicViewModel)
+                    .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+                LayoutEditorView(viewModel: layoutViewModel)
+                    .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+                    .onAppear { layoutViewModel.fitAll() }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: schematicViewModel.document.selection) { _, newSelection in
+            syncSchematicToLayout(newSelection)
+        }
+        .onChange(of: layoutViewModel.selectedInstanceID) { _, instID in
+            syncLayoutToSchematic(instID)
+        }
+    }
+
+    // MARK: - Cross-Probe Sync
+
+    private func syncSchematicToLayout(_ selection: Set<UUID>) {
+        guard project.designUnit != nil else {
+            layoutViewModel.highlightedInstanceIDs = []
+            return
+        }
+        let crossProbe = project.crossProbe
+        let instanceIDs: Set<UUID> = Set(
+            selection.compactMap { crossProbe.instanceMapping[$0] }
+        )
+        layoutViewModel.highlightedInstanceIDs = instanceIDs
+    }
+
+    private func syncLayoutToSchematic(_ instanceID: UUID?) {
+        guard let instID = instanceID,
+              let compID = project.crossProbe.instanceToComponent[instID] else {
+            schematicViewModel.highlightedIDs = []
+            return
+        }
+        schematicViewModel.highlightedIDs = [compID]
     }
 
     // MARK: - Toolbar
@@ -245,6 +325,34 @@ public struct ContentView: View {
             .disabled(appState.spiceSource.isEmpty)
         }
 
+        // Generate Layout + Tech
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button {
+                    project.generateLayout(catalog: services.catalog)
+                    appState.workspace = .integration
+                } label: {
+                    Label("Generate Layout", systemImage: "cpu")
+                }
+                .disabled(!canGenerateLayout)
+
+                Divider()
+
+                Button {
+                    loadTechFile()
+                } label: {
+                    if let name = project.techName {
+                        Label("Tech: \(name)", systemImage: "checkmark")
+                    } else {
+                        Label("Load Tech File...", systemImage: "gearshape.2")
+                    }
+                }
+            } label: {
+                Label("Layout", systemImage: "cpu")
+            }
+            .help("Generate layout or load technology file")
+        }
+
         // Context-dependent toolbar items
         contextToolbarItems
 
@@ -309,18 +417,15 @@ public struct ContentView: View {
                 }
             }
         case .layout:
-            ToolbarItem(placement: .status) {
-                Text("Layout")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            layoutToolbarItems
         case .integration:
-            ToolbarItem(placement: .status) {
-                Text("Integration")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            layoutToolbarItems
         }
+    }
+
+    private var canGenerateLayout: Bool {
+        !schematicViewModel.document.components.isEmpty
+            && !schematicViewModel.document.wires.isEmpty
     }
 
     private var runButtonDisabled: Bool {
@@ -399,6 +504,17 @@ public struct ContentView: View {
     }
 
     @ToolbarContentBuilder
+    private var layoutToolbarItems: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                layoutViewModel.runDRC()
+            } label: {
+                Label("Run DRC", systemImage: "checkmark.shield")
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
     private var waveformToolbarItems: some ToolbarContent {
         WaveformToolbarContent(viewModel: waveformViewModel)
 
@@ -453,6 +569,28 @@ public struct ContentView: View {
                 try appState.loadSPICEFile(url: url)
             } catch {
                 appState.simulationError = "Failed to load file: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: - Tech File Open
+
+    private func loadTechFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "json")!,
+            UTType(filenameExtension: "lef")!,
+            UTType(filenameExtension: "lyp")!,
+        ]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try project.loadTechFile(from: url)
+                appState.log("Loaded tech: \(url.lastPathComponent)", kind: .success)
+            } catch {
+                appState.simulationError = "Failed to load tech: \(error.localizedDescription)"
             }
         }
     }
@@ -862,6 +1000,32 @@ private func makePreviewState(
         appState: makePreviewState(analysis: .tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9))),
         services: ServiceContainer(),
         project: DesignProject(schematicViewModel: SchematicPreview.cmosInverterViewModel())
+    )
+    .frame(width: 1200, height: 800)
+}
+
+#Preview("Integration — CMOS Inverter with Layout") {
+    let state = makePreviewState()
+    state.workspace = .integration
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        project: DesignProject.withGeneratedLayout(
+            schematicViewModel: SchematicPreview.cmosInverterViewModel()
+        )
+    )
+    .frame(width: 1200, height: 800)
+}
+
+#Preview("Layout — Voltage Divider") {
+    let state = makePreviewState()
+    state.workspace = .layout
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        project: DesignProject.withGeneratedLayout(
+            schematicViewModel: SchematicPreview.voltageDividerViewModel()
+        )
     )
     .frame(width: 1200, height: 800)
 }

@@ -41,6 +41,9 @@ public final class SchematicViewModel {
     private var undoStack = UndoStack()
     private var clipboard: ClipboardContent?
 
+    /// IDs highlighted by cross-probe from another editor (orange).
+    public var highlightedIDs: Set<UUID> = []
+
     public var diagnostics: [Diagnostic] = []
 
     public var hasErrors: Bool {

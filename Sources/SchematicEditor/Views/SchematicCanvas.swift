@@ -44,7 +44,8 @@ public struct SchematicCanvas: View {
             // Wires
             for wire in viewModel.document.wires {
                 let selected = viewModel.document.selection.contains(wire.id)
-                WireRenderer.render(wire, in: &context, selected: selected)
+                let highlighted = viewModel.highlightedIDs.contains(wire.id)
+                WireRenderer.render(wire, in: &context, selected: selected, highlighted: highlighted)
             }
 
             // Junctions
@@ -81,6 +82,7 @@ public struct SchematicCanvas: View {
             // Components
             for component in viewModel.document.components {
                 let selected = viewModel.document.selection.contains(component.id)
+                let highlighted = viewModel.highlightedIDs.contains(component.id)
                 if let kind = viewModel.catalog.device(for: component.deviceKindID) {
                     SymbolRenderer.render(
                         kind,
@@ -89,7 +91,8 @@ public struct SchematicCanvas: View {
                         rotation: component.rotation,
                         mirrorX: component.mirrorX,
                         mirrorY: component.mirrorY,
-                        selected: selected
+                        selected: selected,
+                        highlighted: highlighted
                     )
                 }
 

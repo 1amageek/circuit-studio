@@ -22,5 +22,8 @@ public final class CrossProbeService {
     /// Mapping from schematic component ID to layout instance ID.
     public var instanceMapping: [UUID: UUID] = [:]
 
+    /// Reverse mapping from layout instance ID to schematic component ID.
+    public var instanceToComponent: [UUID: UUID] = [:]
+
     public init() {}
 }

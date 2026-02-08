@@ -37,6 +37,11 @@ let package = Package(
                 "SchematicEditor",
                 "WaveformViewer",
                 .product(name: "LayoutEditor", package: "semiconductor-layout"),
+                .product(name: "LayoutAutoGen", package: "semiconductor-layout"),
+                .product(name: "LayoutCore", package: "semiconductor-layout"),
+                .product(name: "LayoutTech", package: "semiconductor-layout"),
+                .product(name: "LayoutIO", package: "semiconductor-layout"),
+                .product(name: "LayoutVerify", package: "semiconductor-layout"),
             ]
         ),
         .testTarget(

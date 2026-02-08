@@ -12,7 +12,8 @@ public struct SymbolRenderer {
         rotation: Double = 0,
         mirrorX: Bool = false,
         mirrorY: Bool = false,
-        selected: Bool = false
+        selected: Bool = false,
+        highlighted: Bool = false
     ) {
         context.translateBy(x: position.x, y: position.y)
 
@@ -26,8 +27,8 @@ public struct SymbolRenderer {
         let scaleY: CGFloat = mirrorX ? -1 : 1
         context.scaleBy(x: scaleX, y: scaleY)
 
-        let strokeColor: Color = selected ? .accentColor : Color(nsColor: .labelColor)
-        let lineWidth: CGFloat = selected ? 2 : 1.5
+        let strokeColor: Color = selected ? .accentColor : highlighted ? .orange : Color(nsColor: .labelColor)
+        let lineWidth: CGFloat = selected ? 2 : highlighted ? 2.5 : 1.5
 
         renderShape(kind.symbol.shape, in: &context, strokeColor: strokeColor, lineWidth: lineWidth)
 
