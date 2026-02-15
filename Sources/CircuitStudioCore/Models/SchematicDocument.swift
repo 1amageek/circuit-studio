@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 
 /// A placed component on the schematic canvas.
-public struct PlacedComponent: Sendable, Identifiable {
+public struct PlacedComponent: Sendable, Identifiable, Codable {
     public let id: UUID
     /// Key into DeviceCatalog (e.g. "resistor", "nmos_l1").
     public var deviceKindID: String
@@ -48,12 +48,17 @@ public struct PlacedComponent: Sendable, Identifiable {
 }
 
 /// The full state of a schematic canvas.
-public struct SchematicDocument: Sendable {
+public struct SchematicDocument: Sendable, Codable {
     public var components: [PlacedComponent]
     public var wires: [Wire]
     public var labels: [NetLabel]
     public var junctions: [Junction]
+    /// Transient UI state — excluded from serialization.
     public var selection: Set<UUID>
+
+    private enum CodingKeys: String, CodingKey {
+        case components, wires, labels, junctions
+    }
 
     public init(
         components: [PlacedComponent] = [],
@@ -67,5 +72,14 @@ public struct SchematicDocument: Sendable {
         self.labels = labels
         self.junctions = junctions
         self.selection = selection
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        components = try container.decode([PlacedComponent].self, forKey: .components)
+        wires = try container.decode([Wire].self, forKey: .wires)
+        labels = try container.decode([NetLabel].self, forKey: .labels)
+        junctions = try container.decode([Junction].self, forKey: .junctions)
+        selection = []
     }
 }

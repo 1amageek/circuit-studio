@@ -15,7 +15,7 @@ public struct PinReference: Sendable, Hashable, Codable {
 }
 
 /// A wire connecting two points on the schematic.
-public struct Wire: Sendable, Identifiable {
+public struct Wire: Sendable, Identifiable, Codable {
     public let id: UUID
     public var startPoint: CGPoint
     public var endPoint: CGPoint
@@ -43,7 +43,7 @@ public struct Wire: Sendable, Identifiable {
 }
 
 /// A net label placed on the schematic.
-public struct NetLabel: Sendable, Identifiable {
+public struct NetLabel: Sendable, Identifiable, Codable {
     public let id: UUID
     public var name: String
     public var position: CGPoint

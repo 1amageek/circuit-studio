@@ -10,6 +10,7 @@ public final class ServiceContainer {
     public let netlistGenerator: NetlistGenerator
     public let fileSystemService: FileSystemService
     public let netlistParsingService: NetlistParsingService
+    public let projectService: ProjectService
 
     public init() {
         let catalog = DeviceCatalog.standard()
@@ -20,5 +21,6 @@ public final class ServiceContainer {
         self.netlistGenerator = NetlistGenerator(catalog: catalog)
         self.fileSystemService = FileSystemService()
         self.netlistParsingService = NetlistParsingService()
+        self.projectService = ProjectService()
     }
 }

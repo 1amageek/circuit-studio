@@ -25,6 +25,10 @@ public enum StudioError: Error, Sendable {
     case fileNotFound(String)
     case fileReadError(String)
     case exportFailure(String)
+
+    // Project
+    case projectSaveFailed(String)
+    case projectLoadFailed(String)
 }
 
 extension StudioError: LocalizedError {
@@ -44,6 +48,8 @@ extension StudioError: LocalizedError {
         case .fileNotFound(let path): return "File not found: \(path)"
         case .fileReadError(let msg): return "File read error: \(msg)"
         case .exportFailure(let msg): return "Export error: \(msg)"
+        case .projectSaveFailed(let msg): return "Project save failed: \(msg)"
+        case .projectLoadFailed(let msg): return "Project load failed: \(msg)"
         }
     }
 }

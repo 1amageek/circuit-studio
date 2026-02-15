@@ -5,7 +5,7 @@ import CoreSpiceWaveform
 import Synchronization
 
 /// Design flow workspace defining the panel layout and available actions.
-public enum Workspace: Hashable, Sendable {
+public enum Workspace: String, Hashable, Sendable, Codable {
     /// Circuit design & simulation: schematic or netlist editor + waveform viewer
     case schematicCapture
     /// Physical layout editing with DRC
@@ -15,7 +15,7 @@ public enum Workspace: Hashable, Sendable {
 }
 
 /// Sub-mode within the schematicCapture workspace.
-public enum SchematicMode: Hashable, Sendable {
+public enum SchematicMode: String, Hashable, Sendable, Codable {
     /// Visual schematic editor (SchematicEditorView)
     case visual
     /// Text-based SPICE netlist editor (NetlistEditorView)
@@ -87,6 +87,44 @@ public final class AppState {
     private var parseTask: Task<Void, Never>?
 
     public init() {}
+
+    // MARK: - Project Config Extraction / Restoration
+
+    /// Extracts current workspace state for persistence.
+    public func workspaceConfig() -> WorkspaceConfig {
+        WorkspaceConfig(
+            activeWorkspace: workspace.rawValue,
+            schematicMode: schematicMode.rawValue,
+            panels: WorkspaceConfig.PanelState(
+                inspector: showInspector,
+                console: showConsole,
+                simulationResults: showSimulationResults
+            )
+        )
+    }
+
+    /// Extracts current simulation settings for persistence.
+    public func simulationConfig() -> SimulationConfig {
+        SimulationConfig(
+            selectedAnalysis: selectedAnalysis,
+            processConfiguration: processConfiguration
+        )
+    }
+
+    /// Restores workspace state from a persisted config.
+    public func apply(_ config: WorkspaceConfig) {
+        workspace = Workspace(rawValue: config.activeWorkspace) ?? .schematicCapture
+        schematicMode = SchematicMode(rawValue: config.schematicMode) ?? .netlist
+        showInspector = config.panels.inspector
+        showConsole = config.panels.console
+        showSimulationResults = config.panels.simulationResults
+    }
+
+    /// Restores simulation settings from a persisted config.
+    public func apply(_ config: SimulationConfig) {
+        selectedAnalysis = config.selectedAnalysis
+        processConfiguration = config.processConfiguration
+    }
 
     // MARK: - Console
 

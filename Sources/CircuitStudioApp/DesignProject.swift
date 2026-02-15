@@ -64,6 +64,21 @@ public final class DesignProject {
         techName = url.deletingPathExtension().lastPathComponent
     }
 
+    // MARK: - Project Config Extraction / Restoration
+
+    /// Extracts schematic placement for persistence.
+    public func schematicPlacement(sourceNetlist: String) -> SchematicPlacement {
+        SchematicPlacement(
+            sourceNetlist: sourceNetlist,
+            document: schematicViewModel.document
+        )
+    }
+
+    /// Restores schematic state from a persisted placement.
+    public func apply(_ placement: SchematicPlacement) {
+        schematicViewModel.document = placement.document
+    }
+
     /// Generates physical layout from the current schematic document.
     ///
     /// Requires a valid schematic with components and wires.
