@@ -242,7 +242,6 @@ public struct ContentView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 300)
 
-                // SchematicMode toggle (only in schematicCapture)
                 if appState.workspace == .schematicCapture {
                     Picker("Mode", selection: $appState.schematicMode) {
                         Label("Visual", systemImage: "square.grid.3x3")
@@ -256,104 +255,7 @@ public struct ContentView: View {
             }
         }
 
-        // Run / Stop
-        ToolbarItem(placement: .primaryAction) {
-            if appState.isSimulating {
-                Button {
-                    appState.cancelSimulation(service: services.simulationService)
-                } label: {
-                    Label("Stop", systemImage: "stop.fill")
-                }
-                .keyboardShortcut(".", modifiers: .command)
-            } else {
-                Button {
-                    Task {
-                        switch appState.workspace {
-                        case .schematicCapture:
-                            switch appState.schematicMode {
-                            case .visual:
-                                await appState.runSchematicSimulation(
-                                    document: schematicViewModel.document,
-                                    analysisCommand: appState.selectedAnalysis,
-                                    generator: services.netlistGenerator,
-                                    service: services.simulationService
-                                )
-                            case .netlist:
-                                await appState.runSimulation(service: services.simulationService)
-                            }
-                        case .layout, .integration:
-                            break
-                        }
-                    }
-                } label: {
-                    Label("Run", systemImage: "play.fill")
-                }
-                .disabled(runButtonDisabled)
-                .keyboardShortcut("r", modifiers: .command)
-            }
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                openFile()
-            } label: {
-                Label("Open File", systemImage: "doc.badge.plus")
-            }
-            .keyboardShortcut("o", modifiers: .command)
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                openFolder()
-            } label: {
-                Label("Open Folder", systemImage: "folder.badge.plus")
-            }
-            .keyboardShortcut("o", modifiers: [.command, .shift])
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                do {
-                    try appState.saveSPICEFile()
-                } catch {
-                    appState.log("Save failed: \(error.localizedDescription)", kind: .error)
-                }
-            } label: {
-                Label("Save", systemImage: "square.and.arrow.down")
-            }
-            .keyboardShortcut("s", modifiers: .command)
-            .disabled(appState.spiceSource.isEmpty)
-        }
-
-        // Generate Layout + Tech
-        ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Button {
-                    project.generateLayout(catalog: services.catalog)
-                    appState.workspace = .integration
-                } label: {
-                    Label("Generate Layout", systemImage: "cpu")
-                }
-                .disabled(!canGenerateLayout)
-
-                Divider()
-
-                Button {
-                    loadTechFile()
-                } label: {
-                    if let name = project.techName {
-                        Label("Tech: \(name)", systemImage: "checkmark")
-                    } else {
-                        Label("Load Tech File...", systemImage: "gearshape.2")
-                    }
-                }
-            } label: {
-                Label("Layout", systemImage: "cpu")
-            }
-            .help("Generate layout or load technology file")
-        }
-
-        // Context-dependent toolbar items
+        // Context-dependent actions
         contextToolbarItems
 
         if appState.showSimulationResults {
@@ -404,24 +306,13 @@ public struct ContentView: View {
     private var contextToolbarItems: some ToolbarContent {
         switch appState.workspace {
         case .schematicCapture:
-            switch appState.schematicMode {
-            case .visual:
-                schematicToolbarItems
-            case .netlist:
-                ToolbarItem(placement: .status) {
-                    if let fileName = appState.spiceFileName {
-                        Text(fileName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        case .layout:
-            layoutToolbarItems
-        case .integration:
+            schematicToolbarItems
+        case .layout, .integration:
             layoutToolbarItems
         }
     }
+
+    // MARK: - Schematic Toolbar
 
     private var canGenerateLayout: Bool {
         !schematicViewModel.document.components.isEmpty
@@ -430,19 +321,14 @@ public struct ContentView: View {
 
     private var runButtonDisabled: Bool {
         if appState.isSimulating { return true }
-        switch appState.workspace {
-        case .schematicCapture:
-            switch appState.schematicMode {
-            case .visual:
-                return schematicViewModel.document.components.isEmpty
-                    || schematicViewModel.hasErrors
-            case .netlist:
-                if appState.spiceSource.isEmpty { return true }
-                guard let info = appState.netlistInfo else { return true }
-                return info.hasErrors || info.components.isEmpty
-            }
-        case .layout, .integration:
-            return true
+        switch appState.schematicMode {
+        case .visual:
+            return schematicViewModel.document.components.isEmpty
+                || schematicViewModel.hasErrors
+        case .netlist:
+            if appState.spiceSource.isEmpty { return true }
+            guard let info = appState.netlistInfo else { return true }
+            return info.hasErrors || info.components.isEmpty
         }
     }
 
@@ -460,27 +346,39 @@ public struct ContentView: View {
 
     @ToolbarContentBuilder
     private var schematicToolbarItems: some ToolbarContent {
-        ToolbarItemGroup(placement: .secondaryAction) {
-            Button {
-                schematicViewModel.tool = .select
-            } label: {
-                Label("Select", systemImage: "arrow.uturn.left")
-            }
-            .help("Select tool")
+        if appState.schematicMode == .visual {
+            ToolbarItemGroup(placement: .secondaryAction) {
+                Button {
+                    schematicViewModel.tool = .select
+                } label: {
+                    Label("Select", systemImage: "arrow.uturn.left")
+                }
+                .help("Select tool")
 
-            Button {
-                schematicViewModel.tool = .wire
-            } label: {
-                Label("Wire", systemImage: "line.diagonal")
-            }
-            .help("Wire tool")
+                Button {
+                    schematicViewModel.tool = .wire
+                } label: {
+                    Label("Wire", systemImage: "line.diagonal")
+                }
+                .help("Wire tool")
 
-            Button {
-                schematicViewModel.tool = .label
-            } label: {
-                Label("Net Label", systemImage: "tag")
+                Button {
+                    schematicViewModel.tool = .label
+                } label: {
+                    Label("Net Label", systemImage: "tag")
+                }
+                .help("Net label tool")
             }
-            .help("Net label tool")
+        }
+
+        if appState.schematicMode == .netlist {
+            ToolbarItem(placement: .status) {
+                if let fileName = appState.spiceFileName {
+                    Text(fileName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
 
         ToolbarItem(placement: .primaryAction) {
@@ -501,10 +399,70 @@ public struct ContentView: View {
                 Label(analysisLabel, systemImage: "function")
             }
         }
+
+        ToolbarItem(placement: .primaryAction) {
+            if appState.isSimulating {
+                Button {
+                    appState.cancelSimulation(service: services.simulationService)
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .keyboardShortcut(".", modifiers: .command)
+            } else {
+                Button {
+                    Task {
+                        switch appState.schematicMode {
+                        case .visual:
+                            await appState.runSchematicSimulation(
+                                document: schematicViewModel.document,
+                                analysisCommand: appState.selectedAnalysis,
+                                generator: services.netlistGenerator,
+                                service: services.simulationService
+                            )
+                        case .netlist:
+                            await appState.runSimulation(service: services.simulationService)
+                        }
+                    }
+                } label: {
+                    Label("Run", systemImage: "play.fill")
+                }
+                .disabled(runButtonDisabled)
+                .keyboardShortcut("r", modifiers: .command)
+            }
+        }
     }
+
+    // MARK: - Layout Toolbar
 
     @ToolbarContentBuilder
     private var layoutToolbarItems: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button {
+                    project.generateLayout(catalog: services.catalog)
+                    appState.workspace = .integration
+                } label: {
+                    Label("Generate Layout", systemImage: "cpu")
+                }
+                .disabled(!canGenerateLayout)
+
+                Divider()
+
+                Button {
+                    loadTechFile()
+                } label: {
+                    if let name = project.techName {
+                        Label("Tech: \(name)", systemImage: "checkmark")
+                    } else {
+                        Label("Load Tech File...", systemImage: "gearshape.2")
+                    }
+                }
+            } label: {
+                Label("Layout", systemImage: "cpu")
+            }
+            .help("Generate layout or load technology file")
+        }
+
         ToolbarItem(placement: .primaryAction) {
             Button {
                 layoutViewModel.runDRC()
@@ -552,27 +510,6 @@ public struct ContentView: View {
         }
     }
 
-    // MARK: - File Open
-
-    private func openFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "cir")!,
-            .init(filenameExtension: "spice")!,
-            .plainText,
-        ]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                try appState.loadSPICEFile(url: url)
-            } catch {
-                appState.simulationError = "Failed to load file: \(error.localizedDescription)"
-            }
-        }
-    }
-
     // MARK: - Tech File Open
 
     private func loadTechFile() {
@@ -595,24 +532,6 @@ public struct ContentView: View {
         }
     }
 
-    // MARK: - Folder Open
-
-    private func openFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                let root = try services.fileSystemService.scanDirectory(at: url)
-                appState.projectRootURL = url
-                appState.projectRoot = root
-            } catch {
-                appState.simulationError = "Failed to open folder: \(error.localizedDescription)"
-            }
-        }
-    }
 }
 
 /// Inspector panel for the netlist editor showing parsed netlist info.
@@ -1025,6 +944,19 @@ private func makePreviewState(
         services: ServiceContainer(),
         project: DesignProject.withGeneratedLayout(
             schematicViewModel: SchematicPreview.voltageDividerViewModel()
+        )
+    )
+    .frame(width: 1200, height: 800)
+}
+
+#Preview("Integration — Current Mirror with Layout") {
+    let state = makePreviewState()
+    state.workspace = .integration
+    return ContentView(
+        appState: state,
+        services: ServiceContainer(),
+        project: DesignProject.withGeneratedLayout(
+            schematicViewModel: SchematicPreview.currentMirrorViewModel()
         )
     )
     .frame(width: 1200, height: 800)

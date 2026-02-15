@@ -386,6 +386,108 @@ public enum SchematicPreview {
         return vm
     }
 
+    /// NMOS current mirror with resistive load for DC operating point analysis.
+    ///
+    /// Circuit topology:
+    /// ```
+    ///            VDD
+    ///             |
+    ///        R_ref          R_load
+    ///             |              |
+    ///        M1 drain       M2 drain  ── out
+    ///       (diode-conn)
+    ///    M1 gate ─────── M2 gate
+    ///             |              |
+    ///        M1 source      M2 source
+    ///             |              |
+    ///            GND            GND
+    /// ```
+    ///
+    /// Nets:
+    /// - "vdd": V1.pos, R_ref.pos, R_load.pos
+    /// - "ref": R_ref.neg, M1.drain, M1.gate, M2.gate  (diode connection)
+    /// - "out": R_load.neg, M2.drain
+    /// - "0" (ground): V1.neg, M1.source, M1.bulk, M2.source, M2.bulk, GND.gnd
+    public static func currentMirrorViewModel() -> SchematicViewModel {
+        let vm = SchematicViewModel()
+
+        // --- Components ---
+        // Pin offsets (from component center):
+        //   vsource:  pos=(0,-30), neg=(0,+30)
+        //   resistor: pos=(0,-30), neg=(0,+30)
+        //   nmos_l1:  gate=(-20,0), drain=(+10,-30), source=(+10,+30), bulk=(-10,+30)
+        //   ground:   gnd=(0,-10)
+
+        let vdd = PlacedComponent(deviceKindID: "vsource", name: "V1", position: CGPoint(x: 100, y: 80), parameters: ["dc": 5.0])
+        let rref = PlacedComponent(deviceKindID: "resistor", name: "R_ref", position: CGPoint(x: 250, y: 120), parameters: ["r": 10000])
+        let rload = PlacedComponent(deviceKindID: "resistor", name: "R_load", position: CGPoint(x: 430, y: 120), parameters: ["r": 10000])
+        let m1 = PlacedComponent(deviceKindID: "nmos_l1", name: "M1", position: CGPoint(x: 260, y: 280), parameters: ["w": 10e-6, "l": 1e-6, "vto": 0.7, "kp": 110e-6])
+        let m2 = PlacedComponent(deviceKindID: "nmos_l1", name: "M2", position: CGPoint(x: 420, y: 280), parameters: ["w": 10e-6, "l": 1e-6, "vto": 0.7, "kp": 110e-6])
+        let gnd = PlacedComponent(deviceKindID: "ground", name: "GND1", position: CGPoint(x: 100, y: 420))
+
+        vm.document.components = [vdd, rref, rload, m1, m2, gnd]
+
+        // Pin world positions:
+        //   V1:     pos(100,50)  neg(100,110)
+        //   R_ref:  pos(250,90)  neg(250,150)
+        //   R_load: pos(430,90)  neg(430,150)
+        //   M1:     gate(240,280)  drain(270,250)  source(270,310)  bulk(250,310)
+        //   M2:     gate(400,280)  drain(430,250)  source(430,310)  bulk(410,310)
+        //   GND1:   gnd(100,410)
+
+        // === VDD net (rail at y=40) ===
+        let wV1 = Wire(startPoint: CGPoint(x: 100, y: 50), endPoint: CGPoint(x: 100, y: 40), startPin: PinReference(componentID: vdd.id, portID: "pos"))
+        let wV2 = Wire(startPoint: CGPoint(x: 100, y: 40), endPoint: CGPoint(x: 250, y: 40))
+        let wV3 = Wire(startPoint: CGPoint(x: 250, y: 40), endPoint: CGPoint(x: 250, y: 90), endPin: PinReference(componentID: rref.id, portID: "pos"))
+        let wV4 = Wire(startPoint: CGPoint(x: 250, y: 40), endPoint: CGPoint(x: 430, y: 40))
+        let wV5 = Wire(startPoint: CGPoint(x: 430, y: 40), endPoint: CGPoint(x: 430, y: 90), endPin: PinReference(componentID: rload.id, portID: "pos"))
+
+        // === Reference net (M1 diode + gate bus) ===
+        // R_ref.neg → junction at (250, 200)
+        let wR1 = Wire(startPoint: CGPoint(x: 250, y: 150), endPoint: CGPoint(x: 250, y: 200), startPin: PinReference(componentID: rref.id, portID: "neg"))
+        // M1.drain → (270, 200) → junction
+        let wR2 = Wire(startPoint: CGPoint(x: 270, y: 250), endPoint: CGPoint(x: 270, y: 200), startPin: PinReference(componentID: m1.id, portID: "drain"))
+        let wR3 = Wire(startPoint: CGPoint(x: 270, y: 200), endPoint: CGPoint(x: 250, y: 200))
+        // M1.gate diode connection: gate(240,280) → left → up → junction
+        let wR4 = Wire(startPoint: CGPoint(x: 240, y: 280), endPoint: CGPoint(x: 200, y: 280), startPin: PinReference(componentID: m1.id, portID: "gate"))
+        let wR5 = Wire(startPoint: CGPoint(x: 200, y: 280), endPoint: CGPoint(x: 200, y: 200))
+        let wR6 = Wire(startPoint: CGPoint(x: 200, y: 200), endPoint: CGPoint(x: 250, y: 200))
+        // Gate bus: below transistors → M2.gate
+        let wR7 = Wire(startPoint: CGPoint(x: 200, y: 280), endPoint: CGPoint(x: 200, y: 340))
+        let wR8 = Wire(startPoint: CGPoint(x: 200, y: 340), endPoint: CGPoint(x: 400, y: 340))
+        let wR9 = Wire(startPoint: CGPoint(x: 400, y: 340), endPoint: CGPoint(x: 400, y: 280), endPin: PinReference(componentID: m2.id, portID: "gate"))
+
+        // === Output net (junction at y=200) ===
+        let wO1 = Wire(startPoint: CGPoint(x: 430, y: 150), endPoint: CGPoint(x: 430, y: 200), startPin: PinReference(componentID: rload.id, portID: "neg"))
+        let wO2 = Wire(startPoint: CGPoint(x: 430, y: 250), endPoint: CGPoint(x: 430, y: 200), startPin: PinReference(componentID: m2.id, portID: "drain"))
+
+        // === GND net (rail at y=380) ===
+        let wG1 = Wire(startPoint: CGPoint(x: 100, y: 110), endPoint: CGPoint(x: 100, y: 380), startPin: PinReference(componentID: vdd.id, portID: "neg"))
+        let wG2 = Wire(startPoint: CGPoint(x: 270, y: 310), endPoint: CGPoint(x: 270, y: 380), startPin: PinReference(componentID: m1.id, portID: "source"))
+        let wG3 = Wire(startPoint: CGPoint(x: 250, y: 310), endPoint: CGPoint(x: 270, y: 310), startPin: PinReference(componentID: m1.id, portID: "bulk"))
+        let wG4 = Wire(startPoint: CGPoint(x: 430, y: 310), endPoint: CGPoint(x: 430, y: 380), startPin: PinReference(componentID: m2.id, portID: "source"))
+        let wG5 = Wire(startPoint: CGPoint(x: 410, y: 310), endPoint: CGPoint(x: 430, y: 310), startPin: PinReference(componentID: m2.id, portID: "bulk"))
+        let wG6 = Wire(startPoint: CGPoint(x: 100, y: 380), endPoint: CGPoint(x: 270, y: 380))
+        let wG7 = Wire(startPoint: CGPoint(x: 270, y: 380), endPoint: CGPoint(x: 430, y: 380))
+        let wG8 = Wire(startPoint: CGPoint(x: 100, y: 380), endPoint: CGPoint(x: 100, y: 410), endPin: PinReference(componentID: gnd.id, portID: "gnd"))
+
+        vm.document.wires = [
+            wV1, wV2, wV3, wV4, wV5,
+            wR1, wR2, wR3, wR4, wR5, wR6, wR7, wR8, wR9,
+            wO1, wO2,
+            wG1, wG2, wG3, wG4, wG5, wG6, wG7, wG8,
+        ]
+
+        vm.document.labels = [
+            NetLabel(name: "vdd", position: CGPoint(x: 250, y: 40)),
+            NetLabel(name: "ref", position: CGPoint(x: 250, y: 200)),
+            NetLabel(name: "out", position: CGPoint(x: 430, y: 200)),
+        ]
+
+        vm.recomputeJunctions()
+        return vm
+    }
+
     /// ViewModel with a selected component (for PropertyInspector preview).
     public static func selectedComponentViewModel() -> SchematicViewModel {
         let vm = voltageDividerViewModel()
