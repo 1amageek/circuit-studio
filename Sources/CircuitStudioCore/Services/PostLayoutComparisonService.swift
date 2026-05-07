@@ -7,6 +7,8 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
     public let postLayoutPointCount: Int
     public let sweepVariable: String?
     public let comparedPointCount: Int
+    public let maxAbsoluteDelta: Double
+    public let maxRelativeDelta: Double
     public let comparedVariables: [PostLayoutVariableComparison]
     public let missingInPostLayout: [String]
     public let addedInPostLayout: [String]
@@ -18,6 +20,8 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
         postLayoutPointCount: Int,
         sweepVariable: String?,
         comparedPointCount: Int,
+        maxAbsoluteDelta: Double,
+        maxRelativeDelta: Double,
         comparedVariables: [PostLayoutVariableComparison],
         missingInPostLayout: [String],
         addedInPostLayout: [String],
@@ -28,10 +32,44 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
         self.postLayoutPointCount = postLayoutPointCount
         self.sweepVariable = sweepVariable
         self.comparedPointCount = comparedPointCount
+        self.maxAbsoluteDelta = maxAbsoluteDelta
+        self.maxRelativeDelta = maxRelativeDelta
         self.comparedVariables = comparedVariables
         self.missingInPostLayout = missingInPostLayout
         self.addedInPostLayout = addedInPostLayout
         self.diagnostics = diagnostics
+    }
+
+    public func limitViolations(_ limits: PostLayoutComparisonLimits) -> [String] {
+        guard status == "compared" else {
+            let detail = diagnostics.isEmpty ? status : diagnostics.joined(separator: "; ")
+            return ["Post-layout comparison is not comparable: \(detail)"]
+        }
+
+        var violations: [String] = []
+        if let maxAbsoluteDeltaLimit = limits.maxAbsoluteDelta,
+           maxAbsoluteDelta > maxAbsoluteDeltaLimit {
+            violations.append(
+                "Post-layout maximum absolute delta \(maxAbsoluteDelta) exceeds limit \(maxAbsoluteDeltaLimit)."
+            )
+        }
+        if let maxRelativeDeltaLimit = limits.maxRelativeDelta,
+           maxRelativeDelta > maxRelativeDeltaLimit {
+            violations.append(
+                "Post-layout maximum relative delta \(maxRelativeDelta) exceeds limit \(maxRelativeDeltaLimit)."
+            )
+        }
+        return violations
+    }
+}
+
+public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
+    public let maxAbsoluteDelta: Double?
+    public let maxRelativeDelta: Double?
+
+    public init(maxAbsoluteDelta: Double? = nil, maxRelativeDelta: Double? = nil) {
+        self.maxAbsoluteDelta = maxAbsoluteDelta
+        self.maxRelativeDelta = maxRelativeDelta
     }
 }
 
@@ -113,6 +151,8 @@ public struct PostLayoutComparisonService: Sendable {
                 postLayoutPointCount: postLayoutWaveform.pointCount,
                 sweepVariable: preLayoutWaveform.sweepVariable.name,
                 comparedPointCount: 0,
+                maxAbsoluteDelta: 0,
+                maxRelativeDelta: 0,
                 comparedVariables: [],
                 missingInPostLayout: preVariableNames.filter { !postNameSet.contains($0) },
                 addedInPostLayout: postVariableNames.filter { !preNameSet.contains($0) },
@@ -134,12 +174,17 @@ public struct PostLayoutComparisonService: Sendable {
             diagnostics.append("No common waveform variables were available for comparison.")
         }
 
+        let maxAbsoluteDelta = comparisons.map(\.maxAbsoluteDelta).max() ?? 0
+        let maxRelativeDelta = comparisons.map(\.maxRelativeDelta).max() ?? 0
+
         return PostLayoutComparisonReport(
             status: comparisons.isEmpty ? "not-comparable" : "compared",
             preLayoutPointCount: preLayoutWaveform.pointCount,
             postLayoutPointCount: postLayoutWaveform.pointCount,
             sweepVariable: preLayoutWaveform.sweepVariable.name,
             comparedPointCount: comparedPointCount,
+            maxAbsoluteDelta: maxAbsoluteDelta,
+            maxRelativeDelta: maxRelativeDelta,
             comparedVariables: comparisons,
             missingInPostLayout: preVariableNames.filter { !postNameSet.contains($0) },
             addedInPostLayout: postVariableNames.filter { !preNameSet.contains($0) },
@@ -226,6 +271,8 @@ public struct PostLayoutComparisonService: Sendable {
             postLayoutPointCount: 0,
             sweepVariable: nil,
             comparedPointCount: 0,
+            maxAbsoluteDelta: 0,
+            maxRelativeDelta: 0,
             comparedVariables: [],
             missingInPostLayout: [],
             addedInPostLayout: [],

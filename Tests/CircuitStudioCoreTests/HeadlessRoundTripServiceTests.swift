@@ -212,6 +212,44 @@ struct HeadlessRoundTripServiceTests {
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
+    func postLayoutComparisonLimitsRejectNotComparableReportAndWriteManifest() async throws {
+        let root = try makeTemporaryRoot("comparison-limit-not-comparable")
+        defer { removeTemporaryRoot(root) }
+
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: "comparison-limit-not-comparable",
+            title: "Comparison limit not comparable manifest",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .dcSweep(DCSweepSpec(source: "V1", startValue: 0, stopValue: 1, stepValue: 0.5)),
+            pexIR: smallPEXIR(),
+            postLayoutComparisonLimits: PostLayoutComparisonLimits(maxAbsoluteDelta: 1.0),
+            externalSignoffCommands: try makeSignoffCommands(in: root)
+        )
+
+        do {
+            _ = try await HeadlessRoundTripService().run(
+                schematic: SchematicPreview.voltageDividerViewModel().document,
+                configuration: configuration
+            )
+            Issue.record("Expected post-layout comparison limit failure")
+        } catch {
+            #expect(error.localizedDescription.contains("Post-layout comparison exceeded configured limits"))
+        }
+
+        let manifest = try loadManifest(projectRoot: root, runID: "comparison-limit-not-comparable")
+        assertFailureManifest(
+            manifest,
+            failedStage: "post-layout-comparison",
+            skippedStages: [],
+            isReadyForPEX: true
+        )
+        #expect(manifest.stages.first { $0.name == "post-layout-comparison" }?.message?.contains("not comparable") == true)
+        #expect(manifest.artifacts.map(\.path).contains { $0.hasSuffix("post-layout-comparison.json") })
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
     func prePEXGateFailureWritesManifest() async throws {
         let root = try makeTemporaryRoot("pre-pex-failure")
         defer { removeTemporaryRoot(root) }
@@ -469,6 +507,7 @@ struct HeadlessRoundTripServiceTests {
         postLayoutCommand: AnalysisCommand,
         pexIR: PEXParasiticIR,
         pexArtifactPaths: [String] = [],
+        postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
         externalSignoffCommands: [ExternalSignoffCommand] = [],
         externalSignoffReview: ExternalSignoffReview? = nil
     ) -> HeadlessRoundTripService.Configuration {
@@ -480,6 +519,7 @@ struct HeadlessRoundTripServiceTests {
             postLayoutCommand: postLayoutCommand,
             pexIR: pexIR,
             pexArtifactPaths: pexArtifactPaths,
+            postLayoutComparisonLimits: postLayoutComparisonLimits,
             externalSignoffCommands: externalSignoffCommands,
             externalSignoffReview: externalSignoffReview,
             approvedBy: "layout-reviewer",

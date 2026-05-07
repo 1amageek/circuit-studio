@@ -32,6 +32,7 @@ struct CircuitStudioFlowRunner {
                 postLayoutCommand: fixture.postLayoutCommand,
                 pexIR: pexInput.ir,
                 pexArtifactPaths: pexInput.artifactPaths,
+                postLayoutComparisonLimits: options.comparisonLimits,
                 externalSignoffCommands: signoffCommands,
                 externalSignoffReview: externalSignoffReview,
                 approvedBy: options.approveSignoff ? "headless-runner" : nil,
@@ -53,6 +54,7 @@ struct CircuitStudioFlowRunner {
             print("pex_elements=\(pexInput.ir.elements.count)")
             print("external_signoff=\(externalSignoffReview == nil ? "mock-command" : "imported-logs")")
             print("signoff_approved=\(options.approveSignoff)")
+            print("comparison_limits=\(options.comparisonLimits == nil ? "none" : "configured")")
         } catch {
             fputs("round_trip=failed\n", stderr)
             fputs("error=\(error.localizedDescription)\n", stderr)
@@ -64,10 +66,10 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [--fixture cmos-inverter|voltage-divider] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH]
+          swift run circuit-studio-flow-runner [--fixture cmos-inverter|voltage-divider] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE]
 
         The runner executes the current headless round-trip flow:
-          schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> manifest
+          schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
 
         Options:
           --fixture NAME   Fixture to run. Default: voltage-divider
@@ -82,6 +84,10 @@ struct CircuitStudioFlowRunner {
                            Load an existing clean LVS log instead of running the mock LVS command
           --approve-signoff
                            Explicitly approve passing signoff reports for the PEX gate
+          --max-abs-delta VALUE
+                           Fail the post-layout comparison gate when the maximum absolute delta exceeds VALUE
+          --max-rel-delta VALUE
+                           Fail the post-layout comparison gate when the maximum relative delta exceeds VALUE
           --help           Show this help
         """
     }
@@ -109,6 +115,8 @@ private struct RunnerOptions {
     var pexCornerID = "tt_25c_1v0"
     var signoffDRCLogURL: URL?
     var signoffLVSLogURL: URL?
+    var maxAbsoluteDelta: Double?
+    var maxRelativeDelta: Double?
     var approveSignoff = false
     var showHelp = false
 
@@ -131,6 +139,10 @@ private struct RunnerOptions {
                 signoffDRCLogURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--signoff-lvs-log":
                 signoffLVSLogURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--max-abs-delta":
+                maxAbsoluteDelta = try Self.doubleValue(after: argument, in: arguments, index: &index)
+            case "--max-rel-delta":
+                maxRelativeDelta = try Self.doubleValue(after: argument, in: arguments, index: &index)
             case "--approve-signoff":
                 approveSignoff = true
             case "--help", "-h":
@@ -149,6 +161,26 @@ private struct RunnerOptions {
         }
         index = valueIndex
         return arguments[valueIndex]
+    }
+
+    private static func doubleValue(after option: String, in arguments: [String], index: inout Int) throws -> Double {
+        let rawValue = try value(after: option, in: arguments, index: &index)
+        guard let value = Double(rawValue),
+              value.isFinite,
+              value >= 0 else {
+            throw RunnerError.invalidNumericValue(option, rawValue)
+        }
+        return value
+    }
+
+    var comparisonLimits: PostLayoutComparisonLimits? {
+        guard maxAbsoluteDelta != nil || maxRelativeDelta != nil else {
+            return nil
+        }
+        return PostLayoutComparisonLimits(
+            maxAbsoluteDelta: maxAbsoluteDelta,
+            maxRelativeDelta: maxRelativeDelta
+        )
     }
 
     func loadPEXInput() throws -> PEXInput? {
@@ -254,6 +286,7 @@ private struct FlowFixture {
 private enum RunnerError: Error, LocalizedError {
     case invalidArgument(String)
     case missingValue(String)
+    case invalidNumericValue(String, String)
     case unknownFixture(String)
     case missingCompanionOption(String)
 
@@ -263,6 +296,8 @@ private enum RunnerError: Error, LocalizedError {
             return "Invalid argument: \(argument)"
         case .missingValue(let option):
             return "Missing value for \(option)"
+        case .invalidNumericValue(let option, let value):
+            return "Invalid numeric value for \(option): \(value)"
         case .unknownFixture(let name):
             return "Unknown fixture: \(name)"
         case .missingCompanionOption(let option):

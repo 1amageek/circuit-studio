@@ -24,6 +24,7 @@ public final class HeadlessRoundTripService {
         public let postLayoutCommand: AnalysisCommand
         public let pexIR: PEXParasiticIR
         public let pexArtifactPaths: [String]
+        public let postLayoutComparisonLimits: PostLayoutComparisonLimits?
         public let externalSignoffCommands: [ExternalSignoffCommand]
         public let externalSignoffReview: ExternalSignoffReview?
         public let approvedBy: String?
@@ -41,6 +42,7 @@ public final class HeadlessRoundTripService {
             postLayoutCommand: AnalysisCommand,
             pexIR: PEXParasiticIR,
             pexArtifactPaths: [String] = [],
+            postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
             externalSignoffCommands: [ExternalSignoffCommand] = [],
             externalSignoffReview: ExternalSignoffReview? = nil,
             approvedBy: String? = nil,
@@ -57,6 +59,7 @@ public final class HeadlessRoundTripService {
             self.postLayoutCommand = postLayoutCommand
             self.pexIR = pexIR
             self.pexArtifactPaths = pexArtifactPaths
+            self.postLayoutComparisonLimits = postLayoutComparisonLimits
             self.externalSignoffCommands = externalSignoffCommands
             self.externalSignoffReview = externalSignoffReview
             self.approvedBy = approvedBy
@@ -456,11 +459,24 @@ public final class HeadlessRoundTripService {
                 error: error
             )
         }
+        let comparisonViolations = configuration.postLayoutComparisonLimits.map {
+            comparisonReport.limitViolations($0)
+        } ?? []
         stages.append(Stage(
             name: "post-layout-comparison",
-            status: .passed,
-            message: comparisonReport.status
+            status: comparisonViolations.isEmpty ? .passed : .failed,
+            message: comparisonViolations.isEmpty ? comparisonReport.status : comparisonViolations.joined(separator: "; ")
         ))
+        guard comparisonViolations.isEmpty else {
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                isReadyForPEX: verification.isReadyForPEX,
+                stages: &stages,
+                artifacts: artifacts,
+                error: StudioError.simulationFailure("Post-layout comparison exceeded configured limits.")
+            )
+        }
 
         let manifestURL = try writeManifest(
             configuration: configuration,

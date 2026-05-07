@@ -24,8 +24,13 @@ struct PostLayoutComparisonServiceTests {
 
         #expect(report.status == "not-comparable")
         #expect(report.comparedPointCount == 0)
+        #expect(report.maxAbsoluteDelta == 0)
+        #expect(report.maxRelativeDelta == 0)
         #expect(report.comparedVariables.isEmpty)
         #expect(report.diagnostics.contains { $0.contains("Sweep values differ beyond tolerance") })
+        #expect(report.limitViolations(PostLayoutComparisonLimits(maxAbsoluteDelta: 1.0)).contains {
+            $0.contains("not comparable")
+        })
     }
 
     @Test func compareReportsCommonVariableDeltasWhenSweepsMatch() throws {
@@ -48,9 +53,18 @@ struct PostLayoutComparisonServiceTests {
 
         #expect(report.status == "compared")
         #expect(report.comparedPointCount == 3)
+        #expect(report.maxAbsoluteDelta == 0.5)
+        #expect(abs(report.maxRelativeDelta - (0.5 / 3.0)) < 1.0e-12)
         #expect(variable.variableName == "V(out)")
         #expect(variable.maxAbsoluteDelta == 0.5)
         #expect(abs(variable.maxRelativeDelta - (0.5 / 3.0)) < 1.0e-12)
+        #expect(report.limitViolations(PostLayoutComparisonLimits(maxAbsoluteDelta: 0.6)).isEmpty)
+        #expect(report.limitViolations(PostLayoutComparisonLimits(maxAbsoluteDelta: 0.4)).contains {
+            $0.contains("absolute delta") && $0.contains("exceeds")
+        })
+        #expect(report.limitViolations(PostLayoutComparisonLimits(maxRelativeDelta: 0.1)).contains {
+            $0.contains("relative delta") && $0.contains("exceeds")
+        })
     }
 
     private func makeWaveform(sweepValues: [Double], values: [Double]) -> WaveformData {
