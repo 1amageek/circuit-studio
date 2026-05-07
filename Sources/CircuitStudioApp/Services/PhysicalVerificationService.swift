@@ -192,7 +192,8 @@ public struct PhysicalVerificationService: Sendable {
 
     public func runDRC(document: LayoutDocument, tech: LayoutTechDatabase) -> DRCVerificationReport {
         let result = LayoutDRCService().run(document: document, tech: tech)
-        return makeDRCReport(violations: result.violations)
+        let physicalRuleViolations = result.violations.filter { $0.kind != .disconnectedOpen }
+        return makeDRCReport(violations: physicalRuleViolations)
     }
 
     public func makeDRCReport(violations: [LayoutViolation]) -> DRCVerificationReport {

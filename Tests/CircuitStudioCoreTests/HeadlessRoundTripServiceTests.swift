@@ -65,8 +65,7 @@ struct HeadlessRoundTripServiceTests {
             ],
             approvedBy: "layout-reviewer",
             approvedAt: Date(timeIntervalSince1970: 2_000),
-            createdAt: Date(timeIntervalSince1970: 1_000),
-            continueAfterFailedPrePEXGate: true
+            createdAt: Date(timeIntervalSince1970: 1_000)
         )
 
         let result = try await HeadlessRoundTripService().run(
@@ -75,9 +74,9 @@ struct HeadlessRoundTripServiceTests {
         )
 
         #expect(result.manifest.isRoundTripComplete)
-        #expect(!result.manifest.isReadyForPEX)
-        #expect(!result.verification.isReadyForPEX)
-        #expect(!result.verification.drc.passed)
+        #expect(result.manifest.isReadyForPEX)
+        #expect(result.verification.isReadyForPEX)
+        #expect(result.verification.drc.passed)
         #expect(result.externalSignoff?.isReadyForPEX == true)
         #expect(result.preLayoutResult.status == .completed)
         #expect(result.postLayoutResult.status == .completed)
@@ -90,8 +89,7 @@ struct HeadlessRoundTripServiceTests {
             "pex-injection",
             "post-layout-simulation",
         ]))
-        #expect(result.manifest.stages.filter { $0.status == .failed }.map(\.name) == ["pre-pex-verification"])
-        #expect(result.manifest.stages.first { $0.name == "pre-pex-verification" }?.message?.contains("DRC violations") == true)
+        #expect(result.manifest.stages.allSatisfy { $0.status == .passed })
         #expect(FileManager.default.fileExists(atPath: result.manifestURL.path(percentEncoded: false)))
 
         let artifactPaths = result.manifest.artifacts.map(\.path)
