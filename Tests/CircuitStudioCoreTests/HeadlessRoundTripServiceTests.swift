@@ -316,9 +316,18 @@ struct HeadlessRoundTripServiceTests {
         let artifactPaths = result.manifest.artifacts.map(\.path)
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout.cir") })
         #expect(artifactPaths.contains { $0.hasSuffix("post-layout.cir") })
+        #expect(artifactPaths.contains { $0.hasSuffix("post-layout-comparison.json") })
         #expect(artifactPaths.contains { $0.hasSuffix("drc-mock-drc.log") })
         #expect(artifactPaths.contains { $0.hasSuffix("lvs-mock-lvs.log") })
         #expect(artifactPaths.contains { $0.hasSuffix("external-signoff-review.json") })
+
+        let comparisonURL = try #require(result.manifest.artifacts.first {
+            $0.kind == "post-layout-comparison"
+        }).path
+        let comparisonData = try Data(contentsOf: URL(filePath: comparisonURL))
+        let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
+        #expect(comparison.status == "compared")
+        #expect(!comparison.comparedVariables.isEmpty)
 
         let manifestData = try Data(contentsOf: result.manifestURL)
         let decoder = JSONDecoder()

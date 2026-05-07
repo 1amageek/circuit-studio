@@ -390,6 +390,17 @@ public final class HeadlessRoundTripService {
             )
         }
 
+        let comparisonReport = PostLayoutComparisonService().compare(
+            preLayoutResult: preLayoutResult,
+            postLayoutResult: postLayoutResult
+        )
+        let comparisonReportURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(comparisonReport, to: comparisonReportURL)
+        artifacts.append(Artifact(
+            kind: "post-layout-comparison",
+            path: comparisonReportURL.path(percentEncoded: false)
+        ))
+
         let manifestURL = try writeManifest(
             configuration: configuration,
             runDirectory: runDirectory,
