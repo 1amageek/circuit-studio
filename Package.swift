@@ -67,7 +67,8 @@ let package = Package(
             resources: [
                 .copy("Fixtures/virtual_pdk.json"),
                 .copy("Fixtures/pdk"),
-                .copy("Fixtures/signoff")
+                .copy("Fixtures/signoff"),
+                .copy("Fixtures/pex")
             ]
         ),
     ]

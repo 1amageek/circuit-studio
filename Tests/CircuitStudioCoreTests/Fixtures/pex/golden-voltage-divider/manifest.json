@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "runID": { "value": "golden-voltage-divider" },
+  "requestHash": { "value": "fixture" },
+  "backendID": "golden-fixture",
+  "status": "success",
+  "startedAt": "2026-05-07T00:00:00Z",
+  "finishedAt": "2026-05-07T00:00:01Z",
+  "corners": [
+    {
+      "cornerID": { "value": "tt_25c_1v0" },
+      "status": "success",
+      "rawFiles": ["voltage-divider.spef"],
+      "irFile": "tt_25c_1v0.json",
+      "logFile": "extraction.log"
+    }
+  ],
+  "warnings": []
+}

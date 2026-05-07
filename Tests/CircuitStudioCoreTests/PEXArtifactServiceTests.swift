@@ -136,11 +136,77 @@ struct PEXArtifactServiceTests {
         #expect(postLayoutNetlist.contains("CPEX_"))
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func loadGoldenPEXFixtureAndRunPostLayoutAnalysis() async throws {
+        let manifestURL = try fixtureURL(
+            "manifest",
+            extension: "json",
+            subdirectory: "pex/golden-voltage-divider"
+        )
+        let service = PEXArtifactService()
+        let artifacts = try service.loadArtifacts(manifestURL: manifestURL)
+        let ir = try service.loadIR(for: "tt_25c_1v0", artifacts: artifacts)
+
+        let baseNetlist = """
+        * Voltage divider fixture
+        V1 vin 0 1
+        R1 vin out 1000
+        R2 out 0 1000
+        .op
+        .end
+        """
+        let postLayoutService = PostLayoutSimulationService()
+        let postLayoutNetlist = postLayoutService.buildPostLayoutNetlist(
+            baseNetlist: baseNetlist,
+            parasitics: ir
+        )
+        let result = try await postLayoutService.runPostLayoutAnalysis(
+            baseNetlist: baseNetlist,
+            parasitics: ir,
+            command: .op
+        )
+
+        #expect(artifacts.runID == "golden-voltage-divider")
+        #expect(artifacts.backendID == "golden-fixture")
+        #expect(artifacts.status == "success")
+        #expect(artifacts.corners.count == 1)
+        #expect(artifacts.corners[0].rawFileURLs.count == 1)
+        #expect(artifacts.corners[0].logURL?.lastPathComponent == "extraction.log")
+        #expect(ir.units == .canonical)
+        #expect(ir.elements.count == 3)
+        #expect(ir.elements.contains(PEXParasiticElement(
+            id: "r_out_segment",
+            kind: .resistor,
+            nodeA: "out",
+            nodeB: "out_pex",
+            value: 1.5
+        )))
+        let substrateCapacitor = try #require(ir.elements.first { $0.id == "c_out_to_substrate" })
+        #expect(substrateCapacitor.kind == .capacitor)
+        #expect(substrateCapacitor.nodeA == "out_pex")
+        #expect(substrateCapacitor.nodeB == nil)
+        #expect(abs(substrateCapacitor.value - 4.2e-15) < 1.0e-27)
+        #expect(postLayoutNetlist.contains("RPEX_r_out_segment out out_pex 1.5"))
+        #expect(postLayoutNetlist.contains("CPEX_c_out_to_substrate out_pex 0 4.2e-15"))
+        #expect(result.status == .completed)
+    }
+
     private func makeTemporaryRoot(_ name: String) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "CircuitStudioPEXArtifactServiceTests-\(name)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
+    }
+
+    private func fixtureURL(_ name: String, extension ext: String, subdirectory: String) throws -> URL {
+        guard let url = Bundle.module.url(
+            forResource: name,
+            withExtension: ext,
+            subdirectory: subdirectory
+        ) else {
+            throw StudioError.projectLoadFailed("Missing fixture: Fixtures/\(subdirectory)/\(name).\(ext)")
+        }
+        return url
     }
 
     private func removeTemporaryRoot(_ root: URL) {

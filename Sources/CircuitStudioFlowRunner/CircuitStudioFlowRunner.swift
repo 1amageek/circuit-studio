@@ -14,6 +14,7 @@ struct CircuitStudioFlowRunner {
             }
 
             let fixture = try FlowFixture(name: options.fixtureName)
+            let pexIR = try options.loadPEXIR() ?? fixture.pexIR
             let projectRoot = options.outputURL ?? defaultOutputURL(fixtureName: fixture.name)
             try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
             let signoffCommands = try makeMockSignoffCommands(in: projectRoot)
@@ -23,7 +24,7 @@ struct CircuitStudioFlowRunner {
                 title: fixture.title,
                 testbench: fixture.testbench,
                 postLayoutCommand: fixture.postLayoutCommand,
-                pexIR: fixture.pexIR,
+                pexIR: pexIR,
                 externalSignoffCommands: signoffCommands,
                 approvedBy: "headless-runner",
                 approvedAt: Date(),
@@ -40,6 +41,8 @@ struct CircuitStudioFlowRunner {
             print("project_root=\(projectRoot.path(percentEncoded: false))")
             print("manifest=\(result.manifestURL.path(percentEncoded: false))")
             print("ready_for_pex=\(result.manifest.isReadyForPEX)")
+            print("pex_corner=\(pexIR.cornerID)")
+            print("pex_elements=\(pexIR.elements.count)")
         } catch {
             fputs("round_trip=failed\n", stderr)
             fputs("error=\(error.localizedDescription)\n", stderr)
@@ -51,7 +54,7 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [--fixture cmos-inverter|voltage-divider] [--output PATH] [--run-id ID]
+          swift run circuit-studio-flow-runner [--fixture cmos-inverter|voltage-divider] [--output PATH] [--run-id ID] [--pex-manifest PATH] [--pex-corner ID]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> manifest
@@ -60,6 +63,9 @@ struct CircuitStudioFlowRunner {
           --fixture NAME   Fixture to run. Default: voltage-divider
           --output PATH    Project/output directory. Default: ./round-trip-runs/<fixture>
           --run-id ID      Flow run identifier. Default: fixture name plus timestamp
+          --pex-manifest PATH
+                           Load PEX IR through a saved PEXEngine manifest instead of using the built-in synthetic IR
+          --pex-corner ID  PEX corner to load from --pex-manifest. Default: tt_25c_1v0
           --help           Show this help
         """
     }
@@ -83,6 +89,8 @@ private struct RunnerOptions {
     var fixtureName = "voltage-divider"
     var outputURL: URL?
     var runID: String?
+    var pexManifestURL: URL?
+    var pexCornerID = "tt_25c_1v0"
     var showHelp = false
 
     init(arguments: [String]) throws {
@@ -96,6 +104,10 @@ private struct RunnerOptions {
                 outputURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--run-id":
                 runID = try Self.value(after: argument, in: arguments, index: &index)
+            case "--pex-manifest":
+                pexManifestURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--pex-corner":
+                pexCornerID = try Self.value(after: argument, in: arguments, index: &index)
             case "--help", "-h":
                 showHelp = true
             default:
@@ -112,6 +124,15 @@ private struct RunnerOptions {
         }
         index = valueIndex
         return arguments[valueIndex]
+    }
+
+    func loadPEXIR() throws -> PEXParasiticIR? {
+        guard let pexManifestURL else {
+            return nil
+        }
+        let service = PEXArtifactService()
+        let artifacts = try service.loadArtifacts(manifestURL: pexManifestURL)
+        return try service.loadIR(for: pexCornerID, artifacts: artifacts)
     }
 }
 

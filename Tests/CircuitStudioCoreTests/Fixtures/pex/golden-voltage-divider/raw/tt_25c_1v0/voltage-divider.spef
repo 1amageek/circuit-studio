@@ -1,0 +1,20 @@
+*SPEF "IEEE 1481-1998"
+*DESIGN "voltage-divider"
+*DATE "2026-05-07"
+*VENDOR "CircuitStudio fixture"
+*DIVIDER /
+*DELIMITER :
+*BUS_DELIMITER [ ]
+*T_UNIT 1 NS
+*C_UNIT 1 FF
+*R_UNIT 1 KOHM
+*L_UNIT 1 UH
+*D_NET out 4.55
+*CONN
+*P out I
+*CAP
+1 out 4.2
+2 vin out 0.35
+*RES
+1 out out_pex 0.0015
+*END
