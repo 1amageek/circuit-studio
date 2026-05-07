@@ -25,7 +25,7 @@ flowchart LR
 | Scope | Command | Result |
 |---|---|---|
 | CircuitStudio SwiftPM build | `perl -e 'alarm 120; exec @ARGV' swift build` | Pass |
-| CircuitStudio SwiftPM tests | `perl -e 'alarm 120; exec @ARGV' swift test --filter CircuitStudioCoreTests` | 128 pass, 4 skipped |
+| CircuitStudio SwiftPM tests | `perl -e 'alarm 120; exec @ARGV' swift test --filter CircuitStudioCoreTests` | 132 pass, 4 skipped |
 | CMOS inverter flow | `perl -e 'alarm 120; exec @ARGV' swift test --filter CMOSInverterFlowTests` | 1 pass |
 | CoreSpice full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/CoreSpice` | 542 pass |
 | semiconductor-layout full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/semiconductor-layout` | 91 pass |
@@ -48,6 +48,7 @@ flowchart LR
 | Full LVS | `PhysicalVerificationService` extracts physical connectivity from hierarchical routing geometry, vias, imported cut-shapes, top pins/labels, generated instance pins, imported polygon terminal metadata, numeric GDS layer aliases, raw MOS `ACTIVE ∩ POLY` geometry, inferred MOS terminals, shared-diffusion MOS devices, and raw resistors; it reports stale mappings, dangling mappings, missing/extra objects, declared-only nets, hierarchy topology errors, physical shorts, physical opens, unconnected terminals, terminal/net mismatches, skipped connectivity extraction, missing/misnamed external ports, invalid imported terminals, duplicate imported terminals, duplicate raw devices, raw MOS W/L/kind/`nf` mismatches, and raw resistor value mismatches | Verified for current in-app layout model, sample-process raw-device fixtures, and first imported-layout semantics fixtures |
 | PEX artifact loading | Manifest and IR loading, unit normalization, dropped-element diagnostics, and mock PEXEngine artifact handoff are covered | Verified |
 | Post-layout simulation | Normalized parasitics are merged into SPICE and CoreSpice analysis completes | Verified |
+| External signoff execution | External DRC/LVS commands can be launched, stdout/stderr logs are captured as artifacts, diagnostics are parsed, non-zero exits become failing reports, and approval decisions persist under `.xcircuite/signoff/` | Verified with mock signoff tools |
 | Human review cockpit | Xcode app launches and UI smoke tests pass | Smoke-tested |
 
 ## Issue Queue
@@ -65,7 +66,8 @@ flowchart LR
 | FV-009 | P2 | Open | Real PEX backend | The PEX artifact handoff is verified with the mock backend, not with a signoff-grade extractor or real layout file semantics. | Add a real-backend or golden-SPEF fixture path once the layout export and tech mapping contract are stable. |
 | FV-010 | P1 | Resolved for in-process LVS | Imported-layout LVS semantics | LVS-M11 needed hierarchy-cycle rejection, GDS numeric layer alias normalization, imported cut-shape connectivity, and shared-diffusion MOS extraction. | Added topology diagnostics, tech-backed layer alias normalization, cut-shape via/contact bridging, shared-diffusion two-device extraction, and focused tests. |
 | FV-011 | P1 | Resolved for imported reports | External signoff review gate | PEX readiness needed to account for signoff DRC/LVS results that were produced outside the in-process LVS checker. | Added normalized external DRC/LVS report models, diagnostic parsing, pass/fail aggregation, and an explicit human approval gate before PEX. |
-| FV-012 | P1 | Open | External signoff execution | External signoff reports can now be imported and gated, but CircuitStudio does not yet run signoff DRC/LVS commands or persist review approvals. | Add command-runner integration, captured artifact paths, persisted approval records, and UI review coverage. |
+| FV-012 | P1 | Resolved for mock signoff tools | External signoff execution | External signoff reports can now be imported and gated, but CircuitStudio needed to run signoff DRC/LVS commands and persist review approvals. | Added command-runner integration, captured log artifact paths, non-zero-exit report generation, persisted approval records, and focused tests. |
+| FV-013 | P1 | Open | Real signoff decks | External command execution is verified with mock tools, not real foundry DRC/LVS decks or golden imported layout corpora. | Add real-deck smoke fixtures, golden GDS/OASIS expected reports, and deck-specific parser adapters if generic log parsing is insufficient. |
 
 ## Full LVS Milestones
 
@@ -83,14 +85,15 @@ flowchart LR
 | LVS-M10: Sample-process raw device/terminal extraction | Done for current fixtures | Infers MOS source/drain/gate/bulk terminals from local M1 contact shapes, checks extracted drain connectivity for opens, recognizes raw resistors from `RESI ∩ POLY`, compares resistor value, and treats multi-finger MOS as one device with `nf` | `rawMOSLVSConnectsExtractedDrainTerminals()`, `rawMOSLVSReportsOpenExtractedDrainTerminals()`, `rawResistorLVSRecognizesResistanceWithoutMetadata()`, `rawResistorLVSRejectsResistanceMismatch()`, `rawMOSLVSRecognizesMultiFingerParameters()` |
 | LVS-M11: Imported-layout semantics hardening | Done for in-process LVS fixtures | Rejects hierarchy cycles before extraction, normalizes numeric GDS fallback layers through the active technology, treats imported cut-shapes as via/contact bridges, and extracts simple shared-diffusion MOS series devices | `fullLVSRejectsHierarchyCyclesBeforeExtraction()`, `importedNumericLayerRawMOSLVSUsesTechnologyLayerAliases()`, `importedCutShapeConnectsTerminalsAcrossProcessLayers()`, `sharedDiffusionRawMOSLVSRecognizesSeriesDevices()` |
 | LVS-M12: External signoff correlation | Done for imported reports | Import external signoff DRC/LVS reports, normalize diagnostics, correlate rule/component/net metadata when present, and require explicit human approval before PEX | `prePEXVerificationRequiresExternalSignoffApproval()`, `prePEXVerificationAcceptsApprovedExternalSignoff()`, `externalSignoffErrorsBlockPEXEvenWhenApproved()` |
-| LVS-M13: External signoff execution and approval persistence | Pending | Run configured signoff DRC/LVS tools, capture artifacts, persist review decisions, and expose approval state to the cockpit UI | Future runner and UI review-gate integration work |
+| LVS-M13: External signoff execution and approval persistence | Done for service layer and mock tools | Run configured signoff DRC/LVS tools, capture stdout/stderr artifacts, convert non-zero exits into failing reports, persist review decisions, and reload approval state | `runCapturesLogArtifactAndParsesDiagnostics()`, `nonZeroExitCreatesFailingReportWithoutDroppingArtifacts()`, `runCommandsBuildsUnapprovedReview()`, `reviewStorePersistsApproval()` |
+| LVS-M14: UI review cockpit integration | Pending | Surface external DRC/LVS/PEX artifacts in the cockpit UI, persist accept/reject decisions from the UI, and feed accepted state back into PEX readiness | Future UI review-gate integration work |
 
 ## Next Execution Order
 
 | Order | Issue | Reason |
 |---:|---|---|
-| 1 | LVS-M13 / FV-012 | Imported signoff reports are gated; the next boundary is running tools, storing artifacts, and persisting approvals. |
-| 2 | FV-004 | Human-in-the-loop review needs explicit UI state and artifact accept/reject coverage. |
+| 1 | LVS-M14 / FV-004 | Human-in-the-loop review needs explicit UI state and artifact accept/reject coverage. |
+| 2 | FV-013 | Real signoff deck coverage is needed before treating the external signoff bridge as production-like. |
 | 3 | FV-009 | Real PEX backend coverage is needed before calling the post-layout flow signoff-like. |
 | 4 | FV-007 | Solver and parser limitations affect broader circuit classes after the flow spine is stable. |
 | 5 | FV-006 | Current warning does not block build or tests. |

@@ -29,6 +29,19 @@ public struct ExternalSignoffReview: Sendable, Hashable, Codable {
     public var isReadyForPEX: Bool {
         passed && isApproved
     }
+
+    public func approving(
+        by reviewer: String,
+        at date: Date,
+        waiverIDs: [String]? = nil
+    ) -> ExternalSignoffReview {
+        ExternalSignoffReview(
+            reports: reports,
+            approvedBy: reviewer,
+            approvedAt: date,
+            waiverIDs: waiverIDs ?? self.waiverIDs
+        )
+    }
 }
 
 public struct ExternalSignoffToolReport: Sendable, Hashable, Codable {
@@ -92,4 +105,3 @@ public struct ExternalSignoffDiagnostic: Sendable, Hashable, Codable {
         self.rawLine = rawLine
     }
 }
-
