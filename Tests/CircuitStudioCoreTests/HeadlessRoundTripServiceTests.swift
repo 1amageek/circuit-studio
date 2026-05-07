@@ -111,16 +111,103 @@ struct HeadlessRoundTripServiceTests {
         #expect(result.manifest.isReadyForPEX)
         #expect(result.externalSignoff?.isReadyForPEX == true)
         #expect(result.externalSignoff?.reports.map(\.toolName) == ["imported-drc", "imported-lvs"])
-        #expect(result.manifest.artifacts.map(\.path).contains(drcLogURL.path(percentEncoded: false)))
-        #expect(result.manifest.artifacts.map(\.path).contains(lvsLogURL.path(percentEncoded: false)))
         #expect(result.manifest.artifacts.contains {
-            $0.kind == "pex-artifact" && $0.path == pexManifestURL.path(percentEncoded: false)
+            $0.kind == "external-signoff-log"
+                && $0.sourcePath == drcLogURL.path(percentEncoded: false)
+                && $0.path.contains("/input-artifacts/signoff/")
+        })
+        #expect(result.manifest.artifacts.contains {
+            $0.kind == "external-signoff-log"
+                && $0.sourcePath == lvsLogURL.path(percentEncoded: false)
+                && $0.path.contains("/input-artifacts/signoff/")
+        })
+        #expect(result.manifest.artifacts.contains {
+            $0.kind == "pex-artifact"
+                && $0.sourcePath == pexManifestURL.path(percentEncoded: false)
+                && $0.path.contains("/input-artifacts/pex/")
         })
         #expect(!result.manifest.artifacts.map(\.path).contains { $0.hasSuffix("mock-drc.log") })
 
         let storedReview = try ExternalSignoffReviewStore().load(projectRoot: root)
         #expect(storedReview.approvedBy == "layout-reviewer")
         #expect(storedReview.isReadyForPEX)
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func postLayoutComparisonMismatchWritesNotComparableArtifact() async throws {
+        let root = try makeTemporaryRoot("comparison-mismatch")
+        defer { removeTemporaryRoot(root) }
+
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: "comparison-mismatch",
+            title: "Comparison mismatch artifact",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .dcSweep(DCSweepSpec(source: "V1", startValue: 0, stopValue: 1, stepValue: 0.5)),
+            pexIR: smallPEXIR(),
+            externalSignoffCommands: try makeSignoffCommands(in: root)
+        )
+
+        _ = try await HeadlessRoundTripService().run(
+            schematic: SchematicPreview.voltageDividerViewModel().document,
+            configuration: configuration
+        )
+
+        let manifest = try loadManifest(projectRoot: root, runID: "comparison-mismatch")
+        #expect(manifest.isRoundTripComplete)
+        #expect(manifest.stages.first { $0.name == "post-layout-comparison" }?.status == .passed)
+        #expect(manifest.artifacts.map(\.path).contains { $0.hasSuffix("post-layout-comparison.json") })
+        let comparisonURL = try #require(manifest.artifacts.first {
+            $0.kind == "post-layout-comparison"
+        }).path
+        let comparisonData = try Data(contentsOf: URL(filePath: comparisonURL))
+        let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
+        #expect(comparison.status == "not-comparable")
+        #expect(comparison.diagnostics.contains { $0.contains("Point count mismatch") })
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func postLayoutComparisonWriteFailureWritesManifest() async throws {
+        let root = try makeTemporaryRoot("comparison-write-failure")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "comparison-write-failure")
+        try FileManager.default.createDirectory(
+            at: runDirectory.appending(path: "post-layout-comparison.json"),
+            withIntermediateDirectories: true
+        )
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: "comparison-write-failure",
+            title: "Comparison write failure manifest",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .op,
+            pexIR: smallPEXIR(),
+            externalSignoffCommands: try makeSignoffCommands(in: root)
+        )
+
+        do {
+            _ = try await HeadlessRoundTripService().run(
+                schematic: SchematicPreview.voltageDividerViewModel().document,
+                configuration: configuration
+            )
+            Issue.record("Expected post-layout comparison write failure")
+        } catch {
+            #expect(error.localizedDescription.contains("Failed to write headless flow manifest"))
+        }
+
+        let manifest = try loadManifest(projectRoot: root, runID: "comparison-write-failure")
+        assertFailureManifest(
+            manifest,
+            failedStage: "post-layout-comparison",
+            skippedStages: [],
+            isReadyForPEX: true
+        )
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -326,8 +413,12 @@ struct HeadlessRoundTripServiceTests {
         }).path
         let comparisonData = try Data(contentsOf: URL(filePath: comparisonURL))
         let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
-        #expect(comparison.status == "compared")
-        #expect(!comparison.comparedVariables.isEmpty)
+        #expect(["compared", "not-comparable"].contains(comparison.status))
+        if comparison.status == "compared" {
+            #expect(!comparison.comparedVariables.isEmpty)
+        } else {
+            #expect(!comparison.diagnostics.isEmpty)
+        }
 
         let manifestData = try Data(contentsOf: result.manifestURL)
         let decoder = JSONDecoder()

@@ -64,7 +64,11 @@ public struct PostLayoutVariableComparison: Sendable, Hashable, Codable {
 }
 
 public struct PostLayoutComparisonService: Sendable {
-    public init() {}
+    private let sweepTolerance: Double
+
+    public init(sweepTolerance: Double = 1.0e-12) {
+        self.sweepTolerance = sweepTolerance
+    }
 
     public func compare(
         preLayoutResult: SimulationResult,
@@ -82,16 +86,6 @@ public struct PostLayoutComparisonService: Sendable {
         let postNameSet = Set(postVariableNames)
         let preNameSet = Set(preVariableNames)
         let commonVariableNames = preVariableNames.filter { postNameSet.contains($0) }
-        let comparedPointCount = min(preLayoutWaveform.pointCount, postLayoutWaveform.pointCount)
-        let comparisons = commonVariableNames.compactMap { variableName in
-            compareVariable(
-                named: variableName,
-                pointCount: comparedPointCount,
-                preLayoutWaveform: preLayoutWaveform,
-                postLayoutWaveform: postLayoutWaveform
-            )
-        }
-
         var diagnostics: [String] = []
         if preLayoutWaveform.sweepVariable.name != postLayoutWaveform.sweepVariable.name {
             diagnostics.append(
@@ -103,6 +97,39 @@ public struct PostLayoutComparisonService: Sendable {
                 "Point count mismatch: \(preLayoutWaveform.pointCount) vs \(postLayoutWaveform.pointCount)."
             )
         }
+        if let sweepDelta = maxSweepDelta(
+            preLayoutValues: preLayoutWaveform.sweepValues,
+            postLayoutValues: postLayoutWaveform.sweepValues
+        ), sweepDelta > sweepTolerance {
+            diagnostics.append(
+                "Sweep values differ beyond tolerance \(sweepTolerance): max delta \(sweepDelta)."
+            )
+        }
+
+        guard diagnostics.isEmpty else {
+            return PostLayoutComparisonReport(
+                status: "not-comparable",
+                preLayoutPointCount: preLayoutWaveform.pointCount,
+                postLayoutPointCount: postLayoutWaveform.pointCount,
+                sweepVariable: preLayoutWaveform.sweepVariable.name,
+                comparedPointCount: 0,
+                comparedVariables: [],
+                missingInPostLayout: preVariableNames.filter { !postNameSet.contains($0) },
+                addedInPostLayout: postVariableNames.filter { !preNameSet.contains($0) },
+                diagnostics: diagnostics
+            )
+        }
+
+        let comparedPointCount = preLayoutWaveform.pointCount
+        let comparisons = commonVariableNames.compactMap { variableName in
+            compareVariable(
+                named: variableName,
+                pointCount: comparedPointCount,
+                preLayoutWaveform: preLayoutWaveform,
+                postLayoutWaveform: postLayoutWaveform
+            )
+        }
+
         if comparisons.isEmpty {
             diagnostics.append("No common waveform variables were available for comparison.")
         }
@@ -118,6 +145,15 @@ public struct PostLayoutComparisonService: Sendable {
             addedInPostLayout: postVariableNames.filter { !preNameSet.contains($0) },
             diagnostics: diagnostics
         )
+    }
+
+    private func maxSweepDelta(preLayoutValues: [Double], postLayoutValues: [Double]) -> Double? {
+        guard preLayoutValues.count == postLayoutValues.count else {
+            return nil
+        }
+        return zip(preLayoutValues, postLayoutValues)
+            .map { abs($0 - $1) }
+            .max() ?? 0
     }
 
     private func compareVariable(

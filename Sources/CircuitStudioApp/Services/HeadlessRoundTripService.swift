@@ -13,6 +13,7 @@ public final class HeadlessRoundTripService {
         "pre-pex-verification",
         "pex-injection",
         "post-layout-simulation",
+        "post-layout-comparison",
     ]
 
     public struct Configuration {
@@ -141,10 +142,12 @@ public final class HeadlessRoundTripService {
     public struct Artifact: Sendable, Hashable, Codable {
         public let kind: String
         public let path: String
+        public let sourcePath: String?
 
-        public init(kind: String, path: String) {
+        public init(kind: String, path: String, sourcePath: String? = nil) {
             self.kind = kind
             self.path = path
+            self.sourcePath = sourcePath
         }
     }
 
@@ -285,20 +288,38 @@ public final class HeadlessRoundTripService {
             )
         }
         if let externalSignoff {
-            artifacts.append(contentsOf: externalSignoff.reports.map {
-                Artifact(kind: "external-signoff-log", path: $0.logPath)
-            })
-            artifacts.append(Artifact(
-                kind: "external-signoff-review",
-                path: ExternalSignoffReviewStore()
-                    .reviewURL(projectRoot: configuration.projectRoot)
-                    .path(percentEncoded: false)
-            ))
-            stages.append(Stage(
-                name: "external-signoff",
-                status: externalSignoff.isReadyForPEX ? .passed : .failed,
-                message: externalSignoff.isReadyForPEX ? nil : "external signoff not ready"
-            ))
+            do {
+                artifacts.append(contentsOf: try captureInputArtifacts(
+                    paths: externalSignoff.reports.map(\.logPath),
+                    kind: "external-signoff-log",
+                    runDirectory: runDirectory,
+                    subdirectory: "signoff"
+                ))
+                artifacts.append(Artifact(
+                    kind: "external-signoff-review",
+                    path: ExternalSignoffReviewStore()
+                        .reviewURL(projectRoot: configuration.projectRoot)
+                        .path(percentEncoded: false)
+                ))
+                stages.append(Stage(
+                    name: "external-signoff",
+                    status: externalSignoff.isReadyForPEX ? .passed : .failed,
+                    message: externalSignoff.isReadyForPEX ? nil : "external signoff not ready"
+                ))
+            } catch {
+                stages.append(Stage(
+                    name: "external-signoff",
+                    status: .failed,
+                    message: error.localizedDescription
+                ))
+                try failRun(
+                    configuration: configuration,
+                    runDirectory: runDirectory,
+                    stages: &stages,
+                    artifacts: artifacts,
+                    error: error
+                )
+            }
         }
 
         let verification = PhysicalVerificationService().runPrePEXVerification(
@@ -331,16 +352,35 @@ public final class HeadlessRoundTripService {
             parasitics: configuration.pexIR
         )
         let postLayoutNetlistURL = runDirectory.appending(path: "post-layout.cir")
-        try write(postLayoutNetlist, to: postLayoutNetlistURL)
-        artifacts.append(contentsOf: configuration.pexArtifactPaths.map {
-            Artifact(kind: "pex-artifact", path: $0)
-        })
-        artifacts.append(Artifact(kind: "post-layout-netlist", path: postLayoutNetlistURL.path(percentEncoded: false)))
-        stages.append(Stage(
-            name: "pex-injection",
-            status: configuration.pexIR.elements.isEmpty ? .failed : .passed,
-            message: "\(configuration.pexIR.elements.count) parasitic elements"
-        ))
+        do {
+            try write(postLayoutNetlist, to: postLayoutNetlistURL)
+            artifacts.append(contentsOf: try captureInputArtifacts(
+                paths: configuration.pexArtifactPaths,
+                kind: "pex-artifact",
+                runDirectory: runDirectory,
+                subdirectory: "pex"
+            ))
+            artifacts.append(Artifact(kind: "post-layout-netlist", path: postLayoutNetlistURL.path(percentEncoded: false)))
+            stages.append(Stage(
+                name: "pex-injection",
+                status: configuration.pexIR.elements.isEmpty ? .failed : .passed,
+                message: "\(configuration.pexIR.elements.count) parasitic elements"
+            ))
+        } catch {
+            stages.append(Stage(
+                name: "pex-injection",
+                status: .failed,
+                message: error.localizedDescription
+            ))
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                isReadyForPEX: verification.isReadyForPEX,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
         guard !configuration.pexIR.elements.isEmpty else {
             try failRun(
                 configuration: configuration,
@@ -395,10 +435,31 @@ public final class HeadlessRoundTripService {
             postLayoutResult: postLayoutResult
         )
         let comparisonReportURL = runDirectory.appending(path: "post-layout-comparison.json")
-        try writeJSON(comparisonReport, to: comparisonReportURL)
-        artifacts.append(Artifact(
-            kind: "post-layout-comparison",
-            path: comparisonReportURL.path(percentEncoded: false)
+        do {
+            try writeJSON(comparisonReport, to: comparisonReportURL)
+            artifacts.append(Artifact(
+                kind: "post-layout-comparison",
+                path: comparisonReportURL.path(percentEncoded: false)
+            ))
+        } catch {
+            stages.append(Stage(
+                name: "post-layout-comparison",
+                status: .failed,
+                message: error.localizedDescription
+            ))
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                isReadyForPEX: verification.isReadyForPEX,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
+        stages.append(Stage(
+            name: "post-layout-comparison",
+            status: .passed,
+            message: comparisonReport.status
         ))
 
         let manifestURL = try writeManifest(
@@ -525,6 +586,75 @@ public final class HeadlessRoundTripService {
         }
 
         return review
+    }
+
+    private func captureInputArtifacts(
+        paths: [String],
+        kind: String,
+        runDirectory: URL,
+        subdirectory: String
+    ) throws -> [Artifact] {
+        guard !paths.isEmpty else {
+            return []
+        }
+
+        let captureDirectory = runDirectory
+            .appending(path: "input-artifacts")
+            .appending(path: subdirectory)
+        try createDirectory(captureDirectory)
+
+        var usedNames = Set<String>()
+        return try paths.map { path in
+            let sourceURL = URL(filePath: path)
+            let sourcePath = sourceURL.path(percentEncoded: false)
+            guard FileManager.default.fileExists(atPath: sourcePath) else {
+                throw StudioError.projectLoadFailed("Input artifact not found: \(sourcePath)")
+            }
+
+            if sourcePath.hasPrefix(runDirectory.path(percentEncoded: false)) {
+                return Artifact(kind: kind, path: sourcePath)
+            }
+
+            let destinationURL = uniqueCaptureURL(
+                for: sourceURL,
+                in: captureDirectory,
+                usedNames: &usedNames
+            )
+            do {
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            } catch {
+                throw StudioError.projectSaveFailed(
+                    "Failed to capture input artifact \(sourcePath): \(error.localizedDescription)"
+                )
+            }
+
+            return Artifact(
+                kind: kind,
+                path: destinationURL.path(percentEncoded: false),
+                sourcePath: sourcePath
+            )
+        }
+    }
+
+    private func uniqueCaptureURL(
+        for sourceURL: URL,
+        in directory: URL,
+        usedNames: inout Set<String>
+    ) -> URL {
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent
+        let pathExtension = sourceURL.pathExtension
+        var candidateName = sourceURL.lastPathComponent
+        var index = 1
+        while usedNames.contains(candidateName)
+            || FileManager.default.fileExists(atPath: directory.appending(path: candidateName).path(percentEncoded: false)) {
+            let suffix = "-\(index)"
+            candidateName = pathExtension.isEmpty
+                ? "\(baseName)\(suffix)"
+                : "\(baseName)\(suffix).\(pathExtension)"
+            index += 1
+        }
+        usedNames.insert(candidateName)
+        return directory.appending(path: candidateName)
     }
 
     private func prePEXFailureMessage(_ verification: PhysicalVerificationReport) -> String {

@@ -34,8 +34,8 @@ struct CircuitStudioFlowRunner {
                 pexArtifactPaths: pexInput.artifactPaths,
                 externalSignoffCommands: signoffCommands,
                 externalSignoffReview: externalSignoffReview,
-                approvedBy: "headless-runner",
-                approvedAt: Date(),
+                approvedBy: options.approveSignoff ? "headless-runner" : nil,
+                approvedAt: options.approveSignoff ? Date() : nil,
                 createdAt: Date()
             )
 
@@ -52,6 +52,7 @@ struct CircuitStudioFlowRunner {
             print("pex_corner=\(pexInput.ir.cornerID)")
             print("pex_elements=\(pexInput.ir.elements.count)")
             print("external_signoff=\(externalSignoffReview == nil ? "mock-command" : "imported-logs")")
+            print("signoff_approved=\(options.approveSignoff)")
         } catch {
             fputs("round_trip=failed\n", stderr)
             fputs("error=\(error.localizedDescription)\n", stderr)
@@ -63,7 +64,7 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [--fixture cmos-inverter|voltage-divider] [--output PATH] [--run-id ID] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH]
+          swift run circuit-studio-flow-runner [--fixture cmos-inverter|voltage-divider] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> manifest
@@ -79,6 +80,8 @@ struct CircuitStudioFlowRunner {
                            Load an existing clean DRC log instead of running the mock DRC command
           --signoff-lvs-log PATH
                            Load an existing clean LVS log instead of running the mock LVS command
+          --approve-signoff
+                           Explicitly approve passing signoff reports for the PEX gate
           --help           Show this help
         """
     }
@@ -106,6 +109,7 @@ private struct RunnerOptions {
     var pexCornerID = "tt_25c_1v0"
     var signoffDRCLogURL: URL?
     var signoffLVSLogURL: URL?
+    var approveSignoff = false
     var showHelp = false
 
     init(arguments: [String]) throws {
@@ -127,6 +131,8 @@ private struct RunnerOptions {
                 signoffDRCLogURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--signoff-lvs-log":
                 signoffLVSLogURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--approve-signoff":
+                approveSignoff = true
             case "--help", "-h":
                 showHelp = true
             default:
