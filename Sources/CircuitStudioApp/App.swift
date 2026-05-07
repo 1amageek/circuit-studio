@@ -134,6 +134,12 @@ public struct CircuitStudioApp: App {
     }
 
     private func loadProjectConfig(from projectRoot: URL) {
+        do {
+            try services.projectService.ensurePEXProjectFiles(projectRoot: projectRoot)
+        } catch {
+            appState.log("Could not prepare PEX files: \(error.localizedDescription)", kind: .warning)
+        }
+
         // Load workspace config
         do {
             let config = try services.projectService.loadWorkspaceConfig(projectRoot: projectRoot)
@@ -188,6 +194,8 @@ public struct CircuitStudioApp: App {
 
     private func saveProject(projectRoot: URL) {
         do {
+            try services.projectService.ensurePEXProjectFiles(projectRoot: projectRoot)
+
             // Workspace config
             try services.projectService.saveWorkspaceConfig(
                 appState.workspaceConfig(),

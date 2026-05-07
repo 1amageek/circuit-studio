@@ -13,6 +13,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CoreSpice"),
         .package(path: "../semiconductor-layout"),
+        .package(path: "../PEXEngine"),
     ],
     targets: [
         .target(
@@ -20,6 +21,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CoreSpice", package: "CoreSpice"),
                 .product(name: "CoreSpiceIO", package: "CoreSpice"),
+                .product(name: "PEXEngine", package: "PEXEngine"),
             ]
         ),
         .target(
@@ -46,7 +48,13 @@ let package = Package(
         ),
         .testTarget(
             name: "CircuitStudioCoreTests",
-            dependencies: ["CircuitStudioCore", "SchematicEditor", "WaveformViewer", "CircuitStudioApp"],
+            dependencies: [
+                "CircuitStudioCore",
+                "SchematicEditor",
+                "WaveformViewer",
+                "CircuitStudioApp",
+                .product(name: "PEXEngine", package: "PEXEngine"),
+            ],
             resources: [
                 .copy("Fixtures/virtual_pdk.json"),
                 .copy("Fixtures/pdk")

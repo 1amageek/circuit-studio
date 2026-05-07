@@ -167,6 +167,7 @@ public final class AutoLayoutService {
             instances: instances,
             placement: placement,
             routing: routing,
+            routingNets: routingNets,
             componentToCellID: componentToCellID
         )
 
@@ -429,12 +430,15 @@ public final class AutoLayoutService {
         instances: [PlacementInstance],
         placement: PlacementResult,
         routing: RoutingResult,
+        routingNets: [RoutingNet],
         componentToCellID: [UUID: UUID]
     ) -> LayoutDocument {
         // Create top cell with instances and routing shapes
         var topShapes: [LayoutShape] = placement.powerRails
         var topVias: [LayoutVia] = []
         var topInstances: [LayoutInstance] = []
+        var topNets: [LayoutNet] = []
+        let netNamesByID = Dictionary(uniqueKeysWithValues: routingNets.map { ($0.id, $0.name) })
 
         // Add device cell instances
         for inst in instances {
@@ -449,15 +453,28 @@ public final class AutoLayoutService {
 
         // Add routing shapes and vias
         for route in routing.routes {
-            topShapes.append(contentsOf: route.shapes)
-            topVias.append(contentsOf: route.vias)
+            if let netName = netNamesByID[route.netID] {
+                topNets.append(LayoutNet(id: route.netID, name: netName))
+            }
+
+            topShapes.append(contentsOf: route.shapes.map { shape in
+                var routedShape = shape
+                routedShape.netID = route.netID
+                return routedShape
+            })
+            topVias.append(contentsOf: route.vias.map { via in
+                var routedVia = via
+                routedVia.netID = route.netID
+                return routedVia
+            })
         }
 
         let topCell = LayoutCell(
             name: "TOP",
             shapes: topShapes,
             vias: topVias,
-            instances: topInstances
+            instances: topInstances,
+            nets: topNets
         )
 
         var allCells = Array(cells.values)

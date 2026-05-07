@@ -107,6 +107,17 @@ public struct SymbolRenderer {
             )
             context.stroke(path, with: .color(strokeColor), style: style)
 
+        case .polygon(let points):
+            guard points.count >= 3 else { break }
+            var path = Path()
+            path.move(to: points[0])
+            for i in 1..<points.count {
+                path.addLine(to: points[i])
+            }
+            path.closeSubpath()
+            context.fill(path, with: .color(strokeColor))
+            context.stroke(path, with: .color(strokeColor), style: style)
+
         case .text(let string, let at, let fontSize):
             let text = Text(string).font(.system(size: fontSize))
             context.draw(context.resolve(text), at: at, anchor: .center)

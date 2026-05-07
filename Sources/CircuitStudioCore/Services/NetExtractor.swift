@@ -57,6 +57,32 @@ public struct NetExtractor: Sendable {
             wireGroups.union(2 * i, 2 * i + 1)
         }
 
+        // Merge geometric connections that may exist in loaded or programmatically-built schematics.
+        // The editor usually splits T-junctions as wires are drawn, but imported data can contain
+        // unsplit endpoint-to-segment contacts or overlapping collinear wire segments.
+        for i in wires.indices {
+            for j in wires.indices where i < j {
+                if wiresShareConductivePoint(wires[i], wires[j]) {
+                    wireGroups.union(2 * i, 2 * j)
+                }
+            }
+        }
+
+        // Merge disconnected wire groups that share the same explicit net label name.
+        var labelNameToEndpoint: [String: Int] = [:]
+        for label in document.labels {
+            let name = label.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty,
+                  let endpointIdx = endpointIndex(for: label.position, in: wires) else {
+                continue
+            }
+            if let existing = labelNameToEndpoint[name] {
+                wireGroups.union(existing, endpointIdx)
+            } else {
+                labelNameToEndpoint[name] = endpointIdx
+            }
+        }
+
         // Collect nets by group
         var groupToNet: [Int: (name: String?, pins: [PinReference])] = [:]
 
@@ -95,12 +121,14 @@ public struct NetExtractor: Sendable {
         // Merge nets that share the same group root (start/end already merged by union-find)
         // Assign net labels from document.labels based on position proximity
         for label in document.labels {
-            let labelKey = PointKey(label.position)
-            if let endpointIdx = pointToEndpoint[labelKey] {
-                let group = wireGroups.find(endpointIdx)
-                if groupToNet[group] != nil {
-                    groupToNet[group]!.name = label.name
-                }
+            let name = label.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty,
+                  let endpointIdx = endpointIndex(for: label.position, in: wires) else {
+                continue
+            }
+            let group = wireGroups.find(endpointIdx)
+            if groupToNet[group] != nil {
+                groupToNet[group]!.name = name
             }
         }
 
@@ -143,6 +171,56 @@ private struct PointKey: Hashable {
         self.x = Int(round(point.x))
         self.y = Int(round(point.y))
     }
+}
+
+private func endpointIndex(for point: CGPoint, in wires: [Wire]) -> Int? {
+    let key = PointKey(point)
+    for i in wires.indices {
+        if PointKey(wires[i].startPoint) == key {
+            return 2 * i
+        }
+        if PointKey(wires[i].endPoint) == key {
+            return 2 * i + 1
+        }
+    }
+
+    for i in wires.indices {
+        if pointOnAxisAlignedSegment(point, from: wires[i].startPoint, to: wires[i].endPoint) {
+            return 2 * i
+        }
+    }
+    return nil
+}
+
+private func wiresShareConductivePoint(_ lhs: Wire, _ rhs: Wire) -> Bool {
+    pointOnAxisAlignedSegment(lhs.startPoint, from: rhs.startPoint, to: rhs.endPoint)
+        || pointOnAxisAlignedSegment(lhs.endPoint, from: rhs.startPoint, to: rhs.endPoint)
+        || pointOnAxisAlignedSegment(rhs.startPoint, from: lhs.startPoint, to: lhs.endPoint)
+        || pointOnAxisAlignedSegment(rhs.endPoint, from: lhs.startPoint, to: lhs.endPoint)
+}
+
+private func pointOnAxisAlignedSegment(_ point: CGPoint, from: CGPoint, to: CGPoint) -> Bool {
+    let pointKey = PointKey(point)
+    let fromKey = PointKey(from)
+    let toKey = PointKey(to)
+
+    if fromKey == toKey {
+        return pointKey == fromKey
+    }
+
+    if fromKey.y == toKey.y {
+        guard pointKey.y == fromKey.y else { return false }
+        return pointKey.x >= min(fromKey.x, toKey.x)
+            && pointKey.x <= max(fromKey.x, toKey.x)
+    }
+
+    if fromKey.x == toKey.x {
+        guard pointKey.x == fromKey.x else { return false }
+        return pointKey.y >= min(fromKey.y, toKey.y)
+            && pointKey.y <= max(fromKey.y, toKey.y)
+    }
+
+    return false
 }
 
 /// Simple union-find (disjoint set) data structure.

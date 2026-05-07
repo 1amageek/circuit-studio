@@ -36,20 +36,20 @@ public enum BuiltInDevices {
         shape: .custom([
             // Gate lead
             .line(from: CGPoint(x: -20, y: 0), to: CGPoint(x: -8, y: 0)),
-            // Gate plate
+            // Gate plate (insulator)
             .line(from: CGPoint(x: -8, y: -14), to: CGPoint(x: -8, y: 14)),
-            // Channel (continuous)
-            .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -4, y: 14)),
+            // Channel — 3 broken segments (IEC 60617 enhancement mode)
+            .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -4, y: -6)),
+            .line(from: CGPoint(x: -4, y: -2), to: CGPoint(x: -4, y: 2)),
+            .line(from: CGPoint(x: -4, y: 6), to: CGPoint(x: -4, y: 14)),
             // Drain
             .line(from: CGPoint(x: -4, y: -10), to: CGPoint(x: 10, y: -10)),
             .line(from: CGPoint(x: 10, y: -10), to: CGPoint(x: 10, y: -30)),
             // Source
             .line(from: CGPoint(x: -4, y: 10), to: CGPoint(x: 10, y: 10)),
             .line(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 10, y: 30)),
-            // Arrow on source (NMOS: pointing left into channel)
-            .line(from: CGPoint(x: 4, y: 5), to: CGPoint(x: -4, y: 10)),
-            .line(from: CGPoint(x: 4, y: 15), to: CGPoint(x: -4, y: 10)),
-            .line(from: CGPoint(x: 4, y: 5), to: CGPoint(x: 4, y: 15)),
+            // Arrow on source (NMOS: filled triangle pointing into channel)
+            .polygon([CGPoint(x: 4, y: 5), CGPoint(x: -4, y: 10), CGPoint(x: 4, y: 15)]),
             // Bulk lead (routed from bottom of channel, avoiding gate)
             .line(from: CGPoint(x: -4, y: 14), to: CGPoint(x: -10, y: 14)),
             .line(from: CGPoint(x: -10, y: 14), to: CGPoint(x: -10, y: 30)),
@@ -60,24 +60,22 @@ public enum BuiltInDevices {
 
     private static let pmosSymbolDefinition = SymbolDefinition(
         shape: .custom([
-            // Gate lead (shorter for bubble)
-            .line(from: CGPoint(x: -20, y: 0), to: CGPoint(x: -12, y: 0)),
-            // Gate bubble (PMOS inversion)
-            .circle(center: CGPoint(x: -10, y: 0), radius: 2),
-            // Gate plate
+            // Gate lead (IEC 60617: no bubble for P-channel)
+            .line(from: CGPoint(x: -20, y: 0), to: CGPoint(x: -8, y: 0)),
+            // Gate plate (insulator)
             .line(from: CGPoint(x: -8, y: -14), to: CGPoint(x: -8, y: 14)),
-            // Channel (continuous)
-            .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -4, y: 14)),
+            // Channel — 3 broken segments (IEC 60617 enhancement mode)
+            .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -4, y: -6)),
+            .line(from: CGPoint(x: -4, y: -2), to: CGPoint(x: -4, y: 2)),
+            .line(from: CGPoint(x: -4, y: 6), to: CGPoint(x: -4, y: 14)),
             // Source (top for PMOS)
             .line(from: CGPoint(x: -4, y: -10), to: CGPoint(x: 10, y: -10)),
             .line(from: CGPoint(x: 10, y: -10), to: CGPoint(x: 10, y: -30)),
             // Drain (bottom for PMOS)
             .line(from: CGPoint(x: -4, y: 10), to: CGPoint(x: 10, y: 10)),
             .line(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 10, y: 30)),
-            // Arrow on source (PMOS: pointing right, away from channel)
-            .line(from: CGPoint(x: -4, y: -15), to: CGPoint(x: 4, y: -10)),
-            .line(from: CGPoint(x: -4, y: -5), to: CGPoint(x: 4, y: -10)),
-            .line(from: CGPoint(x: -4, y: -15), to: CGPoint(x: -4, y: -5)),
+            // Arrow on source (PMOS: filled triangle pointing away from channel)
+            .polygon([CGPoint(x: -4, y: -15), CGPoint(x: 4, y: -10), CGPoint(x: -4, y: -5)]),
             // Bulk lead (routed from top of channel, avoiding gate)
             .line(from: CGPoint(x: -4, y: -14), to: CGPoint(x: -10, y: -14)),
             .line(from: CGPoint(x: -10, y: -14), to: CGPoint(x: -10, y: -30)),
@@ -466,10 +464,8 @@ public enum BuiltInDevices {
         symbol: SymbolDefinition(
             shape: .custom([
                 .line(from: CGPoint(x: 0, y: -30), to: CGPoint(x: 0, y: -8)),
-                // Triangle
-                .line(from: CGPoint(x: -8, y: -8), to: CGPoint(x: 8, y: -8)),
-                .line(from: CGPoint(x: -8, y: -8), to: CGPoint(x: 0, y: 8)),
-                .line(from: CGPoint(x: 8, y: -8), to: CGPoint(x: 0, y: 8)),
+                // Triangle (IEC 60617: filled)
+                .polygon([CGPoint(x: -8, y: -8), CGPoint(x: 8, y: -8), CGPoint(x: 0, y: 8)]),
                 // Bar
                 .line(from: CGPoint(x: -8, y: 8), to: CGPoint(x: 8, y: 8)),
                 .line(from: CGPoint(x: 0, y: 8), to: CGPoint(x: 0, y: 30)),
@@ -503,12 +499,11 @@ public enum BuiltInDevices {
                 // Collector
                 .line(from: CGPoint(x: -5, y: -8), to: CGPoint(x: 10, y: -20)),
                 .line(from: CGPoint(x: 10, y: -20), to: CGPoint(x: 10, y: -30)),
-                // Emitter (with arrow)
+                // Emitter
                 .line(from: CGPoint(x: -5, y: 8), to: CGPoint(x: 10, y: 20)),
                 .line(from: CGPoint(x: 10, y: 20), to: CGPoint(x: 10, y: 30)),
-                // Arrow on emitter
-                .line(from: CGPoint(x: 4, y: 14), to: CGPoint(x: 10, y: 20)),
-                .line(from: CGPoint(x: 10, y: 14), to: CGPoint(x: 10, y: 20)),
+                // Arrow on emitter (IEC 60617: filled triangle pointing outward)
+                .polygon([CGPoint(x: 4, y: 14), CGPoint(x: 10, y: 20), CGPoint(x: 10, y: 14)]),
             ]),
             size: CGSize(width: 30, height: 60),
             iconName: "arrow.triangle.branch"
@@ -532,13 +527,15 @@ public enum BuiltInDevices {
         ],
         symbol: SymbolDefinition(
             shape: .custom([
+                // Base lead
                 .line(from: CGPoint(x: -20, y: 0), to: CGPoint(x: -5, y: 0)),
+                // Base line (vertical)
                 .line(from: CGPoint(x: -5, y: -12), to: CGPoint(x: -5, y: 12)),
-                // Emitter (with arrow pointing inward)
+                // Emitter
                 .line(from: CGPoint(x: -5, y: -8), to: CGPoint(x: 10, y: -20)),
                 .line(from: CGPoint(x: 10, y: -20), to: CGPoint(x: 10, y: -30)),
-                .line(from: CGPoint(x: -1, y: -10), to: CGPoint(x: -5, y: -8)),
-                .line(from: CGPoint(x: -3, y: -14), to: CGPoint(x: -5, y: -8)),
+                // Arrow on emitter (IEC 60617: filled triangle pointing inward)
+                .polygon([CGPoint(x: -1, y: -10), CGPoint(x: -5, y: -8), CGPoint(x: -3, y: -14)]),
                 // Collector
                 .line(from: CGPoint(x: -5, y: 8), to: CGPoint(x: 10, y: 20)),
                 .line(from: CGPoint(x: 10, y: 20), to: CGPoint(x: 10, y: 30)),

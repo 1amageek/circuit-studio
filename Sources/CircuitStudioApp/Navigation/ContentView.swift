@@ -319,6 +319,10 @@ public struct ContentView: View {
             && !schematicViewModel.document.wires.isEmpty
     }
 
+    private var runPEXDisabled: Bool {
+        appState.isRunningPEX || appState.projectRootURL == nil || project.designUnit == nil
+    }
+
     private var runButtonDisabled: Bool {
         if appState.isSimulating { return true }
         switch appState.schematicMode {
@@ -470,6 +474,22 @@ public struct ContentView: View {
                 Label("Run DRC", systemImage: "checkmark.shield")
             }
         }
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                Task {
+                    await runPEXAndExportCircuit()
+                }
+            } label: {
+                if appState.isRunningPEX {
+                    Label("Running PEX...", systemImage: "hourglass")
+                } else {
+                    Label("Run PEX", systemImage: "waveform.path.ecg")
+                }
+            }
+            .disabled(runPEXDisabled)
+            .help("Run pexengine and write a post-PEX circuit netlist")
+        }
     }
 
     @ToolbarContentBuilder
@@ -532,6 +552,157 @@ public struct ContentView: View {
         }
     }
 
+    // MARK: - PEX
+
+    @MainActor
+    private func runPEXAndExportCircuit() async {
+        guard let projectRoot = appState.projectRootURL else {
+            appState.log("Open a project folder before running PEX.", kind: .warning)
+            return
+        }
+        guard project.designUnit != nil else {
+            appState.log("Generate layout before running PEX.", kind: .warning)
+            return
+        }
+        guard !appState.spiceSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            appState.log("Netlist is empty.", kind: .warning)
+            return
+        }
+
+        appState.isRunningPEX = true
+        appState.showConsole = true
+        appState.log("Preparing PEX inputs...", kind: .info)
+        defer { appState.isRunningPEX = false }
+
+        do {
+            try services.projectService.ensurePEXProjectFiles(projectRoot: projectRoot)
+            let config = try services.projectService.loadPEXProjectConfig(projectRoot: projectRoot)
+
+            try services.projectService.saveNetlist(
+                appState.spiceSource,
+                relativePath: config.inputs.netlist,
+                projectRoot: projectRoot
+            )
+            try services.projectService.saveLayout(
+                document: project.layoutViewModel.editor.document,
+                tech: project.layoutViewModel.tech,
+                relativePath: config.inputs.layout,
+                projectRoot: projectRoot
+            )
+
+            appState.log("Running pexengine extract...", kind: .info)
+            let pexCommandService = services.pexCommandService
+            let configPath = services.projectService.pexConfigPath(projectRoot: projectRoot)
+            let result = try await Task.detached(priority: .userInitiated) {
+                try pexCommandService.extract(
+                    configURL: configPath,
+                    workingDirectory: projectRoot
+                )
+            }.value
+
+            if !result.standardOutput.isEmpty {
+                appState.log(result.standardOutput, kind: .output)
+            }
+            if !result.standardError.isEmpty {
+                appState.log(result.standardError, kind: .warning)
+            }
+
+            guard let manifestURL = extractManifestURL(from: result.standardOutput) else {
+                throw StudioError.exportFailure("Could not locate manifest path from pexengine output.")
+            }
+
+            let postNetlistURL = try writePostPEXNetlist(
+                projectRoot: projectRoot,
+                config: config,
+                manifestURL: manifestURL
+            )
+            appState.pexOutputNetlistURL = postNetlistURL
+            appState.log("PEX complete. Wrote \(postNetlistURL.lastPathComponent)", kind: .success)
+        } catch {
+            appState.log("PEX failed: \(error.localizedDescription)", kind: .error)
+        }
+    }
+
+    private func writePostPEXNetlist(
+        projectRoot: URL,
+        config: PEXProjectConfig,
+        manifestURL: URL
+    ) throws -> URL {
+        let manifestData = try Data(contentsOf: manifestURL)
+        let manifest = try JSONDecoder().decode(LocalPEXManifest.self, from: manifestData)
+
+        let runDirectory = manifestURL.deletingLastPathComponent()
+        let outputURL = projectRoot
+            .appending(path: ".xcircuite")
+            .appending(path: "pex")
+            .appending(path: "post_pex.cir")
+
+        let baseNetlistURL = resolvePath(config.inputs.netlist, projectRoot: projectRoot)
+        let baseNetlist = try String(contentsOf: baseNetlistURL, encoding: .utf8)
+
+        var lines: [String] = []
+        lines.append("* Auto-generated post-PEX circuit")
+        lines.append("* Base netlist: \(baseNetlistURL.path(percentEncoded: false))")
+        lines.append("* Manifest: \(manifestURL.path(percentEncoded: false))")
+        lines.append("")
+        lines.append(baseNetlist)
+        lines.append("")
+        lines.append("* --- Parasitic extraction artifacts ---")
+
+        for corner in manifest.corners {
+            lines.append("* Corner: \(corner.cornerID.value) [\(corner.status)]")
+            for file in corner.rawFiles {
+                let rawURL = runDirectory
+                    .appending(path: "raw")
+                    .appending(path: corner.cornerID.value)
+                    .appending(path: file)
+                lines.append("*   \(rawURL.path(percentEncoded: false))")
+            }
+        }
+
+        lines.append("")
+        lines.append(".end")
+
+        let parent = outputURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        try lines.joined(separator: "\n").write(to: outputURL, atomically: true, encoding: .utf8)
+        return outputURL
+    }
+
+    private func extractManifestURL(from stdout: String) -> URL? {
+        for line in stdout.split(separator: "\n") {
+            if line.hasPrefix("Artifacts: ") {
+                let path = line.dropFirst("Artifacts: ".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty {
+                    return URL(filePath: path)
+                }
+            }
+        }
+        return nil
+    }
+
+    private func resolvePath(_ rawPath: String, projectRoot: URL) -> URL {
+        let expanded = NSString(string: rawPath).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            return URL(filePath: expanded)
+        }
+        return projectRoot.appending(path: expanded)
+    }
+
+}
+
+private struct LocalPEXManifest: Decodable {
+    let corners: [CornerEntry]
+
+    struct CornerEntry: Decodable {
+        let cornerID: CornerIDValue
+        let status: String
+        let rawFiles: [String]
+    }
+
+    struct CornerIDValue: Decodable {
+        let value: String
+    }
 }
 
 /// Inspector panel for the netlist editor showing parsed netlist info.

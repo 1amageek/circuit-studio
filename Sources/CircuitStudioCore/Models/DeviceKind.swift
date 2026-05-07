@@ -7,6 +7,7 @@ public enum DrawCommand: Sendable {
     case rect(origin: CGPoint, size: CGSize)
     case circle(center: CGPoint, radius: CGFloat)
     case arc(center: CGPoint, radius: CGFloat, startAngle: Double, endAngle: Double)
+    case polygon([CGPoint])
     case text(String, at: CGPoint, fontSize: CGFloat)
 }
 

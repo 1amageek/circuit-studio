@@ -229,6 +229,111 @@ struct NetExtractorTests {
         let groundNet = nets.first(where: { $0.name == "0" })
         #expect(groundNet != nil)
     }
+
+    @Test func labelOnWireInteriorNamesNet() {
+        let r1 = PlacedComponent(deviceKindID: "resistor", name: "R1", position: .zero)
+        let r2 = PlacedComponent(deviceKindID: "resistor", name: "R2", position: CGPoint(x: 100, y: 0))
+        let r1Pin = PinReference(componentID: r1.id, portID: "pos")
+        let r2Pin = PinReference(componentID: r2.id, portID: "pos")
+        let wire = Wire(
+            startPoint: CGPoint(x: 0, y: 0),
+            endPoint: CGPoint(x: 100, y: 0),
+            startPin: r1Pin,
+            endPin: r2Pin
+        )
+        let label = NetLabel(name: "VIN", position: CGPoint(x: 50, y: 0))
+
+        let document = SchematicDocument(components: [r1, r2], wires: [wire], labels: [label])
+        let nets = NetExtractor().extract(from: document)
+
+        let net = nets.first(where: { $0.name == "VIN" })
+        #expect(net != nil)
+        #expect(net?.connections.contains(r1Pin) == true)
+        #expect(net?.connections.contains(r2Pin) == true)
+    }
+
+    @Test func matchingLabelsMergeSeparateWireGroups() {
+        let r1 = PlacedComponent(deviceKindID: "resistor", name: "R1", position: .zero)
+        let r2 = PlacedComponent(deviceKindID: "resistor", name: "R2", position: CGPoint(x: 100, y: 0))
+        let r1Pin = PinReference(componentID: r1.id, portID: "pos")
+        let r2Pin = PinReference(componentID: r2.id, portID: "pos")
+        let leftWire = Wire(
+            startPoint: CGPoint(x: 0, y: 0),
+            endPoint: CGPoint(x: 20, y: 0),
+            startPin: r1Pin
+        )
+        let rightWire = Wire(
+            startPoint: CGPoint(x: 100, y: 0),
+            endPoint: CGPoint(x: 120, y: 0),
+            startPin: r2Pin
+        )
+        let labels = [
+            NetLabel(name: "VIN", position: CGPoint(x: 10, y: 0)),
+            NetLabel(name: "VIN", position: CGPoint(x: 110, y: 0)),
+        ]
+
+        let document = SchematicDocument(
+            components: [r1, r2],
+            wires: [leftWire, rightWire],
+            labels: labels
+        )
+        let nets = NetExtractor().extract(from: document)
+
+        let vinNets = nets.filter { $0.name == "VIN" }
+        #expect(vinNets.count == 1)
+        #expect(vinNets.first?.connections.contains(r1Pin) == true)
+        #expect(vinNets.first?.connections.contains(r2Pin) == true)
+    }
+
+    @Test func tJunctionConnectsEndpointToWireInterior() {
+        let r1 = PlacedComponent(deviceKindID: "resistor", name: "R1", position: .zero)
+        let r2 = PlacedComponent(deviceKindID: "resistor", name: "R2", position: CGPoint(x: 50, y: 50))
+        let r1Pin = PinReference(componentID: r1.id, portID: "pos")
+        let r2Pin = PinReference(componentID: r2.id, portID: "pos")
+        let trunk = Wire(
+            startPoint: CGPoint(x: 0, y: 0),
+            endPoint: CGPoint(x: 100, y: 0),
+            startPin: r1Pin
+        )
+        let branch = Wire(
+            startPoint: CGPoint(x: 50, y: 0),
+            endPoint: CGPoint(x: 50, y: 50),
+            endPin: r2Pin
+        )
+
+        let document = SchematicDocument(components: [r1, r2], wires: [trunk, branch])
+        let nets = NetExtractor().extract(from: document)
+
+        let connectedNet = nets.first { net in
+            net.connections.contains(r1Pin) && net.connections.contains(r2Pin)
+        }
+        #expect(connectedNet != nil)
+    }
+
+    @Test func overlappingCollinearWiresShareNet() {
+        let r1 = PlacedComponent(deviceKindID: "resistor", name: "R1", position: .zero)
+        let r2 = PlacedComponent(deviceKindID: "resistor", name: "R2", position: CGPoint(x: 150, y: 0))
+        let r1Pin = PinReference(componentID: r1.id, portID: "pos")
+        let r2Pin = PinReference(componentID: r2.id, portID: "pos")
+        let leftWire = Wire(
+            startPoint: CGPoint(x: 0, y: 0),
+            endPoint: CGPoint(x: 100, y: 0),
+            startPin: r1Pin
+        )
+        let rightWire = Wire(
+            startPoint: CGPoint(x: 50, y: 0),
+            endPoint: CGPoint(x: 150, y: 0),
+            endPin: r2Pin
+        )
+
+        let document = SchematicDocument(components: [r1, r2], wires: [leftWire, rightWire])
+        let nets = NetExtractor().extract(from: document)
+
+        let connectedNet = nets.first { net in
+            net.connections.contains(r1Pin) && net.connections.contains(r2Pin)
+        }
+        #expect(connectedNet != nil)
+    }
 }
 
 @Suite("Netlist Generator Tests")
@@ -516,6 +621,17 @@ struct SchematicViewModelTests {
         // Independent prefixes still start at 1
         #expect(vm.nextComponentName(for: "resistor") == "R1")
         #expect(vm.nextComponentName(for: "capacitor") == "C1")
+    }
+
+    @Test @MainActor func addWireSplitsInteriorTJunction() {
+        let vm = SchematicViewModel()
+
+        vm.addWire(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 100, y: 0))
+        vm.addWire(from: CGPoint(x: 50, y: 0), to: CGPoint(x: 50, y: 50))
+
+        #expect(vm.document.wires.count == 3)
+        #expect(vm.document.junctions.count == 1)
+        #expect(vm.document.junctions.first?.position == CGPoint(x: 50, y: 0))
     }
 }
 

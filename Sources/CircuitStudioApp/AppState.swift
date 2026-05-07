@@ -71,6 +71,8 @@ public final class AppState {
     public var simulationError: String?
     public var selectedAnalysis: AnalysisCommand = .op
     public var processConfiguration: ProcessConfiguration = ProcessConfiguration()
+    public var isRunningPEX: Bool = false
+    public var pexOutputNetlistURL: URL?
 
     /// Partial waveform data received during a running transient simulation.
     /// Updated progressively as timesteps complete.
