@@ -26,7 +26,7 @@ flowchart LR
 | Scope | Command | Result |
 |---|---|---|
 | CircuitStudio SwiftPM build | `perl -e 'alarm 120; exec @ARGV' swift build` | Pass |
-| CircuitStudio SwiftPM tests | `perl -e 'alarm 120; exec @ARGV' swift test --filter CircuitStudioCoreTests` | 137 pass, 4 skipped |
+| CircuitStudio SwiftPM tests | `perl -e 'alarm 120; exec @ARGV' swift test --filter CircuitStudioCoreTests` | 140 pass, 4 skipped |
 | Headless round-trip corpus | `perl -e 'alarm 120; exec @ARGV' swift test --filter HeadlessRoundTripServiceTests` | 5 pass; CMOS inverter and voltage divider strict pre-PEX gates pass; pre-PEX, empty PEX IR, and post-layout failures persist manifests |
 | CMOS inverter flow | `perl -e 'alarm 120; exec @ARGV' swift test --filter CMOSInverterFlowTests` | 1 pass |
 | CoreSpice full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/CoreSpice` | 542 pass |
@@ -50,7 +50,7 @@ flowchart LR
 | Full LVS | `PhysicalVerificationService` extracts physical connectivity from hierarchical routing geometry, vias, imported cut-shapes, top pins/labels, generated instance pins, imported polygon terminal metadata, numeric GDS layer aliases, raw MOS `ACTIVE ∩ POLY` geometry, inferred MOS terminals, shared-diffusion MOS devices, and raw resistors; it reports stale mappings, dangling mappings, missing/extra objects, declared-only nets, hierarchy topology errors, physical shorts, physical opens, unconnected terminals, terminal/net mismatches, skipped connectivity extraction, missing/misnamed external ports, invalid imported terminals, duplicate imported terminals, duplicate raw devices, raw MOS W/L/kind/`nf` mismatches, and raw resistor value mismatches | Verified for current in-app layout model, sample-process raw-device fixtures, and first imported-layout semantics fixtures |
 | PEX artifact loading | Manifest and IR loading, unit normalization, dropped-element diagnostics, and mock PEXEngine artifact handoff are covered | Verified |
 | Post-layout simulation | Normalized parasitics are merged into SPICE and CoreSpice analysis completes | Verified |
-| External signoff execution | External DRC/LVS commands can be launched, stdout/stderr logs are captured as artifacts, diagnostics are parsed, non-zero exits become failing reports, and approval decisions persist under `.xcircuite/signoff/` | Verified with mock signoff tools |
+| External signoff execution/import | External DRC/LVS commands can be launched, stdout/stderr logs are captured as artifacts, diagnostics are parsed, non-zero exits become failing reports, existing signoff logs can be imported as review reports, and approval decisions persist under `.xcircuite/signoff/` | Verified with mock signoff tools and golden deck-like log fixtures |
 | Headless round trip | CMOS inverter and voltage divider flows write pre/post SPICE netlists, external signoff logs, persisted review JSON, and a `round-trip-manifest.json`; strict pre-PEX verification passes without forced continuation; failed pre-PEX, PEX, and post-layout gates also persist manifests with failed/skipped stages | Verified strict for two small circuits plus failure manifests |
 | Human review cockpit | Xcode app launches and UI smoke tests pass | Smoke-tested |
 
@@ -70,7 +70,8 @@ flowchart LR
 | FV-010 | P1 | Resolved for in-process LVS | Imported-layout LVS semantics | LVS-M11 needed hierarchy-cycle rejection, GDS numeric layer alias normalization, imported cut-shape connectivity, and shared-diffusion MOS extraction. | Added topology diagnostics, tech-backed layer alias normalization, cut-shape via/contact bridging, shared-diffusion two-device extraction, and focused tests. |
 | FV-011 | P1 | Resolved for imported reports | External signoff review gate | PEX readiness needed to account for signoff DRC/LVS results that were produced outside the in-process LVS checker. | Added normalized external DRC/LVS report models, diagnostic parsing, pass/fail aggregation, and an explicit human approval gate before PEX. |
 | FV-012 | P1 | Resolved for mock signoff tools | External signoff execution | External signoff reports can now be imported and gated, but CircuitStudio needed to run signoff DRC/LVS commands and persist review approvals. | Added command-runner integration, captured log artifact paths, non-zero-exit report generation, persisted approval records, and focused tests. |
-| FV-013 | P1 | Open | Real signoff decks | External command execution is verified with mock tools, not real foundry DRC/LVS decks or golden imported layout corpora. | Add real-deck smoke fixtures, golden GDS/OASIS expected reports, and deck-specific parser adapters if generic log parsing is insufficient. |
+| FV-013 | P1 | Resolved for golden log artifact import | Real signoff decks | External command execution was verified with mock tools, not imported signoff artifact corpora. | Added import support for existing DRC/LVS logs and golden deck-like clean/mismatch fixtures. |
+| FV-018 | P1 | Open | Real foundry decks and layout corpus | Golden signoff log import is covered, but the workspace still lacks real foundry DRC/LVS decks, golden GDS/OASIS layout files, and tool-specific adapters beyond the generic log parser. | Add real-deck smoke fixtures, golden GDS/OASIS expected reports, and deck-specific parser adapters if generic log parsing is insufficient. |
 | FV-014 | P1 | Resolved for first circuit | Headless flow orchestration | Individual services existed, but there was no non-UI runner that produced a complete artifact manifest for the full design loop. | Added `HeadlessRoundTripService` and a CMOS inverter test that records artifacts, stages, signoff review state, and strict gate status. |
 | FV-015 | P1 | Resolved for first circuit | Strict DRC gate | The CMOS inverter could round-trip only with explicit continuation after the in-process DRC gate failed. | Fixed DRC false positives for cross-layer overlap, grid-rounded spacing, and via landing enclosure; Pre-PEX DRC now treats connectivity opens as LVS responsibility and the headless round trip no longer forces continuation. |
 | FV-016 | P1 | Resolved for two-fixture corpus | Golden flow breadth | Only one small circuit had a strict headless round-trip fixture. | Added a voltage divider OP round-trip fixture and fixed the passive-layout boundary/routing blockers it exposed. |
@@ -97,12 +98,13 @@ flowchart LR
 | LVS-M15: Strict-clean round trip | Done for first circuit | Make the same CMOS inverter round trip pass strict pre-PEX verification without forced continuation | `cmosInverterCompletesHeadlessRoundTripWithArtifacts()` |
 | LVS-M16: Multi-fixture round-trip corpus | Done for pass path | Add another small circuit so the harness is not overfit to the CMOS inverter | `cmosInverterCompletesHeadlessRoundTripWithArtifacts()`, `voltageDividerCompletesHeadlessRoundTripWithArtifacts()` |
 | LVS-M17: Failure-manifest regressions | Done for headless harness gates | Persist machine-readable manifests for known failed gates so agent/human review can proceed from artifacts instead of only thrown errors | `prePEXGateFailureWritesManifest()`, `emptyPEXIRFailureWritesManifest()`, `postLayoutSimulationFailureWritesManifest()` |
+| LVS-M18: Golden signoff artifact import | Done for log corpus | Import externally produced DRC/LVS logs without re-running tools, normalize them into `ExternalSignoffReview`, and keep clean/mismatch golden fixtures under test resources | `loadGoldenSignoffLogsBuildsReview()`, `loadGoldenMismatchLogBlocksReview()`, `loadRejectsMissingLog()` |
 
 ## Next Execution Order
 
 | Order | Issue | Reason |
 |---:|---|---|
-| 1 | FV-013 | Real signoff deck coverage is needed before treating the external signoff bridge as production-like. |
+| 1 | FV-018 | Real foundry deck and golden layout coverage is still needed before treating the external signoff bridge as production-like. |
 | 2 | FV-009 | Real PEX backend coverage is needed before calling the post-layout flow signoff-like. |
 | 3 | FV-004 | Human-in-the-loop review can stay file-based for now; UI coverage is lower priority than strict headless correctness. |
 | 4 | FV-007 | Solver and parser limitations affect broader circuit classes after the flow spine is stable. |

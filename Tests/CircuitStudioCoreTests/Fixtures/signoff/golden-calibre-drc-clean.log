@@ -1,0 +1,3 @@
+Calibre nmDRC summary
+INFO rule=DRC_CLEAN message="no DRC results generated"
+TOTAL DRC RESULTS GENERATED = 0
