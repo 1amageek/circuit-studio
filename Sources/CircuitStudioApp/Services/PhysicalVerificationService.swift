@@ -467,8 +467,9 @@ public struct PhysicalVerificationService: Sendable {
         tech: LayoutTechDatabase?
     ) -> RawLayoutDeviceComparison {
         let devicesByName = Dictionary(grouping: rawDevices, by: \.name)
+        let schematicDeviceNames = Set(physicalComponents(in: schematic, catalog: catalog).map(\.name))
         let duplicates = devicesByName
-            .filter { $0.value.count > 1 }
+            .filter { schematicDeviceNames.contains($0.key) && $0.value.count > 1 }
             .map(\.key)
             .sorted()
         let tolerance = max((tech?.grid ?? 0.01) * 2, 0.02)

@@ -2,11 +2,11 @@
 
 Last run: 2026-05-07
 
-This log tracks end-to-end verification of the current semiconductor design flow using existing functionality. The representative circuit is a CMOS inverter because it exercises schematic connectivity, MOS device metadata, SPICE generation, transient simulation, auto layout, DRC/LVS preflight, PEX parasitic injection, and post-layout simulation without requiring a large design.
+This log tracks end-to-end verification of the current semiconductor design flow using existing functionality. The strict round-trip corpus now contains a CMOS inverter and a voltage divider. Together they exercise schematic connectivity, MOS/passive device metadata, SPICE generation, OP/transient simulation, auto layout, DRC/LVS preflight, PEX parasitic injection, and post-layout simulation without requiring a large design.
 
 ```mermaid
 flowchart LR
-  Circuit["CMOS inverter schematic"]
+  Circuit["Small circuit schematic corpus"]
   Net["Net extraction"]
   Netlist["SPICE netlist"]
   Pre["Pre-layout simulation"]
@@ -26,8 +26,8 @@ flowchart LR
 | Scope | Command | Result |
 |---|---|---|
 | CircuitStudio SwiftPM build | `perl -e 'alarm 120; exec @ARGV' swift build` | Pass |
-| CircuitStudio SwiftPM tests | `perl -e 'alarm 120; exec @ARGV' swift test --filter CircuitStudioCoreTests` | 133 pass, 4 skipped |
-| Headless CMOS inverter round trip | `perl -e 'alarm 120; exec @ARGV' swift test --filter HeadlessRoundTripServiceTests` | 1 pass; strict pre-PEX gate passes |
+| CircuitStudio SwiftPM tests | `perl -e 'alarm 120; exec @ARGV' swift test --filter CircuitStudioCoreTests` | 137 pass, 4 skipped |
+| Headless round-trip corpus | `perl -e 'alarm 120; exec @ARGV' swift test --filter HeadlessRoundTripServiceTests` | 5 pass; CMOS inverter and voltage divider strict pre-PEX gates pass; pre-PEX, empty PEX IR, and post-layout failures persist manifests |
 | CMOS inverter flow | `perl -e 'alarm 120; exec @ARGV' swift test --filter CMOSInverterFlowTests` | 1 pass |
 | CoreSpice full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/CoreSpice` | 542 pass |
 | semiconductor-layout full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/semiconductor-layout` | 91 pass |
@@ -42,16 +42,16 @@ flowchart LR
 
 | Flow stage | Current evidence | Status |
 |---|---|---|
-| Schematic model | CMOS inverter preview document loads and contains MOS devices and labeled nets | Verified |
-| Net extraction | Nets include `vdd`, `in`, `out`, and `0` | Verified |
-| Netlist generation | Generated SPICE contains `MP1`, `MN1`, and transient analysis command | Verified |
-| Pre-layout simulation | CoreSpice transient run completes with waveform data | Verified |
-| Auto layout | Layout document, component mappings, and net mappings are generated | Verified |
+| Schematic model | CMOS inverter and voltage divider preview documents load and contain MOS/passive devices and labeled nets | Verified |
+| Net extraction | CMOS nets include `vdd`, `in`, `out`, and `0`; voltage divider nets include the labeled `out` plus source/ground boundary nets | Verified |
+| Netlist generation | Generated SPICE contains MOS/passive elements and OP/transient analysis commands | Verified |
+| Pre-layout simulation | CoreSpice OP/transient runs complete with waveform data | Verified |
+| Auto layout | Layout document, component mappings, net mappings, and explicit single-terminal boundary pins are generated | Verified |
 | Full LVS | `PhysicalVerificationService` extracts physical connectivity from hierarchical routing geometry, vias, imported cut-shapes, top pins/labels, generated instance pins, imported polygon terminal metadata, numeric GDS layer aliases, raw MOS `ACTIVE ∩ POLY` geometry, inferred MOS terminals, shared-diffusion MOS devices, and raw resistors; it reports stale mappings, dangling mappings, missing/extra objects, declared-only nets, hierarchy topology errors, physical shorts, physical opens, unconnected terminals, terminal/net mismatches, skipped connectivity extraction, missing/misnamed external ports, invalid imported terminals, duplicate imported terminals, duplicate raw devices, raw MOS W/L/kind/`nf` mismatches, and raw resistor value mismatches | Verified for current in-app layout model, sample-process raw-device fixtures, and first imported-layout semantics fixtures |
 | PEX artifact loading | Manifest and IR loading, unit normalization, dropped-element diagnostics, and mock PEXEngine artifact handoff are covered | Verified |
 | Post-layout simulation | Normalized parasitics are merged into SPICE and CoreSpice analysis completes | Verified |
 | External signoff execution | External DRC/LVS commands can be launched, stdout/stderr logs are captured as artifacts, diagnostics are parsed, non-zero exits become failing reports, and approval decisions persist under `.xcircuite/signoff/` | Verified with mock signoff tools |
-| Headless round trip | CMOS inverter flow writes pre/post SPICE netlists, external signoff logs, persisted review JSON, and a `round-trip-manifest.json`; strict pre-PEX verification passes without forced continuation | Verified strict for first circuit |
+| Headless round trip | CMOS inverter and voltage divider flows write pre/post SPICE netlists, external signoff logs, persisted review JSON, and a `round-trip-manifest.json`; strict pre-PEX verification passes without forced continuation; failed pre-PEX, PEX, and post-layout gates also persist manifests with failed/skipped stages | Verified strict for two small circuits plus failure manifests |
 | Human review cockpit | Xcode app launches and UI smoke tests pass | Smoke-tested |
 
 ## Issue Queue
@@ -73,7 +73,8 @@ flowchart LR
 | FV-013 | P1 | Open | Real signoff decks | External command execution is verified with mock tools, not real foundry DRC/LVS decks or golden imported layout corpora. | Add real-deck smoke fixtures, golden GDS/OASIS expected reports, and deck-specific parser adapters if generic log parsing is insufficient. |
 | FV-014 | P1 | Resolved for first circuit | Headless flow orchestration | Individual services existed, but there was no non-UI runner that produced a complete artifact manifest for the full design loop. | Added `HeadlessRoundTripService` and a CMOS inverter test that records artifacts, stages, signoff review state, and strict gate status. |
 | FV-015 | P1 | Resolved for first circuit | Strict DRC gate | The CMOS inverter could round-trip only with explicit continuation after the in-process DRC gate failed. | Fixed DRC false positives for cross-layer overlap, grid-rounded spacing, and via landing enclosure; Pre-PEX DRC now treats connectivity opens as LVS responsibility and the headless round trip no longer forces continuation. |
-| FV-016 | P1 | Open | Golden flow breadth | Only one small circuit has a strict headless round-trip fixture. | Add at least one more small circuit and failure-manifest regressions before increasing device/layout complexity. |
+| FV-016 | P1 | Resolved for two-fixture corpus | Golden flow breadth | Only one small circuit had a strict headless round-trip fixture. | Added a voltage divider OP round-trip fixture and fixed the passive-layout boundary/routing blockers it exposed. |
+| FV-017 | P1 | Resolved for headless harness gates | Failure manifest coverage | Passing strict round trips were covered, but failed gates were mostly observed through thrown errors rather than persisted failure manifests. | Added failure manifest persistence and regressions for pre-PEX signoff failure, empty PEX IR failure, and post-layout simulation failure. |
 
 ## Full LVS Milestones
 
@@ -94,15 +95,15 @@ flowchart LR
 | LVS-M13: External signoff execution and approval persistence | Done for service layer and mock tools | Run configured signoff DRC/LVS tools, capture stdout/stderr artifacts, convert non-zero exits into failing reports, persist review decisions, and reload approval state | `runCapturesLogArtifactAndParsesDiagnostics()`, `nonZeroExitCreatesFailingReportWithoutDroppingArtifacts()`, `runCommandsBuildsUnapprovedReview()`, `reviewStorePersistsApproval()` |
 | LVS-M14: Headless round-trip harness | Done for first circuit | Run the CMOS inverter through non-UI net extraction, netlist, pre-layout sim, auto layout, signoff command artifacts, persisted approval, pre-PEX gate, PEX IR injection, post-layout sim, and manifest writing | `cmosInverterCompletesHeadlessRoundTripWithArtifacts()` |
 | LVS-M15: Strict-clean round trip | Done for first circuit | Make the same CMOS inverter round trip pass strict pre-PEX verification without forced continuation | `cmosInverterCompletesHeadlessRoundTripWithArtifacts()` |
-| LVS-M16: Multi-fixture round-trip corpus | Pending | Add another small circuit and negative/failure manifests so the harness proves both pass and fail paths | Future corpus work |
+| LVS-M16: Multi-fixture round-trip corpus | Done for pass path | Add another small circuit so the harness is not overfit to the CMOS inverter | `cmosInverterCompletesHeadlessRoundTripWithArtifacts()`, `voltageDividerCompletesHeadlessRoundTripWithArtifacts()` |
+| LVS-M17: Failure-manifest regressions | Done for headless harness gates | Persist machine-readable manifests for known failed gates so agent/human review can proceed from artifacts instead of only thrown errors | `prePEXGateFailureWritesManifest()`, `emptyPEXIRFailureWritesManifest()`, `postLayoutSimulationFailureWritesManifest()` |
 
 ## Next Execution Order
 
 | Order | Issue | Reason |
 |---:|---|---|
-| 1 | LVS-M16 / FV-016 | The first strict round trip passes; the next risk is overfitting to one CMOS inverter fixture. |
-| 2 | FV-013 | Real signoff deck coverage is needed before treating the external signoff bridge as production-like. |
-| 3 | FV-009 | Real PEX backend coverage is needed before calling the post-layout flow signoff-like. |
-| 4 | FV-004 | Human-in-the-loop review can stay file-based for now; UI coverage is lower priority than strict headless correctness. |
-| 5 | FV-007 | Solver and parser limitations affect broader circuit classes after the flow spine is stable. |
-| 6 | FV-006 | Current warning does not block build or tests. |
+| 1 | FV-013 | Real signoff deck coverage is needed before treating the external signoff bridge as production-like. |
+| 2 | FV-009 | Real PEX backend coverage is needed before calling the post-layout flow signoff-like. |
+| 3 | FV-004 | Human-in-the-loop review can stay file-based for now; UI coverage is lower priority than strict headless correctness. |
+| 4 | FV-007 | Solver and parser limitations affect broader circuit classes after the flow spine is stable. |
+| 5 | FV-006 | Current warning does not block build or tests. |

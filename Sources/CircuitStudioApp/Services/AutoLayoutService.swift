@@ -383,7 +383,7 @@ public final class AutoLayoutService {
                 )
             }
 
-            guard pins.count >= 2 else { return nil }
+            guard !pins.isEmpty else { return nil }
 
             let isPower = Self.isPowerNetName(net.name)
 
@@ -438,6 +438,8 @@ public final class AutoLayoutService {
         var topVias: [LayoutVia] = []
         var topInstances: [LayoutInstance] = []
         var topNets: [LayoutNet] = []
+        var topPins: [LayoutPin] = []
+        var addedNetIDs = Set<UUID>()
         let netNamesByID = Dictionary(uniqueKeysWithValues: routingNets.map { ($0.id, $0.name) })
 
         // Add device cell instances
@@ -454,7 +456,7 @@ public final class AutoLayoutService {
         // Add routing shapes and vias
         for route in routing.routes {
             if let netName = netNamesByID[route.netID] {
-                topNets.append(LayoutNet(id: route.netID, name: netName))
+                appendTopNet(id: route.netID, name: netName, nets: &topNets, addedNetIDs: &addedNetIDs)
             }
 
             topShapes.append(contentsOf: route.shapes.map { shape in
@@ -469,10 +471,24 @@ public final class AutoLayoutService {
             })
         }
 
+        for net in routingNets {
+            appendTopNet(id: net.id, name: net.name, nets: &topNets, addedNetIDs: &addedNetIDs)
+            guard net.pins.count == 1, let pin = net.pins.first else { continue }
+            topPins.append(LayoutPin(
+                name: net.name,
+                position: pin.absolutePosition,
+                size: LayoutSize(width: 0.4, height: 0.4),
+                layer: pin.layer,
+                netID: net.id,
+                role: Self.isPowerNetName(net.name) ? .power : .signal
+            ))
+        }
+
         let topCell = LayoutCell(
             name: "TOP",
             shapes: topShapes,
             vias: topVias,
+            pins: topPins,
             instances: topInstances,
             nets: topNets
         )
@@ -485,6 +501,17 @@ public final class AutoLayoutService {
             cells: allCells,
             topCellID: topCell.id
         )
+    }
+
+    private func appendTopNet(
+        id: UUID,
+        name: String,
+        nets: inout [LayoutNet],
+        addedNetIDs: inout Set<UUID>
+    ) {
+        guard !addedNetIDs.contains(id) else { return }
+        nets.append(LayoutNet(id: id, name: name))
+        addedNetIDs.insert(id)
     }
 
     // MARK: - DesignUnit

@@ -4,6 +4,17 @@ import LayoutCore
 
 @MainActor
 public final class HeadlessRoundTripService {
+    private static let orderedStageNames = [
+        "net-extraction",
+        "netlist-generation",
+        "pre-layout-simulation",
+        "auto-layout",
+        "external-signoff",
+        "pre-pex-verification",
+        "pex-injection",
+        "post-layout-simulation",
+    ]
+
     public struct Configuration {
         public let projectRoot: URL
         public let runID: String
@@ -158,7 +169,13 @@ public final class HeadlessRoundTripService {
             message: "\(nets.count) nets"
         ))
         guard !nets.isEmpty else {
-            throw StudioError.invalidDesign("Headless round trip requires at least one extracted net.")
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: StudioError.invalidDesign("Headless round trip requires at least one extracted net.")
+            )
         }
 
         let baseNetlist = NetlistGenerator().generate(
@@ -171,36 +188,96 @@ public final class HeadlessRoundTripService {
         artifacts.append(Artifact(kind: "pre-layout-netlist", path: preLayoutNetlistURL.path(percentEncoded: false)))
         stages.append(Stage(name: "netlist-generation", status: .passed))
 
-        let preLayoutResult = try await SimulationService().runSPICE(
-            source: baseNetlist,
-            fileName: "\(configuration.runID)-pre.cir"
-        )
+        let preLayoutResult: SimulationResult
+        do {
+            preLayoutResult = try await SimulationService().runSPICE(
+                source: baseNetlist,
+                fileName: "\(configuration.runID)-pre.cir"
+            )
+        } catch {
+            stages.append(Stage(
+                name: "pre-layout-simulation",
+                status: .failed,
+                message: error.localizedDescription
+            ))
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
         stages.append(Stage(
             name: "pre-layout-simulation",
             status: preLayoutResult.status == .completed ? .passed : .failed,
             message: preLayoutResult.status.rawValue
         ))
         guard preLayoutResult.status == .completed else {
-            throw StudioError.simulationFailure("Pre-layout simulation did not complete.")
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: StudioError.simulationFailure("Pre-layout simulation did not complete.")
+            )
         }
 
-        let layoutOutput = try AutoLayoutService().generate(
-            from: schematic,
-            catalog: configuration.catalog
-        )
+        let layoutOutput: AutoLayoutOutput
+        do {
+            layoutOutput = try AutoLayoutService().generate(
+                from: schematic,
+                catalog: configuration.catalog
+            )
+        } catch {
+            stages.append(Stage(
+                name: "auto-layout",
+                status: .failed,
+                message: error.localizedDescription
+            ))
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
         stages.append(Stage(
             name: "auto-layout",
             status: layoutOutput.unroutedNets.isEmpty ? .passed : .failed,
             message: layoutOutput.unroutedNets.isEmpty ? nil : "Unrouted nets: \(layoutOutput.unroutedNets.joined(separator: ", "))"
         ))
         guard layoutOutput.unroutedNets.isEmpty else {
-            throw StudioError.invalidDesign("Auto layout left unrouted nets.")
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: StudioError.invalidDesign("Auto layout left unrouted nets.")
+            )
         }
 
-        let externalSignoff = try runExternalSignoffIfNeeded(
-            configuration: configuration,
-            runDirectory: runDirectory
-        )
+        let externalSignoff: ExternalSignoffReview?
+        do {
+            externalSignoff = try runExternalSignoffIfNeeded(
+                configuration: configuration,
+                runDirectory: runDirectory
+            )
+        } catch {
+            stages.append(Stage(
+                name: "external-signoff",
+                status: .failed,
+                message: error.localizedDescription
+            ))
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
         if let externalSignoff {
             artifacts.append(contentsOf: externalSignoff.reports.map {
                 Artifact(kind: "external-signoff-log", path: $0.logPath)
@@ -210,6 +287,11 @@ public final class HeadlessRoundTripService {
                 path: ExternalSignoffReviewStore()
                     .reviewURL(projectRoot: configuration.projectRoot)
                     .path(percentEncoded: false)
+            ))
+            stages.append(Stage(
+                name: "external-signoff",
+                status: externalSignoff.isReadyForPEX ? .passed : .failed,
+                message: externalSignoff.isReadyForPEX ? nil : "external signoff not ready"
             ))
         }
 
@@ -227,7 +309,14 @@ public final class HeadlessRoundTripService {
             message: verification.isReadyForPEX ? nil : prePEXFailureMessage(verification)
         ))
         if !verification.isReadyForPEX && !configuration.continueAfterFailedPrePEXGate {
-            throw StudioError.invalidDesign("Pre-PEX verification gate failed.")
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                isReadyForPEX: verification.isReadyForPEX,
+                stages: &stages,
+                artifacts: artifacts,
+                error: StudioError.invalidDesign("Pre-PEX verification gate failed.")
+            )
         }
 
         let postLayoutService = PostLayoutSimulationService()
@@ -244,34 +333,63 @@ public final class HeadlessRoundTripService {
             message: "\(configuration.pexIR.elements.count) parasitic elements"
         ))
         guard !configuration.pexIR.elements.isEmpty else {
-            throw StudioError.invalidDesign("Headless round trip requires non-empty PEX IR.")
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                isReadyForPEX: verification.isReadyForPEX,
+                stages: &stages,
+                artifacts: artifacts,
+                error: StudioError.invalidDesign("Headless round trip requires non-empty PEX IR.")
+            )
         }
 
-        let postLayoutResult = try await postLayoutService.runPostLayoutAnalysis(
-            baseNetlist: baseNetlist,
-            parasitics: configuration.pexIR,
-            command: configuration.postLayoutCommand
-        )
+        let postLayoutResult: SimulationResult
+        do {
+            postLayoutResult = try await postLayoutService.runPostLayoutAnalysis(
+                baseNetlist: baseNetlist,
+                parasitics: configuration.pexIR,
+                command: configuration.postLayoutCommand
+            )
+        } catch {
+            stages.append(Stage(
+                name: "post-layout-simulation",
+                status: .failed,
+                message: error.localizedDescription
+            ))
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                isReadyForPEX: verification.isReadyForPEX,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
         stages.append(Stage(
             name: "post-layout-simulation",
             status: postLayoutResult.status == .completed ? .passed : .failed,
             message: postLayoutResult.status.rawValue
         ))
         guard postLayoutResult.status == .completed else {
-            throw StudioError.simulationFailure("Post-layout simulation did not complete.")
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                isReadyForPEX: verification.isReadyForPEX,
+                stages: &stages,
+                artifacts: artifacts,
+                error: StudioError.simulationFailure("Post-layout simulation did not complete.")
+            )
         }
 
-        let manifest = Manifest(
-            runID: configuration.runID,
-            title: configuration.title,
-            createdAt: configuration.createdAt,
+        let manifestURL = try writeManifest(
+            configuration: configuration,
+            runDirectory: runDirectory,
             isRoundTripComplete: true,
             isReadyForPEX: verification.isReadyForPEX,
             stages: stages,
             artifacts: artifacts
         )
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(manifest, to: manifestURL)
+        let manifest = try readManifest(from: manifestURL)
 
         return Result(
             manifest: manifest,
@@ -281,6 +399,69 @@ public final class HeadlessRoundTripService {
             postLayoutResult: postLayoutResult,
             externalSignoff: externalSignoff
         )
+    }
+
+    private func failRun(
+        configuration: Configuration,
+        runDirectory: URL,
+        isReadyForPEX: Bool = false,
+        stages: inout [Stage],
+        artifacts: [Artifact],
+        error: Error
+    ) throws -> Never {
+        stages.append(contentsOf: skippedStages(after: stages))
+        _ = try writeManifest(
+            configuration: configuration,
+            runDirectory: runDirectory,
+            isRoundTripComplete: false,
+            isReadyForPEX: isReadyForPEX,
+            stages: stages,
+            artifacts: artifacts
+        )
+        throw error
+    }
+
+    private func skippedStages(after stages: [Stage]) -> [Stage] {
+        let existingNames = Set(stages.map(\.name))
+        guard let lastIndex = Self.orderedStageNames.lastIndex(where: existingNames.contains) else {
+            return []
+        }
+        return Self.orderedStageNames[(lastIndex + 1)...].compactMap { name in
+            existingNames.contains(name) ? nil : Stage(name: name, status: .skipped)
+        }
+    }
+
+    private func writeManifest(
+        configuration: Configuration,
+        runDirectory: URL,
+        isRoundTripComplete: Bool,
+        isReadyForPEX: Bool,
+        stages: [Stage],
+        artifacts: [Artifact]
+    ) throws -> URL {
+        let manifest = Manifest(
+            runID: configuration.runID,
+            title: configuration.title,
+            createdAt: configuration.createdAt,
+            isRoundTripComplete: isRoundTripComplete,
+            isReadyForPEX: isReadyForPEX,
+            stages: stages,
+            artifacts: artifacts
+        )
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeJSON(manifest, to: manifestURL)
+        return manifestURL
+    }
+
+    private func readManifest(from url: URL) throws -> Manifest {
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(Manifest.self, from: data)
+        } catch {
+            throw StudioError.projectLoadFailed("Failed to read headless flow manifest: \(error.localizedDescription)")
+        }
     }
 
     private func runExternalSignoffIfNeeded(
