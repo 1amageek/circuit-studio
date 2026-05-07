@@ -1,0 +1,170 @@
+import Foundation
+import Testing
+@testable import CircuitStudioApp
+@testable import CircuitStudioCore
+
+@Suite("ProjectService Tests")
+struct ProjectServiceTests {
+
+    @Test func createProjectBootstrapsWorkspaceAndPEXFiles() throws {
+        let root = try makeTemporaryProjectRoot("bootstrap")
+        defer { removeTemporaryProjectRoot(root) }
+
+        let service = ProjectService()
+        try service.createProject(at: root)
+
+        #expect(service.isProject(root))
+        #expect(fileExists(".xcircuite/workspace.json", in: root))
+        #expect(fileExists(".xcircuite/pex.json", in: root))
+        #expect(fileExists(".xcircuite/pex/runs", in: root, isDirectory: true))
+        #expect(fileExists("pex.toml", in: root))
+        #expect(fileExists("tech.json", in: root))
+
+        let workspace = try service.loadWorkspaceConfig(projectRoot: root)
+        #expect(workspace.version == 1)
+        #expect(workspace.activeWorkspace == "schematicCapture")
+        #expect(workspace.schematicMode == "netlist")
+
+        let pex = try service.loadPEXProjectConfig(projectRoot: root)
+        #expect(pex.topCell == "TOP")
+        #expect(pex.backendID == "mock")
+        #expect(pex.normalizedCorners == ["tt_25c_1v0"])
+    }
+
+    @Test func saveAndLoadWorkspacePlacementAndSimulationConfigs() throws {
+        let root = try makeTemporaryProjectRoot("configs")
+        defer { removeTemporaryProjectRoot(root) }
+
+        let service = ProjectService()
+        try service.createProject(at: root)
+
+        let workspace = WorkspaceConfig(
+            activeWorkspace: "layout",
+            schematicMode: "visual",
+            panels: .init(inspector: true, console: true, simulationResults: false)
+        )
+        try service.saveWorkspaceConfig(workspace, projectRoot: root)
+
+        let placement = SchematicPlacement(sourceNetlist: "amp.cir")
+        try service.saveSchematicPlacement(placement, projectRoot: root)
+
+        let simulation = SimulationConfig(
+            selectedAnalysis: .tran(TranSpec(stopTime: 1e-6, stepTime: 1e-9))
+        )
+        try service.saveSimulationConfig(simulation, projectRoot: root)
+
+        let loadedWorkspace = try service.loadWorkspaceConfig(projectRoot: root)
+        #expect(loadedWorkspace.activeWorkspace == "layout")
+        #expect(loadedWorkspace.schematicMode == "visual")
+        #expect(loadedWorkspace.panels.inspector)
+        #expect(loadedWorkspace.panels.console)
+        #expect(!loadedWorkspace.panels.simulationResults)
+
+        let loadedPlacement = try service.loadSchematicPlacement(projectRoot: root)
+        #expect(loadedPlacement.version == 1)
+        #expect(loadedPlacement.sourceNetlist == "amp.cir")
+
+        let loadedSimulation = try service.loadSimulationConfig(projectRoot: root)
+        #expect(loadedSimulation.version == 1)
+        #expect(loadedSimulation.selectedAnalysis == .tran(TranSpec(stopTime: 1e-6, stepTime: 1e-9)))
+    }
+
+    @Test func savePEXProjectConfigWritesJSONAndTOML() throws {
+        let root = try makeTemporaryProjectRoot("pex")
+        defer { removeTemporaryProjectRoot(root) }
+
+        let service = ProjectService()
+        try service.createProject(at: root)
+
+        let config = PEXProjectConfig(
+            enabled: true,
+            topCell: "AMP_TOP",
+            backendID: "mock",
+            corners: ["tt", "ss"],
+            inputs: .init(
+                layout: "layout/amp.oas",
+                netlist: "netlists/amp.cir",
+                technology: "pdk/tech.json"
+            ),
+            output: .init(workspace: ".xcircuite/pex/runs"),
+            options: .init(
+                includeCouplingCaps: false,
+                minCapacitanceF: 1e-15,
+                minResistanceOhm: 0.25,
+                maxParallelJobs: 0,
+                strictValidation: true
+            )
+        )
+
+        try service.savePEXProjectConfig(config, projectRoot: root)
+
+        let loaded = try service.loadPEXProjectConfig(projectRoot: root)
+        #expect(loaded == config)
+
+        let toml = try String(contentsOf: service.pexConfigPath(projectRoot: root), encoding: .utf8)
+        #expect(toml.contains("layout = \"layout/amp.oas\""))
+        #expect(toml.contains("netlist = \"netlists/amp.cir\""))
+        #expect(toml.contains("top_cell = \"AMP_TOP\""))
+        #expect(toml.contains("backend = \"mock\""))
+        #expect(toml.contains("max_jobs = 1"))
+        #expect(toml.contains("include_coupling = false"))
+        #expect(toml.contains("min_cap_f = 1e-15"))
+        #expect(toml.contains("min_res_ohm = 0.25"))
+        #expect(toml.contains("strict = true"))
+        #expect(toml.contains("id = \"tt\""))
+        #expect(toml.contains("id = \"ss\""))
+    }
+
+    @Test func saveNetlistCreatesIntermediateDirectories() throws {
+        let root = try makeTemporaryProjectRoot("netlist")
+        defer { removeTemporaryProjectRoot(root) }
+
+        let service = ProjectService()
+        try service.createProject(at: root)
+
+        let source = """
+        * RC test
+        V1 in 0 1
+        R1 in out 1k
+        C1 out 0 1p
+        .op
+        .end
+        """
+
+        try service.saveNetlist(source, relativePath: "netlists/generated/top.cir", projectRoot: root)
+
+        let url = root.appending(path: "netlists/generated/top.cir")
+        let loaded = try String(contentsOf: url, encoding: .utf8)
+        #expect(loaded == source)
+    }
+
+    private func makeTemporaryProjectRoot(_ name: String) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "CircuitStudioProjectServiceTests-\(name)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private func removeTemporaryProjectRoot(_ root: URL) {
+        let path = root.path(percentEncoded: false)
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: root)
+        } catch {
+            Issue.record("Failed to remove temporary project root: \(error)")
+        }
+    }
+
+    private func fileExists(_ relativePath: String, in root: URL, isDirectory expectedDirectory: Bool? = nil) -> Bool {
+        var isDirectory: ObjCBool = false
+        let path = root.appending(path: relativePath).path(percentEncoded: false)
+        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+        if let expectedDirectory {
+            return exists && isDirectory.boolValue == expectedDirectory
+        }
+        return exists
+    }
+}

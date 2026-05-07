@@ -46,9 +46,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CircuitStudioCoreTests",
-            dependencies: ["CircuitStudioCore", "SchematicEditor"],
+            dependencies: ["CircuitStudioCore", "SchematicEditor", "WaveformViewer", "CircuitStudioApp"],
             resources: [
-                .process("Tests/CircuitStudioCoreTests/Fixtures")
+                .copy("Fixtures/virtual_pdk.json"),
+                .copy("Fixtures/pdk")
             ]
         ),
     ]

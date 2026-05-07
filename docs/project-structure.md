@@ -162,3 +162,19 @@ SwiftUI View
 | テクノロジー IR | `TechFormatConverter` → `LayoutTechDatabase` |
 
 独自形式が不要な理由: すべてのデータフローが IR を経由するため、ファイル形式はプラガブルであり、アプリケーションロジックはフォーマットに依存しない。
+
+## PEX 連携ファイル
+
+PEXEngine の導入時、CircuitStudio は以下のファイルをプロジェクト内に揃える。
+
+```
+my-design/
+├── .xcircuite/
+│   ├── pex.json            # CircuitStudio 側の PEX 設定
+│   └── pex/
+│       └── runs/           # pexengine 実行成果物
+├── pex.toml                # pexengine 用標準設定
+└── tech.json               # 技術情報テンプレート (未存在時のみ生成)
+```
+
+`pex.toml` は外部の `pexengine` CLI から直接利用可能な形式とし、CircuitStudio 内の設定 (`.xcircuite/pex.json`) と同期される。
