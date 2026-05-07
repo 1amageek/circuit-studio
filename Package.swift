@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "SchematicEditor", targets: ["SchematicEditor"]),
         .library(name: "WaveformViewer", targets: ["WaveformViewer"]),
         .library(name: "CircuitStudioApp", targets: ["CircuitStudioApp"]),
+        .executable(name: "circuit-studio-flow-runner", targets: ["CircuitStudioFlowRunner"]),
     ],
     dependencies: [
         .package(path: "../CoreSpice"),
@@ -44,6 +45,14 @@ let package = Package(
                 .product(name: "LayoutTech", package: "semiconductor-layout"),
                 .product(name: "LayoutIO", package: "semiconductor-layout"),
                 .product(name: "LayoutVerify", package: "semiconductor-layout"),
+            ]
+        ),
+        .executableTarget(
+            name: "CircuitStudioFlowRunner",
+            dependencies: [
+                "CircuitStudioApp",
+                "CircuitStudioCore",
+                "SchematicEditor",
             ]
         ),
         .testTarget(

@@ -28,6 +28,8 @@ flowchart LR
 | CircuitStudio SwiftPM build | `perl -e 'alarm 120; exec @ARGV' swift build` | Pass |
 | CircuitStudio SwiftPM tests | `perl -e 'alarm 120; exec @ARGV' swift test --filter CircuitStudioCoreTests` | 140 pass, 4 skipped |
 | Headless round-trip corpus | `perl -e 'alarm 120; exec @ARGV' swift test --filter HeadlessRoundTripServiceTests` | 5 pass; CMOS inverter and voltage divider strict pre-PEX gates pass; pre-PEX, empty PEX IR, and post-layout failures persist manifests |
+| Standalone voltage-divider round trip | `perl -e 'alarm 120; exec @ARGV' swift run circuit-studio-flow-runner --fixture voltage-divider --output /tmp/circuit-studio-cli-roundtrip-vd --run-id vd-cli` | Pass; emitted a manifest with all stages passed |
+| Standalone CMOS inverter round trip | `perl -e 'alarm 120; exec @ARGV' swift run circuit-studio-flow-runner --fixture cmos-inverter --output /tmp/circuit-studio-cli-roundtrip-cmos --run-id cmos-cli` | Pass; emitted a manifest with all stages passed |
 | CMOS inverter flow | `perl -e 'alarm 120; exec @ARGV' swift test --filter CMOSInverterFlowTests` | 1 pass |
 | CoreSpice full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/CoreSpice` | 542 pass |
 | semiconductor-layout full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/semiconductor-layout` | 91 pass |
@@ -51,7 +53,7 @@ flowchart LR
 | PEX artifact loading | Manifest and IR loading, unit normalization, dropped-element diagnostics, and mock PEXEngine artifact handoff are covered | Verified |
 | Post-layout simulation | Normalized parasitics are merged into SPICE and CoreSpice analysis completes | Verified |
 | External signoff execution/import | External DRC/LVS commands can be launched, stdout/stderr logs are captured as artifacts, diagnostics are parsed, non-zero exits become failing reports, existing signoff logs can be imported as review reports, and approval decisions persist under `.xcircuite/signoff/` | Verified with mock signoff tools and golden deck-like log fixtures |
-| Headless round trip | CMOS inverter and voltage divider flows write pre/post SPICE netlists, external signoff logs, persisted review JSON, and a `round-trip-manifest.json`; strict pre-PEX verification passes without forced continuation; failed pre-PEX, PEX, and post-layout gates also persist manifests with failed/skipped stages | Verified strict for two small circuits plus failure manifests |
+| Headless round trip | CMOS inverter and voltage divider flows write pre/post SPICE netlists, external signoff logs, persisted review JSON, and a `round-trip-manifest.json`; strict pre-PEX verification passes without forced continuation; failed pre-PEX, PEX, and post-layout gates also persist manifests with failed/skipped stages; the same pass-path fixtures can be executed through `circuit-studio-flow-runner` without the app UI | Verified strict for two small circuits plus failure manifests and standalone CLI entry |
 | Human review cockpit | Xcode app launches and UI smoke tests pass | Smoke-tested |
 
 ## Issue Queue
@@ -76,6 +78,7 @@ flowchart LR
 | FV-015 | P1 | Resolved for first circuit | Strict DRC gate | The CMOS inverter could round-trip only with explicit continuation after the in-process DRC gate failed. | Fixed DRC false positives for cross-layer overlap, grid-rounded spacing, and via landing enclosure; Pre-PEX DRC now treats connectivity opens as LVS responsibility and the headless round trip no longer forces continuation. |
 | FV-016 | P1 | Resolved for two-fixture corpus | Golden flow breadth | Only one small circuit had a strict headless round-trip fixture. | Added a voltage divider OP round-trip fixture and fixed the passive-layout boundary/routing blockers it exposed. |
 | FV-017 | P1 | Resolved for headless harness gates | Failure manifest coverage | Passing strict round trips were covered, but failed gates were mostly observed through thrown errors rather than persisted failure manifests. | Added failure manifest persistence and regressions for pre-PEX signoff failure, empty PEX IR failure, and post-layout simulation failure. |
+| FV-019 | P1 | Resolved for fixture corpus | Standalone round-trip entrypoint | Strict round trips existed in tests, but there was no command-line entrypoint that an agent or script could call directly. | Added `circuit-studio-flow-runner` with CMOS inverter and voltage divider fixtures that execute the existing headless service and print the emitted manifest path. |
 
 ## Full LVS Milestones
 
@@ -99,6 +102,7 @@ flowchart LR
 | LVS-M16: Multi-fixture round-trip corpus | Done for pass path | Add another small circuit so the harness is not overfit to the CMOS inverter | `cmosInverterCompletesHeadlessRoundTripWithArtifacts()`, `voltageDividerCompletesHeadlessRoundTripWithArtifacts()` |
 | LVS-M17: Failure-manifest regressions | Done for headless harness gates | Persist machine-readable manifests for known failed gates so agent/human review can proceed from artifacts instead of only thrown errors | `prePEXGateFailureWritesManifest()`, `emptyPEXIRFailureWritesManifest()`, `postLayoutSimulationFailureWritesManifest()` |
 | LVS-M18: Golden signoff artifact import | Done for log corpus | Import externally produced DRC/LVS logs without re-running tools, normalize them into `ExternalSignoffReview`, and keep clean/mismatch golden fixtures under test resources | `loadGoldenSignoffLogsBuildsReview()`, `loadGoldenMismatchLogBlocksReview()`, `loadRejectsMissingLog()` |
+| LVS-M19: Standalone fixture round-trip runner | Done for fixture corpus | Run the same strict voltage-divider and CMOS-inverter pass paths from a SwiftPM executable so non-UI agents can create artifact directories and manifests on demand | `swift run circuit-studio-flow-runner --fixture voltage-divider`, `swift run circuit-studio-flow-runner --fixture cmos-inverter` |
 
 ## Next Execution Order
 
