@@ -22,7 +22,9 @@ public final class HeadlessRoundTripService {
         public let testbench: Testbench
         public let postLayoutCommand: AnalysisCommand
         public let pexIR: PEXParasiticIR
+        public let pexArtifactPaths: [String]
         public let externalSignoffCommands: [ExternalSignoffCommand]
+        public let externalSignoffReview: ExternalSignoffReview?
         public let approvedBy: String?
         public let approvedAt: Date?
         public let waiverIDs: [String]
@@ -37,7 +39,9 @@ public final class HeadlessRoundTripService {
             testbench: Testbench,
             postLayoutCommand: AnalysisCommand,
             pexIR: PEXParasiticIR,
+            pexArtifactPaths: [String] = [],
             externalSignoffCommands: [ExternalSignoffCommand] = [],
+            externalSignoffReview: ExternalSignoffReview? = nil,
             approvedBy: String? = nil,
             approvedAt: Date? = nil,
             waiverIDs: [String] = [],
@@ -51,7 +55,9 @@ public final class HeadlessRoundTripService {
             self.testbench = testbench
             self.postLayoutCommand = postLayoutCommand
             self.pexIR = pexIR
+            self.pexArtifactPaths = pexArtifactPaths
             self.externalSignoffCommands = externalSignoffCommands
+            self.externalSignoffReview = externalSignoffReview
             self.approvedBy = approvedBy
             self.approvedAt = approvedAt
             self.waiverIDs = waiverIDs
@@ -326,6 +332,9 @@ public final class HeadlessRoundTripService {
         )
         let postLayoutNetlistURL = runDirectory.appending(path: "post-layout.cir")
         try write(postLayoutNetlist, to: postLayoutNetlistURL)
+        artifacts.append(contentsOf: configuration.pexArtifactPaths.map {
+            Artifact(kind: "pex-artifact", path: $0)
+        })
         artifacts.append(Artifact(kind: "post-layout-netlist", path: postLayoutNetlistURL.path(percentEncoded: false)))
         stages.append(Stage(
             name: "pex-injection",
@@ -468,11 +477,25 @@ public final class HeadlessRoundTripService {
         configuration: Configuration,
         runDirectory: URL
     ) throws -> ExternalSignoffReview? {
+        let store = ExternalSignoffReviewStore()
+        if var review = configuration.externalSignoffReview {
+            try store.save(review, projectRoot: configuration.projectRoot)
+            if let approvedBy = configuration.approvedBy,
+               let approvedAt = configuration.approvedAt {
+                review = review.approving(
+                    by: approvedBy,
+                    at: approvedAt,
+                    waiverIDs: configuration.waiverIDs
+                )
+                try store.save(review, projectRoot: configuration.projectRoot)
+            }
+            return review
+        }
+
         guard !configuration.externalSignoffCommands.isEmpty else {
             return nil
         }
 
-        let store = ExternalSignoffReviewStore()
         let artifactDirectory = runDirectory.appending(path: "external-signoff")
         var review = try ExternalSignoffCommandService().run(
             commands: configuration.externalSignoffCommands,

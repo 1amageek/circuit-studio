@@ -14,18 +14,26 @@ struct CircuitStudioFlowRunner {
             }
 
             let fixture = try FlowFixture(name: options.fixtureName)
-            let pexIR = try options.loadPEXIR() ?? fixture.pexIR
+            let pexInput = try options.loadPEXInput() ?? PEXInput(ir: fixture.pexIR, artifactPaths: [])
+            let externalSignoffReview = try options.loadExternalSignoffReview()
             let projectRoot = options.outputURL ?? defaultOutputURL(fixtureName: fixture.name)
             try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
-            let signoffCommands = try makeMockSignoffCommands(in: projectRoot)
+            let signoffCommands: [ExternalSignoffCommand]
+            if externalSignoffReview == nil {
+                signoffCommands = try makeMockSignoffCommands(in: projectRoot)
+            } else {
+                signoffCommands = []
+            }
             let configuration = HeadlessRoundTripService.Configuration(
                 projectRoot: projectRoot,
                 runID: options.runID ?? "\(fixture.name)-\(Self.timestamp())",
                 title: fixture.title,
                 testbench: fixture.testbench,
                 postLayoutCommand: fixture.postLayoutCommand,
-                pexIR: pexIR,
+                pexIR: pexInput.ir,
+                pexArtifactPaths: pexInput.artifactPaths,
                 externalSignoffCommands: signoffCommands,
+                externalSignoffReview: externalSignoffReview,
                 approvedBy: "headless-runner",
                 approvedAt: Date(),
                 createdAt: Date()
@@ -41,8 +49,9 @@ struct CircuitStudioFlowRunner {
             print("project_root=\(projectRoot.path(percentEncoded: false))")
             print("manifest=\(result.manifestURL.path(percentEncoded: false))")
             print("ready_for_pex=\(result.manifest.isReadyForPEX)")
-            print("pex_corner=\(pexIR.cornerID)")
-            print("pex_elements=\(pexIR.elements.count)")
+            print("pex_corner=\(pexInput.ir.cornerID)")
+            print("pex_elements=\(pexInput.ir.elements.count)")
+            print("external_signoff=\(externalSignoffReview == nil ? "mock-command" : "imported-logs")")
         } catch {
             fputs("round_trip=failed\n", stderr)
             fputs("error=\(error.localizedDescription)\n", stderr)
@@ -54,7 +63,7 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [--fixture cmos-inverter|voltage-divider] [--output PATH] [--run-id ID] [--pex-manifest PATH] [--pex-corner ID]
+          swift run circuit-studio-flow-runner [--fixture cmos-inverter|voltage-divider] [--output PATH] [--run-id ID] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> manifest
@@ -66,6 +75,10 @@ struct CircuitStudioFlowRunner {
           --pex-manifest PATH
                            Load PEX IR through a saved PEXEngine manifest instead of using the built-in synthetic IR
           --pex-corner ID  PEX corner to load from --pex-manifest. Default: tt_25c_1v0
+          --signoff-drc-log PATH
+                           Load an existing clean DRC log instead of running the mock DRC command
+          --signoff-lvs-log PATH
+                           Load an existing clean LVS log instead of running the mock LVS command
           --help           Show this help
         """
     }
@@ -91,6 +104,8 @@ private struct RunnerOptions {
     var runID: String?
     var pexManifestURL: URL?
     var pexCornerID = "tt_25c_1v0"
+    var signoffDRCLogURL: URL?
+    var signoffLVSLogURL: URL?
     var showHelp = false
 
     init(arguments: [String]) throws {
@@ -108,6 +123,10 @@ private struct RunnerOptions {
                 pexManifestURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--pex-corner":
                 pexCornerID = try Self.value(after: argument, in: arguments, index: &index)
+            case "--signoff-drc-log":
+                signoffDRCLogURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--signoff-lvs-log":
+                signoffLVSLogURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--help", "-h":
                 showHelp = true
             default:
@@ -126,14 +145,56 @@ private struct RunnerOptions {
         return arguments[valueIndex]
     }
 
-    func loadPEXIR() throws -> PEXParasiticIR? {
+    func loadPEXInput() throws -> PEXInput? {
         guard let pexManifestURL else {
             return nil
         }
         let service = PEXArtifactService()
         let artifacts = try service.loadArtifacts(manifestURL: pexManifestURL)
-        return try service.loadIR(for: pexCornerID, artifacts: artifacts)
+        let ir = try service.loadIR(for: pexCornerID, artifacts: artifacts)
+        var artifactPaths = [pexManifestURL.path(percentEncoded: false)]
+        if let corner = artifacts.corner(id: pexCornerID) {
+            artifactPaths.append(contentsOf: corner.rawFileURLs.map { $0.path(percentEncoded: false) })
+            if let irURL = corner.irURL {
+                artifactPaths.append(irURL.path(percentEncoded: false))
+            }
+            if let logURL = corner.logURL {
+                artifactPaths.append(logURL.path(percentEncoded: false))
+            }
+        }
+        return PEXInput(ir: ir, artifactPaths: artifactPaths)
     }
+
+    func loadExternalSignoffReview() throws -> ExternalSignoffReview? {
+        switch (signoffDRCLogURL, signoffLVSLogURL) {
+        case (nil, nil):
+            return nil
+        case (.some(let drcLogURL), .some(let lvsLogURL)):
+            return try ExternalSignoffArtifactService().load(logs: [
+                ExternalSignoffLogArtifact(
+                    kind: .drc,
+                    toolName: "imported-drc",
+                    logURL: drcLogURL,
+                    success: true
+                ),
+                ExternalSignoffLogArtifact(
+                    kind: .lvs,
+                    toolName: "imported-lvs",
+                    logURL: lvsLogURL,
+                    success: true
+                ),
+            ])
+        case (.some, nil):
+            throw RunnerError.missingCompanionOption("--signoff-lvs-log")
+        case (nil, .some):
+            throw RunnerError.missingCompanionOption("--signoff-drc-log")
+        }
+    }
+}
+
+private struct PEXInput {
+    let ir: PEXParasiticIR
+    let artifactPaths: [String]
 }
 
 @MainActor
@@ -188,6 +249,7 @@ private enum RunnerError: Error, LocalizedError {
     case invalidArgument(String)
     case missingValue(String)
     case unknownFixture(String)
+    case missingCompanionOption(String)
 
     var errorDescription: String? {
         switch self {
@@ -197,6 +259,8 @@ private enum RunnerError: Error, LocalizedError {
             return "Missing value for \(option)"
         case .unknownFixture(let name):
             return "Unknown fixture: \(name)"
+        case .missingCompanionOption(let option):
+            return "Missing required companion option: \(option)"
         }
     }
 }

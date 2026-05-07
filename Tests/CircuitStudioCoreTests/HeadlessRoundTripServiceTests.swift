@@ -70,6 +70,61 @@ struct HeadlessRoundTripServiceTests {
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
+    func voltageDividerCompletesRoundTripWithImportedSignoffReview() async throws {
+        let root = try makeTemporaryRoot("voltage-divider-imported-signoff")
+        defer { removeTemporaryRoot(root) }
+
+        let drcLogURL = root.appending(path: "golden-drc.log")
+        let lvsLogURL = root.appending(path: "golden-lvs.log")
+        let pexManifestURL = root.appending(path: "pex-manifest.json")
+        try """
+        [INFO] rule=DRC_CLEAN message="clean drc"
+        """.write(to: drcLogURL, atomically: true, encoding: .utf8)
+        try """
+        [INFO] rule=LVS_MATCH message="clean lvs"
+        """.write(to: lvsLogURL, atomically: true, encoding: .utf8)
+        try """
+        {"status":"success"}
+        """.write(to: pexManifestURL, atomically: true, encoding: .utf8)
+
+        let review = try ExternalSignoffArtifactService().load(logs: [
+            ExternalSignoffLogArtifact(kind: .drc, toolName: "imported-drc", logURL: drcLogURL, success: true),
+            ExternalSignoffLogArtifact(kind: .lvs, toolName: "imported-lvs", logURL: lvsLogURL, success: true),
+        ])
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: "voltage-divider-imported-signoff",
+            title: "Voltage divider imported signoff round trip",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .op,
+            pexIR: smallPEXIR(),
+            pexArtifactPaths: [pexManifestURL.path(percentEncoded: false)],
+            externalSignoffReview: review
+        )
+
+        let result = try await HeadlessRoundTripService().run(
+            schematic: SchematicPreview.voltageDividerViewModel().document,
+            configuration: configuration
+        )
+
+        #expect(result.manifest.isRoundTripComplete)
+        #expect(result.manifest.isReadyForPEX)
+        #expect(result.externalSignoff?.isReadyForPEX == true)
+        #expect(result.externalSignoff?.reports.map(\.toolName) == ["imported-drc", "imported-lvs"])
+        #expect(result.manifest.artifacts.map(\.path).contains(drcLogURL.path(percentEncoded: false)))
+        #expect(result.manifest.artifacts.map(\.path).contains(lvsLogURL.path(percentEncoded: false)))
+        #expect(result.manifest.artifacts.contains {
+            $0.kind == "pex-artifact" && $0.path == pexManifestURL.path(percentEncoded: false)
+        })
+        #expect(!result.manifest.artifacts.map(\.path).contains { $0.hasSuffix("mock-drc.log") })
+
+        let storedReview = try ExternalSignoffReviewStore().load(projectRoot: root)
+        #expect(storedReview.approvedBy == "layout-reviewer")
+        #expect(storedReview.isReadyForPEX)
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
     func prePEXGateFailureWritesManifest() async throws {
         let root = try makeTemporaryRoot("pre-pex-failure")
         defer { removeTemporaryRoot(root) }
@@ -313,7 +368,9 @@ struct HeadlessRoundTripServiceTests {
         testbench: Testbench,
         postLayoutCommand: AnalysisCommand,
         pexIR: PEXParasiticIR,
-        externalSignoffCommands: [ExternalSignoffCommand]
+        pexArtifactPaths: [String] = [],
+        externalSignoffCommands: [ExternalSignoffCommand] = [],
+        externalSignoffReview: ExternalSignoffReview? = nil
     ) -> HeadlessRoundTripService.Configuration {
         HeadlessRoundTripService.Configuration(
             projectRoot: projectRoot,
@@ -322,7 +379,9 @@ struct HeadlessRoundTripServiceTests {
             testbench: testbench,
             postLayoutCommand: postLayoutCommand,
             pexIR: pexIR,
+            pexArtifactPaths: pexArtifactPaths,
             externalSignoffCommands: externalSignoffCommands,
+            externalSignoffReview: externalSignoffReview,
             approvedBy: "layout-reviewer",
             approvedAt: Date(timeIntervalSince1970: 2_000),
             createdAt: Date(timeIntervalSince1970: 1_000)
