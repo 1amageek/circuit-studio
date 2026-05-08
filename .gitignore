@@ -16,6 +16,9 @@ Package.resolved
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .swiftpm/xcode/package.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+**/.swiftpm/configuration/registries.json
+**/.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+**/.swiftpm/xcode/package.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 
 # Credentials
 .netrc
