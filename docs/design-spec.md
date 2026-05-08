@@ -33,15 +33,16 @@ flowchart LR
 
 ## Name Rules
 
-`name`, component names, and net names must be stable single-token identifiers.
+`name`, component names, net names, analysis source names, PEX corner IDs, PEX element IDs, and PEX node names must be stable single-token identifiers.
 
-| Rejected | Reason |
-|---|---|
-| Empty values | Cannot be used as stable artifact identifiers |
-| Leading/trailing whitespace | Ambiguous for CLI and manifest review |
-| Internal whitespace | Ambiguous for SPICE-style tokenization |
-| `/` or `\` | Could affect paths |
-| `.` or `..` | Path traversal ambiguity |
+| Name kind | Allowed characters | Additional rejection |
+|---|---|---|
+| Design `name` | ASCII letters, digits, `.`, `_`, `-` | Empty, whitespace, `/`, `\`, `.`, `..` |
+| Component names | ASCII letters, digits, `_` | Empty or whitespace |
+| Net names | ASCII letters, digits, `_` | Empty or whitespace |
+| Parameter names | ASCII letters, digits, `_` | Empty or whitespace |
+| Analysis source | ASCII letters, digits, `_` | Empty or whitespace |
+| PEX IDs/nodes/corners | ASCII letters, digits, `_` | Empty or whitespace |
 
 ## Components
 
@@ -52,6 +53,8 @@ flowchart LR
 | `parameters` | No | Numeric parameter overrides. Missing means `{}`. |
 | `modelPresetID` | No | Optional model preset ID. |
 | `modelName` | No | Optional explicit model name. |
+
+Parameter values must be finite numbers. Non-finite values are rejected before artifacts are produced.
 
 ## Nets
 
@@ -77,6 +80,8 @@ A terminal may appear in only one net. Duplicate terminal ownership is rejected 
 | `tran` | `stopTime` | `stepTime`, `startTime`, `maxStep` |
 | `dcSweep` | `source`, `startValue`, `stopValue`, `stepValue` | None |
 
+Analysis values must be finite. `tran.stopTime` must be positive. Transient optional time values must be non-negative. DC sweep `stepValue` must be non-zero and move from `startValue` toward `stopValue`.
+
 ## Inline PEX IR
 
 `pexIR` mirrors the subset needed by `PostLayoutSimulationService`.
@@ -97,6 +102,8 @@ Supported units:
 | capacitance | `F`, `pF`, `fF` | `F` |
 | coordinate | `um` | `um` |
 
+Inline PEX values are normalized to canonical units before post-layout simulation. Saved PEX manifests loaded with `--pex-manifest` use the same canonical `PEXParasiticIR` contract.
+
 Supported element kinds:
 
 | Kind | Node contract |
@@ -104,6 +111,8 @@ Supported element kinds:
 | `resistor` | `nodeA` and `nodeB` |
 | `capacitor` | `nodeA`; `nodeB` may be omitted for ground-referenced capacitance |
 | `coupling` | `nodeA` and `nodeB` |
+
+Element IDs must be unique. Element values must be finite and positive.
 
 ## CLI Use
 

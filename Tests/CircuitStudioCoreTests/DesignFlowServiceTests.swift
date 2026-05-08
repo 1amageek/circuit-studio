@@ -112,7 +112,7 @@ struct DesignFlowServiceTests {
             components: base.components,
             nets: base.nets,
             analyses: base.analyses,
-            pexIR: base.pexIR?.core
+            pexIR: try base.pexIR?.normalizedCore()
         ), to: unsafeNameURL)
 
         await #expect(throws: DesignFlowDesignSpecError.invalidDesignName("../escaped")) {
@@ -136,7 +136,7 @@ struct DesignFlowServiceTests {
                 ),
             ],
             analyses: base.analyses,
-            pexIR: base.pexIR?.core
+            pexIR: try base.pexIR?.normalizedCore()
         ), to: duplicateTerminalURL)
 
         await #expect(throws: DesignFlowDesignSpecError.duplicateTerminal(
@@ -159,13 +159,105 @@ struct DesignFlowServiceTests {
             components: base.components,
             nets: base.nets,
             analyses: base.analyses,
-            pexIR: base.pexIR?.core
+            pexIR: try base.pexIR?.normalizedCore()
         ), to: unsupportedSchemaURL)
 
         await #expect(throws: DesignFlowDesignSpecError.unsupportedSchemaVersion(2)) {
             try await service.execute(DesignFlowCommand(
                 kind: .generateDesignNetlist,
                 designSpecPath: unsupportedSchemaURL.path(percentEncoded: false)
+            ))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func designSpecNormalizesInlinePEXUnitsAndRejectsInvalidPEX() async throws {
+        let root = try makeTemporaryRoot("inline-pex-spec")
+        defer { removeTemporaryRoot(root) }
+        let service = DesignFlowService()
+
+        let scaledPEXURL = root.appending(path: "scaled-pex.json")
+        try writeDesignSpecJSON(
+            agentResistorDividerSpecJSON(
+                pexUnits: """
+                "units": {
+                  "resistance": "kohm",
+                  "capacitance": "fF",
+                  "coordinate": "um"
+                },
+                """,
+                pexElements: """
+                {
+                  "id": "r_out",
+                  "kind": "resistor",
+                  "nodeA": "out",
+                  "nodeB": "out_pex",
+                  "value": 0.001
+                },
+                {
+                  "id": "c_out",
+                  "kind": "capacitor",
+                  "nodeA": "out_pex",
+                  "value": 2.0
+                }
+                """
+            ),
+            to: scaledPEXURL
+        )
+        let scaledDesign = try service.loadDesignSpec(scaledPEXURL).build()
+        #expect(scaledDesign.pexIR?.units == .canonical)
+        #expect(scaledDesign.pexIR?.elements.first { $0.id == "r_out" }?.value == 1.0)
+        #expect(scaledDesign.pexIR?.elements.first { $0.id == "c_out" }?.value == 2.0e-15)
+
+        let missingNodeURL = root.appending(path: "missing-node.json")
+        try writeDesignSpecJSON(
+            agentResistorDividerSpecJSON(
+                pexUnits: "",
+                pexElements: """
+                {
+                  "id": "r_out",
+                  "kind": "resistor",
+                  "nodeA": "out",
+                  "value": 0.5
+                }
+                """
+            ),
+            to: missingNodeURL
+        )
+        await #expect(throws: DesignFlowDesignSpecError.missingPEXElementNodeB("r_out", "resistor")) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: missingNodeURL.path(percentEncoded: false)
+            ))
+        }
+
+        let unsupportedUnitURL = root.appending(path: "unsupported-unit.json")
+        try writeDesignSpecJSON(
+            agentResistorDividerSpecJSON(
+                pexUnits: """
+                "units": {
+                  "resistance": "mohm",
+                  "capacitance": "F",
+                  "coordinate": "um"
+                },
+                """,
+                pexElements: """
+                {
+                  "id": "r_out",
+                  "kind": "resistor",
+                  "nodeA": "out",
+                  "nodeB": "out_pex",
+                  "value": 0.5
+                }
+                """
+            ),
+            to: unsupportedUnitURL
+        )
+        await #expect(throws: DesignFlowDesignSpecError.unsupportedPEXResistanceUnit("mohm")) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: unsupportedUnitURL.path(percentEncoded: false)
             ))
         }
     }
@@ -474,6 +566,10 @@ struct DesignFlowServiceTests {
         try data.write(to: url, options: .atomic)
     }
 
+    private func writeDesignSpecJSON(_ json: String, to url: URL) throws {
+        try Data(json.utf8).write(to: url, options: .atomic)
+    }
+
     private func agentResistorDividerSpec() -> DesignFlowDesignSpec {
         DesignFlowDesignSpec(
             name: "agent-resistor-divider",
@@ -547,6 +643,105 @@ struct DesignFlowServiceTests {
                 ]
             )
         )
+    }
+
+    private func agentResistorDividerSpecJSON(
+        pexUnits: String,
+        pexElements: String
+    ) -> String {
+        """
+        {
+          "schemaVersion": 1,
+          "name": "agent_resistor_divider",
+          "title": "Agent resistor divider",
+          "components": [
+            {
+              "name": "V1",
+              "deviceKindID": "vsource",
+              "parameters": {
+                "dc": 5.0
+              }
+            },
+            {
+              "name": "R1",
+              "deviceKindID": "resistor",
+              "parameters": {
+                "r": 1000.0
+              }
+            },
+            {
+              "name": "R2",
+              "deviceKindID": "resistor",
+              "parameters": {
+                "r": 1000.0
+              }
+            },
+            {
+              "name": "GND1",
+              "deviceKindID": "ground"
+            }
+          ],
+          "nets": [
+            {
+              "name": "vin",
+              "terminals": [
+                {
+                  "component": "V1",
+                  "port": "pos"
+                },
+                {
+                  "component": "R1",
+                  "port": "pos"
+                }
+              ]
+            },
+            {
+              "name": "out",
+              "terminals": [
+                {
+                  "component": "R1",
+                  "port": "neg"
+                },
+                {
+                  "component": "R2",
+                  "port": "pos"
+                }
+              ]
+            },
+            {
+              "name": "0",
+              "terminals": [
+                {
+                  "component": "V1",
+                  "port": "neg"
+                },
+                {
+                  "component": "R2",
+                  "port": "neg"
+                },
+                {
+                  "component": "GND1",
+                  "port": "gnd"
+                }
+              ]
+            }
+          ],
+          "analyses": [
+            {
+              "kind": "op"
+            }
+          ],
+          "pexIR": {
+            "version": "1.0",
+            "cornerID": "tt_25c_1v0",
+            \(pexUnits)
+            "elements": [
+              \(pexElements)
+            ],
+            "diagnostics": []
+          }
+        }
+        """
     }
 
     private func removeTemporaryRoot(_ root: URL) {

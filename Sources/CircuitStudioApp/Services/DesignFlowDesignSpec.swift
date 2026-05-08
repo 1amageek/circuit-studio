@@ -190,12 +190,28 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
                 self.coordinate = try container.decodeIfPresent(String.self, forKey: .coordinate) ?? "um"
             }
 
-            public var core: PEXParasiticUnits {
+            fileprivate var core: PEXParasiticUnits {
                 PEXParasiticUnits(
                     resistance: resistance,
                     capacitance: capacitance,
                     coordinate: coordinate
                 )
+            }
+
+            public var normalizedScales: (resistance: Double, capacitance: Double) {
+                get throws {
+                    let units = core
+                    guard let resistanceScale = units.resistanceScaleToOhm else {
+                        throw DesignFlowDesignSpecError.unsupportedPEXResistanceUnit(resistance)
+                    }
+                    guard let capacitanceScale = units.capacitanceScaleToFarad else {
+                        throw DesignFlowDesignSpecError.unsupportedPEXCapacitanceUnit(capacitance)
+                    }
+                    guard coordinate == PEXParasiticUnits.canonical.coordinate else {
+                        throw DesignFlowDesignSpecError.unsupportedPEXCoordinateUnit(coordinate)
+                    }
+                    return (resistanceScale, capacitanceScale)
+                }
             }
         }
 
@@ -258,13 +274,51 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
                 try container.encode(value, forKey: .value)
             }
 
-            public var core: PEXParasiticElement {
+            fileprivate var core: PEXParasiticElement {
                 PEXParasiticElement(
                     id: id,
                     kind: kind,
                     nodeA: nodeA,
                     nodeB: nodeB,
                     value: value
+                )
+            }
+
+            public func normalizedCore(
+                resistanceScale: Double,
+                capacitanceScale: Double
+            ) throws -> PEXParasiticElement {
+                try validateSPICEToken(id, error: .invalidPEXElementID(id))
+                try validateSPICEToken(nodeA, error: .invalidPEXNodeName(nodeA))
+                if let nodeB {
+                    try validateSPICEToken(nodeB, error: .invalidPEXNodeName(nodeB))
+                }
+                guard value.isFinite, value > 0 else {
+                    throw DesignFlowDesignSpecError.invalidPEXElementValue(id)
+                }
+
+                let scale: Double
+                switch kind {
+                case .resistor:
+                    guard nodeB != nil else {
+                        throw DesignFlowDesignSpecError.missingPEXElementNodeB(id, kind.rawValue)
+                    }
+                    scale = resistanceScale
+                case .capacitor:
+                    scale = capacitanceScale
+                case .coupling:
+                    guard nodeB != nil else {
+                        throw DesignFlowDesignSpecError.missingPEXElementNodeB(id, kind.rawValue)
+                    }
+                    scale = capacitanceScale
+                }
+
+                return PEXParasiticElement(
+                    id: id,
+                    kind: kind,
+                    nodeA: nodeA,
+                    nodeB: nodeB,
+                    value: value * scale
                 )
             }
         }
@@ -312,7 +366,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
                 try container.encodeIfPresent(elementID, forKey: .elementID)
             }
 
-            public var core: PEXArtifactDiagnostic {
+            fileprivate var core: PEXArtifactDiagnostic {
                 PEXArtifactDiagnostic(
                     severity: severity,
                     message: message,
@@ -362,12 +416,24 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
             self.diagnostics = try container.decodeIfPresent([Diagnostic].self, forKey: .diagnostics) ?? []
         }
 
-        public var core: PEXParasiticIR {
-            PEXParasiticIR(
+        public func normalizedCore() throws -> PEXParasiticIR {
+            try validateSPICEToken(cornerID, error: .invalidPEXCornerID(cornerID))
+            let scales = try units.normalizedScales
+            var elementIDs = Set<String>()
+            let normalizedElements = try elements.map { element in
+                guard elementIDs.insert(element.id).inserted else {
+                    throw DesignFlowDesignSpecError.duplicatePEXElementID(element.id)
+                }
+                return try element.normalizedCore(
+                    resistanceScale: scales.resistance,
+                    capacitanceScale: scales.capacitance
+                )
+            }
+            return PEXParasiticIR(
                 version: version,
                 cornerID: cornerID,
-                units: units.core,
-                elements: elements.map(\.core),
+                units: .canonical,
+                elements: normalizedElements,
                 diagnostics: diagnostics.map(\.core)
             )
         }
@@ -437,6 +503,12 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
 
         for (index, component) in components.enumerated() {
             try validateName(component.name, kind: .component)
+            for (parameterName, parameterValue) in component.parameters {
+                try validateSPICEToken(parameterName, error: .invalidParameterName(component: component.name, parameter: parameterName))
+                guard parameterValue.isFinite else {
+                    throw DesignFlowDesignSpecError.invalidParameterValue(component: component.name, parameter: parameterName)
+                }
+            }
             guard componentIDs[component.name] == nil else {
                 throw DesignFlowDesignSpecError.duplicateComponent(component.name)
             }
@@ -513,6 +585,10 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
             }
         }
 
+        try analyses.forEach(validateAnalysis)
+        if let postLayoutAnalysis {
+            try validateAnalysis(postLayoutAnalysis)
+        }
         let commands = try analyses.map { try $0.command() }
         let postLayoutCommand = try (postLayoutAnalysis?.command() ?? commands[0])
         let designTitle = title ?? name
@@ -529,7 +605,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
                 analysisCommands: commands
             ),
             postLayoutCommand: postLayoutCommand,
-            pexIR: pexIR?.core
+            pexIR: try pexIR?.normalizedCore()
         )
     }
 
@@ -540,6 +616,14 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
     }
 
     private func validateName(_ value: String, kind: NameKind) throws {
+        let allowed: CharacterSet
+        switch kind {
+        case .design:
+            allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        case .component, .net:
+            allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+        }
+
         let invalid = value.isEmpty
             || value.trimmingCharacters(in: .whitespacesAndNewlines) != value
             || value.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
@@ -547,6 +631,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
             || value.contains("\\")
             || value == "."
             || value == ".."
+            || !value.unicodeScalars.allSatisfy { allowed.contains($0) }
         guard !invalid else {
             switch kind {
             case .design:
@@ -557,6 +642,51 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
                 throw DesignFlowDesignSpecError.invalidNetName(value)
             }
         }
+    }
+
+    private func validateAnalysis(_ analysis: Analysis) throws {
+        switch analysis.kind {
+        case .op:
+            return
+        case .tran:
+            let stopTime = try finiteAnalysisValue(analysis.stopTime, name: "stopTime")
+            guard stopTime > 0 else {
+                throw DesignFlowDesignSpecError.invalidAnalysisValue("stopTime")
+            }
+            for (name, value) in [
+                ("stepTime", analysis.stepTime),
+                ("startTime", analysis.startTime),
+                ("maxStep", analysis.maxStep),
+            ] {
+                if let value {
+                    guard value.isFinite, value >= 0 else {
+                        throw DesignFlowDesignSpecError.invalidAnalysisValue(name)
+                    }
+                }
+            }
+        case .dcSweep:
+            guard let source = analysis.source else {
+                throw DesignFlowDesignSpecError.missingAnalysisValue("source")
+            }
+            try validateSPICEToken(source, error: .invalidAnalysisSource(source))
+            let startValue = try finiteAnalysisValue(analysis.startValue, name: "startValue")
+            let stopValue = try finiteAnalysisValue(analysis.stopValue, name: "stopValue")
+            let stepValue = try finiteAnalysisValue(analysis.stepValue, name: "stepValue")
+            guard stepValue != 0,
+                  (stopValue - startValue) * stepValue > 0 else {
+                throw DesignFlowDesignSpecError.invalidDCSweepRange
+            }
+        }
+    }
+
+    private func finiteAnalysisValue(_ value: Double?, name: String) throws -> Double {
+        guard let value else {
+            throw DesignFlowDesignSpecError.missingAnalysisValue(name)
+        }
+        guard value.isFinite else {
+            throw DesignFlowDesignSpecError.invalidAnalysisValue(name)
+        }
+        return value
     }
 
     private func pinReference(
@@ -585,6 +715,8 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
     case invalidDesignName(String)
     case invalidComponentName(String)
     case invalidNetName(String)
+    case invalidParameterName(component: String, parameter: String)
+    case invalidParameterValue(component: String, parameter: String)
     case duplicateComponent(String)
     case duplicateNet(String)
     case duplicateTerminal(component: String, port: String, firstNet: String, secondNet: String)
@@ -592,6 +724,18 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
     case unknownDeviceKind(String)
     case unknownPort(component: String, port: String)
     case missingAnalysisValue(String)
+    case invalidAnalysisValue(String)
+    case invalidAnalysisSource(String)
+    case invalidDCSweepRange
+    case unsupportedPEXResistanceUnit(String)
+    case unsupportedPEXCapacitanceUnit(String)
+    case unsupportedPEXCoordinateUnit(String)
+    case invalidPEXCornerID(String)
+    case invalidPEXElementID(String)
+    case duplicatePEXElementID(String)
+    case invalidPEXNodeName(String)
+    case invalidPEXElementValue(String)
+    case missingPEXElementNodeB(String, String)
     case missingPEXInput
 
     public var errorDescription: String? {
@@ -608,6 +752,10 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
             return "Design spec contains an invalid component name: \(name)."
         case .invalidNetName(let name):
             return "Design spec contains an invalid net name: \(name)."
+        case .invalidParameterName(let component, let parameter):
+            return "Design spec contains an invalid parameter name \(parameter) on component \(component)."
+        case .invalidParameterValue(let component, let parameter):
+            return "Design spec contains a non-finite parameter value \(parameter) on component \(component)."
         case .duplicateComponent(let name):
             return "Design spec contains a duplicate component: \(name)."
         case .duplicateNet(let name):
@@ -622,8 +770,42 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
             return "Design spec references unknown port \(port) on component \(component)."
         case .missingAnalysisValue(let name):
             return "Design spec analysis is missing required value: \(name)."
+        case .invalidAnalysisValue(let name):
+            return "Design spec analysis contains an invalid value: \(name)."
+        case .invalidAnalysisSource(let source):
+            return "Design spec analysis contains an invalid sweep source: \(source)."
+        case .invalidDCSweepRange:
+            return "Design spec DC sweep range must move from startValue to stopValue using a non-zero stepValue."
+        case .unsupportedPEXResistanceUnit(let unit):
+            return "Design spec PEX resistance unit is not supported: \(unit)."
+        case .unsupportedPEXCapacitanceUnit(let unit):
+            return "Design spec PEX capacitance unit is not supported: \(unit)."
+        case .unsupportedPEXCoordinateUnit(let unit):
+            return "Design spec PEX coordinate unit is not supported: \(unit)."
+        case .invalidPEXCornerID(let cornerID):
+            return "Design spec contains an invalid PEX corner ID: \(cornerID)."
+        case .invalidPEXElementID(let id):
+            return "Design spec contains an invalid PEX element ID: \(id)."
+        case .duplicatePEXElementID(let id):
+            return "Design spec contains a duplicate PEX element ID: \(id)."
+        case .invalidPEXNodeName(let node):
+            return "Design spec contains an invalid PEX node name: \(node)."
+        case .invalidPEXElementValue(let id):
+            return "Design spec contains a non-positive or non-finite PEX element value: \(id)."
+        case .missingPEXElementNodeB(let id, let kind):
+            return "Design spec PEX element \(id) of kind \(kind) requires nodeB."
         case .missingPEXInput:
             return "Design round trip requires PEX input in the design spec or --pex-manifest."
         }
+    }
+}
+
+private func validateSPICEToken(_ value: String, error: DesignFlowDesignSpecError) throws {
+    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+    let invalid = value.isEmpty
+        || value.trimmingCharacters(in: .whitespacesAndNewlines) != value
+        || !value.unicodeScalars.allSatisfy { allowed.contains($0) }
+    guard !invalid else {
+        throw error
     }
 }
