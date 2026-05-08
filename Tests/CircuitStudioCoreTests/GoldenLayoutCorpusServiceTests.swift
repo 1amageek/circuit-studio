@@ -20,10 +20,16 @@ struct GoldenLayoutCorpusServiceTests {
         #expect(entry.format == "oas")
         #expect(entry.topCell == "TOP")
         #expect(entry.layoutURL.lastPathComponent == "golden-voltage-divider.oas")
+        #expect(entry.technologyFiles.map(\.kind) == ["lef", "def"])
+        #expect(entry.technologyFiles.map { $0.fileURL.lastPathComponent } == ["virtual45.lef", "voltage-divider.def"])
         #expect(entry.signoffLogs.map(\.kind) == [.drc, .lvs])
         #expect(entry.signoffReview.passed)
         #expect(!entry.signoffReview.isReadyForPEX)
         #expect(entry.signoffReview.reports.allSatisfy { $0.success })
+        #expect(entry.pexManifests.count == 1)
+        #expect(entry.pexManifests[0].defaultCornerID == "tt_25c_1v0")
+        #expect(entry.pexManifests[0].artifacts.corners.map(\.cornerID).contains("tt_25c_1v0"))
+        #expect(entry.requiresApproval)
     }
 
     private func fixtureURL(_ name: String, extension ext: String, subdirectory: String) throws -> URL {

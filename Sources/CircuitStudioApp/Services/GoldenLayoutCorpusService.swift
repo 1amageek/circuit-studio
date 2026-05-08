@@ -17,23 +17,42 @@ public struct GoldenLayoutCorpusService: Sendable {
         public let format: String
         public let topCell: String
         public let layoutURL: URL
+        public let technologyFiles: [TechnologyFile]
         public let signoffLogs: [SignoffLog]
         public let signoffReview: ExternalSignoffReview
+        public let pexManifests: [PEXManifest]
+        public let requiresApproval: Bool
 
         public init(
             id: String,
             format: String,
             topCell: String,
             layoutURL: URL,
+            technologyFiles: [TechnologyFile],
             signoffLogs: [SignoffLog],
-            signoffReview: ExternalSignoffReview
+            signoffReview: ExternalSignoffReview,
+            pexManifests: [PEXManifest],
+            requiresApproval: Bool
         ) {
             self.id = id
             self.format = format
             self.topCell = topCell
             self.layoutURL = layoutURL
+            self.technologyFiles = technologyFiles
             self.signoffLogs = signoffLogs
             self.signoffReview = signoffReview
+            self.pexManifests = pexManifests
+            self.requiresApproval = requiresApproval
+        }
+    }
+
+    public struct TechnologyFile: Sendable, Hashable {
+        public let kind: String
+        public let fileURL: URL
+
+        public init(kind: String, fileURL: URL) {
+            self.kind = kind
+            self.fileURL = fileURL
         }
     }
 
@@ -48,6 +67,18 @@ public struct GoldenLayoutCorpusService: Sendable {
             self.toolName = toolName
             self.logURL = logURL
             self.success = success
+        }
+    }
+
+    public struct PEXManifest: Sendable, Hashable {
+        public let manifestURL: URL
+        public let defaultCornerID: String?
+        public let artifacts: PEXRunArtifacts
+
+        public init(manifestURL: URL, defaultCornerID: String?, artifacts: PEXRunArtifacts) {
+            self.manifestURL = manifestURL
+            self.defaultCornerID = defaultCornerID
+            self.artifacts = artifacts
         }
     }
 
@@ -98,15 +129,33 @@ public struct GoldenLayoutCorpusService: Sendable {
                 )
             }
         )
+        let technologyFiles = try (dto.technologyFiles ?? []).map { technologyDTO in
+            try loadTechnologyFile(technologyDTO, root: root)
+        }
+        let pexManifests = try (dto.pexManifests ?? []).map { pexDTO in
+            try loadPEXManifest(pexDTO, root: root)
+        }
 
         return LayoutEntry(
             id: dto.id,
             format: dto.format,
             topCell: dto.topCell,
             layoutURL: layoutURL,
+            technologyFiles: technologyFiles,
             signoffLogs: signoffLogs,
-            signoffReview: review
+            signoffReview: review,
+            pexManifests: pexManifests,
+            requiresApproval: dto.requiresApproval ?? true
         )
+    }
+
+    private func loadTechnologyFile(_ dto: TechnologyFileDTO, root: URL) throws -> TechnologyFile {
+        let fileURL = root.appending(path: dto.file)
+        guard FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)) else {
+            throw StudioError.fileNotFound(fileURL.path(percentEncoded: false))
+        }
+
+        return TechnologyFile(kind: dto.kind, fileURL: fileURL)
     }
 
     private func loadSignoffLog(_ dto: SignoffLogDTO, root: URL) throws -> SignoffLog {
@@ -126,6 +175,20 @@ public struct GoldenLayoutCorpusService: Sendable {
             success: dto.success
         )
     }
+
+    private func loadPEXManifest(_ dto: PEXManifestDTO, root: URL) throws -> PEXManifest {
+        let manifestURL = root.appending(path: dto.manifestFile)
+        guard FileManager.default.fileExists(atPath: manifestURL.path(percentEncoded: false)) else {
+            throw StudioError.fileNotFound(manifestURL.path(percentEncoded: false))
+        }
+
+        let artifacts = try PEXArtifactService().loadArtifacts(manifestURL: manifestURL)
+        return PEXManifest(
+            manifestURL: manifestURL,
+            defaultCornerID: dto.defaultCornerID,
+            artifacts: artifacts
+        )
+    }
 }
 
 private struct ManifestDTO: Decodable {
@@ -138,7 +201,15 @@ private struct LayoutDTO: Decodable {
     let format: String
     let topCell: String
     let layoutFile: String
+    let technologyFiles: [TechnologyFileDTO]?
     let signoffLogs: [SignoffLogDTO]
+    let pexManifests: [PEXManifestDTO]?
+    let requiresApproval: Bool?
+}
+
+private struct TechnologyFileDTO: Decodable {
+    let kind: String
+    let file: String
 }
 
 private struct SignoffLogDTO: Decodable {
@@ -146,4 +217,9 @@ private struct SignoffLogDTO: Decodable {
     let toolName: String
     let logFile: String
     let success: Bool
+}
+
+private struct PEXManifestDTO: Decodable {
+    let manifestFile: String
+    let defaultCornerID: String?
 }

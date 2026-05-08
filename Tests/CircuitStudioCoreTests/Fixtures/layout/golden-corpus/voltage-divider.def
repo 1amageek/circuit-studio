@@ -1,0 +1,20 @@
+VERSION 5.8 ;
+DIVIDERCHAR "/" ;
+BUSBITCHARS "[]" ;
+DESIGN voltage_divider ;
+UNITS DISTANCE MICRONS 1000 ;
+DIEAREA ( 0 0 ) ( 2400 1200 ) ;
+
+PINS 3 ;
+  - vin + NET vin + DIRECTION INPUT + USE SIGNAL + PLACED ( 0 600 ) N ;
+  - out + NET out + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1200 600 ) N ;
+  - vss + NET 0 + DIRECTION INOUT + USE GROUND + PLACED ( 2400 600 ) N ;
+END PINS
+
+NETS 3 ;
+  - vin ( PIN vin ) ;
+  - out ( PIN out ) ;
+  - 0 ( PIN vss ) ;
+END NETS
+
+END DESIGN

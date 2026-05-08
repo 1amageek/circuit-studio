@@ -6,6 +6,16 @@
       "format": "oas",
       "topCell": "TOP",
       "layoutFile": "golden-voltage-divider.oas",
+      "technologyFiles": [
+        {
+          "kind": "lef",
+          "file": "virtual45.lef"
+        },
+        {
+          "kind": "def",
+          "file": "voltage-divider.def"
+        }
+      ],
       "signoffLogs": [
         {
           "kind": "drc",
@@ -19,7 +29,14 @@
           "logFile": "golden-calibre-lvs-clean.log",
           "success": true
         }
-      ]
+      ],
+      "pexManifests": [
+        {
+          "manifestFile": "../../pex/golden-voltage-divider/manifest.json",
+          "defaultCornerID": "tt_25c_1v0"
+        }
+      ],
+      "requiresApproval": true
     }
   ]
 }
