@@ -176,6 +176,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case runDesignSimulation
         case runDesignRoundTrip
         case summarizeBottlenecks
+        case loadTechnologyPackage
     }
 
     public let kind: Kind
@@ -190,6 +191,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let signoffLVSLogPath: String?
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
+    public let technologyPackagePath: String?
 
     public init(
         kind: Kind,
@@ -203,7 +205,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         signoffDRCLogPath: String? = nil,
         signoffLVSLogPath: String? = nil,
         maxAbsoluteDelta: Double? = nil,
-        maxRelativeDelta: Double? = nil
+        maxRelativeDelta: Double? = nil,
+        technologyPackagePath: String? = nil
     ) {
         self.kind = kind
         self.fixtureName = fixtureName
@@ -217,6 +220,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.signoffLVSLogPath = signoffLVSLogPath
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
+        self.technologyPackagePath = technologyPackagePath
     }
 
     public static func listFixtures() -> DesignFlowCommand {
@@ -239,6 +243,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let pexElementCount: Int?
     public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
     public let bottleneckHistory: RoundTripBottleneckHistoryService.Summary?
+    public let technologyPackageID: String?
+    public let technologyPackagePath: String?
+    public let validationDiagnostics: [TechnologyPackageValidationReport.Diagnostic]?
     public let message: String?
 
     public init(
@@ -256,6 +263,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         pexElementCount: Int? = nil,
         bottleneckSummary: HeadlessRoundTripService.BottleneckSummary? = nil,
         bottleneckHistory: RoundTripBottleneckHistoryService.Summary? = nil,
+        technologyPackageID: String? = nil,
+        technologyPackagePath: String? = nil,
+        validationDiagnostics: [TechnologyPackageValidationReport.Diagnostic]? = nil,
         message: String? = nil
     ) {
         self.kind = kind
@@ -272,6 +282,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.pexElementCount = pexElementCount
         self.bottleneckSummary = bottleneckSummary
         self.bottleneckHistory = bottleneckHistory
+        self.technologyPackageID = technologyPackageID
+        self.technologyPackagePath = technologyPackagePath
+        self.validationDiagnostics = validationDiagnostics
         self.message = message
     }
 }
@@ -282,6 +295,7 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case missingProjectRoot
     case incompleteSignoffLogPair
     case invalidComparisonLimits([String])
+    case missingTechnologyPackagePath
 
     public var errorDescription: String? {
         switch self {
@@ -295,6 +309,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
             return "Both DRC and LVS signoff log paths are required when importing signoff logs."
         case .invalidComparisonLimits(let diagnostics):
             return diagnostics.joined(separator: "; ")
+        case .missingTechnologyPackagePath:
+            return "Design flow command requires a technology package path."
         }
     }
 }
@@ -497,6 +513,10 @@ public struct DesignFlowService: Sendable {
         }
     }
 
+    public func loadTechnologyPackage(_ manifestURL: URL) throws -> TechnologyPackage {
+        try TechnologyPackageLoader().load(manifestURL: manifestURL)
+    }
+
     @MainActor
     public func execute(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
         switch command.kind {
@@ -507,55 +527,71 @@ public struct DesignFlowService: Sendable {
             )
         case .generateFixtureNetlist:
             let fixture = try fixture(for: command)
+            let package = try technologyPackage(for: command)
             let netlist = generateNetlist(DesignFlowNetlistRequest(
                 schematic: fixture.schematic,
                 title: fixture.title,
-                testbench: fixture.testbench
+                testbench: fixture.testbench,
+                processConfiguration: package?.processConfiguration
             ))
             return DesignFlowCommandResult(
                 kind: command.kind,
                 fixtureName: fixture.name,
-                netlist: netlist
+                netlist: netlist,
+                technologyPackageID: package?.manifest.packageID,
+                technologyPackagePath: package?.manifestURL.path(percentEncoded: false)
             )
         case .runFixtureSimulation:
             let fixture = try fixture(for: command)
+            let package = try technologyPackage(for: command)
             let result = try await runSchematicSimulation(DesignFlowSchematicSimulationRequest(
                 schematic: fixture.schematic,
                 title: fixture.title,
-                testbench: fixture.testbench
+                testbench: fixture.testbench,
+                processConfiguration: package?.processConfiguration
             ))
             return DesignFlowCommandResult(
                 kind: command.kind,
                 fixtureName: fixture.name,
                 netlist: result.netlist,
-                simulationStatus: result.simulationResult.status.rawValue
+                simulationStatus: result.simulationResult.status.rawValue,
+                technologyPackageID: package?.manifest.packageID,
+                technologyPackagePath: package?.manifestURL.path(percentEncoded: false)
             )
         case .runFixtureRoundTrip:
             return try await runFixtureRoundTrip(command)
         case .generateDesignNetlist:
             let design = try design(for: command)
+            let package = try technologyPackage(for: command)
             let netlist = generateNetlist(DesignFlowNetlistRequest(
                 schematic: design.schematic,
                 title: design.title,
-                testbench: design.testbench
+                testbench: design.testbench,
+                processConfiguration: package?.processConfiguration
             ))
             return DesignFlowCommandResult(
                 kind: command.kind,
                 designName: design.name,
-                netlist: netlist
+                netlist: netlist,
+                technologyPackageID: package?.manifest.packageID,
+                technologyPackagePath: package?.manifestURL.path(percentEncoded: false)
             )
         case .runDesignSimulation:
             let design = try design(for: command)
+            let package = try technologyPackage(for: command)
             let result = try await runSchematicSimulation(DesignFlowSchematicSimulationRequest(
                 schematic: design.schematic,
                 title: design.title,
-                testbench: design.testbench
+                testbench: design.testbench,
+                processConfiguration: package?.processConfiguration
             ))
             return DesignFlowCommandResult(
                 kind: command.kind,
                 designName: design.name,
                 netlist: result.netlist,
-                simulationStatus: result.simulationResult.status.rawValue
+                simulationStatus: result.simulationResult.status.rawValue,
+                technologyPackageID: package?.manifest.packageID,
+                technologyPackagePath: package?.manifestURL.path(percentEncoded: false)
             )
         case .runDesignRoundTrip:
             return try await runDesignRoundTrip(command)
@@ -570,6 +606,15 @@ public struct DesignFlowService: Sendable {
                 projectRootPath: projectRoot.path(percentEncoded: false),
                 bottleneckHistory: summary
             )
+        case .loadTechnologyPackage:
+            let package = try requiredTechnologyPackage(for: command)
+            return DesignFlowCommandResult(
+                kind: command.kind,
+                technologyPackageID: package.manifest.packageID,
+                technologyPackagePath: package.manifestURL.path(percentEncoded: false),
+                validationDiagnostics: package.validationReport.diagnostics,
+                message: package.manifest.name
+            )
         }
     }
 
@@ -583,6 +628,7 @@ public struct DesignFlowService: Sendable {
         try HeadlessRoundTripService.validateRunID(runID)
         try validateSignoffLogPair(in: command)
         let limits = try comparisonLimits(from: command)
+        let package = try technologyPackage(for: command)
 
         let pexInput: DesignFlowPEXInput
         if let pexManifestPath = command.pexManifestPath {
@@ -590,13 +636,18 @@ public struct DesignFlowService: Sendable {
                 manifestURL: URL(filePath: pexManifestPath),
                 cornerID: command.pexCornerID ?? "tt_25c_1v0"
             )
+        } else if let package, let packagePEXManifestPath = package.manifest.pex?.savedManifestPath {
+            pexInput = try loadPEXInput(
+                manifestURL: package.resolvedURL(for: packagePEXManifestPath),
+                cornerID: command.pexCornerID ?? package.manifest.pex?.defaultCornerID ?? "tt_25c_1v0"
+            )
         } else if let pexIR = design.pexIR {
             pexInput = DesignFlowPEXInput(ir: pexIR, artifactPaths: [])
         } else {
             throw DesignFlowDesignSpecError.missingPEXInput
         }
 
-        let externalSignoffReview = try loadExternalSignoffReview(from: command)
+        let externalSignoffReview = try loadExternalSignoffReview(from: command, package: package)
         let projectRoot = URL(filePath: command.projectRootPath ?? defaultCommandProjectRoot(fixtureName: design.name))
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
 
@@ -610,14 +661,16 @@ public struct DesignFlowService: Sendable {
             testbench: design.testbench,
             postLayoutCommand: design.postLayoutCommand,
             pexIR: pexInput.ir,
-            designArtifactPaths: [designSpecPath],
+            designArtifactPaths: designArtifactPaths(designSpecPath: designSpecPath, technologyPackage: package),
             pexArtifactPaths: pexInput.artifactPaths,
             postLayoutComparisonLimits: limits,
             externalSignoffCommands: signoffCommands,
             externalSignoffReview: externalSignoffReview,
             approvedBy: command.approveSignoff ? "design-flow-command" : nil,
             approvedAt: command.approveSignoff ? Date() : nil,
-            createdAt: Date()
+            createdAt: Date(),
+            processConfiguration: package?.processConfiguration,
+            layoutTech: try layoutTech(for: package)
         )
 
         let result = try await runRoundTrip(DesignFlowRoundTripRequest(
@@ -633,7 +686,9 @@ public struct DesignFlowService: Sendable {
             readyForPEX: result.manifest.isReadyForPEX,
             pexCornerID: pexInput.ir.cornerID,
             pexElementCount: pexInput.ir.elements.count,
-            bottleneckSummary: result.manifest.bottleneckSummary
+            bottleneckSummary: result.manifest.bottleneckSummary,
+            technologyPackageID: package?.manifest.packageID,
+            technologyPackagePath: package?.manifestURL.path(percentEncoded: false)
         )
     }
 
@@ -644,6 +699,7 @@ public struct DesignFlowService: Sendable {
         try HeadlessRoundTripService.validateRunID(runID)
         try validateSignoffLogPair(in: command)
         let limits = try comparisonLimits(from: command)
+        let package = try technologyPackage(for: command)
 
         let pexInput: DesignFlowPEXInput
         if let pexManifestPath = command.pexManifestPath {
@@ -651,11 +707,16 @@ public struct DesignFlowService: Sendable {
                 manifestURL: URL(filePath: pexManifestPath),
                 cornerID: command.pexCornerID ?? "tt_25c_1v0"
             )
+        } else if let package, let packagePEXManifestPath = package.manifest.pex?.savedManifestPath {
+            pexInput = try loadPEXInput(
+                manifestURL: package.resolvedURL(for: packagePEXManifestPath),
+                cornerID: command.pexCornerID ?? package.manifest.pex?.defaultCornerID ?? "tt_25c_1v0"
+            )
         } else {
             pexInput = DesignFlowPEXInput(ir: fixture.pexIR, artifactPaths: [])
         }
 
-        let externalSignoffReview = try loadExternalSignoffReview(from: command)
+        let externalSignoffReview = try loadExternalSignoffReview(from: command, package: package)
         let projectRoot = URL(filePath: command.projectRootPath ?? defaultCommandProjectRoot(fixtureName: fixture.name))
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
 
@@ -669,13 +730,16 @@ public struct DesignFlowService: Sendable {
             testbench: fixture.testbench,
             postLayoutCommand: fixture.postLayoutCommand,
             pexIR: pexInput.ir,
+            designArtifactPaths: designArtifactPaths(designSpecPath: nil, technologyPackage: package),
             pexArtifactPaths: pexInput.artifactPaths,
             postLayoutComparisonLimits: limits,
             externalSignoffCommands: signoffCommands,
             externalSignoffReview: externalSignoffReview,
             approvedBy: command.approveSignoff ? "design-flow-command" : nil,
             approvedAt: command.approveSignoff ? Date() : nil,
-            createdAt: Date()
+            createdAt: Date(),
+            processConfiguration: package?.processConfiguration,
+            layoutTech: try layoutTech(for: package)
         )
 
         let result = try await runRoundTrip(DesignFlowRoundTripRequest(
@@ -691,7 +755,9 @@ public struct DesignFlowService: Sendable {
             readyForPEX: result.manifest.isReadyForPEX,
             pexCornerID: pexInput.ir.cornerID,
             pexElementCount: pexInput.ir.elements.count,
-            bottleneckSummary: result.manifest.bottleneckSummary
+            bottleneckSummary: result.manifest.bottleneckSummary,
+            technologyPackageID: package?.manifest.packageID,
+            technologyPackagePath: package?.manifestURL.path(percentEncoded: false)
         )
     }
 
@@ -712,6 +778,47 @@ public struct DesignFlowService: Sendable {
         }
     }
 
+    private func technologyPackage(for command: DesignFlowCommand) throws -> TechnologyPackage? {
+        guard let path = command.technologyPackagePath else {
+            return nil
+        }
+        return try loadTechnologyPackage(URL(filePath: path))
+    }
+
+    private func requiredTechnologyPackage(for command: DesignFlowCommand) throws -> TechnologyPackage {
+        guard let package = try technologyPackage(for: command) else {
+            throw DesignFlowCommandError.missingTechnologyPackagePath
+        }
+        return package
+    }
+
+    private func layoutTech(for package: TechnologyPackage?) throws -> LayoutTechDatabase? {
+        guard let package else {
+            return nil
+        }
+        return try TechnologyPackageLayoutTechResolver().resolve(package: package)
+    }
+
+    private func designArtifactPaths(
+        designSpecPath: String?,
+        technologyPackage: TechnologyPackage?
+    ) -> [String] {
+        var paths: [String] = []
+        if let designSpecPath {
+            paths.append(designSpecPath)
+        }
+        if let technologyPackage {
+            paths.append(technologyPackage.manifestURL.path(percentEncoded: false))
+            if let processTechnologyPath = technologyPackage.manifest.processTechnologyPath {
+                paths.append(technologyPackage.resolvedURL(for: processTechnologyPath).path(percentEncoded: false))
+            }
+            if let goldenLayoutManifestPath = technologyPackage.manifest.corpus?.goldenLayoutManifestPath {
+                paths.append(technologyPackage.resolvedURL(for: goldenLayoutManifestPath).path(percentEncoded: false))
+            }
+        }
+        return paths
+    }
+
     private func comparisonLimits(from command: DesignFlowCommand) throws -> PostLayoutComparisonLimits? {
         guard command.maxAbsoluteDelta != nil || command.maxRelativeDelta != nil else {
             return nil
@@ -727,10 +834,34 @@ public struct DesignFlowService: Sendable {
         return limits
     }
 
-    private func loadExternalSignoffReview(from command: DesignFlowCommand) throws -> ExternalSignoffReview? {
+    private func loadExternalSignoffReview(
+        from command: DesignFlowCommand,
+        package: TechnologyPackage? = nil
+    ) throws -> ExternalSignoffReview? {
         switch (command.signoffDRCLogPath, command.signoffLVSLogPath) {
         case (nil, nil):
-            return nil
+            guard let package, let signoff = package.manifest.signoff else {
+                return nil
+            }
+            guard let drc = signoff.drc, let lvs = signoff.lvs,
+                  let drcLogPath = drc.replayLogPath,
+                  let lvsLogPath = lvs.replayLogPath else {
+                return nil
+            }
+            return try loadExternalSignoffReview(logs: [
+                ExternalSignoffLogArtifact(
+                    kind: .drc,
+                    toolName: drc.toolName,
+                    logURL: package.resolvedURL(for: drcLogPath),
+                    success: drc.expectedSuccess
+                ),
+                ExternalSignoffLogArtifact(
+                    kind: .lvs,
+                    toolName: lvs.toolName,
+                    logURL: package.resolvedURL(for: lvsLogPath),
+                    success: lvs.expectedSuccess
+                ),
+            ])
         case (.some(let drcPath), .some(let lvsPath)):
             return try loadExternalSignoffReview(logs: [
                 ExternalSignoffLogArtifact(

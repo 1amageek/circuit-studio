@@ -35,13 +35,14 @@ struct CircuitStudioFlowRunner {
             signoffDRCLogPath: options.signoffDRCLogURL?.path(percentEncoded: false),
             signoffLVSLogPath: options.signoffLVSLogURL?.path(percentEncoded: false),
             maxAbsoluteDelta: options.maxAbsoluteDelta,
-            maxRelativeDelta: options.maxRelativeDelta
+            maxRelativeDelta: options.maxRelativeDelta,
+            technologyPackagePath: options.technologyPackageURL?.path(percentEncoded: false)
         )
     }
 
     private static func projectRootPath(from options: RunnerOptions) -> String? {
         switch options.mode {
-        case .listFixtures, .generateNetlist, .simulate:
+        case .listFixtures, .generateNetlist, .simulate, .loadTechnologyPackage:
             return nil
         case .runRoundTrip:
             return (options.outputURL ?? defaultOutputURL(from: options))
@@ -100,7 +101,7 @@ struct CircuitStudioFlowRunner {
             Swift.print("ready_for_pex=\(result.readyForPEX ?? false)")
             Swift.print("pex_corner=\(result.pexCornerID ?? "")")
             Swift.print("pex_elements=\(result.pexElementCount ?? 0)")
-            Swift.print("external_signoff=\(options.usesImportedSignoff ? "imported-logs" : "mock-command")")
+            Swift.print("external_signoff=\(signoffSource(result: result, options: options))")
             Swift.print("signoff_approved=\(options.approveSignoff)")
             Swift.print("comparison_limits=\(options.usesComparisonLimits ? "configured" : "none")")
         case .runDesignRoundTrip:
@@ -112,7 +113,7 @@ struct CircuitStudioFlowRunner {
             Swift.print("ready_for_pex=\(result.readyForPEX ?? false)")
             Swift.print("pex_corner=\(result.pexCornerID ?? "")")
             Swift.print("pex_elements=\(result.pexElementCount ?? 0)")
-            Swift.print("external_signoff=\(options.usesImportedSignoff ? "imported-logs" : "mock-command")")
+            Swift.print("external_signoff=\(signoffSource(result: result, options: options))")
             Swift.print("signoff_approved=\(options.approveSignoff)")
             Swift.print("comparison_limits=\(options.usesComparisonLimits ? "configured" : "none")")
         case .summarizeBottlenecks:
@@ -131,6 +132,11 @@ struct CircuitStudioFlowRunner {
             for recommendation in summary?.recommendations ?? [] {
                 Swift.print("recommendation=\(recommendation)")
             }
+        case .loadTechnologyPackage:
+            Swift.print("technology_package=loaded")
+            Swift.print("technology_package_id=\(result.technologyPackageID ?? "")")
+            Swift.print("technology_package_path=\(result.technologyPackagePath ?? "")")
+            Swift.print("diagnostic_count=\(result.validationDiagnostics?.count ?? 0)")
         }
     }
 
@@ -140,12 +146,25 @@ struct CircuitStudioFlowRunner {
         } else {
             Swift.print("fixture=\(result.fixtureName ?? options.fixtureName)")
         }
+        if let technologyPackageID = result.technologyPackageID {
+            Swift.print("technology_package_id=\(technologyPackageID)")
+        }
+    }
+
+    private static func signoffSource(result: DesignFlowCommandResult, options: RunnerOptions) -> String {
+        if options.usesImportedSignoff {
+            return "imported-logs"
+        }
+        if result.technologyPackageID != nil {
+            return "technology-package"
+        }
+        return "mock-command"
     }
 
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
@@ -155,12 +174,15 @@ struct CircuitStudioFlowRunner {
           --generate-netlist        Generate a fixture netlist through DesignFlowCommand
           --simulate                Run fixture schematic simulation through DesignFlowCommand
           --summarize-bottlenecks   Summarize existing flow manifests under --output through DesignFlowCommand
+          --load-technology-package Load and validate a technology package manifest through DesignFlowCommand
           default                   Run the full fixture round trip through DesignFlowCommand
 
         Options:
           --fixture NAME   Fixture to run. Default: voltage-divider
           --design-spec PATH
                            Load a structured design spec JSON instead of a built-in fixture
+          --technology-package PATH
+                           Inject one technology package manifest into netlist, simulation, layout, signoff, and PEX inputs when supported
           --output PATH    Project/output directory. Default: ./round-trip-runs/<fixture-or-design-spec-name>
           --run-id ID      Flow run identifier. Default: fixture name plus timestamp
           --pex-manifest PATH
@@ -188,6 +210,7 @@ private enum RunnerMode: Equatable {
     case simulate
     case runRoundTrip
     case summarizeBottlenecks
+    case loadTechnologyPackage
 
     func commandKind(usesDesignSpec: Bool) -> DesignFlowCommand.Kind {
         switch self {
@@ -201,6 +224,8 @@ private enum RunnerMode: Equatable {
             return usesDesignSpec ? .runDesignRoundTrip : .runFixtureRoundTrip
         case .summarizeBottlenecks:
             return .summarizeBottlenecks
+        case .loadTechnologyPackage:
+            return .loadTechnologyPackage
         }
     }
 }
@@ -218,6 +243,7 @@ private struct RunnerOptions {
     var signoffLVSLogURL: URL?
     var maxAbsoluteDelta: Double?
     var maxRelativeDelta: Double?
+    var technologyPackageURL: URL?
     var approveSignoff = false
     var showHelp = false
 
@@ -234,10 +260,14 @@ private struct RunnerOptions {
                 try selectMode(.simulate)
             case "--summarize-bottlenecks":
                 try selectMode(.summarizeBottlenecks)
+            case "--load-technology-package":
+                try selectMode(.loadTechnologyPackage)
             case "--fixture":
                 fixtureName = try Self.value(after: argument, in: arguments, index: &index)
             case "--design-spec":
                 designSpecURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--technology-package":
+                technologyPackageURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--output":
                 outputURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--run-id":

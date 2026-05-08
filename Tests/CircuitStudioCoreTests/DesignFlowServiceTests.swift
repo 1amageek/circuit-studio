@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import LayoutCore
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 @testable import SchematicEditor
@@ -46,6 +47,62 @@ struct DesignFlowServiceTests {
         ))
         #expect(simulation.simulationStatus == "completed")
         #expect(simulation.netlist?.contains(".op") == true)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func technologyPackageLoadsAndInjectsProcessConfig() async throws {
+        let packageURL = try rootFixtureURL("technology-package", extension: "json")
+        let service = DesignFlowService()
+
+        let packageResult = try await service.execute(DesignFlowCommand(
+            kind: .loadTechnologyPackage,
+            technologyPackagePath: packageURL.path(percentEncoded: false)
+        ))
+        #expect(packageResult.technologyPackageID == "virtual45-golden-flow")
+        #expect(packageResult.validationDiagnostics?.isEmpty == true)
+
+        let package = try service.loadTechnologyPackage(packageURL)
+        #expect(package.processConfiguration?.effectiveParameters()["vdd"] == 1.0)
+        #expect(package.processConfiguration?.resolveIncludes == true)
+        let tech = try TechnologyPackageLayoutTechResolver().resolve(package: package)
+        #expect(tech.layerDefinition(for: .init(name: "ACTIVE", purpose: "drawing")) != nil)
+
+        let netlist = try await service.execute(DesignFlowCommand(
+            kind: .generateFixtureNetlist,
+            fixtureName: "voltage-divider",
+            technologyPackagePath: packageURL.path(percentEncoded: false)
+        ))
+        #expect(netlist.technologyPackageID == "virtual45-golden-flow")
+        #expect(netlist.netlist?.contains(".lib \"models/core.lib\" tt") == true)
+        #expect(netlist.netlist?.contains(".include \"models/passives.inc\"") == true)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIRunsFixtureRoundTripWithTechnologyPackage() async throws {
+        let packageURL = try rootFixtureURL("technology-package", extension: "json")
+        let root = try makeTemporaryRoot("technology-package-round-trip")
+        defer { removeTemporaryRoot(root) }
+
+        let roundTrip = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .runFixtureRoundTrip,
+            fixtureName: "voltage-divider",
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "technology-package-voltage-divider",
+            approveSignoff: true,
+            maxAbsoluteDelta: 1.0e-3,
+            maxRelativeDelta: 2.0,
+            technologyPackagePath: packageURL.path(percentEncoded: false)
+        ))
+
+        #expect(roundTrip.readyForPEX == true)
+        #expect(roundTrip.technologyPackageID == "virtual45-golden-flow")
+        #expect(roundTrip.pexCornerID == "tt_25c_1v0")
+        let manifest = try #require(roundTrip.manifestPath).loadManifest()
+        #expect(manifest.artifacts.contains { $0.kind == "design-spec" && $0.path.hasSuffix("technology-package.json") })
+        #expect(manifest.artifacts.contains { $0.kind == "external-signoff-log" })
+        #expect(manifest.artifacts.contains { $0.kind == "pex-artifact" })
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -779,6 +836,13 @@ struct DesignFlowServiceTests {
             subdirectory: subdirectory
         ) else {
             throw StudioError.projectLoadFailed("Missing fixture: Fixtures/\(subdirectory)/\(name).\(ext)")
+        }
+        return url
+    }
+
+    private func rootFixtureURL(_ name: String, extension ext: String) throws -> URL {
+        guard let url = Bundle.module.url(forResource: name, withExtension: ext) else {
+            throw StudioError.projectLoadFailed("Missing fixture: Fixtures/\(name).\(ext)")
         }
         return url
     }

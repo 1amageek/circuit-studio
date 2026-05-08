@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "packageID": "virtual45-golden-flow",
+  "name": "Virtual45 Golden Flow",
+  "processTechnologyPath": "virtual_pdk.json",
+  "spiceModelSearchPaths": [
+    "pdk",
+    "pdk/models"
+  ],
+  "layoutTechnology": {
+    "kind": "builtin",
+    "id": "sampleProcess"
+  },
+  "signoff": {
+    "adapterID": "golden-log-replay",
+    "drc": {
+      "toolName": "golden-calibre",
+      "arguments": [],
+      "replayLogPath": "signoff/golden-calibre-drc-clean.log",
+      "expectedSuccess": true
+    },
+    "lvs": {
+      "toolName": "golden-calibre",
+      "arguments": [],
+      "replayLogPath": "signoff/golden-calibre-lvs-clean.log",
+      "expectedSuccess": true
+    }
+  },
+  "pex": {
+    "backendID": "golden-fixture",
+    "savedManifestPath": "pex/golden-voltage-divider/manifest.json",
+    "defaultCornerID": "tt_25c_1v0"
+  },
+  "corpus": {
+    "goldenLayoutManifestPath": "layout/golden-corpus/manifest.json"
+  },
+  "corners": [
+    {
+      "id": "tt",
+      "processCornerID": "dfb9ae1f-6f04-4bda-8d58-3398e58f6f6a",
+      "pexCornerID": "tt_25c_1v0"
+    },
+    {
+      "id": "ss",
+      "processCornerID": "36cd0e3e-2d58-4fb2-9a9c-0d5d5f3b58b8",
+      "pexCornerID": "ss_125c_0v9"
+    }
+  ]
+}

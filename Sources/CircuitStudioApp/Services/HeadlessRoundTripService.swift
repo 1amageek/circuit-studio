@@ -1,6 +1,7 @@
 import Foundation
 import CircuitStudioCore
 import LayoutCore
+import LayoutTech
 
 @MainActor
 public final class HeadlessRoundTripService {
@@ -33,6 +34,8 @@ public final class HeadlessRoundTripService {
         public let waiverIDs: [String]
         public let createdAt: Date
         public let catalog: DeviceCatalog
+        public let processConfiguration: ProcessConfiguration?
+        public let layoutTech: LayoutTechDatabase?
         public let continueAfterFailedPrePEXGate: Bool
 
         public init(
@@ -52,6 +55,8 @@ public final class HeadlessRoundTripService {
             waiverIDs: [String] = [],
             createdAt: Date = Date(),
             catalog: DeviceCatalog = .standard(),
+            processConfiguration: ProcessConfiguration? = nil,
+            layoutTech: LayoutTechDatabase? = nil,
             continueAfterFailedPrePEXGate: Bool = false
         ) {
             self.projectRoot = projectRoot
@@ -70,6 +75,8 @@ public final class HeadlessRoundTripService {
             self.waiverIDs = waiverIDs
             self.createdAt = createdAt
             self.catalog = catalog
+            self.processConfiguration = processConfiguration
+            self.layoutTech = layoutTech
             self.continueAfterFailedPrePEXGate = continueAfterFailedPrePEXGate
         }
     }
@@ -250,7 +257,8 @@ public final class HeadlessRoundTripService {
         let baseNetlist = NetlistGenerator().generate(
             from: schematic,
             title: configuration.title,
-            testbench: configuration.testbench
+            testbench: configuration.testbench,
+            processConfiguration: configuration.processConfiguration
         )
         let preLayoutNetlistURL = runDirectory.appending(path: "pre-layout.cir")
         try write(baseNetlist, to: preLayoutNetlistURL)
@@ -266,7 +274,8 @@ public final class HeadlessRoundTripService {
         do {
             preLayoutResult = try await SimulationService().runSPICE(
                 source: baseNetlist,
-                fileName: "\(configuration.runID)-pre.cir"
+                fileName: "\(configuration.runID)-pre.cir",
+                processConfiguration: configuration.processConfiguration
             )
         } catch {
             stages.append(Stage(
@@ -304,7 +313,8 @@ public final class HeadlessRoundTripService {
         do {
             layoutOutput = try AutoLayoutService().generate(
                 from: schematic,
-                catalog: configuration.catalog
+                catalog: configuration.catalog,
+                tech: configuration.layoutTech
             )
         } catch {
             stages.append(Stage(
@@ -479,7 +489,8 @@ public final class HeadlessRoundTripService {
             postLayoutResult = try await postLayoutService.runPostLayoutAnalysis(
                 baseNetlist: baseNetlist,
                 parasitics: configuration.pexIR,
-                command: configuration.postLayoutCommand
+                command: configuration.postLayoutCommand,
+                processConfiguration: configuration.processConfiguration
             )
         } catch {
             stages.append(Stage(
