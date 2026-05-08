@@ -177,6 +177,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case runDesignRoundTrip
         case summarizeBottlenecks
         case loadTechnologyPackage
+        case runPEXExtraction
     }
 
     public let kind: Kind
@@ -192,6 +193,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
     public let technologyPackagePath: String?
+    public let pexConfigPath: String?
+    public let pexExecutablePath: String?
 
     public init(
         kind: Kind,
@@ -206,7 +209,9 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         signoffLVSLogPath: String? = nil,
         maxAbsoluteDelta: Double? = nil,
         maxRelativeDelta: Double? = nil,
-        technologyPackagePath: String? = nil
+        technologyPackagePath: String? = nil,
+        pexConfigPath: String? = nil,
+        pexExecutablePath: String? = nil
     ) {
         self.kind = kind
         self.fixtureName = fixtureName
@@ -221,6 +226,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
         self.technologyPackagePath = technologyPackagePath
+        self.pexConfigPath = pexConfigPath
+        self.pexExecutablePath = pexExecutablePath
     }
 
     public static func listFixtures() -> DesignFlowCommand {
@@ -241,6 +248,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let readyForPEX: Bool?
     public let pexCornerID: String?
     public let pexElementCount: Int?
+    public let pexManifestPath: String?
     public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
     public let bottleneckHistory: RoundTripBottleneckHistoryService.Summary?
     public let technologyPackageID: String?
@@ -261,6 +269,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         readyForPEX: Bool? = nil,
         pexCornerID: String? = nil,
         pexElementCount: Int? = nil,
+        pexManifestPath: String? = nil,
         bottleneckSummary: HeadlessRoundTripService.BottleneckSummary? = nil,
         bottleneckHistory: RoundTripBottleneckHistoryService.Summary? = nil,
         technologyPackageID: String? = nil,
@@ -280,6 +289,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.readyForPEX = readyForPEX
         self.pexCornerID = pexCornerID
         self.pexElementCount = pexElementCount
+        self.pexManifestPath = pexManifestPath
         self.bottleneckSummary = bottleneckSummary
         self.bottleneckHistory = bottleneckHistory
         self.technologyPackageID = technologyPackageID
@@ -296,6 +306,7 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case incompleteSignoffLogPair
     case invalidComparisonLimits([String])
     case missingTechnologyPackagePath
+    case missingPEXConfigPath
 
     public var errorDescription: String? {
         switch self {
@@ -311,6 +322,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
             return diagnostics.joined(separator: "; ")
         case .missingTechnologyPackagePath:
             return "Design flow command requires a technology package path."
+        case .missingPEXConfigPath:
+            return "Design flow command requires a PEX config path."
         }
     }
 }
@@ -615,7 +628,28 @@ public struct DesignFlowService: Sendable {
                 validationDiagnostics: package.validationReport.diagnostics,
                 message: package.manifest.name
             )
+        case .runPEXExtraction:
+            return try runPEXExtraction(command)
         }
+    }
+
+    private func runPEXExtraction(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+        guard let pexConfigPath = command.pexConfigPath else {
+            throw DesignFlowCommandError.missingPEXConfigPath
+        }
+        let adapter = PEXEngineCommandBackendAdapter(executablePath: command.pexExecutablePath)
+        let result = try adapter.extract(request: PEXBackendExtractionRequest(
+            configURL: URL(filePath: pexConfigPath),
+            cornerID: command.pexCornerID ?? "tt_25c_1v0",
+            executablePath: command.pexExecutablePath
+        ))
+        return DesignFlowCommandResult(
+            kind: command.kind,
+            pexCornerID: result.ir.cornerID,
+            pexElementCount: result.ir.elements.count,
+            pexManifestPath: result.artifacts.manifestURL.path(percentEncoded: false),
+            message: result.artifacts.backendID
+        )
     }
 
     @MainActor

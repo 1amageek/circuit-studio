@@ -36,13 +36,15 @@ struct CircuitStudioFlowRunner {
             signoffLVSLogPath: options.signoffLVSLogURL?.path(percentEncoded: false),
             maxAbsoluteDelta: options.maxAbsoluteDelta,
             maxRelativeDelta: options.maxRelativeDelta,
-            technologyPackagePath: options.technologyPackageURL?.path(percentEncoded: false)
+            technologyPackagePath: options.technologyPackageURL?.path(percentEncoded: false),
+            pexConfigPath: options.pexConfigURL?.path(percentEncoded: false),
+            pexExecutablePath: options.pexExecutableURL?.path(percentEncoded: false)
         )
     }
 
     private static func projectRootPath(from options: RunnerOptions) -> String? {
         switch options.mode {
-        case .listFixtures, .generateNetlist, .simulate, .loadTechnologyPackage:
+        case .listFixtures, .generateNetlist, .simulate, .loadTechnologyPackage, .runPEXExtraction:
             return nil
         case .runRoundTrip:
             return (options.outputURL ?? defaultOutputURL(from: options))
@@ -137,6 +139,11 @@ struct CircuitStudioFlowRunner {
             Swift.print("technology_package_id=\(result.technologyPackageID ?? "")")
             Swift.print("technology_package_path=\(result.technologyPackagePath ?? "")")
             Swift.print("diagnostic_count=\(result.validationDiagnostics?.count ?? 0)")
+        case .runPEXExtraction:
+            Swift.print("pex_extraction=passed")
+            Swift.print("pex_manifest=\(result.pexManifestPath ?? "")")
+            Swift.print("pex_corner=\(result.pexCornerID ?? "")")
+            Swift.print("pex_elements=\(result.pexElementCount ?? 0)")
         }
     }
 
@@ -164,7 +171,7 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
@@ -175,6 +182,7 @@ struct CircuitStudioFlowRunner {
           --simulate                Run fixture schematic simulation through DesignFlowCommand
           --summarize-bottlenecks   Summarize existing flow manifests under --output through DesignFlowCommand
           --load-technology-package Load and validate a technology package manifest through DesignFlowCommand
+          --run-pex-extraction     Run pexengine extract through DesignFlowCommand
           default                   Run the full fixture round trip through DesignFlowCommand
 
         Options:
@@ -187,6 +195,10 @@ struct CircuitStudioFlowRunner {
           --run-id ID      Flow run identifier. Default: fixture name plus timestamp
           --pex-manifest PATH
                            Load PEX IR through a saved PEXEngine manifest instead of using the built-in synthetic IR
+          --pex-config PATH
+                           PEX project config for --run-pex-extraction
+          --pex-executable PATH
+                           Explicit pexengine executable path for --run-pex-extraction
           --pex-corner ID  PEX corner to load from --pex-manifest. Default: tt_25c_1v0
           --signoff-drc-log PATH
                            Load an existing clean DRC log instead of running the mock DRC command
@@ -211,6 +223,7 @@ private enum RunnerMode: Equatable {
     case runRoundTrip
     case summarizeBottlenecks
     case loadTechnologyPackage
+    case runPEXExtraction
 
     func commandKind(usesDesignSpec: Bool) -> DesignFlowCommand.Kind {
         switch self {
@@ -226,6 +239,8 @@ private enum RunnerMode: Equatable {
             return .summarizeBottlenecks
         case .loadTechnologyPackage:
             return .loadTechnologyPackage
+        case .runPEXExtraction:
+            return .runPEXExtraction
         }
     }
 }
@@ -238,6 +253,8 @@ private struct RunnerOptions {
     var outputURL: URL?
     var runID: String?
     var pexManifestURL: URL?
+    var pexConfigURL: URL?
+    var pexExecutableURL: URL?
     var pexCornerID = "tt_25c_1v0"
     var signoffDRCLogURL: URL?
     var signoffLVSLogURL: URL?
@@ -262,6 +279,8 @@ private struct RunnerOptions {
                 try selectMode(.summarizeBottlenecks)
             case "--load-technology-package":
                 try selectMode(.loadTechnologyPackage)
+            case "--run-pex-extraction":
+                try selectMode(.runPEXExtraction)
             case "--fixture":
                 fixtureName = try Self.value(after: argument, in: arguments, index: &index)
             case "--design-spec":
@@ -274,6 +293,10 @@ private struct RunnerOptions {
                 runID = try Self.value(after: argument, in: arguments, index: &index)
             case "--pex-manifest":
                 pexManifestURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--pex-config":
+                pexConfigURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--pex-executable":
+                pexExecutableURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--pex-corner":
                 pexCornerID = try Self.value(after: argument, in: arguments, index: &index)
             case "--signoff-drc-log":

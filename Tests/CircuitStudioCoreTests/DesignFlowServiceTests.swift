@@ -785,6 +785,39 @@ struct DesignFlowServiceTests {
         #expect(input.artifactPaths.contains { $0.hasSuffix("extraction.log") })
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIRunsPEXExtractionThroughBackendAdapter() async throws {
+        let root = try makeTemporaryRoot("pex-extraction-command")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root.appending(path: "pex-runs").appending(path: "mock-run")
+        try writePEXArtifacts(runDirectory: runDirectory)
+        let configURL = root.appending(path: "pex-config.json")
+        try "{}".write(to: configURL, atomically: true, encoding: .utf8)
+        let executable = try writeExecutable(
+            named: "mock-pexengine",
+            in: root,
+            contents: """
+            #!/bin/sh
+            printf '{"artifacts":{"manifestURL":"%s"}}\\n' "\(runDirectory.appending(path: "manifest.json").path(percentEncoded: false))"
+            exit 0
+            """
+        )
+
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .runPEXExtraction,
+            pexCornerID: "tt_25c_1v0",
+            pexConfigPath: configURL.path(percentEncoded: false),
+            pexExecutablePath: executable.path(percentEncoded: false)
+        ))
+
+        #expect(result.kind == .runPEXExtraction)
+        #expect(result.pexManifestPath == runDirectory.appending(path: "manifest.json").path(percentEncoded: false))
+        #expect(result.pexCornerID == "tt_25c_1v0")
+        #expect(result.pexElementCount == 1)
+        #expect(result.message == "mock-pexengine")
+    }
+
     private func makeSignoffCommands(in root: URL) throws -> [ExternalSignoffCommand] {
         let drc = try writeExecutable(
             named: "mock-drc",
@@ -817,6 +850,50 @@ struct DesignFlowServiceTests {
                 executablePath: lvs.path(percentEncoded: false)
             ),
         ]
+    }
+
+    private func writePEXArtifacts(runDirectory: URL) throws {
+        let rawDirectory = runDirectory.appending(path: "raw").appending(path: "tt_25c_1v0")
+        let irDirectory = runDirectory.appending(path: "ir")
+        try FileManager.default.createDirectory(at: rawDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: irDirectory, withIntermediateDirectories: true)
+        try "mock spef".write(to: rawDirectory.appending(path: "top.spef"), atomically: true, encoding: .utf8)
+        try "mock log".write(to: rawDirectory.appending(path: "extraction.log"), atomically: true, encoding: .utf8)
+        try """
+        {
+          "version": "1.0",
+          "cornerID": "tt_25c_1v0",
+          "units": { "resistance": "ohm", "capacitance": "F", "coordinate": "um" },
+          "elements": [
+            {
+              "id": "r_out",
+              "kind": "resistor",
+              "nodeA": { "netName": "out", "nodeName": "out" },
+              "nodeB": { "netName": "0", "nodeName": "0" },
+              "value": 12.0
+            }
+          ]
+        }
+        """.write(to: irDirectory.appending(path: "tt_25c_1v0.json"), atomically: true, encoding: .utf8)
+        try """
+        {
+          "version": 1,
+          "runID": { "value": "mock-run" },
+          "requestHash": { "value": "fixture" },
+          "backendID": "mock-pexengine",
+          "status": "success",
+          "corners": [
+            {
+              "cornerID": { "value": "tt_25c_1v0" },
+              "status": "success",
+              "rawFiles": ["top.spef"],
+              "irFile": "tt_25c_1v0.json",
+              "logFile": "extraction.log"
+            }
+          ],
+          "warnings": []
+        }
+        """.write(to: runDirectory.appending(path: "manifest.json"), atomically: true, encoding: .utf8)
     }
 
     private func writeExecutable(named name: String, in root: URL, contents: String) throws -> URL {
