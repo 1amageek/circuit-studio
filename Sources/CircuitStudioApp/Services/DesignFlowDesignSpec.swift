@@ -503,18 +503,15 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
 
         for (index, component) in components.enumerated() {
             try validateName(component.name, kind: .component)
-            for (parameterName, parameterValue) in component.parameters {
-                try validateSPICEToken(parameterName, error: .invalidParameterName(component: component.name, parameter: parameterName))
-                guard parameterValue.isFinite else {
-                    throw DesignFlowDesignSpecError.invalidParameterValue(component: component.name, parameter: parameterName)
-                }
-            }
             guard componentIDs[component.name] == nil else {
                 throw DesignFlowDesignSpecError.duplicateComponent(component.name)
             }
             guard let kind = catalog.device(for: component.deviceKindID) else {
                 throw DesignFlowDesignSpecError.unknownDeviceKind(component.deviceKindID)
             }
+            try validateComponentNamePrefix(component.name, kind: kind)
+            try validateComponentParameters(component, kind: kind)
+            try validateComponentModel(component, kind: kind, catalog: catalog)
             let id = UUID()
             componentIDs[component.name] = id
             componentKinds[component.name] = kind
@@ -644,6 +641,73 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         }
     }
 
+    private func validateComponentNamePrefix(_ name: String, kind: DeviceKind) throws {
+        guard kind.category != .special else {
+            return
+        }
+        let expectedPrefix = kind.spicePrefix.uppercased()
+        guard name.uppercased().hasPrefix(expectedPrefix) else {
+            throw DesignFlowDesignSpecError.invalidComponentPrefix(
+                component: name,
+                deviceKindID: kind.id,
+                expectedPrefix: expectedPrefix
+            )
+        }
+    }
+
+    private func validateComponentParameters(_ component: Component, kind: DeviceKind) throws {
+        let knownParameters = Set(kind.parameterSchema.map(\.id))
+        for (parameterName, parameterValue) in component.parameters {
+            try validateSPICEToken(parameterName, error: .invalidParameterName(component: component.name, parameter: parameterName))
+            guard parameterValue.isFinite else {
+                throw DesignFlowDesignSpecError.invalidParameterValue(component: component.name, parameter: parameterName)
+            }
+            guard knownParameters.contains(parameterName) else {
+                throw DesignFlowDesignSpecError.unknownParameter(component: component.name, parameter: parameterName)
+            }
+            if let range = kind.parameterSchema.first(where: { $0.id == parameterName })?.range,
+               !range.contains(parameterValue) {
+                throw DesignFlowDesignSpecError.parameterOutOfRange(component: component.name, parameter: parameterName)
+            }
+        }
+        for schema in kind.parameterSchema where schema.isRequired {
+            guard component.parameters[schema.id] != nil else {
+                throw DesignFlowDesignSpecError.missingRequiredParameter(component: component.name, parameter: schema.id)
+            }
+        }
+    }
+
+    private func validateComponentModel(_ component: Component, kind: DeviceKind, catalog: DeviceCatalog) throws {
+        let hasModelPreset = component.modelPresetID != nil
+        let hasModelName = component.modelName != nil
+        guard hasModelPreset || hasModelName else {
+            return
+        }
+        guard !(hasModelPreset && hasModelName) else {
+            throw DesignFlowDesignSpecError.ambiguousComponentModel(component: component.name)
+        }
+        guard let modelType = kind.modelType else {
+            throw DesignFlowDesignSpecError.unsupportedComponentModel(component: component.name, deviceKindID: kind.id)
+        }
+        if let modelPresetID = component.modelPresetID {
+            try validateSPICEToken(modelPresetID, error: .invalidModelPresetID(modelPresetID))
+            guard let preset = catalog.preset(for: modelPresetID) else {
+                throw DesignFlowDesignSpecError.unknownModelPresetID(modelPresetID)
+            }
+            guard preset.modelType == modelType else {
+                throw DesignFlowDesignSpecError.incompatibleModelPresetID(
+                    component: component.name,
+                    modelPresetID: modelPresetID,
+                    expectedModelType: modelType,
+                    actualModelType: preset.modelType
+                )
+            }
+        }
+        if let modelName = component.modelName {
+            try validateSPICEToken(modelName, error: .invalidModelName(modelName))
+        }
+    }
+
     private func validateAnalysis(_ analysis: Analysis) throws {
         switch analysis.kind {
         case .op:
@@ -715,8 +779,18 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
     case invalidDesignName(String)
     case invalidComponentName(String)
     case invalidNetName(String)
+    case invalidComponentPrefix(component: String, deviceKindID: String, expectedPrefix: String)
     case invalidParameterName(component: String, parameter: String)
     case invalidParameterValue(component: String, parameter: String)
+    case unknownParameter(component: String, parameter: String)
+    case missingRequiredParameter(component: String, parameter: String)
+    case parameterOutOfRange(component: String, parameter: String)
+    case unsupportedComponentModel(component: String, deviceKindID: String)
+    case ambiguousComponentModel(component: String)
+    case invalidModelPresetID(String)
+    case unknownModelPresetID(String)
+    case incompatibleModelPresetID(component: String, modelPresetID: String, expectedModelType: String, actualModelType: String)
+    case invalidModelName(String)
     case duplicateComponent(String)
     case duplicateNet(String)
     case duplicateTerminal(component: String, port: String, firstNet: String, secondNet: String)
@@ -752,10 +826,30 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
             return "Design spec contains an invalid component name: \(name)."
         case .invalidNetName(let name):
             return "Design spec contains an invalid net name: \(name)."
+        case .invalidComponentPrefix(let component, let deviceKindID, let expectedPrefix):
+            return "Design spec component \(component) for \(deviceKindID) must start with SPICE prefix \(expectedPrefix)."
         case .invalidParameterName(let component, let parameter):
             return "Design spec contains an invalid parameter name \(parameter) on component \(component)."
         case .invalidParameterValue(let component, let parameter):
             return "Design spec contains a non-finite parameter value \(parameter) on component \(component)."
+        case .unknownParameter(let component, let parameter):
+            return "Design spec contains an unknown parameter \(parameter) on component \(component)."
+        case .missingRequiredParameter(let component, let parameter):
+            return "Design spec is missing required parameter \(parameter) on component \(component)."
+        case .parameterOutOfRange(let component, let parameter):
+            return "Design spec contains an out-of-range parameter \(parameter) on component \(component)."
+        case .unsupportedComponentModel(let component, let deviceKindID):
+            return "Design spec component \(component) of kind \(deviceKindID) does not support model selection."
+        case .ambiguousComponentModel(let component):
+            return "Design spec component \(component) cannot specify both modelPresetID and modelName."
+        case .invalidModelPresetID(let id):
+            return "Design spec contains an invalid model preset ID: \(id)."
+        case .unknownModelPresetID(let id):
+            return "Design spec references an unknown model preset ID: \(id)."
+        case .incompatibleModelPresetID(let component, let modelPresetID, let expectedModelType, let actualModelType):
+            return "Design spec component \(component) cannot use model preset \(modelPresetID): expected \(expectedModelType), got \(actualModelType)."
+        case .invalidModelName(let name):
+            return "Design spec contains an invalid model name: \(name)."
         case .duplicateComponent(let name):
             return "Design spec contains a duplicate component: \(name)."
         case .duplicateNet(let name):

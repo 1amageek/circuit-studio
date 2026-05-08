@@ -168,6 +168,237 @@ struct DesignFlowServiceTests {
                 designSpecPath: unsupportedSchemaURL.path(percentEncoded: false)
             ))
         }
+
+        let wrongPrefixURL = root.appending(path: "wrong-prefix.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "wrong_prefix",
+            title: base.title,
+            components: [
+                DesignFlowDesignSpec.Component(
+                    name: "X1",
+                    deviceKindID: "resistor",
+                    parameters: ["r": 1_000]
+                ),
+                DesignFlowDesignSpec.Component(
+                    name: "R2",
+                    deviceKindID: "resistor",
+                    parameters: ["r": 1_000]
+                ),
+                DesignFlowDesignSpec.Component(
+                    name: "V1",
+                    deviceKindID: "vsource",
+                    parameters: ["dc": 5.0]
+                ),
+                DesignFlowDesignSpec.Component(
+                    name: "GND1",
+                    deviceKindID: "ground"
+                ),
+            ],
+            nets: [
+                DesignFlowDesignSpec.Net(
+                    name: "vin",
+                    terminals: [
+                        DesignFlowDesignSpec.Terminal(component: "V1", port: "pos"),
+                        DesignFlowDesignSpec.Terminal(component: "X1", port: "pos"),
+                    ]
+                ),
+            ],
+            analyses: base.analyses,
+            pexIR: try base.pexIR?.normalizedCore()
+        ), to: wrongPrefixURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.invalidComponentPrefix(
+            component: "X1",
+            deviceKindID: "resistor",
+            expectedPrefix: "R"
+        )) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: wrongPrefixURL.path(percentEncoded: false)
+            ))
+        }
+
+        let unknownParameterURL = root.appending(path: "unknown-parameter.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "unknown_parameter",
+            title: base.title,
+            components: [
+                DesignFlowDesignSpec.Component(
+                    name: "R1",
+                    deviceKindID: "resistor",
+                    parameters: ["resistance": 1_000]
+                ),
+            ],
+            nets: [],
+            analyses: base.analyses,
+            pexIR: try base.pexIR?.normalizedCore()
+        ), to: unknownParameterURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.unknownParameter(
+            component: "R1",
+            parameter: "resistance"
+        )) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: unknownParameterURL.path(percentEncoded: false)
+            ))
+        }
+
+        let unknownPresetURL = root.appending(path: "unknown-preset.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "unknown_preset",
+            title: base.title,
+            components: [
+                DesignFlowDesignSpec.Component(
+                    name: "M1",
+                    deviceKindID: "nmos_l1",
+                    parameters: ["w": 1.0e-6, "l": 1.0e-6],
+                    modelPresetID: "missing_preset"
+                ),
+            ],
+            nets: [],
+            analyses: base.analyses,
+            pexIR: try base.pexIR?.normalizedCore()
+        ), to: unknownPresetURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.unknownModelPresetID("missing_preset")) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: unknownPresetURL.path(percentEncoded: false)
+            ))
+        }
+
+        let missingRequiredParameterURL = root.appending(path: "missing-required-parameter.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "missing_required_parameter",
+            title: base.title,
+            components: [
+                DesignFlowDesignSpec.Component(
+                    name: "R1",
+                    deviceKindID: "resistor"
+                ),
+            ],
+            nets: [],
+            analyses: base.analyses,
+            pexIR: try base.pexIR?.normalizedCore()
+        ), to: missingRequiredParameterURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.missingRequiredParameter(
+            component: "R1",
+            parameter: "r"
+        )) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: missingRequiredParameterURL.path(percentEncoded: false)
+            ))
+        }
+
+        let outOfRangeParameterURL = root.appending(path: "out-of-range-parameter.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "out_of_range_parameter",
+            title: base.title,
+            components: [
+                DesignFlowDesignSpec.Component(
+                    name: "R1",
+                    deviceKindID: "resistor",
+                    parameters: ["r": 0]
+                ),
+            ],
+            nets: [],
+            analyses: base.analyses,
+            pexIR: try base.pexIR?.normalizedCore()
+        ), to: outOfRangeParameterURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.parameterOutOfRange(
+            component: "R1",
+            parameter: "r"
+        )) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: outOfRangeParameterURL.path(percentEncoded: false)
+            ))
+        }
+
+        let unsupportedModelURL = root.appending(path: "unsupported-model.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "unsupported_model",
+            title: base.title,
+            components: [
+                DesignFlowDesignSpec.Component(
+                    name: "R1",
+                    deviceKindID: "resistor",
+                    parameters: ["r": 1_000],
+                    modelPresetID: "generic_nmos"
+                ),
+            ],
+            nets: [],
+            analyses: base.analyses,
+            pexIR: try base.pexIR?.normalizedCore()
+        ), to: unsupportedModelURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.unsupportedComponentModel(
+            component: "R1",
+            deviceKindID: "resistor"
+        )) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: unsupportedModelURL.path(percentEncoded: false)
+            ))
+        }
+
+        let incompatiblePresetURL = root.appending(path: "incompatible-preset.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "incompatible_preset",
+            title: base.title,
+            components: [
+                DesignFlowDesignSpec.Component(
+                    name: "M1",
+                    deviceKindID: "nmos_l1",
+                    parameters: ["w": 1.0e-6, "l": 1.0e-6],
+                    modelPresetID: "generic_pmos"
+                ),
+            ],
+            nets: [],
+            analyses: base.analyses,
+            pexIR: try base.pexIR?.normalizedCore()
+        ), to: incompatiblePresetURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.incompatibleModelPresetID(
+            component: "M1",
+            modelPresetID: "generic_pmos",
+            expectedModelType: "NMOS",
+            actualModelType: "PMOS"
+        )) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: incompatiblePresetURL.path(percentEncoded: false)
+            ))
+        }
+
+        let ambiguousModelURL = root.appending(path: "ambiguous-model.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "ambiguous_model",
+            title: base.title,
+            components: [
+                DesignFlowDesignSpec.Component(
+                    name: "M1",
+                    deviceKindID: "nmos_l1",
+                    parameters: ["w": 1.0e-6, "l": 1.0e-6],
+                    modelPresetID: "generic_nmos",
+                    modelName: "CUSTOM_NMOS"
+                ),
+            ],
+            nets: [],
+            analyses: base.analyses,
+            pexIR: try base.pexIR?.normalizedCore()
+        ), to: ambiguousModelURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.ambiguousComponentModel(component: "M1")) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: ambiguousModelURL.path(percentEncoded: false)
+            ))
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))

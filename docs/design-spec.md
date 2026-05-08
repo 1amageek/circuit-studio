@@ -44,6 +44,23 @@ flowchart LR
 | Analysis source | ASCII letters, digits, `_` | Empty or whitespace |
 | PEX IDs/nodes/corners | ASCII letters, digits, `_` | Empty or whitespace |
 
+Component names must also match the SPICE element prefix implied by `deviceKindID`.
+
+| Device kind | Required prefix |
+|---|---|
+| `resistor` | `R` |
+| `capacitor` | `C` |
+| `inductor` | `L` |
+| `vsource` | `V` |
+| `isource` | `I` |
+| `vcvs` | `E` |
+| `vccs` | `G` |
+| `ccvs` | `H` |
+| `cccs` | `F` |
+| `diode` | `D` |
+| `npn`, `pnp` | `Q` |
+| `nmos_l1`, `pmos_l1`, `nmos_l2`, `pmos_l2`, `nmos_l3`, `pmos_l3` | `M` |
+
 ## Components
 
 | Field | Required | Meaning |
@@ -54,7 +71,9 @@ flowchart LR
 | `modelPresetID` | No | Optional model preset ID. |
 | `modelName` | No | Optional explicit model name. |
 
-Parameter values must be finite numbers. Non-finite values are rejected before artifacts are produced.
+Parameter names must exist in the selected device kind's parameter schema. Parameter values must be finite numbers and must satisfy the schema range when one is declared. Parameters marked required in the catalog must be present. Invalid, unknown, missing, non-finite, and out-of-range values are rejected before artifacts are produced.
+
+`modelPresetID` and `modelName` are accepted only for device kinds with a `modelType`, and they are mutually exclusive. If `modelPresetID` is present, it must refer to a catalog preset whose `modelType` matches the selected device kind. If `modelName` is present, it must be a valid SPICE token.
 
 ## Nets
 
