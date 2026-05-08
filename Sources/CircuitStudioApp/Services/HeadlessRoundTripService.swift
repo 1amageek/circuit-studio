@@ -23,6 +23,7 @@ public final class HeadlessRoundTripService {
         public let testbench: Testbench
         public let postLayoutCommand: AnalysisCommand
         public let pexIR: PEXParasiticIR
+        public let designArtifactPaths: [String]
         public let pexArtifactPaths: [String]
         public let postLayoutComparisonLimits: PostLayoutComparisonLimits?
         public let externalSignoffCommands: [ExternalSignoffCommand]
@@ -41,6 +42,7 @@ public final class HeadlessRoundTripService {
             testbench: Testbench,
             postLayoutCommand: AnalysisCommand,
             pexIR: PEXParasiticIR,
+            designArtifactPaths: [String] = [],
             pexArtifactPaths: [String] = [],
             postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
             externalSignoffCommands: [ExternalSignoffCommand] = [],
@@ -58,6 +60,7 @@ public final class HeadlessRoundTripService {
             self.testbench = testbench
             self.postLayoutCommand = postLayoutCommand
             self.pexIR = pexIR
+            self.designArtifactPaths = designArtifactPaths
             self.pexArtifactPaths = pexArtifactPaths
             self.postLayoutComparisonLimits = postLayoutComparisonLimits
             self.externalSignoffCommands = externalSignoffCommands
@@ -208,6 +211,22 @@ public final class HeadlessRoundTripService {
 
         var stages: [Stage] = []
         var artifacts: [Artifact] = []
+        do {
+            artifacts.append(contentsOf: try captureInputArtifacts(
+                paths: configuration.designArtifactPaths,
+                kind: "design-spec",
+                runDirectory: runDirectory,
+                subdirectory: "design"
+            ))
+        } catch {
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
 
         let netExtractionStartedAt = Date()
         let nets = NetExtractor().extract(from: schematic)

@@ -3,6 +3,8 @@ import Foundation
 import CircuitStudioCore
 
 public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
+    public static let currentSchemaVersion = 1
+
     public struct Component: Sendable, Hashable, Codable {
         public let name: String
         public let deviceKindID: String
@@ -372,6 +374,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
     }
 
     public let name: String
+    public let schemaVersion: Int
     public let title: String?
     public let components: [Component]
     public let nets: [Net]
@@ -379,8 +382,13 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
     public let postLayoutAnalysis: Analysis?
     public let pexIR: ParasiticIR?
 
+    private enum CodingKeys: String, CodingKey {
+        case name, schemaVersion, title, components, nets, analyses, postLayoutAnalysis, pexIR
+    }
+
     public init(
         name: String,
+        schemaVersion: Int = Self.currentSchemaVersion,
         title: String? = nil,
         components: [Component],
         nets: [Net],
@@ -389,6 +397,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         pexIR: PEXParasiticIR? = nil
     ) {
         self.name = name
+        self.schemaVersion = schemaVersion
         self.title = title
         self.components = components
         self.nets = nets
@@ -397,7 +406,23 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         self.pexIR = pexIR.map(ParasiticIR.init)
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+            ?? Self.currentSchemaVersion
+        self.title = try container.decodeIfPresent(String.self, forKey: .title)
+        self.components = try container.decode([Component].self, forKey: .components)
+        self.nets = try container.decode([Net].self, forKey: .nets)
+        self.analyses = try container.decode([Analysis].self, forKey: .analyses)
+        self.postLayoutAnalysis = try container.decodeIfPresent(Analysis.self, forKey: .postLayoutAnalysis)
+        self.pexIR = try container.decodeIfPresent(ParasiticIR.self, forKey: .pexIR)
+    }
+
     public func build(catalog: DeviceCatalog = .standard()) throws -> BuiltDesign {
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw DesignFlowDesignSpecError.unsupportedSchemaVersion(schemaVersion)
+        }
         try validateName(name, kind: .design)
         guard !components.isEmpty else {
             throw DesignFlowDesignSpecError.emptyComponents
@@ -556,6 +581,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
 public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
     case emptyComponents
     case emptyAnalyses
+    case unsupportedSchemaVersion(Int)
     case invalidDesignName(String)
     case invalidComponentName(String)
     case invalidNetName(String)
@@ -574,6 +600,8 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
             return "Design spec requires at least one component."
         case .emptyAnalyses:
             return "Design spec requires at least one analysis."
+        case .unsupportedSchemaVersion(let version):
+            return "Design spec schema version \(version) is not supported."
         case .invalidDesignName(let name):
             return "Design spec contains an invalid design name: \(name)."
         case .invalidComponentName(let name):

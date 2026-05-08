@@ -575,6 +575,9 @@ public struct DesignFlowService: Sendable {
 
     @MainActor
     private func runDesignRoundTrip(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
+        guard let designSpecPath = command.designSpecPath else {
+            throw DesignFlowCommandError.missingDesignSpecPath
+        }
         let design = try design(for: command)
         let runID = command.runID ?? "\(design.name)-\(Self.timestamp())"
         try HeadlessRoundTripService.validateRunID(runID)
@@ -607,6 +610,7 @@ public struct DesignFlowService: Sendable {
             testbench: design.testbench,
             postLayoutCommand: design.postLayoutCommand,
             pexIR: pexInput.ir,
+            designArtifactPaths: [designSpecPath],
             pexArtifactPaths: pexInput.artifactPaths,
             postLayoutComparisonLimits: limits,
             externalSignoffCommands: signoffCommands,

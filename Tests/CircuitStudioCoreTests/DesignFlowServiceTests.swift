@@ -85,6 +85,12 @@ struct DesignFlowServiceTests {
         #expect(roundTrip.runID == "agent-resistor-divider-run")
         #expect(roundTrip.readyForPEX == true)
         #expect(roundTrip.manifestPath?.hasSuffix("round-trip-manifest.json") == true)
+        let manifest = try #require(roundTrip.manifestPath).loadManifest()
+        #expect(manifest.artifacts.contains {
+            $0.kind == "design-spec"
+                && $0.path.contains("/input-artifacts/design/")
+                && $0.sourcePath == specURL.path(percentEncoded: false)
+        })
 
         let encoded = try JSONEncoder().encode(roundTrip)
         let decoded = try JSONDecoder().decode(DesignFlowCommandResult.self, from: encoded)
@@ -142,6 +148,24 @@ struct DesignFlowServiceTests {
             try await service.execute(DesignFlowCommand(
                 kind: .generateDesignNetlist,
                 designSpecPath: duplicateTerminalURL.path(percentEncoded: false)
+            ))
+        }
+
+        let unsupportedSchemaURL = root.appending(path: "unsupported-schema.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "unsupported-schema",
+            schemaVersion: 2,
+            title: base.title,
+            components: base.components,
+            nets: base.nets,
+            analyses: base.analyses,
+            pexIR: base.pexIR?.core
+        ), to: unsupportedSchemaURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.unsupportedSchemaVersion(2)) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: unsupportedSchemaURL.path(percentEncoded: false)
             ))
         }
     }
@@ -534,5 +558,14 @@ struct DesignFlowServiceTests {
         } catch {
             Issue.record("Failed to remove temporary root: \(error)")
         }
+    }
+}
+
+private extension String {
+    func loadManifest() throws -> HeadlessRoundTripService.Manifest {
+        let data = try Data(contentsOf: URL(filePath: self))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(HeadlessRoundTripService.Manifest.self, from: data)
     }
 }
