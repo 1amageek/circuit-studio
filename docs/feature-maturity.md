@@ -1,6 +1,6 @@
 # CircuitStudio Feature Maturity
 
-Last evaluated: 2026-05-08
+Last evaluated: 2026-05-09
 
 この評価は、`circuit-studio` を Agent API としてではなく、人間が操作する統合 cockpit として見た個別機能の完成度を記録する。
 
@@ -20,7 +20,7 @@ Last evaluated: 2026-05-08
 | Target | Command | Result |
 |---|---|---|
 | CircuitStudio build | `perl -e 'alarm 120; exec @ARGV' swift build` | Pass |
-| CircuitStudio core tests | `perl -e 'alarm 120; exec @ARGV' swift test --filter CircuitStudioCoreTests` | 173 pass, 4 skipped |
+| CircuitStudio tests | `perl -e 'alarm 180; exec @ARGV' swift test` | 173 pass, 4 skipped |
 | Standalone voltage-divider round trip | `perl -e 'alarm 120; exec @ARGV' swift run circuit-studio-flow-runner --fixture voltage-divider --approve-signoff --output /tmp/circuit-studio-cli-roundtrip-vd --run-id vd-cli` | Pass |
 | Standalone CMOS inverter round trip | `perl -e 'alarm 120; exec @ARGV' swift run circuit-studio-flow-runner --fixture cmos-inverter --approve-signoff --output /tmp/circuit-studio-cli-roundtrip-cmos --run-id cmos-cli` | Pass |
 | Dogfood CMOS inverter design project | `perl -e 'alarm 120; exec @ARGV' swift run circuit-studio-flow-runner --fixture cmos-inverter --approve-signoff --output /tmp/circuit-studio-dogfood-cmos --run-id dogfood-cmos-inverter --max-abs-delta 0.05 --max-rel-delta 2.0` | Pass |
@@ -47,6 +47,10 @@ Last evaluated: 2026-05-08
 | semiconductor-layout IO | `perl -e 'alarm 120; exec @ARGV' swift test --filter LayoutIOTests` | 65 pass |
 | swift-mask-data detector | `perl -e 'alarm 120; exec @ARGV' swift test --filter FormatDetectorTests` | 28 pass |
 | PEXEngine runtime | `perl -e 'alarm 120; exec @ARGV' swift test --filter PEXRuntimeTests` | 16 pass |
+| CoreSpice full build/test baseline | `perl -e 'alarm 120; exec @ARGV' swift build`; `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/CoreSpice` | Build pass; 542 pass |
+| semiconductor-layout full build/test baseline | `perl -e 'alarm 120; exec @ARGV' swift build`; `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/semiconductor-layout` | Build pass; 91 pass |
+| swift-mask-data full build/test baseline | `perl -e 'alarm 120; exec @ARGV' swift build`; `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/swift-mask-data` | Build pass; 589 pass |
+| PEXEngine full build/test baseline | `perl -e 'alarm 120; exec @ARGV' swift build`; `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/PEXEngine` | Build pass; 96 pass |
 
 Skipped CircuitStudio tests are explicit known limitations:
 
@@ -91,17 +95,18 @@ flowchart LR
   Project --> Layout["Layout integration"]
 ```
 
-The strongest `circuit-studio` areas are model/catalog, netlist generation, process configuration, representative simulation flows, and the current headless artifact spine. The DRC/LVS/PEX/post-layout path now has a strict headless round-trip harness that carries CMOS inverter, voltage divider, resistor-divider fixtures, and a structured JSON design-spec resistor divider through artifact-producing stages without forced continuation. Failed gates leave manifests for agent/human review; externally produced signoff logs can be imported into the same approval gate only with explicit approval; golden layout corpus metadata can be loaded without bypassing approval; the pass-path corpus and first structured design spec can be run from the standalone `circuit-studio-flow-runner` CLI; and the voltage-divider CLI path can consume saved golden signoff logs plus saved multi-corner PEX manifest/IR artifacts while capturing those input artifacts and pre/post waveform deltas in the manifest. `DesignFlowService` is now the shared operation API for current CLI round trips and UI simulation actions, and `DesignFlowCommand` gives CLI, future UI actions, and Agent callers a Codable command/result contract for fixture/design-spec list/netlist/simulation/round-trip/bottleneck operations. Post-layout comparison can now be informational or a hard absolute/symmetric-relative delta gate, compatible adaptive transient sweep grids are compared through interpolation, the applied gate policy is persisted for later audit/replay, per-run bottlenecks are recorded, mutable signoff review state and source design specs are captured into each run, run IDs are path-isolated and returned through command/CLI results, input artifact capture uses path-boundary and symlink-resolved checks, and repeated manifests can be aggregated into historical bottleneck summaries. Real foundry decks, real extractor backends, non-resistive small-circuit pass fixtures, full UI verification controls, custom catalog/PDK injection, variable-specific limits, aggregate multi-corner post-layout reports, and broader design-edit commands are still future work.
+The strongest `circuit-studio` areas are model/catalog, netlist generation, process configuration, representative simulation flows, and the current headless artifact spine. The M0 baseline lock also confirms that all five local SwiftPM repos build and pass their current test suites under timeout guards, with the existing CircuitStudio skips still isolated to known CoreSpice solver/parser gaps. The DRC/LVS/PEX/post-layout path now has a strict headless round-trip harness that carries CMOS inverter, voltage divider, resistor-divider fixtures, and a structured JSON design-spec resistor divider through artifact-producing stages without forced continuation. Failed gates leave manifests for agent/human review; externally produced signoff logs can be imported into the same approval gate only with explicit approval; golden layout corpus metadata can be loaded without bypassing approval; the pass-path corpus and first structured design spec can be run from the standalone `circuit-studio-flow-runner` CLI; and the voltage-divider CLI path can consume saved golden signoff logs plus saved multi-corner PEX manifest/IR artifacts while capturing those input artifacts and pre/post waveform deltas in the manifest. `DesignFlowService` is now the shared operation API for current CLI round trips and UI simulation actions, and `DesignFlowCommand` gives CLI, future UI actions, and Agent callers a Codable command/result contract for fixture/design-spec list/netlist/simulation/round-trip/bottleneck operations. Post-layout comparison can now be informational or a hard absolute/symmetric-relative delta gate, compatible adaptive transient sweep grids are compared through interpolation, the applied gate policy is persisted for later audit/replay, per-run bottlenecks are recorded, mutable signoff review state and source design specs are captured into each run, run IDs are path-isolated and returned through command/CLI results, input artifact capture uses path-boundary and symlink-resolved checks, and repeated manifests can be aggregated into historical bottleneck summaries. A unified technology-package contract is now the next bottleneck because netlist, layout, signoff, PEX, and corpus references must stop depending on scattered fixtures before real foundry decks or extractor backends can be added confidently. Real foundry decks, real extractor backends, non-resistive small-circuit pass fixtures, full UI verification controls, custom catalog/PDK injection, variable-specific limits, aggregate multi-corner post-layout reports, and broader design-edit commands are still future work.
 
 ## Recommended Next Work
 
 | Priority | Work |
 |---:|---|
-| 1 | Add real foundry signoff deck fixtures and real golden GDS/OASIS regression corpora |
-| 2 | Add real PEX backend smoke tests beyond saved/mock fixtures |
-| 3 | Turn RC low-pass into a strict pass fixture by fixing the auto-layout/LVS gaps it exposed |
-| 4 | Expand `DesignFlowCommand` from fixture/design-spec operations into explicit design-edit, layout verification, PEX review, and approval commands before adding UI controls or CLI flags |
-| 5 | Add variable-specific post-layout comparison limits |
-| 6 | Add aggregate multi-corner post-layout comparison reports |
-| 7 | Add ProjectService follow-up tests for layout export, invalid project files, and absolute path handling |
-| 8 | Track CoreSpice nonlinear convergence and `.param` expression limitations as upstream blockers |
+| 1 | Add `TechnologyPackageManifest`, loader, and validation so SPICE models, `LayoutTechDatabase`, layer maps, signoff adapter config, PEX config, corners, and corpus fixtures are injected from one contract |
+| 2 | Add real foundry signoff deck fixtures and real golden GDS/OASIS regression corpora |
+| 3 | Add real PEX backend smoke tests beyond saved/mock fixtures |
+| 4 | Turn RC low-pass into a strict pass fixture by fixing the auto-layout/LVS gaps it exposed |
+| 5 | Expand `DesignFlowCommand` from fixture/design-spec operations into explicit design-edit, layout verification, PEX review, and approval commands before adding UI controls or CLI flags |
+| 6 | Add variable-specific post-layout comparison limits |
+| 7 | Add aggregate multi-corner post-layout comparison reports |
+| 8 | Add ProjectService follow-up tests for layout export, invalid project files, and absolute path handling |
+| 9 | Track CoreSpice nonlinear convergence and `.param` expression limitations as upstream blockers |

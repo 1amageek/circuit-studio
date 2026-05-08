@@ -1,8 +1,8 @@
 # Flow Verification Log
 
-Last run: 2026-05-08
+Last run: 2026-05-09
 
-This log tracks end-to-end verification of the current semiconductor design flow using existing functionality. The strict round-trip corpus now contains a CMOS inverter and a voltage divider. Together they exercise schematic connectivity, MOS/passive device metadata, SPICE generation, OP/transient simulation, auto layout, DRC/LVS preflight, PEX parasitic injection, and post-layout simulation without requiring a large design.
+This log tracks end-to-end verification of the current semiconductor design flow using existing functionality. The M0 baseline lock now records timeout-guarded build/test results for every local SwiftPM repo before starting the technology-package contract work. The strict round-trip corpus contains a CMOS inverter, a voltage divider, and a resistor divider. Together they exercise schematic connectivity, MOS/passive device metadata, SPICE generation, OP/transient simulation, auto layout, DRC/LVS preflight, PEX parasitic injection, and post-layout simulation without requiring a large design.
 
 ```mermaid
 flowchart LR
@@ -26,7 +26,7 @@ flowchart LR
 | Scope | Command | Result |
 |---|---|---|
 | CircuitStudio SwiftPM build | `perl -e 'alarm 120; exec @ARGV' swift build` | Pass |
-| CircuitStudio SwiftPM tests | `perl -e 'alarm 120; exec @ARGV' swift test --filter CircuitStudioCoreTests` | 173 pass, 4 skipped |
+| CircuitStudio SwiftPM tests | `perl -e 'alarm 180; exec @ARGV' swift test` | 173 pass, 4 skipped |
 | Headless round-trip corpus | `perl -e 'alarm 120; exec @ARGV' swift test --filter HeadlessRoundTripServiceTests` | 17 pass; CMOS inverter, voltage divider, and resistor-divider strict pre-PEX gates pass; imported signoff review, captured input artifacts, immutable captured review artifacts, invalid run ID rejection, run-directory prefix-safe artifact capture, symlinked external artifact capture, comparison mismatch artifact, comparison-limit pass/fail policy persistence, invalid comparison-limit rejection, stage timing, root-failure bottleneck summaries, historical bottleneck aggregation, and pre-PEX/PEX/post-layout/comparison-write failure manifests are covered |
 | Standalone voltage-divider round trip | `perl -e 'alarm 120; exec @ARGV' swift run circuit-studio-flow-runner --fixture voltage-divider --approve-signoff --output /tmp/circuit-studio-cli-roundtrip-vd --run-id vd-cli` | Pass; emitted a manifest with all stages passed |
 | Standalone CMOS inverter round trip | `perl -e 'alarm 120; exec @ARGV' swift run circuit-studio-flow-runner --fixture cmos-inverter --approve-signoff --output /tmp/circuit-studio-cli-roundtrip-cmos --run-id cmos-cli` | Pass; emitted a manifest with all stages passed |
@@ -54,14 +54,35 @@ flowchart LR
 | Simulation failure/cancellation | `perl -e 'alarm 120; exec @ARGV' swift test --filter SimulationServiceTests` | Pass; invalid SPICE failures clear active job state and registered cancellation emits a cancellation event |
 | Unified design-flow API | `perl -e 'alarm 120; exec @ARGV' swift test --filter DesignFlowServiceTests` | 12 pass; fixture selection, structured design-spec netlist/simulation/round-trip commands, structured spec input validation, SPICE prefix/required parameter/range/model compatibility rejection paths, inline PEX unit normalization and rejection paths, command API list/netlist/simulation/round-trip/bottleneck commands, schematic simulation, layout generation, pre-PEX verification, post-layout simulation/comparison, headless round trip, PEX artifact loading, invalid command rejection, Codable command artifacts, and bottleneck summary are callable through the shared API |
 | CMOS inverter flow | `perl -e 'alarm 120; exec @ARGV' swift test --filter CMOSInverterFlowTests` | 1 pass |
+| CoreSpice SwiftPM build | `perl -e 'alarm 120; exec @ARGV' swift build` in `/Users/1amageek/Desktop/LSI/CoreSpice` | Pass |
 | CoreSpice full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/CoreSpice` | 542 pass |
+| semiconductor-layout SwiftPM build | `perl -e 'alarm 120; exec @ARGV' swift build` in `/Users/1amageek/Desktop/LSI/semiconductor-layout` | Pass |
 | semiconductor-layout full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/semiconductor-layout` | 91 pass |
+| swift-mask-data SwiftPM build | `perl -e 'alarm 120; exec @ARGV' swift build` in `/Users/1amageek/Desktop/LSI/swift-mask-data` | Pass |
 | swift-mask-data full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/swift-mask-data` | 589 pass |
+| PEXEngine SwiftPM build | `perl -e 'alarm 120; exec @ARGV' swift build` in `/Users/1amageek/Desktop/LSI/PEXEngine` | Pass |
 | PEXEngine full tests | `perl -e 'alarm 180; exec @ARGV' swift test` in `/Users/1amageek/Desktop/LSI/PEXEngine` | 96 pass |
 | Xcode workspace schemes | `perl -e 'alarm 60; exec @ARGV' xcodebuild -list -workspace Xcircuite.xcworkspace` | Pass |
 | Xcode app build | `perl -e 'alarm 180; exec @ARGV' xcodebuild -workspace Xcircuite.xcworkspace -scheme Xcircuite -destination 'platform=macOS' build` | Pass |
 | Xcode app tests | `perl -e 'alarm 240; exec @ARGV' xcodebuild test -workspace Xcircuite.xcworkspace -scheme Xcircuite -destination 'platform=macOS'` | 5 pass |
-| Multi-package flow script | `scripts/verify-flow.sh` | Added; starts by running package-local tests and Xcode checks sequentially |
+| Multi-package flow script syntax | `bash -n scripts/verify-flow.sh` | Pass; script now runs build and full tests for all SwiftPM repos before Xcode checks |
+
+## M0 Baseline Lock
+
+| Repo | Build baseline | Test baseline | Worktree note |
+|---|---|---|---|
+| `circuit-studio` | Pass | 173 pass, 4 skipped | M0 changed only this repo's script/docs |
+| `CoreSpice` | Pass | 542 pass | Dirty before M0; existing local changes were not modified |
+| `semiconductor-layout` | Pass | 91 pass | Dirty before M0; existing local changes were not modified |
+| `swift-mask-data` | Pass | 589 pass | Clean before M0 |
+| `PEXEngine` | Pass | 96 pass | Dirty before M0; existing local changes were not modified |
+
+## Self-Review Checkpoints
+
+| Gate | Result |
+|---|---|
+| Mid-review | M0 does not add a second operation API, does not change canonical design state, and only fixes the replayable verification surface. |
+| Final-review | Baseline commands, known skipped tests, lower-repo worktree caveats, and the next milestone order are recorded before entering the technology-package contract work. |
 
 ## Verified Flow Coverage
 
@@ -88,7 +109,7 @@ flowchart LR
 | FV-002 | P2 | Resolved for current gate | LVS | Declared `LayoutNet` entries could be treated as present even without physical geometry. | LVS now only treats nets referenced by physical `shape/via/pin/label` geometry as realized; added a declared-only net rejection test. |
 | FV-003 | P2 | Resolved for mock backend | PEX to post-layout | CircuitStudio flow test used synthetic `PEXParasiticIR`; it did not prove PEXEngine artifacts could be consumed. | Added a mock PEXEngine run that writes artifacts, loads the manifest/IR through CircuitStudio, and builds a post-layout netlist. |
 | FV-004 | P2 | Open | Human review | Xcode UI tests only prove launch and smoke behavior, not DRC/LVS/PEX artifact review or approval flow. | Add review-state UI tests around verification reports, diagnostics, and accept/reject decisions. |
-| FV-005 | P3 | Resolved | Test ergonomics | Running dependency test filters from `circuit-studio` can report zero tests; dependency packages must be tested from their own directories. | Added `scripts/verify-flow.sh` to run package-local tests and Xcode checks in sequence. |
+| FV-005 | P3 | Resolved | Test ergonomics | Running dependency test filters from `circuit-studio` can report zero tests; dependency packages must be tested from their own directories. | Added `scripts/verify-flow.sh` to run package-local build/test commands and Xcode checks in sequence. |
 | FV-006 | P3 | Open | Xcode test environment | Xcode UI tests pass but emit `DebuggerLLDB.DebuggerVersionStore.StoreError` / `no debugger version` warnings while launching the app. | Investigate Xcode toolchain/debugger metadata only if it becomes flaky or starts failing CI. |
 | FV-007 | P3 | Open | CoreSpice limitations surfaced in CircuitStudio | Four CircuitStudio tests remain intentionally skipped for nonlinear convergence, SIN transient timestep handling, and `.param` expression support. | Track as CoreSpice capability work before treating CircuitStudio simulation as production-grade. |
 | FV-008 | P1 | Resolved for generated, first imported-layout, and sample-process raw-device LVS | Full LVS | The current gate needed polygon-derived connectivity through instance pins, layers, vias, and device terminals. | Added hierarchical connectivity extraction, schematic-vs-physical short/open checks, imported polygon terminal recognition, raw MOS recognition, inferred raw MOS terminals, raw resistor recognition, explicit Full LVS skip diagnostics, missing/misnamed external port reporting, invalid terminal reporting, duplicate terminal reporting, and raw W/L/kind/`nf`/resistance mismatch reporting. |
@@ -108,6 +129,7 @@ flowchart LR
 | FV-032 | P1 | Resolved | Signoff review immutability | Round-trip manifests pointed to the mutable project-global signoff review JSON. | Captured the review JSON into the run directory with `sourcePath` recorded, so completed manifests remain self-contained for audit/replay. |
 | FV-033 | P2 | Resolved | Bottleneck attribution | Per-run bottleneck summary reported the last failed stage instead of the root failed stage. | Changed failed-stage attribution to the first failed stage and updated failure regressions to cover external signoff as root cause. |
 | FV-034 | P2 | Resolved | Artifact capture path boundary | Input artifact capture used a plain string prefix check for run-directory containment. | Switched to standardized path-boundary containment and added a sibling-directory regression so similarly prefixed run directories are copied as external inputs instead of being treated as in-run artifacts. |
+| FV-041 | P1 | Resolved for M0 | Cross-repo baseline lock | The 100% harness plan needed a current all-repo build/test baseline and a single script entrypoint before larger contract work could be reviewed safely. | Ran timeout-guarded SwiftPM builds and full tests for `circuit-studio`, `CoreSpice`, `semiconductor-layout`, `swift-mask-data`, and `PEXEngine`; updated `scripts/verify-flow.sh` so it runs both build and test for every SwiftPM repo before Xcode checks; documented known skips and dirty-worktree caveats. |
 | FV-035 | P2 | Resolved | CLI exposed only full round-trip | `DesignFlowCommand` supported fixture listing, netlist generation, simulation, and bottleneck summary, but the standalone runner only called the round-trip command. | Added explicit runner modes for fixture listing, netlist generation, schematic simulation, and bottleneck summaries, all delegated through `DesignFlowService.execute`. |
 | FV-036 | P2 | Resolved | Summary mode default path mismatch | `--summarize-bottlenecks` required `--output` even though the runner help documented a default output directory. | Summary mode now resolves the same `./round-trip-runs/<fixture>` default path used by the round-trip flow and has a CLI smoke check. |
 | FV-037 | P1 | Resolved | Symlinked input artifact escape | A path inside the run directory could point through a symlink to mutable external content and be treated as already captured. | Input artifact capture now treats a file as in-run only when both its path and symlink-resolved target are inside the run directory; otherwise it copies the resolved target into `input-artifacts/` and records the original `sourcePath`. |
@@ -168,8 +190,9 @@ flowchart LR
 
 | Order | Issue | Reason |
 |---:|---|---|
-| 1 | FV-018 | Real foundry deck and real golden GDS/OASIS coverage is still needed before treating the external signoff bridge as production-like. |
-| 2 | FV-009 | Multi-corner saved fixtures are covered, but a real extractor backend is still needed before calling the PEX path signoff-like. |
-| 3 | FV-027 follow-up | RC low-pass exposed auto-layout/LVS fixture coverage gaps; turn that failed attempt into the next non-resistive small-circuit pass fixture. |
-| 4 | FV-004 | Human-in-the-loop review can stay file-based for now; UI coverage is lower priority than strict headless correctness. |
-| 5 | FV-007 | Solver and parser limitations affect broader circuit classes after the flow spine is stable. |
+| 1 | M1 Technology package contract | Netlist, layout, DRC/LVS, PEX, corners, and corpus fixtures still need one explicit tech package contract before real decks/backends can be wired in without drift. |
+| 2 | M3 Signoff adapter layer / FV-018 | Real foundry deck and real golden GDS/OASIS coverage is still needed before treating the external signoff bridge as production-like. |
+| 3 | M4 PEX backend path / FV-009 | Multi-corner saved fixtures are covered, but a real extractor backend is still needed before calling the PEX path signoff-like. |
+| 4 | M5 RC low-pass strict pass / FV-027 follow-up | RC low-pass exposed auto-layout/LVS fixture coverage gaps; turn that failed attempt into the next non-resistive small-circuit pass fixture. |
+| 5 | M10 Human review cockpit / FV-004 | Human-in-the-loop review can stay file-based for now; UI coverage is lower priority than strict headless correctness. |
+| 6 | M8 CoreSpice production gaps / FV-007 | Solver and parser limitations affect broader circuit classes after the flow spine is stable. |
