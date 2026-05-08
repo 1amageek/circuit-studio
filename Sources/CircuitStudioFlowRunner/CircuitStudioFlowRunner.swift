@@ -24,8 +24,9 @@ struct CircuitStudioFlowRunner {
 
     private static func command(from options: RunnerOptions) -> DesignFlowCommand {
         DesignFlowCommand(
-            kind: options.mode.commandKind,
+            kind: options.commandKind,
             fixtureName: options.fixtureName,
+            designSpecPath: options.designSpecURL?.path(percentEncoded: false),
             projectRootPath: projectRootPath(from: options),
             runID: options.runID,
             approveSignoff: options.approveSignoff,
@@ -43,17 +44,21 @@ struct CircuitStudioFlowRunner {
         case .listFixtures, .generateNetlist, .simulate:
             return nil
         case .runRoundTrip:
-            return options.outputURL?.path(percentEncoded: false)
+            return (options.outputURL ?? defaultOutputURL(from: options))
+                .path(percentEncoded: false)
         case .summarizeBottlenecks:
-            return (options.outputURL ?? defaultOutputURL(fixtureName: options.fixtureName))
+            return (options.outputURL ?? defaultOutputURL(from: options))
                 .path(percentEncoded: false)
         }
     }
 
-    private static func defaultOutputURL(fixtureName: String) -> URL {
-        URL(filePath: FileManager.default.currentDirectoryPath)
+    private static func defaultOutputURL(from options: RunnerOptions) -> URL {
+        let directoryName = options.designSpecURL?
+            .deletingPathExtension()
+            .lastPathComponent ?? options.fixtureName
+        return URL(filePath: FileManager.default.currentDirectoryPath)
             .appending(path: "round-trip-runs")
-            .appending(path: fixtureName)
+            .appending(path: directoryName)
     }
 
     private static func print(result: DesignFlowCommandResult, options: RunnerOptions) {
@@ -64,19 +69,43 @@ struct CircuitStudioFlowRunner {
             }
         case .generateFixtureNetlist:
             Swift.print("netlist=generated")
-            Swift.print("fixture=\(result.fixtureName ?? options.fixtureName)")
+            printDesignOrFixture(result: result, options: options)
+            Swift.print("netlist_begin")
+            Swift.print(result.netlist ?? "")
+            Swift.print("netlist_end")
+        case .generateDesignNetlist:
+            Swift.print("netlist=generated")
+            printDesignOrFixture(result: result, options: options)
             Swift.print("netlist_begin")
             Swift.print(result.netlist ?? "")
             Swift.print("netlist_end")
         case .runFixtureSimulation:
             Swift.print("simulation=\(result.simulationStatus ?? "")")
-            Swift.print("fixture=\(result.fixtureName ?? options.fixtureName)")
+            printDesignOrFixture(result: result, options: options)
+            Swift.print("netlist_begin")
+            Swift.print(result.netlist ?? "")
+            Swift.print("netlist_end")
+        case .runDesignSimulation:
+            Swift.print("simulation=\(result.simulationStatus ?? "")")
+            printDesignOrFixture(result: result, options: options)
             Swift.print("netlist_begin")
             Swift.print(result.netlist ?? "")
             Swift.print("netlist_end")
         case .runFixtureRoundTrip:
             Swift.print("round_trip=passed")
-            Swift.print("fixture=\(result.fixtureName ?? options.fixtureName)")
+            printDesignOrFixture(result: result, options: options)
+            Swift.print("run_id=\(result.runID ?? "")")
+            Swift.print("project_root=\(result.projectRootPath ?? "")")
+            Swift.print("manifest=\(result.manifestPath ?? "")")
+            Swift.print("ready_for_pex=\(result.readyForPEX ?? false)")
+            Swift.print("pex_corner=\(result.pexCornerID ?? "")")
+            Swift.print("pex_elements=\(result.pexElementCount ?? 0)")
+            Swift.print("external_signoff=\(options.usesImportedSignoff ? "imported-logs" : "mock-command")")
+            Swift.print("signoff_approved=\(options.approveSignoff)")
+            Swift.print("comparison_limits=\(options.usesComparisonLimits ? "configured" : "none")")
+        case .runDesignRoundTrip:
+            Swift.print("round_trip=passed")
+            printDesignOrFixture(result: result, options: options)
             Swift.print("run_id=\(result.runID ?? "")")
             Swift.print("project_root=\(result.projectRootPath ?? "")")
             Swift.print("manifest=\(result.manifestPath ?? "")")
@@ -105,10 +134,18 @@ struct CircuitStudioFlowRunner {
         }
     }
 
+    private static func printDesignOrFixture(result: DesignFlowCommandResult, options: RunnerOptions) {
+        if let designName = result.designName {
+            Swift.print("design=\(designName)")
+        } else {
+            Swift.print("fixture=\(result.fixtureName ?? options.fixtureName)")
+        }
+    }
+
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
@@ -122,7 +159,9 @@ struct CircuitStudioFlowRunner {
 
         Options:
           --fixture NAME   Fixture to run. Default: voltage-divider
-          --output PATH    Project/output directory. Default: ./round-trip-runs/<fixture>
+          --design-spec PATH
+                           Load a structured design spec JSON instead of a built-in fixture
+          --output PATH    Project/output directory. Default: ./round-trip-runs/<fixture-or-design-spec-name>
           --run-id ID      Flow run identifier. Default: fixture name plus timestamp
           --pex-manifest PATH
                            Load PEX IR through a saved PEXEngine manifest instead of using the built-in synthetic IR
@@ -150,16 +189,16 @@ private enum RunnerMode: Equatable {
     case runRoundTrip
     case summarizeBottlenecks
 
-    var commandKind: DesignFlowCommand.Kind {
+    func commandKind(usesDesignSpec: Bool) -> DesignFlowCommand.Kind {
         switch self {
         case .listFixtures:
             return .listFixtures
         case .generateNetlist:
-            return .generateFixtureNetlist
+            return usesDesignSpec ? .generateDesignNetlist : .generateFixtureNetlist
         case .simulate:
-            return .runFixtureSimulation
+            return usesDesignSpec ? .runDesignSimulation : .runFixtureSimulation
         case .runRoundTrip:
-            return .runFixtureRoundTrip
+            return usesDesignSpec ? .runDesignRoundTrip : .runFixtureRoundTrip
         case .summarizeBottlenecks:
             return .summarizeBottlenecks
         }
@@ -170,6 +209,7 @@ private struct RunnerOptions {
     var mode = RunnerMode.runRoundTrip
     private var explicitMode: RunnerMode?
     var fixtureName = DesignFlowFixtureLibrary.defaultFixtureName
+    var designSpecURL: URL?
     var outputURL: URL?
     var runID: String?
     var pexManifestURL: URL?
@@ -196,6 +236,8 @@ private struct RunnerOptions {
                 try selectMode(.summarizeBottlenecks)
             case "--fixture":
                 fixtureName = try Self.value(after: argument, in: arguments, index: &index)
+            case "--design-spec":
+                designSpecURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--output":
                 outputURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--run-id":
@@ -256,6 +298,10 @@ private struct RunnerOptions {
 
     var usesComparisonLimits: Bool {
         maxAbsoluteDelta != nil || maxRelativeDelta != nil
+    }
+
+    var commandKind: DesignFlowCommand.Kind {
+        mode.commandKind(usesDesignSpec: designSpecURL != nil)
     }
 }
 

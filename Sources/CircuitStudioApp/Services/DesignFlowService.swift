@@ -172,11 +172,15 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case generateFixtureNetlist
         case runFixtureSimulation
         case runFixtureRoundTrip
+        case generateDesignNetlist
+        case runDesignSimulation
+        case runDesignRoundTrip
         case summarizeBottlenecks
     }
 
     public let kind: Kind
     public let fixtureName: String?
+    public let designSpecPath: String?
     public let projectRootPath: String?
     public let runID: String?
     public let approveSignoff: Bool
@@ -190,6 +194,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public init(
         kind: Kind,
         fixtureName: String? = nil,
+        designSpecPath: String? = nil,
         projectRootPath: String? = nil,
         runID: String? = nil,
         approveSignoff: Bool = false,
@@ -202,6 +207,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     ) {
         self.kind = kind
         self.fixtureName = fixtureName
+        self.designSpecPath = designSpecPath
         self.projectRootPath = projectRootPath
         self.runID = runID
         self.approveSignoff = approveSignoff
@@ -222,6 +228,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let kind: DesignFlowCommand.Kind
     public let fixtureNames: [String]
     public let fixtureName: String?
+    public let designName: String?
     public let runID: String?
     public let netlist: String?
     public let simulationStatus: String?
@@ -238,6 +245,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         kind: DesignFlowCommand.Kind,
         fixtureNames: [String] = [],
         fixtureName: String? = nil,
+        designName: String? = nil,
         runID: String? = nil,
         netlist: String? = nil,
         simulationStatus: String? = nil,
@@ -253,6 +261,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.kind = kind
         self.fixtureNames = fixtureNames
         self.fixtureName = fixtureName
+        self.designName = designName
         self.runID = runID
         self.netlist = netlist
         self.simulationStatus = simulationStatus
@@ -269,6 +278,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
 
 public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case missingFixtureName
+    case missingDesignSpecPath
     case missingProjectRoot
     case incompleteSignoffLogPair
     case invalidComparisonLimits([String])
@@ -277,6 +287,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
         switch self {
         case .missingFixtureName:
             return "Design flow command requires a fixture name."
+        case .missingDesignSpecPath:
+            return "Design flow command requires a design spec path."
         case .missingProjectRoot:
             return "Design flow command requires a project root path."
         case .incompleteSignoffLogPair:
@@ -475,6 +487,16 @@ public struct DesignFlowService: Sendable {
         try RoundTripBottleneckHistoryService().summarize(projectRoot: projectRoot)
     }
 
+    public func loadDesignSpec(_ url: URL) throws -> DesignFlowDesignSpec {
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            return try decoder.decode(DesignFlowDesignSpec.self, from: data)
+        } catch {
+            throw StudioError.projectLoadFailed("Failed to load design spec: \(error.localizedDescription)")
+        }
+    }
+
     @MainActor
     public func execute(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
         switch command.kind {
@@ -510,6 +532,33 @@ public struct DesignFlowService: Sendable {
             )
         case .runFixtureRoundTrip:
             return try await runFixtureRoundTrip(command)
+        case .generateDesignNetlist:
+            let design = try design(for: command)
+            let netlist = generateNetlist(DesignFlowNetlistRequest(
+                schematic: design.schematic,
+                title: design.title,
+                testbench: design.testbench
+            ))
+            return DesignFlowCommandResult(
+                kind: command.kind,
+                designName: design.name,
+                netlist: netlist
+            )
+        case .runDesignSimulation:
+            let design = try design(for: command)
+            let result = try await runSchematicSimulation(DesignFlowSchematicSimulationRequest(
+                schematic: design.schematic,
+                title: design.title,
+                testbench: design.testbench
+            ))
+            return DesignFlowCommandResult(
+                kind: command.kind,
+                designName: design.name,
+                netlist: result.netlist,
+                simulationStatus: result.simulationResult.status.rawValue
+            )
+        case .runDesignRoundTrip:
+            return try await runDesignRoundTrip(command)
         case .summarizeBottlenecks:
             guard let projectRootPath = command.projectRootPath else {
                 throw DesignFlowCommandError.missingProjectRoot
@@ -522,6 +571,66 @@ public struct DesignFlowService: Sendable {
                 bottleneckHistory: summary
             )
         }
+    }
+
+    @MainActor
+    private func runDesignRoundTrip(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
+        let design = try design(for: command)
+        let runID = command.runID ?? "\(design.name)-\(Self.timestamp())"
+        try HeadlessRoundTripService.validateRunID(runID)
+        try validateSignoffLogPair(in: command)
+        let limits = try comparisonLimits(from: command)
+
+        let pexInput: DesignFlowPEXInput
+        if let pexManifestPath = command.pexManifestPath {
+            pexInput = try loadPEXInput(
+                manifestURL: URL(filePath: pexManifestPath),
+                cornerID: command.pexCornerID ?? "tt_25c_1v0"
+            )
+        } else if let pexIR = design.pexIR {
+            pexInput = DesignFlowPEXInput(ir: pexIR, artifactPaths: [])
+        } else {
+            throw DesignFlowDesignSpecError.missingPEXInput
+        }
+
+        let externalSignoffReview = try loadExternalSignoffReview(from: command)
+        let projectRoot = URL(filePath: command.projectRootPath ?? defaultCommandProjectRoot(fixtureName: design.name))
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+
+        let signoffCommands = externalSignoffReview == nil
+            ? try makeMockSignoffCommands(in: projectRoot)
+            : []
+        let configuration = HeadlessRoundTripService.Configuration(
+            projectRoot: projectRoot,
+            runID: runID,
+            title: design.title,
+            testbench: design.testbench,
+            postLayoutCommand: design.postLayoutCommand,
+            pexIR: pexInput.ir,
+            pexArtifactPaths: pexInput.artifactPaths,
+            postLayoutComparisonLimits: limits,
+            externalSignoffCommands: signoffCommands,
+            externalSignoffReview: externalSignoffReview,
+            approvedBy: command.approveSignoff ? "design-flow-command" : nil,
+            approvedAt: command.approveSignoff ? Date() : nil,
+            createdAt: Date()
+        )
+
+        let result = try await runRoundTrip(DesignFlowRoundTripRequest(
+            schematic: design.schematic,
+            configuration: configuration
+        ))
+        return DesignFlowCommandResult(
+            kind: command.kind,
+            designName: design.name,
+            runID: runID,
+            projectRootPath: projectRoot.path(percentEncoded: false),
+            manifestPath: result.manifestURL.path(percentEncoded: false),
+            readyForPEX: result.manifest.isReadyForPEX,
+            pexCornerID: pexInput.ir.cornerID,
+            pexElementCount: pexInput.ir.elements.count,
+            bottleneckSummary: result.manifest.bottleneckSummary
+        )
     }
 
     @MainActor
@@ -636,6 +745,13 @@ public struct DesignFlowService: Sendable {
         case (.some, nil), (nil, .some):
             throw DesignFlowCommandError.incompleteSignoffLogPair
         }
+    }
+
+    private func design(for command: DesignFlowCommand) throws -> DesignFlowDesignSpec.BuiltDesign {
+        guard let designSpecPath = command.designSpecPath else {
+            throw DesignFlowCommandError.missingDesignSpecPath
+        }
+        return try loadDesignSpec(URL(filePath: designSpecPath)).build()
     }
 
     private func makeMockSignoffCommands(in projectRoot: URL) throws -> [ExternalSignoffCommand] {

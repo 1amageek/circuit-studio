@@ -50,6 +50,104 @@ struct DesignFlowServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
+    func commandAPIRunsDesignSpecNetlistSimulationAndRoundTrip() async throws {
+        let root = try makeTemporaryRoot("design-spec-round-trip")
+        defer { removeTemporaryRoot(root) }
+        let specURL = root.appending(path: "agent-resistor-divider.json")
+        try writeDesignSpec(agentResistorDividerSpec(), to: specURL)
+
+        let service = DesignFlowService()
+        let netlist = try await service.execute(DesignFlowCommand(
+            kind: .generateDesignNetlist,
+            designSpecPath: specURL.path(percentEncoded: false)
+        ))
+        #expect(netlist.designName == "agent-resistor-divider")
+        #expect(netlist.netlist?.contains("R1 vin out 1k") == true)
+        #expect(netlist.netlist?.contains(".op") == true)
+
+        let simulation = try await service.execute(DesignFlowCommand(
+            kind: .runDesignSimulation,
+            designSpecPath: specURL.path(percentEncoded: false)
+        ))
+        #expect(simulation.designName == "agent-resistor-divider")
+        #expect(simulation.simulationStatus == "completed")
+
+        let roundTrip = try await service.execute(DesignFlowCommand(
+            kind: .runDesignRoundTrip,
+            designSpecPath: specURL.path(percentEncoded: false),
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "agent-resistor-divider-run",
+            approveSignoff: true,
+            maxAbsoluteDelta: 1.0e-3,
+            maxRelativeDelta: 2.0
+        ))
+        #expect(roundTrip.designName == "agent-resistor-divider")
+        #expect(roundTrip.runID == "agent-resistor-divider-run")
+        #expect(roundTrip.readyForPEX == true)
+        #expect(roundTrip.manifestPath?.hasSuffix("round-trip-manifest.json") == true)
+
+        let encoded = try JSONEncoder().encode(roundTrip)
+        let decoded = try JSONDecoder().decode(DesignFlowCommandResult.self, from: encoded)
+        #expect(decoded.designName == roundTrip.designName)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIRejectsUnsafeDesignSpecNamesAndDuplicateTerminals() async throws {
+        let root = try makeTemporaryRoot("invalid-design-spec")
+        defer { removeTemporaryRoot(root) }
+        let base = agentResistorDividerSpec()
+        let service = DesignFlowService()
+
+        let unsafeNameURL = root.appending(path: "unsafe-name.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "../escaped",
+            title: base.title,
+            components: base.components,
+            nets: base.nets,
+            analyses: base.analyses,
+            pexIR: base.pexIR?.core
+        ), to: unsafeNameURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.invalidDesignName("../escaped")) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: unsafeNameURL.path(percentEncoded: false)
+            ))
+        }
+
+        let duplicateTerminalURL = root.appending(path: "duplicate-terminal.json")
+        try writeDesignSpec(DesignFlowDesignSpec(
+            name: "duplicate-terminal",
+            title: base.title,
+            components: base.components,
+            nets: base.nets + [
+                DesignFlowDesignSpec.Net(
+                    name: "vin_copy",
+                    terminals: [
+                        DesignFlowDesignSpec.Terminal(component: "V1", port: "pos"),
+                    ]
+                ),
+            ],
+            analyses: base.analyses,
+            pexIR: base.pexIR?.core
+        ), to: duplicateTerminalURL)
+
+        await #expect(throws: DesignFlowDesignSpecError.duplicateTerminal(
+            component: "V1",
+            port: "pos",
+            firstNet: "vin",
+            secondNet: "vin_copy"
+        )) {
+            try await service.execute(DesignFlowCommand(
+                kind: .generateDesignNetlist,
+                designSpecPath: duplicateTerminalURL.path(percentEncoded: false)
+            ))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
     func commandAPIRunsFixtureRoundTripAndSummarizesBottlenecks() async throws {
         let root = try makeTemporaryRoot("command-round-trip")
         defer { removeTemporaryRoot(root) }
@@ -343,6 +441,88 @@ struct DesignFlowServiceTests {
             .appending(path: "CircuitStudioDesignFlowServiceTests-\(name)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
+    }
+
+    private func writeDesignSpec(_ spec: DesignFlowDesignSpec, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(spec)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func agentResistorDividerSpec() -> DesignFlowDesignSpec {
+        DesignFlowDesignSpec(
+            name: "agent-resistor-divider",
+            title: "Agent resistor divider",
+            components: [
+                DesignFlowDesignSpec.Component(
+                    name: "V1",
+                    deviceKindID: "vsource",
+                    parameters: ["dc": 5.0]
+                ),
+                DesignFlowDesignSpec.Component(
+                    name: "R1",
+                    deviceKindID: "resistor",
+                    parameters: ["r": 1_000]
+                ),
+                DesignFlowDesignSpec.Component(
+                    name: "R2",
+                    deviceKindID: "resistor",
+                    parameters: ["r": 1_000]
+                ),
+                DesignFlowDesignSpec.Component(
+                    name: "GND1",
+                    deviceKindID: "ground"
+                ),
+            ],
+            nets: [
+                DesignFlowDesignSpec.Net(
+                    name: "vin",
+                    terminals: [
+                        DesignFlowDesignSpec.Terminal(component: "V1", port: "pos"),
+                        DesignFlowDesignSpec.Terminal(component: "R1", port: "pos"),
+                    ]
+                ),
+                DesignFlowDesignSpec.Net(
+                    name: "out",
+                    terminals: [
+                        DesignFlowDesignSpec.Terminal(component: "R1", port: "neg"),
+                        DesignFlowDesignSpec.Terminal(component: "R2", port: "pos"),
+                    ]
+                ),
+                DesignFlowDesignSpec.Net(
+                    name: "0",
+                    terminals: [
+                        DesignFlowDesignSpec.Terminal(component: "V1", port: "neg"),
+                        DesignFlowDesignSpec.Terminal(component: "R2", port: "neg"),
+                        DesignFlowDesignSpec.Terminal(component: "GND1", port: "gnd"),
+                    ]
+                ),
+            ],
+            analyses: [
+                DesignFlowDesignSpec.Analysis(kind: .op),
+            ],
+            pexIR: PEXParasiticIR(
+                version: "1.0",
+                cornerID: "tt_25c_1v0",
+                elements: [
+                    PEXParasiticElement(
+                        id: "r_out",
+                        kind: .resistor,
+                        nodeA: "out",
+                        nodeB: "out_pex",
+                        value: 0.5
+                    ),
+                    PEXParasiticElement(
+                        id: "c_out",
+                        kind: .capacitor,
+                        nodeA: "out_pex",
+                        nodeB: nil,
+                        value: 1.0e-15
+                    ),
+                ]
+            )
+        )
     }
 
     private func removeTemporaryRoot(_ root: URL) {
