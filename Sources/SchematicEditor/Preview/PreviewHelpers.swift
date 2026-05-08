@@ -265,6 +265,57 @@ public enum SchematicPreview {
         return vm
     }
 
+    /// RC low-pass fixture arranged to match current passive auto-layout pin ordering.
+    public static func rcLowPassViewModel() -> SchematicViewModel {
+        let vm = SchematicViewModel()
+
+        let v1 = PlacedComponent(
+            deviceKindID: "vsource",
+            name: "V1",
+            position: CGPoint(x: 100, y: 150),
+            parameters: [
+                "pulse_v1": 0, "pulse_v2": 5,
+                "pulse_td": 1e-6, "pulse_tr": 0.1e-6, "pulse_tf": 0.1e-6,
+                "pulse_pw": 10e-6, "pulse_per": 20e-6,
+            ]
+        )
+        let r1 = PlacedComponent(
+            deviceKindID: "resistor",
+            name: "R1",
+            position: CGPoint(x: 200, y: 100),
+            parameters: ["r": 1000]
+        )
+        let c1 = PlacedComponent(
+            deviceKindID: "capacitor",
+            name: "C1",
+            position: CGPoint(x: 200, y: 200),
+            parameters: ["c": 1e-12]
+        )
+        let gnd = PlacedComponent(
+            deviceKindID: "ground",
+            name: "GND1",
+            position: CGPoint(x: 100, y: 250)
+        )
+
+        vm.document.components = [v1, r1, c1, gnd]
+
+        let inputA = Wire(startPoint: CGPoint(x: 100, y: 120), endPoint: CGPoint(x: 100, y: 130), startPin: PinReference(componentID: v1.id, portID: "pos"))
+        let inputB = Wire(startPoint: CGPoint(x: 100, y: 130), endPoint: CGPoint(x: 200, y: 130), endPin: PinReference(componentID: r1.id, portID: "neg"))
+
+        let outputA = Wire(startPoint: CGPoint(x: 200, y: 70), endPoint: CGPoint(x: 260, y: 70), startPin: PinReference(componentID: r1.id, portID: "pos"))
+        let outputB = Wire(startPoint: CGPoint(x: 260, y: 70), endPoint: CGPoint(x: 260, y: 230))
+        let outputC = Wire(startPoint: CGPoint(x: 260, y: 230), endPoint: CGPoint(x: 200, y: 230), endPin: PinReference(componentID: c1.id, portID: "neg"))
+
+        let groundA = Wire(startPoint: CGPoint(x: 100, y: 180), endPoint: CGPoint(x: 100, y: 170), startPin: PinReference(componentID: v1.id, portID: "neg"))
+        let groundB = Wire(startPoint: CGPoint(x: 100, y: 170), endPoint: CGPoint(x: 200, y: 170), endPin: PinReference(componentID: c1.id, portID: "pos"))
+        let groundC = Wire(startPoint: CGPoint(x: 100, y: 170), endPoint: CGPoint(x: 100, y: 240), endPin: PinReference(componentID: gnd.id, portID: "gnd"))
+
+        vm.document.wires = [inputA, inputB, outputA, outputB, outputC, groundA, groundB, groundC]
+        vm.document.labels = [NetLabel(name: "out", position: CGPoint(x: 260, y: 230))]
+        vm.recomputeJunctions()
+        return vm
+    }
+
     /// RC circuit with load resistor for observing effective time constant change.
     public static func rcLoadedStepViewModel() -> SchematicViewModel {
         let vm = SchematicViewModel()

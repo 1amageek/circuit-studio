@@ -42,6 +42,7 @@ public enum DesignFlowFixtureLibrary {
     public static let defaultFixtureName = "voltage-divider"
     public static let fixtureNames = [
         "cmos-inverter",
+        "rc-low-pass",
         "voltage-divider",
         "resistor-divider",
     ]
@@ -62,6 +63,23 @@ public enum DesignFlowFixtureLibrary {
                     cornerID: "tt_25c_1v0",
                     elements: [
                         PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
+                        PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
+                    ]
+                )
+            )
+        case "rc-low-pass":
+            let command = AnalysisCommand.tran(TranSpec(stopTime: 20e-6, stepTime: 0.1e-6))
+            return DesignFlowFixture(
+                name: name,
+                title: "RC low-pass headless round trip",
+                schematic: SchematicPreview.rcLowPassViewModel().document,
+                testbench: Testbench(name: "Transient", analysisCommands: [command]),
+                postLayoutCommand: command,
+                pexIR: PEXParasiticIR(
+                    version: "1.0",
+                    cornerID: "tt_25c_1v0",
+                    elements: [
+                        PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.25),
                         PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
                     ]
                 )

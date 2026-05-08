@@ -13,6 +13,7 @@ struct DesignFlowServiceTests {
         #expect(DesignFlowFixtureLibrary.defaultFixtureName == "voltage-divider")
         #expect(DesignFlowFixtureLibrary.fixtureNames == [
             "cmos-inverter",
+            "rc-low-pass",
             "voltage-divider",
             "resistor-divider",
         ])
@@ -713,6 +714,35 @@ struct DesignFlowServiceTests {
             designUnit: layout.designUnit,
             catalog: .standard()
         ))
+
+        #expect(layout.unroutedNets.isEmpty)
+        #expect(verification.drc.passed)
+        #expect(verification.lvs.passed)
+        #expect(verification.isReadyForPEX)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func unifiedAPIGeneratesRCLowPassLayoutAndRunsPrePEXVerification() throws {
+        let service = DesignFlowService()
+        let schematic = SchematicPreview.rcLowPassViewModel().document
+
+        let layout = try service.generateLayout(DesignFlowLayoutGenerationRequest(
+            schematic: schematic,
+            catalog: .standard()
+        ))
+        let verification = service.runPrePEXVerification(DesignFlowPrePEXVerificationRequest(
+            schematic: schematic,
+            layout: layout.document,
+            tech: layout.tech,
+            designUnit: layout.designUnit,
+            catalog: .standard()
+        ))
+
+        if !verification.isReadyForPEX {
+            Issue.record("DRC: \(verification.drc)")
+            Issue.record("LVS: \(verification.lvs)")
+        }
 
         #expect(layout.unroutedNets.isEmpty)
         #expect(verification.drc.passed)

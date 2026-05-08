@@ -95,6 +95,32 @@ struct HeadlessRoundTripServiceTests {
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
+    func rcLowPassCompletesHeadlessRoundTripWithArtifacts() async throws {
+        let command = AnalysisCommand.tran(TranSpec(stopTime: 20e-6, stepTime: 0.1e-6))
+        let pexIR = PEXParasiticIR(
+            version: "1.0",
+            cornerID: "tt_25c_1v0",
+            elements: [
+                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.25),
+                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
+            ]
+        )
+
+        let roundTrip = try await runRoundTrip(
+            rootName: "rc-low-pass-round-trip",
+            runID: "rc-low-pass-round-trip",
+            title: "RC low-pass headless round trip",
+            schematic: SchematicPreview.rcLowPassViewModel().document,
+            testbench: Testbench(name: "Transient", analysisCommands: [command]),
+            postLayoutCommand: command,
+            pexIR: pexIR
+        )
+
+        try assertCompletedRoundTrip(roundTrip)
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
     func voltageDividerCompletesRoundTripWithImportedSignoffReview() async throws {
         let root = try makeTemporaryRoot("voltage-divider-imported-signoff")
         defer { removeTemporaryRoot(root) }
