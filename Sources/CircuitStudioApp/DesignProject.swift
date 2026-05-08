@@ -21,7 +21,6 @@ public final class DesignProject {
     public let crossProbe: CrossProbeService
 
     // Auto-layout
-    private let autoLayoutService: AutoLayoutService
     public var designUnit: DesignUnit?
     public var layoutGenerationError: String?
     public var unroutedNets: [String] = []
@@ -51,7 +50,6 @@ public final class DesignProject {
         self.layoutViewModel = layoutViewModel
         self.waveformViewModel = waveformViewModel
         self.crossProbe = CrossProbeService()
-        self.autoLayoutService = AutoLayoutService()
     }
 
     /// Loads a technology file and converts it to a LayoutTechDatabase.
@@ -84,16 +82,24 @@ public final class DesignProject {
     /// Requires a valid schematic with components and wires.
     /// Updates layoutViewModel, crossProbe mappings, and designUnit on success.
     public func generateLayout(catalog: DeviceCatalog) {
+        generateLayout(
+            service: DesignFlowService(netlistGenerator: NetlistGenerator(catalog: catalog)),
+            catalog: catalog
+        )
+    }
+
+    /// Generates physical layout through the shared design-flow API.
+    public func generateLayout(service: DesignFlowService, catalog: DeviceCatalog) {
         layoutGenerationError = nil
         unroutedNets = []
         skippedComponents = []
 
         do {
-            let output = try autoLayoutService.generate(
-                from: schematicViewModel.document,
+            let output = try service.generateLayout(DesignFlowLayoutGenerationRequest(
+                schematic: schematicViewModel.document,
                 catalog: catalog,
                 tech: techDatabase
-            )
+            ))
 
             // Update layout editor
             layoutViewModel.editor = LayoutDocumentEditor(document: output.document)

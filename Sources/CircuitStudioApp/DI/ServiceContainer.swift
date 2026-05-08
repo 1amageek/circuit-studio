@@ -4,7 +4,7 @@ import CircuitStudioCore
 @MainActor
 public final class ServiceContainer {
     public let catalog: DeviceCatalog
-    public let simulationService: SimulationService
+    public let designFlowService: DesignFlowService
     public let waveformService: WaveformService
     public let designService: DesignService
     public let netlistGenerator: NetlistGenerator
@@ -15,8 +15,12 @@ public final class ServiceContainer {
 
     public init() {
         let catalog = DeviceCatalog.standard()
+        let simulationService = SimulationService()
         self.catalog = catalog
-        self.simulationService = SimulationService()
+        self.designFlowService = DesignFlowService(
+            simulationService: simulationService,
+            netlistGenerator: NetlistGenerator(catalog: catalog)
+        )
         self.waveformService = WaveformService()
         self.designService = DesignService(catalog: catalog)
         self.netlistGenerator = NetlistGenerator(catalog: catalog)

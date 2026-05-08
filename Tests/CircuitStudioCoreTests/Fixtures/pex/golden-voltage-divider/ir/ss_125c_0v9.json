@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "cornerID": { "value": "ss_125c_0v9" },
+  "units": {
+    "resistance": "kohm",
+    "capacitance": "fF",
+    "coordinate": "um"
+  },
+  "nets": [],
+  "elements": [
+    {
+      "id": "r_out_segment",
+      "kind": "resistor",
+      "nodeA": { "netName": { "value": "out" }, "nodeName": { "value": "out" } },
+      "nodeB": { "netName": { "value": "out" }, "nodeName": { "value": "out_pex" } },
+      "value": 0.0021,
+      "source": "golden-fixture"
+    },
+    {
+      "id": "c_out_to_substrate",
+      "kind": "capacitor",
+      "nodeA": { "netName": { "value": "out" }, "nodeName": { "value": "out_pex" } },
+      "nodeB": null,
+      "value": 5.7,
+      "source": "golden-fixture"
+    },
+    {
+      "id": "cc_vin_out",
+      "kind": "coupling",
+      "nodeA": { "netName": { "value": "vin" }, "nodeName": { "value": "vin" } },
+      "nodeB": { "netName": { "value": "out" }, "nodeName": { "value": "out_pex" } },
+      "value": 0.49,
+      "source": "golden-fixture"
+    }
+  ]
+}

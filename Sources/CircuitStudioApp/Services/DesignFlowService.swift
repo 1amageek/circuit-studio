@@ -1,0 +1,704 @@
+import Foundation
+import CircuitStudioCore
+import CoreSpiceWaveform
+import LayoutCore
+import LayoutTech
+
+public struct DesignFlowSPICESimulationRequest: Sendable {
+    public let source: String
+    public let fileName: String?
+    public let processConfiguration: ProcessConfiguration?
+    public let onWaveformUpdate: (@Sendable (WaveformData) -> Void)?
+
+    public init(
+        source: String,
+        fileName: String?,
+        processConfiguration: ProcessConfiguration? = nil,
+        onWaveformUpdate: (@Sendable (WaveformData) -> Void)? = nil
+    ) {
+        self.source = source
+        self.fileName = fileName
+        self.processConfiguration = processConfiguration
+        self.onWaveformUpdate = onWaveformUpdate
+    }
+}
+
+public struct DesignFlowSchematicSimulationRequest: Sendable {
+    public let schematic: SchematicDocument
+    public let title: String?
+    public let testbench: Testbench
+    public let processConfiguration: ProcessConfiguration?
+    public let onWaveformUpdate: (@Sendable (WaveformData) -> Void)?
+
+    public init(
+        schematic: SchematicDocument,
+        title: String? = nil,
+        testbench: Testbench,
+        processConfiguration: ProcessConfiguration? = nil,
+        onWaveformUpdate: (@Sendable (WaveformData) -> Void)? = nil
+    ) {
+        self.schematic = schematic
+        self.title = title
+        self.testbench = testbench
+        self.processConfiguration = processConfiguration
+        self.onWaveformUpdate = onWaveformUpdate
+    }
+}
+
+public struct DesignFlowSchematicSimulationResult: Sendable {
+    public let netlist: String
+    public let simulationResult: SimulationResult
+
+    public init(netlist: String, simulationResult: SimulationResult) {
+        self.netlist = netlist
+        self.simulationResult = simulationResult
+    }
+}
+
+public struct DesignFlowNetlistRequest: Sendable {
+    public let schematic: SchematicDocument
+    public let title: String?
+    public let testbench: Testbench?
+    public let processConfiguration: ProcessConfiguration?
+
+    public init(
+        schematic: SchematicDocument,
+        title: String? = nil,
+        testbench: Testbench? = nil,
+        processConfiguration: ProcessConfiguration? = nil
+    ) {
+        self.schematic = schematic
+        self.title = title
+        self.testbench = testbench
+        self.processConfiguration = processConfiguration
+    }
+}
+
+public struct DesignFlowLayoutGenerationRequest: Sendable {
+    public let schematic: SchematicDocument
+    public let catalog: DeviceCatalog
+    public let tech: LayoutTechDatabase?
+    public let placementStrategy: PlacementStrategy
+    public let routingStrategy: RoutingStrategy
+    public let constraints: [LayoutConstraint]
+
+    public init(
+        schematic: SchematicDocument,
+        catalog: DeviceCatalog = .standard(),
+        tech: LayoutTechDatabase? = nil,
+        placementStrategy: PlacementStrategy = .greedy,
+        routingStrategy: RoutingStrategy = .simple,
+        constraints: [LayoutConstraint] = []
+    ) {
+        self.schematic = schematic
+        self.catalog = catalog
+        self.tech = tech
+        self.placementStrategy = placementStrategy
+        self.routingStrategy = routingStrategy
+        self.constraints = constraints
+    }
+}
+
+public struct DesignFlowPrePEXVerificationRequest: Sendable {
+    public let schematic: SchematicDocument
+    public let layout: LayoutDocument
+    public let tech: LayoutTechDatabase
+    public let designUnit: DesignUnit?
+    public let catalog: DeviceCatalog
+    public let externalSignoff: ExternalSignoffReview?
+
+    public init(
+        schematic: SchematicDocument,
+        layout: LayoutDocument,
+        tech: LayoutTechDatabase,
+        designUnit: DesignUnit?,
+        catalog: DeviceCatalog = .standard(),
+        externalSignoff: ExternalSignoffReview? = nil
+    ) {
+        self.schematic = schematic
+        self.layout = layout
+        self.tech = tech
+        self.designUnit = designUnit
+        self.catalog = catalog
+        self.externalSignoff = externalSignoff
+    }
+}
+
+public struct DesignFlowPostLayoutSimulationRequest: Sendable {
+    public let baseNetlist: String
+    public let parasitics: PEXParasiticIR
+    public let command: AnalysisCommand
+    public let processConfiguration: ProcessConfiguration?
+
+    public init(
+        baseNetlist: String,
+        parasitics: PEXParasiticIR,
+        command: AnalysisCommand,
+        processConfiguration: ProcessConfiguration? = nil
+    ) {
+        self.baseNetlist = baseNetlist
+        self.parasitics = parasitics
+        self.command = command
+        self.processConfiguration = processConfiguration
+    }
+}
+
+public struct DesignFlowRoundTripRequest {
+    public let schematic: SchematicDocument
+    public let configuration: HeadlessRoundTripService.Configuration
+
+    public init(
+        schematic: SchematicDocument,
+        configuration: HeadlessRoundTripService.Configuration
+    ) {
+        self.schematic = schematic
+        self.configuration = configuration
+    }
+}
+
+public struct DesignFlowPEXInput: Sendable, Hashable {
+    public let ir: PEXParasiticIR
+    public let artifactPaths: [String]
+
+    public init(ir: PEXParasiticIR, artifactPaths: [String]) {
+        self.ir = ir
+        self.artifactPaths = artifactPaths
+    }
+}
+
+public struct DesignFlowCommand: Sendable, Hashable, Codable {
+    public enum Kind: String, Sendable, Hashable, Codable {
+        case listFixtures
+        case generateFixtureNetlist
+        case runFixtureSimulation
+        case runFixtureRoundTrip
+        case summarizeBottlenecks
+    }
+
+    public let kind: Kind
+    public let fixtureName: String?
+    public let projectRootPath: String?
+    public let runID: String?
+    public let approveSignoff: Bool
+    public let pexManifestPath: String?
+    public let pexCornerID: String?
+    public let signoffDRCLogPath: String?
+    public let signoffLVSLogPath: String?
+    public let maxAbsoluteDelta: Double?
+    public let maxRelativeDelta: Double?
+
+    public init(
+        kind: Kind,
+        fixtureName: String? = nil,
+        projectRootPath: String? = nil,
+        runID: String? = nil,
+        approveSignoff: Bool = false,
+        pexManifestPath: String? = nil,
+        pexCornerID: String? = nil,
+        signoffDRCLogPath: String? = nil,
+        signoffLVSLogPath: String? = nil,
+        maxAbsoluteDelta: Double? = nil,
+        maxRelativeDelta: Double? = nil
+    ) {
+        self.kind = kind
+        self.fixtureName = fixtureName
+        self.projectRootPath = projectRootPath
+        self.runID = runID
+        self.approveSignoff = approveSignoff
+        self.pexManifestPath = pexManifestPath
+        self.pexCornerID = pexCornerID
+        self.signoffDRCLogPath = signoffDRCLogPath
+        self.signoffLVSLogPath = signoffLVSLogPath
+        self.maxAbsoluteDelta = maxAbsoluteDelta
+        self.maxRelativeDelta = maxRelativeDelta
+    }
+
+    public static func listFixtures() -> DesignFlowCommand {
+        DesignFlowCommand(kind: .listFixtures)
+    }
+}
+
+public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
+    public let kind: DesignFlowCommand.Kind
+    public let fixtureNames: [String]
+    public let fixtureName: String?
+    public let runID: String?
+    public let netlist: String?
+    public let simulationStatus: String?
+    public let projectRootPath: String?
+    public let manifestPath: String?
+    public let readyForPEX: Bool?
+    public let pexCornerID: String?
+    public let pexElementCount: Int?
+    public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
+    public let bottleneckHistory: RoundTripBottleneckHistoryService.Summary?
+    public let message: String?
+
+    public init(
+        kind: DesignFlowCommand.Kind,
+        fixtureNames: [String] = [],
+        fixtureName: String? = nil,
+        runID: String? = nil,
+        netlist: String? = nil,
+        simulationStatus: String? = nil,
+        projectRootPath: String? = nil,
+        manifestPath: String? = nil,
+        readyForPEX: Bool? = nil,
+        pexCornerID: String? = nil,
+        pexElementCount: Int? = nil,
+        bottleneckSummary: HeadlessRoundTripService.BottleneckSummary? = nil,
+        bottleneckHistory: RoundTripBottleneckHistoryService.Summary? = nil,
+        message: String? = nil
+    ) {
+        self.kind = kind
+        self.fixtureNames = fixtureNames
+        self.fixtureName = fixtureName
+        self.runID = runID
+        self.netlist = netlist
+        self.simulationStatus = simulationStatus
+        self.projectRootPath = projectRootPath
+        self.manifestPath = manifestPath
+        self.readyForPEX = readyForPEX
+        self.pexCornerID = pexCornerID
+        self.pexElementCount = pexElementCount
+        self.bottleneckSummary = bottleneckSummary
+        self.bottleneckHistory = bottleneckHistory
+        self.message = message
+    }
+}
+
+public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
+    case missingFixtureName
+    case missingProjectRoot
+    case incompleteSignoffLogPair
+    case invalidComparisonLimits([String])
+
+    public var errorDescription: String? {
+        switch self {
+        case .missingFixtureName:
+            return "Design flow command requires a fixture name."
+        case .missingProjectRoot:
+            return "Design flow command requires a project root path."
+        case .incompleteSignoffLogPair:
+            return "Both DRC and LVS signoff log paths are required when importing signoff logs."
+        case .invalidComparisonLimits(let diagnostics):
+            return diagnostics.joined(separator: "; ")
+        }
+    }
+}
+
+public struct DesignFlowService: Sendable {
+    private let simulationService: SimulationService
+    private let netlistGenerator: NetlistGenerator
+
+    public init(
+        simulationService: SimulationService = SimulationService(),
+        netlistGenerator: NetlistGenerator = NetlistGenerator()
+    ) {
+        self.simulationService = simulationService
+        self.netlistGenerator = netlistGenerator
+    }
+
+    public var activeSimulationJobID: UUID? {
+        simulationService.activeJobID
+    }
+
+    @discardableResult
+    public func cancelActiveSimulation() -> UUID? {
+        guard let jobID = simulationService.activeJobID else {
+            return nil
+        }
+        simulationService.cancel(jobID: jobID)
+        return jobID
+    }
+
+    public func runSPICESimulation(
+        _ request: DesignFlowSPICESimulationRequest
+    ) async throws -> SimulationResult {
+        try await simulationService.runSPICE(
+            source: request.source,
+            fileName: request.fileName,
+            processConfiguration: request.processConfiguration,
+            onWaveformUpdate: request.onWaveformUpdate
+        )
+    }
+
+    public func generateNetlist(_ request: DesignFlowNetlistRequest) -> String {
+        if let testbench = request.testbench {
+            return netlistGenerator.generate(
+                from: request.schematic,
+                title: request.title ?? "Schematic",
+                testbench: testbench,
+                processConfiguration: request.processConfiguration
+            )
+        }
+        return netlistGenerator.generate(
+            from: request.schematic,
+            title: request.title ?? "Schematic"
+        )
+    }
+
+    public func runAnalysis(
+        source: String,
+        fileName: String?,
+        processConfiguration: ProcessConfiguration?,
+        command: AnalysisCommand
+    ) async throws -> SimulationResult {
+        try await simulationService.runAnalysis(
+            source: source,
+            fileName: fileName,
+            processConfiguration: processConfiguration,
+            command: command
+        )
+    }
+
+    public func runSchematicSimulation(
+        _ request: DesignFlowSchematicSimulationRequest
+    ) async throws -> DesignFlowSchematicSimulationResult {
+        let netlist = generateNetlist(DesignFlowNetlistRequest(
+            schematic: request.schematic,
+            title: request.title ?? "Schematic Simulation",
+            testbench: request.testbench,
+            processConfiguration: request.processConfiguration
+        ))
+        let result = try await simulationService.runSPICE(
+            source: netlist,
+            fileName: "schematic.cir",
+            processConfiguration: request.processConfiguration,
+            onWaveformUpdate: request.onWaveformUpdate
+        )
+        return DesignFlowSchematicSimulationResult(
+            netlist: netlist,
+            simulationResult: result
+        )
+    }
+
+    @MainActor
+    public func generateLayout(
+        _ request: DesignFlowLayoutGenerationRequest
+    ) throws -> AutoLayoutOutput {
+        try AutoLayoutService().generate(
+            from: request.schematic,
+            catalog: request.catalog,
+            tech: request.tech,
+            placementStrategy: request.placementStrategy,
+            routingStrategy: request.routingStrategy,
+            constraints: request.constraints
+        )
+    }
+
+    public func runPrePEXVerification(
+        _ request: DesignFlowPrePEXVerificationRequest
+    ) -> PhysicalVerificationReport {
+        PhysicalVerificationService().runPrePEXVerification(
+            schematic: request.schematic,
+            layout: request.layout,
+            tech: request.tech,
+            designUnit: request.designUnit,
+            catalog: request.catalog,
+            externalSignoff: request.externalSignoff
+        )
+    }
+
+    public func buildPostLayoutNetlist(
+        baseNetlist: String,
+        parasitics: PEXParasiticIR
+    ) -> String {
+        PostLayoutSimulationService().buildPostLayoutNetlist(
+            baseNetlist: baseNetlist,
+            parasitics: parasitics
+        )
+    }
+
+    public func runPostLayoutSimulation(
+        _ request: DesignFlowPostLayoutSimulationRequest
+    ) async throws -> SimulationResult {
+        try await PostLayoutSimulationService().runPostLayoutAnalysis(
+            baseNetlist: request.baseNetlist,
+            parasitics: request.parasitics,
+            command: request.command,
+            processConfiguration: request.processConfiguration,
+            simulationService: simulationService
+        )
+    }
+
+    public func comparePostLayout(
+        preLayoutResult: SimulationResult,
+        postLayoutResult: SimulationResult,
+        limits: PostLayoutComparisonLimits? = nil
+    ) -> PostLayoutComparisonReport {
+        PostLayoutComparisonService().compare(
+            preLayoutResult: preLayoutResult,
+            postLayoutResult: postLayoutResult
+        ).applyingLimits(limits)
+    }
+
+    @MainActor
+    public func runRoundTrip(
+        _ request: DesignFlowRoundTripRequest
+    ) async throws -> HeadlessRoundTripService.Result {
+        try await HeadlessRoundTripService().run(
+            schematic: request.schematic,
+            configuration: request.configuration
+        )
+    }
+
+    public func loadPEXInput(
+        manifestURL: URL,
+        cornerID: String
+    ) throws -> DesignFlowPEXInput {
+        let service = PEXArtifactService()
+        let artifacts = try service.loadArtifacts(manifestURL: manifestURL)
+        let ir = try service.loadIR(for: cornerID, artifacts: artifacts)
+        var artifactPaths = [manifestURL.path(percentEncoded: false)]
+        if let corner = artifacts.corner(id: cornerID) {
+            artifactPaths.append(contentsOf: corner.rawFileURLs.map { $0.path(percentEncoded: false) })
+            if let irURL = corner.irURL {
+                artifactPaths.append(irURL.path(percentEncoded: false))
+            }
+            if let logURL = corner.logURL {
+                artifactPaths.append(logURL.path(percentEncoded: false))
+            }
+        }
+        return DesignFlowPEXInput(ir: ir, artifactPaths: artifactPaths)
+    }
+
+    public func loadExternalSignoffReview(
+        logs: [ExternalSignoffLogArtifact]
+    ) throws -> ExternalSignoffReview {
+        try ExternalSignoffArtifactService().load(logs: logs)
+    }
+
+    public func summarizeBottlenecks(
+        projectRoot: URL
+    ) throws -> RoundTripBottleneckHistoryService.Summary {
+        try RoundTripBottleneckHistoryService().summarize(projectRoot: projectRoot)
+    }
+
+    @MainActor
+    public func execute(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
+        switch command.kind {
+        case .listFixtures:
+            return DesignFlowCommandResult(
+                kind: command.kind,
+                fixtureNames: DesignFlowFixtureLibrary.fixtureNames
+            )
+        case .generateFixtureNetlist:
+            let fixture = try fixture(for: command)
+            let netlist = generateNetlist(DesignFlowNetlistRequest(
+                schematic: fixture.schematic,
+                title: fixture.title,
+                testbench: fixture.testbench
+            ))
+            return DesignFlowCommandResult(
+                kind: command.kind,
+                fixtureName: fixture.name,
+                netlist: netlist
+            )
+        case .runFixtureSimulation:
+            let fixture = try fixture(for: command)
+            let result = try await runSchematicSimulation(DesignFlowSchematicSimulationRequest(
+                schematic: fixture.schematic,
+                title: fixture.title,
+                testbench: fixture.testbench
+            ))
+            return DesignFlowCommandResult(
+                kind: command.kind,
+                fixtureName: fixture.name,
+                netlist: result.netlist,
+                simulationStatus: result.simulationResult.status.rawValue
+            )
+        case .runFixtureRoundTrip:
+            return try await runFixtureRoundTrip(command)
+        case .summarizeBottlenecks:
+            guard let projectRootPath = command.projectRootPath else {
+                throw DesignFlowCommandError.missingProjectRoot
+            }
+            let projectRoot = URL(filePath: projectRootPath)
+            let summary = try summarizeBottlenecks(projectRoot: projectRoot)
+            return DesignFlowCommandResult(
+                kind: command.kind,
+                projectRootPath: projectRoot.path(percentEncoded: false),
+                bottleneckHistory: summary
+            )
+        }
+    }
+
+    @MainActor
+    private func runFixtureRoundTrip(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
+        let fixture = try fixture(for: command)
+        let runID = command.runID ?? "\(fixture.name)-\(Self.timestamp())"
+        try HeadlessRoundTripService.validateRunID(runID)
+        try validateSignoffLogPair(in: command)
+        let limits = try comparisonLimits(from: command)
+
+        let pexInput: DesignFlowPEXInput
+        if let pexManifestPath = command.pexManifestPath {
+            pexInput = try loadPEXInput(
+                manifestURL: URL(filePath: pexManifestPath),
+                cornerID: command.pexCornerID ?? "tt_25c_1v0"
+            )
+        } else {
+            pexInput = DesignFlowPEXInput(ir: fixture.pexIR, artifactPaths: [])
+        }
+
+        let externalSignoffReview = try loadExternalSignoffReview(from: command)
+        let projectRoot = URL(filePath: command.projectRootPath ?? defaultCommandProjectRoot(fixtureName: fixture.name))
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+
+        let signoffCommands = externalSignoffReview == nil
+            ? try makeMockSignoffCommands(in: projectRoot)
+            : []
+        let configuration = HeadlessRoundTripService.Configuration(
+            projectRoot: projectRoot,
+            runID: runID,
+            title: fixture.title,
+            testbench: fixture.testbench,
+            postLayoutCommand: fixture.postLayoutCommand,
+            pexIR: pexInput.ir,
+            pexArtifactPaths: pexInput.artifactPaths,
+            postLayoutComparisonLimits: limits,
+            externalSignoffCommands: signoffCommands,
+            externalSignoffReview: externalSignoffReview,
+            approvedBy: command.approveSignoff ? "design-flow-command" : nil,
+            approvedAt: command.approveSignoff ? Date() : nil,
+            createdAt: Date()
+        )
+
+        let result = try await runRoundTrip(DesignFlowRoundTripRequest(
+            schematic: fixture.schematic,
+            configuration: configuration
+        ))
+        return DesignFlowCommandResult(
+            kind: command.kind,
+            fixtureName: fixture.name,
+            runID: runID,
+            projectRootPath: projectRoot.path(percentEncoded: false),
+            manifestPath: result.manifestURL.path(percentEncoded: false),
+            readyForPEX: result.manifest.isReadyForPEX,
+            pexCornerID: pexInput.ir.cornerID,
+            pexElementCount: pexInput.ir.elements.count,
+            bottleneckSummary: result.manifest.bottleneckSummary
+        )
+    }
+
+    @MainActor
+    private func fixture(for command: DesignFlowCommand) throws -> DesignFlowFixture {
+        guard let fixtureName = command.fixtureName else {
+            throw DesignFlowCommandError.missingFixtureName
+        }
+        return try DesignFlowFixtureLibrary.fixture(named: fixtureName)
+    }
+
+    private func validateSignoffLogPair(in command: DesignFlowCommand) throws {
+        switch (command.signoffDRCLogPath, command.signoffLVSLogPath) {
+        case (nil, nil), (.some, .some):
+            return
+        case (.some, nil), (nil, .some):
+            throw DesignFlowCommandError.incompleteSignoffLogPair
+        }
+    }
+
+    private func comparisonLimits(from command: DesignFlowCommand) throws -> PostLayoutComparisonLimits? {
+        guard command.maxAbsoluteDelta != nil || command.maxRelativeDelta != nil else {
+            return nil
+        }
+        let limits = PostLayoutComparisonLimits(
+            maxAbsoluteDelta: command.maxAbsoluteDelta,
+            maxRelativeDelta: command.maxRelativeDelta
+        )
+        let diagnostics = limits.validationDiagnostics()
+        guard diagnostics.isEmpty else {
+            throw DesignFlowCommandError.invalidComparisonLimits(diagnostics)
+        }
+        return limits
+    }
+
+    private func loadExternalSignoffReview(from command: DesignFlowCommand) throws -> ExternalSignoffReview? {
+        switch (command.signoffDRCLogPath, command.signoffLVSLogPath) {
+        case (nil, nil):
+            return nil
+        case (.some(let drcPath), .some(let lvsPath)):
+            return try loadExternalSignoffReview(logs: [
+                ExternalSignoffLogArtifact(
+                    kind: .drc,
+                    toolName: "imported-drc",
+                    logURL: URL(filePath: drcPath),
+                    success: true
+                ),
+                ExternalSignoffLogArtifact(
+                    kind: .lvs,
+                    toolName: "imported-lvs",
+                    logURL: URL(filePath: lvsPath),
+                    success: true
+                ),
+            ])
+        case (.some, nil), (nil, .some):
+            throw DesignFlowCommandError.incompleteSignoffLogPair
+        }
+    }
+
+    private func makeMockSignoffCommands(in projectRoot: URL) throws -> [ExternalSignoffCommand] {
+        let toolDirectory = projectRoot
+            .appending(path: ".xcircuite")
+            .appending(path: "tools")
+        try FileManager.default.createDirectory(at: toolDirectory, withIntermediateDirectories: true)
+
+        let drc = try writeExecutable(
+            named: "mock-drc",
+            in: toolDirectory,
+            contents: """
+            #!/bin/sh
+            printf '[INFO] rule=DRC_CLEAN message="clean drc"\\n'
+            exit 0
+            """
+        )
+        let lvs = try writeExecutable(
+            named: "mock-lvs",
+            in: toolDirectory,
+            contents: """
+            #!/bin/sh
+            printf '[INFO] rule=LVS_MATCH message="clean lvs"\\n'
+            exit 0
+            """
+        )
+
+        return [
+            ExternalSignoffCommand(
+                kind: .drc,
+                toolName: "mock-drc",
+                executablePath: drc.path(percentEncoded: false)
+            ),
+            ExternalSignoffCommand(
+                kind: .lvs,
+                toolName: lvs.lastPathComponent,
+                executablePath: lvs.path(percentEncoded: false)
+            ),
+        ]
+    }
+
+    private func writeExecutable(named name: String, in directory: URL, contents: String) throws -> URL {
+        let url = directory.appending(path: name)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o755))],
+            ofItemAtPath: url.path(percentEncoded: false)
+        )
+        return url
+    }
+
+    private func defaultCommandProjectRoot(fixtureName: String) -> String {
+        URL(filePath: FileManager.default.currentDirectoryPath)
+            .appending(path: "round-trip-runs")
+            .appending(path: fixtureName)
+            .path(percentEncoded: false)
+    }
+
+    private static func timestamp() -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Date())
+            .replacingOccurrences(of: ":", with: "")
+            .replacingOccurrences(of: ".", with: "")
+    }
+}

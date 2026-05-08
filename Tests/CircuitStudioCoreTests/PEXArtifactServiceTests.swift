@@ -169,7 +169,7 @@ struct PEXArtifactServiceTests {
         #expect(artifacts.runID == "golden-voltage-divider")
         #expect(artifacts.backendID == "golden-fixture")
         #expect(artifacts.status == "success")
-        #expect(artifacts.corners.count == 1)
+        #expect(artifacts.corners.count == 2)
         #expect(artifacts.corners[0].rawFileURLs.count == 1)
         #expect(artifacts.corners[0].logURL?.lastPathComponent == "extraction.log")
         #expect(ir.units == .canonical)
@@ -189,6 +189,50 @@ struct PEXArtifactServiceTests {
         #expect(postLayoutNetlist.contains("RPEX_r_out_segment out out_pex 1.5"))
         #expect(postLayoutNetlist.contains("CPEX_c_out_to_substrate out_pex 0 4.2e-15"))
         #expect(result.status == .completed)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func goldenPEXFixtureRunsMultiCornerPostLayoutGates() async throws {
+        let manifestURL = try fixtureURL(
+            "manifest",
+            extension: "json",
+            subdirectory: "pex/golden-voltage-divider"
+        )
+        let artifacts = try PEXArtifactService().loadArtifacts(manifestURL: manifestURL)
+        let baseNetlist = """
+        * Voltage divider fixture
+        V1 vin 0 1
+        R1 vin out 1000
+        R2 out 0 1000
+        .op
+        .end
+        """
+        let preLayoutResult = try await SimulationService().runSPICE(source: baseNetlist, fileName: nil)
+        let postLayoutService = PostLayoutSimulationService()
+        let comparisonService = PostLayoutComparisonService()
+        let limits = PostLayoutComparisonLimits(maxAbsoluteDelta: 1.0e-6, maxRelativeDelta: 1.0e-6)
+        var observedCorners: [String] = []
+
+        for cornerID in ["tt_25c_1v0", "ss_125c_0v9"] {
+            let ir = try PEXArtifactService().loadIR(for: cornerID, artifacts: artifacts)
+            let postLayoutResult = try await postLayoutService.runPostLayoutAnalysis(
+                baseNetlist: baseNetlist,
+                parasitics: ir,
+                command: .op
+            )
+            let report = comparisonService.compare(
+                preLayoutResult: preLayoutResult,
+                postLayoutResult: postLayoutResult
+            ).applyingLimits(limits)
+
+            observedCorners.append(ir.cornerID)
+            #expect(ir.elements.count == 3)
+            #expect(postLayoutResult.status == .completed)
+            #expect(report.status == "compared")
+            #expect(report.gateStatus == "passed")
+        }
+
+        #expect(observedCorners == ["tt_25c_1v0", "ss_125c_0v9"])
     }
 
     private func makeTemporaryRoot(_ name: String) throws -> URL {

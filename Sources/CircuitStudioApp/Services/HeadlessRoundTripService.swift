@@ -104,6 +104,7 @@ public final class HeadlessRoundTripService {
         public let isReadyForPEX: Bool
         public let stages: [Stage]
         public let artifacts: [Artifact]
+        public let bottleneckSummary: BottleneckSummary?
 
         public init(
             runID: String,
@@ -112,7 +113,8 @@ public final class HeadlessRoundTripService {
             isRoundTripComplete: Bool,
             isReadyForPEX: Bool,
             stages: [Stage],
-            artifacts: [Artifact]
+            artifacts: [Artifact],
+            bottleneckSummary: BottleneckSummary? = nil
         ) {
             self.runID = runID
             self.title = title
@@ -121,6 +123,7 @@ public final class HeadlessRoundTripService {
             self.isReadyForPEX = isReadyForPEX
             self.stages = stages
             self.artifacts = artifacts
+            self.bottleneckSummary = bottleneckSummary
         }
     }
 
@@ -134,11 +137,40 @@ public final class HeadlessRoundTripService {
         public let name: String
         public let status: Status
         public let message: String?
+        public let durationSeconds: Double?
 
-        public init(name: String, status: Status, message: String? = nil) {
+        public init(
+            name: String,
+            status: Status,
+            message: String? = nil,
+            durationSeconds: Double? = nil
+        ) {
             self.name = name
             self.status = status
             self.message = message
+            self.durationSeconds = durationSeconds
+        }
+    }
+
+    public struct BottleneckSummary: Sendable, Hashable, Codable {
+        public let totalMeasuredDurationSeconds: Double
+        public let longestStageName: String?
+        public let longestStageDurationSeconds: Double?
+        public let failedStageName: String?
+        public let recommendations: [String]
+
+        public init(
+            totalMeasuredDurationSeconds: Double,
+            longestStageName: String?,
+            longestStageDurationSeconds: Double?,
+            failedStageName: String?,
+            recommendations: [String]
+        ) {
+            self.totalMeasuredDurationSeconds = totalMeasuredDurationSeconds
+            self.longestStageName = longestStageName
+            self.longestStageDurationSeconds = longestStageDurationSeconds
+            self.failedStageName = failedStageName
+            self.recommendations = recommendations
         }
     }
 
@@ -160,6 +192,9 @@ public final class HeadlessRoundTripService {
         schematic: SchematicDocument,
         configuration: Configuration
     ) async throws -> Result {
+        try Self.validateRunID(configuration.runID)
+        try validateComparisonLimits(configuration.postLayoutComparisonLimits)
+
         let projectService = ProjectService()
         if !projectService.isProject(configuration.projectRoot) {
             try projectService.createProject(at: configuration.projectRoot)
@@ -174,11 +209,13 @@ public final class HeadlessRoundTripService {
         var stages: [Stage] = []
         var artifacts: [Artifact] = []
 
+        let netExtractionStartedAt = Date()
         let nets = NetExtractor().extract(from: schematic)
         stages.append(Stage(
             name: "net-extraction",
             status: nets.isEmpty ? .failed : .passed,
-            message: "\(nets.count) nets"
+            message: "\(nets.count) nets",
+            durationSeconds: duration(since: netExtractionStartedAt)
         ))
         guard !nets.isEmpty else {
             try failRun(
@@ -190,6 +227,7 @@ public final class HeadlessRoundTripService {
             )
         }
 
+        let netlistGenerationStartedAt = Date()
         let baseNetlist = NetlistGenerator().generate(
             from: schematic,
             title: configuration.title,
@@ -198,9 +236,14 @@ public final class HeadlessRoundTripService {
         let preLayoutNetlistURL = runDirectory.appending(path: "pre-layout.cir")
         try write(baseNetlist, to: preLayoutNetlistURL)
         artifacts.append(Artifact(kind: "pre-layout-netlist", path: preLayoutNetlistURL.path(percentEncoded: false)))
-        stages.append(Stage(name: "netlist-generation", status: .passed))
+        stages.append(Stage(
+            name: "netlist-generation",
+            status: .passed,
+            durationSeconds: duration(since: netlistGenerationStartedAt)
+        ))
 
         let preLayoutResult: SimulationResult
+        let preLayoutSimulationStartedAt = Date()
         do {
             preLayoutResult = try await SimulationService().runSPICE(
                 source: baseNetlist,
@@ -210,7 +253,8 @@ public final class HeadlessRoundTripService {
             stages.append(Stage(
                 name: "pre-layout-simulation",
                 status: .failed,
-                message: error.localizedDescription
+                message: error.localizedDescription,
+                durationSeconds: duration(since: preLayoutSimulationStartedAt)
             ))
             try failRun(
                 configuration: configuration,
@@ -223,7 +267,8 @@ public final class HeadlessRoundTripService {
         stages.append(Stage(
             name: "pre-layout-simulation",
             status: preLayoutResult.status == .completed ? .passed : .failed,
-            message: preLayoutResult.status.rawValue
+            message: preLayoutResult.status.rawValue,
+            durationSeconds: duration(since: preLayoutSimulationStartedAt)
         ))
         guard preLayoutResult.status == .completed else {
             try failRun(
@@ -236,6 +281,7 @@ public final class HeadlessRoundTripService {
         }
 
         let layoutOutput: AutoLayoutOutput
+        let autoLayoutStartedAt = Date()
         do {
             layoutOutput = try AutoLayoutService().generate(
                 from: schematic,
@@ -245,7 +291,8 @@ public final class HeadlessRoundTripService {
             stages.append(Stage(
                 name: "auto-layout",
                 status: .failed,
-                message: error.localizedDescription
+                message: error.localizedDescription,
+                durationSeconds: duration(since: autoLayoutStartedAt)
             ))
             try failRun(
                 configuration: configuration,
@@ -258,7 +305,8 @@ public final class HeadlessRoundTripService {
         stages.append(Stage(
             name: "auto-layout",
             status: layoutOutput.unroutedNets.isEmpty ? .passed : .failed,
-            message: layoutOutput.unroutedNets.isEmpty ? nil : "Unrouted nets: \(layoutOutput.unroutedNets.joined(separator: ", "))"
+            message: layoutOutput.unroutedNets.isEmpty ? nil : "Unrouted nets: \(layoutOutput.unroutedNets.joined(separator: ", "))",
+            durationSeconds: duration(since: autoLayoutStartedAt)
         ))
         guard layoutOutput.unroutedNets.isEmpty else {
             try failRun(
@@ -271,6 +319,7 @@ public final class HeadlessRoundTripService {
         }
 
         let externalSignoff: ExternalSignoffReview?
+        let externalSignoffStartedAt = Date()
         do {
             externalSignoff = try runExternalSignoffIfNeeded(
                 configuration: configuration,
@@ -280,7 +329,8 @@ public final class HeadlessRoundTripService {
             stages.append(Stage(
                 name: "external-signoff",
                 status: .failed,
-                message: error.localizedDescription
+                message: error.localizedDescription,
+                durationSeconds: duration(since: externalSignoffStartedAt)
             ))
             try failRun(
                 configuration: configuration,
@@ -298,22 +348,26 @@ public final class HeadlessRoundTripService {
                     runDirectory: runDirectory,
                     subdirectory: "signoff"
                 ))
-                artifacts.append(Artifact(
+                let reviewURL = ExternalSignoffReviewStore()
+                    .reviewURL(projectRoot: configuration.projectRoot)
+                artifacts.append(contentsOf: try captureInputArtifacts(
+                    paths: [reviewURL.path(percentEncoded: false)],
                     kind: "external-signoff-review",
-                    path: ExternalSignoffReviewStore()
-                        .reviewURL(projectRoot: configuration.projectRoot)
-                        .path(percentEncoded: false)
+                    runDirectory: runDirectory,
+                    subdirectory: "signoff"
                 ))
                 stages.append(Stage(
                     name: "external-signoff",
                     status: externalSignoff.isReadyForPEX ? .passed : .failed,
-                    message: externalSignoff.isReadyForPEX ? nil : "external signoff not ready"
+                    message: externalSignoff.isReadyForPEX ? nil : "external signoff not ready",
+                    durationSeconds: duration(since: externalSignoffStartedAt)
                 ))
             } catch {
                 stages.append(Stage(
                     name: "external-signoff",
                     status: .failed,
-                    message: error.localizedDescription
+                    message: error.localizedDescription,
+                    durationSeconds: duration(since: externalSignoffStartedAt)
                 ))
                 try failRun(
                     configuration: configuration,
@@ -325,6 +379,7 @@ public final class HeadlessRoundTripService {
             }
         }
 
+        let prePEXVerificationStartedAt = Date()
         let verification = PhysicalVerificationService().runPrePEXVerification(
             schematic: schematic,
             layout: layoutOutput.document,
@@ -336,7 +391,8 @@ public final class HeadlessRoundTripService {
         stages.append(Stage(
             name: "pre-pex-verification",
             status: verification.isReadyForPEX ? .passed : .failed,
-            message: verification.isReadyForPEX ? nil : prePEXFailureMessage(verification)
+            message: verification.isReadyForPEX ? nil : prePEXFailureMessage(verification),
+            durationSeconds: duration(since: prePEXVerificationStartedAt)
         ))
         if !verification.isReadyForPEX && !configuration.continueAfterFailedPrePEXGate {
             try failRun(
@@ -350,6 +406,7 @@ public final class HeadlessRoundTripService {
         }
 
         let postLayoutService = PostLayoutSimulationService()
+        let pexInjectionStartedAt = Date()
         let postLayoutNetlist = postLayoutService.buildPostLayoutNetlist(
             baseNetlist: baseNetlist,
             parasitics: configuration.pexIR
@@ -367,13 +424,15 @@ public final class HeadlessRoundTripService {
             stages.append(Stage(
                 name: "pex-injection",
                 status: configuration.pexIR.elements.isEmpty ? .failed : .passed,
-                message: "\(configuration.pexIR.elements.count) parasitic elements"
+                message: "\(configuration.pexIR.elements.count) parasitic elements",
+                durationSeconds: duration(since: pexInjectionStartedAt)
             ))
         } catch {
             stages.append(Stage(
                 name: "pex-injection",
                 status: .failed,
-                message: error.localizedDescription
+                message: error.localizedDescription,
+                durationSeconds: duration(since: pexInjectionStartedAt)
             ))
             try failRun(
                 configuration: configuration,
@@ -396,6 +455,7 @@ public final class HeadlessRoundTripService {
         }
 
         let postLayoutResult: SimulationResult
+        let postLayoutSimulationStartedAt = Date()
         do {
             postLayoutResult = try await postLayoutService.runPostLayoutAnalysis(
                 baseNetlist: baseNetlist,
@@ -406,7 +466,8 @@ public final class HeadlessRoundTripService {
             stages.append(Stage(
                 name: "post-layout-simulation",
                 status: .failed,
-                message: error.localizedDescription
+                message: error.localizedDescription,
+                durationSeconds: duration(since: postLayoutSimulationStartedAt)
             ))
             try failRun(
                 configuration: configuration,
@@ -420,7 +481,8 @@ public final class HeadlessRoundTripService {
         stages.append(Stage(
             name: "post-layout-simulation",
             status: postLayoutResult.status == .completed ? .passed : .failed,
-            message: postLayoutResult.status.rawValue
+            message: postLayoutResult.status.rawValue,
+            durationSeconds: duration(since: postLayoutSimulationStartedAt)
         ))
         guard postLayoutResult.status == .completed else {
             try failRun(
@@ -433,10 +495,11 @@ public final class HeadlessRoundTripService {
             )
         }
 
+        let postLayoutComparisonStartedAt = Date()
         let comparisonReport = PostLayoutComparisonService().compare(
             preLayoutResult: preLayoutResult,
             postLayoutResult: postLayoutResult
-        )
+        ).applyingLimits(configuration.postLayoutComparisonLimits)
         let comparisonReportURL = runDirectory.appending(path: "post-layout-comparison.json")
         do {
             try writeJSON(comparisonReport, to: comparisonReportURL)
@@ -448,7 +511,8 @@ public final class HeadlessRoundTripService {
             stages.append(Stage(
                 name: "post-layout-comparison",
                 status: .failed,
-                message: error.localizedDescription
+                message: error.localizedDescription,
+                durationSeconds: duration(since: postLayoutComparisonStartedAt)
             ))
             try failRun(
                 configuration: configuration,
@@ -459,15 +523,17 @@ public final class HeadlessRoundTripService {
                 error: error
             )
         }
-        let comparisonViolations = configuration.postLayoutComparisonLimits.map {
-            comparisonReport.limitViolations($0)
-        } ?? []
+        let comparisonLimitsWereConfigured = configuration.postLayoutComparisonLimits != nil
         stages.append(Stage(
             name: "post-layout-comparison",
-            status: comparisonViolations.isEmpty ? .passed : .failed,
-            message: comparisonViolations.isEmpty ? comparisonReport.status : comparisonViolations.joined(separator: "; ")
+            status: comparisonReport.gateViolations.isEmpty ? .passed : .failed,
+            message: comparisonStageMessage(
+                report: comparisonReport,
+                limitsWereConfigured: comparisonLimitsWereConfigured
+            ),
+            durationSeconds: duration(since: postLayoutComparisonStartedAt)
         ))
-        guard comparisonViolations.isEmpty else {
+        guard comparisonReport.gateViolations.isEmpty else {
             try failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
@@ -496,6 +562,108 @@ public final class HeadlessRoundTripService {
             postLayoutResult: postLayoutResult,
             externalSignoff: externalSignoff
         )
+    }
+
+    private func validateComparisonLimits(_ limits: PostLayoutComparisonLimits?) throws {
+        guard let limits else {
+            return
+        }
+        let diagnostics = limits.validationDiagnostics()
+        guard diagnostics.isEmpty else {
+            throw StudioError.invalidDesign(diagnostics.joined(separator: "; "))
+        }
+    }
+
+    public static func validateRunID(_ runID: String) throws {
+        let allowedScalars = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+        )
+        let isValid = !runID.isEmpty
+            && runID != "."
+            && runID != ".."
+            && runID.unicodeScalars.allSatisfy { allowedScalars.contains($0) }
+        guard isValid else {
+            throw StudioError.invalidDesign(
+                "Invalid run ID: use only letters, numbers, '.', '_', or '-', and do not use '.' or '..'."
+            )
+        }
+    }
+
+    private func duration(since startedAt: Date) -> Double {
+        max(0, Date().timeIntervalSince(startedAt))
+    }
+
+    private func comparisonStageMessage(
+        report: PostLayoutComparisonReport,
+        limitsWereConfigured: Bool
+    ) -> String {
+        if !report.gateViolations.isEmpty {
+            return report.gateViolations.joined(separator: "; ")
+        }
+        return limitsWereConfigured ? report.gateStatus : report.status
+    }
+
+    private func bottleneckSummary(for stages: [Stage]) -> BottleneckSummary {
+        let measuredStages = stages.compactMap { stage -> (Stage, Double)? in
+            guard let duration = stage.durationSeconds else {
+                return nil
+            }
+            return (stage, duration)
+        }
+        let totalDuration = measuredStages.reduce(0.0) { $0 + $1.1 }
+        let longestStage = measuredStages.max { lhs, rhs in
+            lhs.1 < rhs.1
+        }
+        let failedStage = stages.first { $0.status == .failed }
+        return BottleneckSummary(
+            totalMeasuredDurationSeconds: totalDuration,
+            longestStageName: longestStage?.0.name,
+            longestStageDurationSeconds: longestStage?.1,
+            failedStageName: failedStage?.name,
+            recommendations: bottleneckRecommendations(
+                failedStageName: failedStage?.name,
+                longestStageName: longestStage?.0.name
+            )
+        )
+    }
+
+    private func bottleneckRecommendations(
+        failedStageName: String?,
+        longestStageName: String?
+    ) -> [String] {
+        var recommendations: [String] = []
+        if let failedStageName {
+            recommendations.append(recommendation(for: failedStageName, reason: "failed"))
+        }
+        if let longestStageName, longestStageName != failedStageName {
+            recommendations.append(recommendation(for: longestStageName, reason: "longest"))
+        }
+        return recommendations
+    }
+
+    private func recommendation(for stageName: String, reason: String) -> String {
+        switch stageName {
+        case "net-extraction":
+            return "\(reason): inspect schematic wires, labels, pins, and floating or missing nets."
+        case "netlist-generation":
+            return "\(reason): inspect schematic connectivity, device metadata, and SPICE generation coverage."
+        case "pre-layout-simulation":
+            return "\(reason): inspect generated SPICE, model includes, solver diagnostics, and analysis setup."
+        case "auto-layout":
+            return "\(reason): improve layout generation, routing constraints, and DRC-clean geometry coverage."
+        case "external-signoff":
+            return "\(reason): inspect external DRC/LVS logs, tool setup, approval state, and captured signoff artifacts."
+        case "pre-pex-verification":
+            return "\(reason): inspect DRC/LVS diagnostics, DesignUnit mappings, ports, labels, and physical connectivity."
+        case "pex-injection":
+            return "\(reason): inspect PEX IR completeness, captured PEX artifacts, units, and parasitic element validity."
+        case "post-layout-simulation":
+            return "\(reason): inspect extracted netlist, PEX element scale, solver diagnostics, and analysis command."
+        case "post-layout-comparison":
+            return "\(reason): inspect comparison sweep compatibility, applied limits, and post-layout delta attribution."
+        default:
+            return "\(reason): inspect \(stageName) artifacts and diagnostics."
+        }
     }
 
     private func failRun(
@@ -543,7 +711,8 @@ public final class HeadlessRoundTripService {
             isRoundTripComplete: isRoundTripComplete,
             isReadyForPEX: isReadyForPEX,
             stages: stages,
-            artifacts: artifacts
+            artifacts: artifacts,
+            bottleneckSummary: bottleneckSummary(for: stages)
         )
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
         try writeJSON(manifest, to: manifestURL)
@@ -627,17 +796,18 @@ public final class HeadlessRoundTripService {
                 throw StudioError.projectLoadFailed("Input artifact not found: \(sourcePath)")
             }
 
-            if sourcePath.hasPrefix(runDirectory.path(percentEncoded: false)) {
+            if isArtifactAlreadyInsideRunDirectory(sourceURL: sourceURL, runDirectory: runDirectory) {
                 return Artifact(kind: kind, path: sourcePath)
             }
 
+            let resolvedSourceURL = sourceURL.resolvingSymlinksInPath()
             let destinationURL = uniqueCaptureURL(
                 for: sourceURL,
                 in: captureDirectory,
                 usedNames: &usedNames
             )
             do {
-                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                try FileManager.default.copyItem(at: resolvedSourceURL, to: destinationURL)
             } catch {
                 throw StudioError.projectSaveFailed(
                     "Failed to capture input artifact \(sourcePath): \(error.localizedDescription)"
@@ -671,6 +841,28 @@ public final class HeadlessRoundTripService {
         }
         usedNames.insert(candidateName)
         return directory.appending(path: candidateName)
+    }
+
+    private func isArtifactAlreadyInsideRunDirectory(sourceURL: URL, runDirectory: URL) -> Bool {
+        isPath(standardizedPath(sourceURL), inside: standardizedPath(runDirectory))
+            && isPath(resolvedPath(sourceURL), inside: resolvedPath(runDirectory))
+    }
+
+    private func standardizedPath(_ url: URL) -> String {
+        url.standardizedFileURL.path(percentEncoded: false)
+    }
+
+    private func resolvedPath(_ url: URL) -> String {
+        url.resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path(percentEncoded: false)
+    }
+
+    private func isPath(_ path: String, inside directoryPath: String) -> Bool {
+        guard path != directoryPath else {
+            return true
+        }
+        return path.hasPrefix(directoryPath + "/")
     }
 
     private func prePEXFailureMessage(_ verification: PhysicalVerificationReport) -> String {

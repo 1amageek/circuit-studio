@@ -1,7 +1,5 @@
 import Foundation
 import CircuitStudioApp
-import CircuitStudioCore
-import SchematicEditor
 
 @main
 struct CircuitStudioFlowRunner {
@@ -9,67 +7,118 @@ struct CircuitStudioFlowRunner {
         do {
             let options = try RunnerOptions(arguments: Array(CommandLine.arguments.dropFirst()))
             if options.showHelp {
-                print(Self.helpText)
+                Swift.print(Self.helpText)
                 return
             }
 
-            let fixture = try FlowFixture(name: options.fixtureName)
-            let pexInput = try options.loadPEXInput() ?? PEXInput(ir: fixture.pexIR, artifactPaths: [])
-            let externalSignoffReview = try options.loadExternalSignoffReview()
-            let projectRoot = options.outputURL ?? defaultOutputURL(fixtureName: fixture.name)
-            try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
-            let signoffCommands: [ExternalSignoffCommand]
-            if externalSignoffReview == nil {
-                signoffCommands = try makeMockSignoffCommands(in: projectRoot)
-            } else {
-                signoffCommands = []
-            }
-            let configuration = HeadlessRoundTripService.Configuration(
-                projectRoot: projectRoot,
-                runID: options.runID ?? "\(fixture.name)-\(Self.timestamp())",
-                title: fixture.title,
-                testbench: fixture.testbench,
-                postLayoutCommand: fixture.postLayoutCommand,
-                pexIR: pexInput.ir,
-                pexArtifactPaths: pexInput.artifactPaths,
-                postLayoutComparisonLimits: options.comparisonLimits,
-                externalSignoffCommands: signoffCommands,
-                externalSignoffReview: externalSignoffReview,
-                approvedBy: options.approveSignoff ? "headless-runner" : nil,
-                approvedAt: options.approveSignoff ? Date() : nil,
-                createdAt: Date()
-            )
-
-            let result = try await HeadlessRoundTripService().run(
-                schematic: fixture.schematic,
-                configuration: configuration
-            )
-
-            print("round_trip=passed")
-            print("fixture=\(fixture.name)")
-            print("project_root=\(projectRoot.path(percentEncoded: false))")
-            print("manifest=\(result.manifestURL.path(percentEncoded: false))")
-            print("ready_for_pex=\(result.manifest.isReadyForPEX)")
-            print("pex_corner=\(pexInput.ir.cornerID)")
-            print("pex_elements=\(pexInput.ir.elements.count)")
-            print("external_signoff=\(externalSignoffReview == nil ? "mock-command" : "imported-logs")")
-            print("signoff_approved=\(options.approveSignoff)")
-            print("comparison_limits=\(options.comparisonLimits == nil ? "none" : "configured")")
+            let designFlowService = DesignFlowService()
+            let result = try await designFlowService.execute(command(from: options))
+            print(result: result, options: options)
         } catch {
-            fputs("round_trip=failed\n", stderr)
+            fputs("flow_command=failed\n", stderr)
             fputs("error=\(error.localizedDescription)\n", stderr)
             fputs("\n\(Self.helpText)\n", stderr)
             exit(1)
         }
     }
 
+    private static func command(from options: RunnerOptions) -> DesignFlowCommand {
+        DesignFlowCommand(
+            kind: options.mode.commandKind,
+            fixtureName: options.fixtureName,
+            projectRootPath: projectRootPath(from: options),
+            runID: options.runID,
+            approveSignoff: options.approveSignoff,
+            pexManifestPath: options.pexManifestURL?.path(percentEncoded: false),
+            pexCornerID: options.pexCornerID,
+            signoffDRCLogPath: options.signoffDRCLogURL?.path(percentEncoded: false),
+            signoffLVSLogPath: options.signoffLVSLogURL?.path(percentEncoded: false),
+            maxAbsoluteDelta: options.maxAbsoluteDelta,
+            maxRelativeDelta: options.maxRelativeDelta
+        )
+    }
+
+    private static func projectRootPath(from options: RunnerOptions) -> String? {
+        switch options.mode {
+        case .listFixtures, .generateNetlist, .simulate:
+            return nil
+        case .runRoundTrip:
+            return options.outputURL?.path(percentEncoded: false)
+        case .summarizeBottlenecks:
+            return (options.outputURL ?? defaultOutputURL(fixtureName: options.fixtureName))
+                .path(percentEncoded: false)
+        }
+    }
+
+    private static func defaultOutputURL(fixtureName: String) -> URL {
+        URL(filePath: FileManager.default.currentDirectoryPath)
+            .appending(path: "round-trip-runs")
+            .appending(path: fixtureName)
+    }
+
+    private static func print(result: DesignFlowCommandResult, options: RunnerOptions) {
+        switch result.kind {
+        case .listFixtures:
+            for fixtureName in result.fixtureNames {
+                Swift.print("fixture=\(fixtureName)")
+            }
+        case .generateFixtureNetlist:
+            Swift.print("netlist=generated")
+            Swift.print("fixture=\(result.fixtureName ?? options.fixtureName)")
+            Swift.print("netlist_begin")
+            Swift.print(result.netlist ?? "")
+            Swift.print("netlist_end")
+        case .runFixtureSimulation:
+            Swift.print("simulation=\(result.simulationStatus ?? "")")
+            Swift.print("fixture=\(result.fixtureName ?? options.fixtureName)")
+            Swift.print("netlist_begin")
+            Swift.print(result.netlist ?? "")
+            Swift.print("netlist_end")
+        case .runFixtureRoundTrip:
+            Swift.print("round_trip=passed")
+            Swift.print("fixture=\(result.fixtureName ?? options.fixtureName)")
+            Swift.print("run_id=\(result.runID ?? "")")
+            Swift.print("project_root=\(result.projectRootPath ?? "")")
+            Swift.print("manifest=\(result.manifestPath ?? "")")
+            Swift.print("ready_for_pex=\(result.readyForPEX ?? false)")
+            Swift.print("pex_corner=\(result.pexCornerID ?? "")")
+            Swift.print("pex_elements=\(result.pexElementCount ?? 0)")
+            Swift.print("external_signoff=\(options.usesImportedSignoff ? "imported-logs" : "mock-command")")
+            Swift.print("signoff_approved=\(options.approveSignoff)")
+            Swift.print("comparison_limits=\(options.usesComparisonLimits ? "configured" : "none")")
+        case .summarizeBottlenecks:
+            let summary = result.bottleneckHistory
+            Swift.print("bottlenecks=summarized")
+            Swift.print("project_root=\(result.projectRootPath ?? "")")
+            Swift.print("run_count=\(summary?.runCount ?? 0)")
+            Swift.print("failed_run_count=\(summary?.failedRunCount ?? 0)")
+            Swift.print("most_frequent_failed_stage=\(summary?.mostFrequentFailedStageName ?? "")")
+            Swift.print("most_expensive_stage=\(summary?.mostExpensiveStageName ?? "")")
+            for stageSummary in summary?.stageSummaries ?? [] {
+                Swift.print(
+                    "stage=\(stageSummary.stageName),observed=\(stageSummary.observedCount),failed=\(stageSummary.failedCount),avg_seconds=\(stageSummary.averageDurationSeconds)"
+                )
+            }
+            for recommendation in summary?.recommendations ?? [] {
+                Swift.print("recommendation=\(recommendation)")
+            }
+        }
+    }
+
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [--fixture cmos-inverter|voltage-divider] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
+
+        Modes:
+          --list-fixtures           List fixture names through DesignFlowCommand
+          --generate-netlist        Generate a fixture netlist through DesignFlowCommand
+          --simulate                Run fixture schematic simulation through DesignFlowCommand
+          --summarize-bottlenecks   Summarize existing flow manifests under --output through DesignFlowCommand
+          default                   Run the full fixture round trip through DesignFlowCommand
 
         Options:
           --fixture NAME   Fixture to run. Default: voltage-divider
@@ -92,23 +141,35 @@ struct CircuitStudioFlowRunner {
         """
     }
 
-    private static func defaultOutputURL(fixtureName: String) -> URL {
-        URL(filePath: FileManager.default.currentDirectoryPath)
-            .appending(path: "round-trip-runs")
-            .appending(path: fixtureName)
-    }
+}
 
-    private static func timestamp() -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: Date())
-            .replacingOccurrences(of: ":", with: "")
-            .replacingOccurrences(of: ".", with: "")
+private enum RunnerMode: Equatable {
+    case listFixtures
+    case generateNetlist
+    case simulate
+    case runRoundTrip
+    case summarizeBottlenecks
+
+    var commandKind: DesignFlowCommand.Kind {
+        switch self {
+        case .listFixtures:
+            return .listFixtures
+        case .generateNetlist:
+            return .generateFixtureNetlist
+        case .simulate:
+            return .runFixtureSimulation
+        case .runRoundTrip:
+            return .runFixtureRoundTrip
+        case .summarizeBottlenecks:
+            return .summarizeBottlenecks
+        }
     }
 }
 
 private struct RunnerOptions {
-    var fixtureName = "voltage-divider"
+    var mode = RunnerMode.runRoundTrip
+    private var explicitMode: RunnerMode?
+    var fixtureName = DesignFlowFixtureLibrary.defaultFixtureName
     var outputURL: URL?
     var runID: String?
     var pexManifestURL: URL?
@@ -125,6 +186,14 @@ private struct RunnerOptions {
         while index < arguments.count {
             let argument = arguments[index]
             switch argument {
+            case "--list-fixtures":
+                try selectMode(.listFixtures)
+            case "--generate-netlist":
+                try selectMode(.generateNetlist)
+            case "--simulate":
+                try selectMode(.simulate)
+            case "--summarize-bottlenecks":
+                try selectMode(.summarizeBottlenecks)
             case "--fixture":
                 fixtureName = try Self.value(after: argument, in: arguments, index: &index)
             case "--output":
@@ -154,6 +223,14 @@ private struct RunnerOptions {
         }
     }
 
+    private mutating func selectMode(_ mode: RunnerMode) throws {
+        if let explicitMode, explicitMode != mode {
+            throw RunnerError.conflictingModes
+        }
+        explicitMode = mode
+        self.mode = mode
+    }
+
     private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
         let valueIndex = index + 1
         guard valueIndex < arguments.count else {
@@ -173,113 +250,12 @@ private struct RunnerOptions {
         return value
     }
 
-    var comparisonLimits: PostLayoutComparisonLimits? {
-        guard maxAbsoluteDelta != nil || maxRelativeDelta != nil else {
-            return nil
-        }
-        return PostLayoutComparisonLimits(
-            maxAbsoluteDelta: maxAbsoluteDelta,
-            maxRelativeDelta: maxRelativeDelta
-        )
+    var usesImportedSignoff: Bool {
+        signoffDRCLogURL != nil || signoffLVSLogURL != nil
     }
 
-    func loadPEXInput() throws -> PEXInput? {
-        guard let pexManifestURL else {
-            return nil
-        }
-        let service = PEXArtifactService()
-        let artifacts = try service.loadArtifacts(manifestURL: pexManifestURL)
-        let ir = try service.loadIR(for: pexCornerID, artifacts: artifacts)
-        var artifactPaths = [pexManifestURL.path(percentEncoded: false)]
-        if let corner = artifacts.corner(id: pexCornerID) {
-            artifactPaths.append(contentsOf: corner.rawFileURLs.map { $0.path(percentEncoded: false) })
-            if let irURL = corner.irURL {
-                artifactPaths.append(irURL.path(percentEncoded: false))
-            }
-            if let logURL = corner.logURL {
-                artifactPaths.append(logURL.path(percentEncoded: false))
-            }
-        }
-        return PEXInput(ir: ir, artifactPaths: artifactPaths)
-    }
-
-    func loadExternalSignoffReview() throws -> ExternalSignoffReview? {
-        switch (signoffDRCLogURL, signoffLVSLogURL) {
-        case (nil, nil):
-            return nil
-        case (.some(let drcLogURL), .some(let lvsLogURL)):
-            return try ExternalSignoffArtifactService().load(logs: [
-                ExternalSignoffLogArtifact(
-                    kind: .drc,
-                    toolName: "imported-drc",
-                    logURL: drcLogURL,
-                    success: true
-                ),
-                ExternalSignoffLogArtifact(
-                    kind: .lvs,
-                    toolName: "imported-lvs",
-                    logURL: lvsLogURL,
-                    success: true
-                ),
-            ])
-        case (.some, nil):
-            throw RunnerError.missingCompanionOption("--signoff-lvs-log")
-        case (nil, .some):
-            throw RunnerError.missingCompanionOption("--signoff-drc-log")
-        }
-    }
-}
-
-private struct PEXInput {
-    let ir: PEXParasiticIR
-    let artifactPaths: [String]
-}
-
-@MainActor
-private struct FlowFixture {
-    let name: String
-    let title: String
-    let schematic: SchematicDocument
-    let testbench: Testbench
-    let postLayoutCommand: AnalysisCommand
-    let pexIR: PEXParasiticIR
-
-    init(name: String) throws {
-        switch name {
-        case "cmos-inverter":
-            self.name = name
-            self.title = "CMOS inverter headless round trip"
-            self.schematic = SchematicPreview.cmosInverterViewModel().document
-            self.testbench = Testbench(
-                name: "Transient",
-                analysisCommands: [.tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9))]
-            )
-            self.postLayoutCommand = .tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9))
-            self.pexIR = PEXParasiticIR(
-                version: "1.0",
-                cornerID: "tt_25c_1v0",
-                elements: [
-                    PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
-                    PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
-                ]
-            )
-        case "voltage-divider":
-            self.name = name
-            self.title = "Voltage divider headless round trip"
-            self.schematic = SchematicPreview.voltageDividerViewModel().document
-            self.testbench = Testbench(name: "Operating Point", analysisCommands: [.op])
-            self.postLayoutCommand = .op
-            self.pexIR = PEXParasiticIR(
-                version: "1.0",
-                cornerID: "tt_25c_1v0",
-                elements: [
-                    PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
-                    PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
-                ]
-            )
-        default:
-            throw RunnerError.unknownFixture(name)
-        }
+    var usesComparisonLimits: Bool {
+        maxAbsoluteDelta != nil || maxRelativeDelta != nil
     }
 }
 
@@ -287,8 +263,7 @@ private enum RunnerError: Error, LocalizedError {
     case invalidArgument(String)
     case missingValue(String)
     case invalidNumericValue(String, String)
-    case unknownFixture(String)
-    case missingCompanionOption(String)
+    case conflictingModes
 
     var errorDescription: String? {
         switch self {
@@ -298,59 +273,8 @@ private enum RunnerError: Error, LocalizedError {
             return "Missing value for \(option)"
         case .invalidNumericValue(let option, let value):
             return "Invalid numeric value for \(option): \(value)"
-        case .unknownFixture(let name):
-            return "Unknown fixture: \(name)"
-        case .missingCompanionOption(let option):
-            return "Missing required companion option: \(option)"
+        case .conflictingModes:
+            return "Only one runner mode can be selected."
         }
     }
-}
-
-private func makeMockSignoffCommands(in projectRoot: URL) throws -> [ExternalSignoffCommand] {
-    let toolDirectory = projectRoot
-        .appending(path: ".xcircuite")
-        .appending(path: "tools")
-    try FileManager.default.createDirectory(at: toolDirectory, withIntermediateDirectories: true)
-
-    let drc = try writeExecutable(
-        named: "mock-drc",
-        in: toolDirectory,
-        contents: """
-        #!/bin/sh
-        printf '[INFO] rule=DRC_CLEAN message="clean drc"\\n'
-        exit 0
-        """
-    )
-    let lvs = try writeExecutable(
-        named: "mock-lvs",
-        in: toolDirectory,
-        contents: """
-        #!/bin/sh
-        printf '[INFO] rule=LVS_MATCH message="clean lvs"\\n'
-        exit 0
-        """
-    )
-
-    return [
-        ExternalSignoffCommand(
-            kind: .drc,
-            toolName: "mock-drc",
-            executablePath: drc.path(percentEncoded: false)
-        ),
-        ExternalSignoffCommand(
-            kind: .lvs,
-            toolName: "mock-lvs",
-            executablePath: lvs.path(percentEncoded: false)
-        ),
-    ]
-}
-
-private func writeExecutable(named name: String, in directory: URL, contents: String) throws -> URL {
-    let url = directory.appending(path: name)
-    try contents.write(to: url, atomically: true, encoding: .utf8)
-    try FileManager.default.setAttributes(
-        [.posixPermissions: NSNumber(value: Int16(0o755))],
-        ofItemAtPath: url.path(percentEncoded: false)
-    )
-    return url
 }

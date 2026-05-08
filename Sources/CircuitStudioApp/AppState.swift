@@ -143,9 +143,8 @@ public final class AppState {
     }
 
     /// Cancel the currently running simulation.
-    public func cancelSimulation(service: SimulationService) {
-        guard let jobID = service.activeJobID else { return }
-        service.cancel(jobID: jobID)
+    public func cancelSimulation(service: DesignFlowService) {
+        guard service.cancelActiveSimulation() != nil else { return }
         log("Simulation cancelled", kind: .warning)
     }
 
@@ -218,7 +217,7 @@ public final class AppState {
     }
 
     /// Run simulation using the loaded SPICE source.
-    public func runSimulation(service: SimulationService) async {
+    public func runSimulation(service: DesignFlowService) async {
         guard !spiceSource.isEmpty else {
             simulationError = "No SPICE source loaded"
             return
@@ -249,12 +248,12 @@ public final class AppState {
         }
 
         do {
-            let result = try await service.runSPICE(
+            let result = try await service.runSPICESimulation(DesignFlowSPICESimulationRequest(
                 source: spiceSource,
                 fileName: spiceFileName,
                 processConfiguration: process,
                 onWaveformUpdate: handler
-            )
+            ))
             continuation.finish()
             _ = await updateTask.value
             simulationResult = result
@@ -276,8 +275,7 @@ public final class AppState {
     public func runSchematicSimulation(
         document: SchematicDocument,
         analysisCommand: AnalysisCommand,
-        generator: NetlistGenerator,
-        service: SimulationService
+        service: DesignFlowService
     ) async {
         isSimulating = true
         simulationError = nil
@@ -294,13 +292,6 @@ public final class AppState {
             analysisCommands: [analysisCommand]
         )
         let process = processConfiguration.isEmpty ? nil : processConfiguration
-        let source = generator.generate(
-            from: document,
-            testbench: testbench,
-            processConfiguration: process
-        )
-        log(source, kind: .output)
-
         let analysisName: String = {
             switch analysisCommand {
             case .op: return "Operating Point"
@@ -328,15 +319,16 @@ public final class AppState {
         }
 
         do {
-            let result = try await service.runSPICE(
-                source: source,
-                fileName: "schematic.cir",
+            let flowResult = try await service.runSchematicSimulation(DesignFlowSchematicSimulationRequest(
+                schematic: document,
+                testbench: testbench,
                 processConfiguration: process,
                 onWaveformUpdate: handler
-            )
+            ))
+            log(flowResult.netlist, kind: .output)
             continuation.finish()
             _ = await updateTask.value
-            simulationResult = result
+            simulationResult = flowResult.simulationResult
             let elapsed = String(format: "%.2f", Date().timeIntervalSince(start))
             log("Completed (\(elapsed)s)", kind: .success)
         } catch {
@@ -352,7 +344,7 @@ public final class AppState {
     }
 
     /// Run a specific analysis command.
-    public func runAnalysis(command: AnalysisCommand, service: SimulationService) async {
+    public func runAnalysis(command: AnalysisCommand, service: DesignFlowService) async {
         guard !spiceSource.isEmpty else {
             simulationError = "No SPICE source loaded"
             return

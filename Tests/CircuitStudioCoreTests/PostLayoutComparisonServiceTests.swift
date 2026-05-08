@@ -5,7 +5,7 @@ import CoreSpiceWaveform
 
 @Suite("PostLayoutComparisonService Tests")
 struct PostLayoutComparisonServiceTests {
-    @Test func compareRejectsMismatchedSweepValues() {
+    @Test func compareInterpolatesMismatchedSweepValues() throws {
         let preLayout = SimulationResult(
             experimentID: UUID(),
             status: .completed,
@@ -14,7 +14,38 @@ struct PostLayoutComparisonServiceTests {
         let postLayout = SimulationResult(
             experimentID: UUID(),
             status: .completed,
-            waveform: makeWaveform(sweepValues: [0, 1.5, 2], values: [1.0, 2.0, 3.0])
+            waveform: makeWaveform(sweepValues: [0, 1.5, 2], values: [1.0, 2.5, 3.0])
+        )
+
+        let report = PostLayoutComparisonService().compare(
+            preLayoutResult: preLayout,
+            postLayoutResult: postLayout
+        )
+        let variable = try #require(report.comparedVariables.first)
+
+        #expect(report.status == "compared")
+        #expect(report.comparedPointCount == 3)
+        #expect(report.maxAbsoluteDelta == 0)
+        #expect(report.maxRelativeDelta == 0)
+        #expect(variable.variableName == "V(out)")
+        #expect(report.diagnostics.contains {
+            $0.contains("linearly interpolated")
+        })
+        let gatedReport = report.applyingLimits(PostLayoutComparisonLimits(maxAbsoluteDelta: 0.0))
+        #expect(gatedReport.gateStatus == "passed")
+        #expect(gatedReport.gateViolations.isEmpty)
+    }
+
+    @Test func compareRejectsNonOverlappingSweepValues() {
+        let preLayout = SimulationResult(
+            experimentID: UUID(),
+            status: .completed,
+            waveform: makeWaveform(sweepValues: [0, 1, 2], values: [1.0, 2.0, 3.0])
+        )
+        let postLayout = SimulationResult(
+            experimentID: UUID(),
+            status: .completed,
+            waveform: makeWaveform(sweepValues: [10, 11, 12], values: [1.0, 2.0, 3.0])
         )
 
         let report = PostLayoutComparisonService().compare(
@@ -27,8 +58,10 @@ struct PostLayoutComparisonServiceTests {
         #expect(report.maxAbsoluteDelta == 0)
         #expect(report.maxRelativeDelta == 0)
         #expect(report.comparedVariables.isEmpty)
-        #expect(report.diagnostics.contains { $0.contains("Sweep values differ beyond tolerance") })
-        #expect(report.limitViolations(PostLayoutComparisonLimits(maxAbsoluteDelta: 1.0)).contains {
+        #expect(report.diagnostics.contains { $0.contains("No overlapping sweep values") })
+        let gatedReport = report.applyingLimits(PostLayoutComparisonLimits(maxAbsoluteDelta: 1.0))
+        #expect(gatedReport.gateStatus == "failed")
+        #expect(gatedReport.gateViolations.contains {
             $0.contains("not comparable")
         })
     }
@@ -65,6 +98,35 @@ struct PostLayoutComparisonServiceTests {
         #expect(report.limitViolations(PostLayoutComparisonLimits(maxRelativeDelta: 0.1)).contains {
             $0.contains("relative delta") && $0.contains("exceeds")
         })
+        let limits = PostLayoutComparisonLimits(maxAbsoluteDelta: 0.6, maxRelativeDelta: 0.2)
+        let gatedReport = report.applyingLimits(limits)
+        #expect(gatedReport.comparisonLimits == limits)
+        #expect(gatedReport.gateStatus == "passed")
+        #expect(gatedReport.gateViolations.isEmpty)
+    }
+
+    @Test func comparisonLimitsRejectInvalidNumericValues() {
+        let limits = PostLayoutComparisonLimits(maxAbsoluteDelta: .nan, maxRelativeDelta: -.infinity)
+
+        #expect(!limits.isValid)
+        #expect(limits.validationDiagnostics().count == 2)
+
+        let report = PostLayoutComparisonReport(
+            status: "compared",
+            preLayoutPointCount: 1,
+            postLayoutPointCount: 1,
+            sweepVariable: "time",
+            comparedPointCount: 1,
+            maxAbsoluteDelta: 0,
+            maxRelativeDelta: 0,
+            comparedVariables: [],
+            missingInPostLayout: [],
+            addedInPostLayout: [],
+            diagnostics: []
+        )
+
+        #expect(report.limitViolations(limits).count == 2)
+        #expect(report.applyingLimits(limits).gateStatus == "failed")
     }
 
     private func makeWaveform(sweepValues: [Double], values: [Double]) -> WaveformData {

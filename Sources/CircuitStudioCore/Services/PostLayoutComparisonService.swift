@@ -13,6 +13,9 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
     public let missingInPostLayout: [String]
     public let addedInPostLayout: [String]
     public let diagnostics: [String]
+    public let comparisonLimits: PostLayoutComparisonLimits?
+    public let gateStatus: String
+    public let gateViolations: [String]
 
     public init(
         status: String,
@@ -25,7 +28,10 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
         comparedVariables: [PostLayoutVariableComparison],
         missingInPostLayout: [String],
         addedInPostLayout: [String],
-        diagnostics: [String]
+        diagnostics: [String],
+        comparisonLimits: PostLayoutComparisonLimits? = nil,
+        gateStatus: String = "not-evaluated",
+        gateViolations: [String] = []
     ) {
         self.status = status
         self.preLayoutPointCount = preLayoutPointCount
@@ -38,9 +44,16 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
         self.missingInPostLayout = missingInPostLayout
         self.addedInPostLayout = addedInPostLayout
         self.diagnostics = diagnostics
+        self.comparisonLimits = comparisonLimits
+        self.gateStatus = gateStatus
+        self.gateViolations = gateViolations
     }
 
     public func limitViolations(_ limits: PostLayoutComparisonLimits) -> [String] {
+        let limitDiagnostics = limits.validationDiagnostics()
+        guard limitDiagnostics.isEmpty else {
+            return limitDiagnostics
+        }
         guard status == "compared" else {
             let detail = diagnostics.isEmpty ? status : diagnostics.joined(separator: "; ")
             return ["Post-layout comparison is not comparable: \(detail)"]
@@ -61,6 +74,45 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
         }
         return violations
     }
+
+    public func applyingLimits(_ limits: PostLayoutComparisonLimits?) -> PostLayoutComparisonReport {
+        guard let limits else {
+            return PostLayoutComparisonReport(
+                status: status,
+                preLayoutPointCount: preLayoutPointCount,
+                postLayoutPointCount: postLayoutPointCount,
+                sweepVariable: sweepVariable,
+                comparedPointCount: comparedPointCount,
+                maxAbsoluteDelta: maxAbsoluteDelta,
+                maxRelativeDelta: maxRelativeDelta,
+                comparedVariables: comparedVariables,
+                missingInPostLayout: missingInPostLayout,
+                addedInPostLayout: addedInPostLayout,
+                diagnostics: diagnostics,
+                comparisonLimits: nil,
+                gateStatus: "not-evaluated",
+                gateViolations: []
+            )
+        }
+
+        let violations = limitViolations(limits)
+        return PostLayoutComparisonReport(
+            status: status,
+            preLayoutPointCount: preLayoutPointCount,
+            postLayoutPointCount: postLayoutPointCount,
+            sweepVariable: sweepVariable,
+            comparedPointCount: comparedPointCount,
+            maxAbsoluteDelta: maxAbsoluteDelta,
+            maxRelativeDelta: maxRelativeDelta,
+            comparedVariables: comparedVariables,
+            missingInPostLayout: missingInPostLayout,
+            addedInPostLayout: addedInPostLayout,
+            diagnostics: diagnostics,
+            comparisonLimits: limits,
+            gateStatus: violations.isEmpty ? "passed" : "failed",
+            gateViolations: violations
+        )
+    }
 }
 
 public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
@@ -70,6 +122,25 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
     public init(maxAbsoluteDelta: Double? = nil, maxRelativeDelta: Double? = nil) {
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
+    }
+
+    public func validationDiagnostics() -> [String] {
+        var diagnostics: [String] = []
+        if let maxAbsoluteDelta, !Self.isValidLimit(maxAbsoluteDelta) {
+            diagnostics.append("Invalid max absolute delta limit: \(maxAbsoluteDelta).")
+        }
+        if let maxRelativeDelta, !Self.isValidLimit(maxRelativeDelta) {
+            diagnostics.append("Invalid max relative delta limit: \(maxRelativeDelta).")
+        }
+        return diagnostics
+    }
+
+    public var isValid: Bool {
+        validationDiagnostics().isEmpty
+    }
+
+    private static func isValidLimit(_ value: Double) -> Bool {
+        value.isFinite && value >= 0
     }
 }
 
@@ -130,19 +201,12 @@ public struct PostLayoutComparisonService: Sendable {
                 "Sweep variable mismatch: \(preLayoutWaveform.sweepVariable.name) vs \(postLayoutWaveform.sweepVariable.name)."
             )
         }
-        if preLayoutWaveform.pointCount != postLayoutWaveform.pointCount {
-            diagnostics.append(
-                "Point count mismatch: \(preLayoutWaveform.pointCount) vs \(postLayoutWaveform.pointCount)."
-            )
-        }
-        if let sweepDelta = maxSweepDelta(
+
+        let alignment = sweepAlignment(
             preLayoutValues: preLayoutWaveform.sweepValues,
             postLayoutValues: postLayoutWaveform.sweepValues
-        ), sweepDelta > sweepTolerance {
-            diagnostics.append(
-                "Sweep values differ beyond tolerance \(sweepTolerance): max delta \(sweepDelta)."
-            )
-        }
+        )
+        diagnostics.append(contentsOf: alignment.diagnostics)
 
         guard diagnostics.isEmpty else {
             return PostLayoutComparisonReport(
@@ -160,18 +224,24 @@ public struct PostLayoutComparisonService: Sendable {
             )
         }
 
-        let comparedPointCount = preLayoutWaveform.pointCount
+        var comparisonDiagnostics: [String] = []
+        if alignment.usesInterpolation {
+            comparisonDiagnostics.append(
+                "Post-layout waveform values were linearly interpolated onto the pre-layout sweep grid."
+            )
+        }
+        let comparedPointCount = alignment.points.count
         let comparisons = commonVariableNames.compactMap { variableName in
             compareVariable(
                 named: variableName,
-                pointCount: comparedPointCount,
+                alignedPoints: alignment.points,
                 preLayoutWaveform: preLayoutWaveform,
                 postLayoutWaveform: postLayoutWaveform
             )
         }
 
         if comparisons.isEmpty {
-            diagnostics.append("No common waveform variables were available for comparison.")
+            comparisonDiagnostics.append("No common waveform variables were available for comparison.")
         }
 
         let maxAbsoluteDelta = comparisons.map(\.maxAbsoluteDelta).max() ?? 0
@@ -188,28 +258,169 @@ public struct PostLayoutComparisonService: Sendable {
             comparedVariables: comparisons,
             missingInPostLayout: preVariableNames.filter { !postNameSet.contains($0) },
             addedInPostLayout: postVariableNames.filter { !preNameSet.contains($0) },
-            diagnostics: diagnostics
+            diagnostics: comparisonDiagnostics
         )
     }
 
-    private func maxSweepDelta(preLayoutValues: [Double], postLayoutValues: [Double]) -> Double? {
-        guard preLayoutValues.count == postLayoutValues.count else {
-            return nil
+    private struct AlignedPoint {
+        let prePoint: Int
+        let postPoint: Int?
+        let lowerPostPoint: Int?
+        let upperPostPoint: Int?
+        let interpolationFraction: Double
+
+        var usesInterpolation: Bool {
+            lowerPostPoint != nil && upperPostPoint != nil
         }
-        return zip(preLayoutValues, postLayoutValues)
-            .map { abs($0 - $1) }
-            .max() ?? 0
+    }
+
+    private struct SweepAlignment {
+        let points: [AlignedPoint]
+        let usesInterpolation: Bool
+        let diagnostics: [String]
+    }
+
+    private func sweepAlignment(preLayoutValues: [Double], postLayoutValues: [Double]) -> SweepAlignment {
+        guard !preLayoutValues.isEmpty, !postLayoutValues.isEmpty else {
+            return SweepAlignment(
+                points: [],
+                usesInterpolation: false,
+                diagnostics: ["Sweep values are missing."]
+            )
+        }
+        guard isStrictlyIncreasing(preLayoutValues) else {
+            return SweepAlignment(
+                points: [],
+                usesInterpolation: false,
+                diagnostics: ["Pre-layout sweep values are not strictly increasing."]
+            )
+        }
+        guard isStrictlyIncreasing(postLayoutValues) else {
+            return SweepAlignment(
+                points: [],
+                usesInterpolation: false,
+                diagnostics: ["Post-layout sweep values are not strictly increasing."]
+            )
+        }
+
+        if preLayoutValues.count == postLayoutValues.count {
+            let maxDelta = zip(preLayoutValues, postLayoutValues)
+                .map { abs($0 - $1) }
+                .max() ?? 0
+            if maxDelta <= sweepTolerance {
+                return SweepAlignment(
+                    points: preLayoutValues.indices.map { index in
+                        AlignedPoint(
+                            prePoint: index,
+                            postPoint: index,
+                            lowerPostPoint: nil,
+                            upperPostPoint: nil,
+                            interpolationFraction: 0
+                        )
+                    },
+                    usesInterpolation: false,
+                    diagnostics: []
+                )
+            }
+        }
+
+        let postStart = postLayoutValues[0]
+        let postEnd = postLayoutValues[postLayoutValues.count - 1]
+        var points: [AlignedPoint] = []
+        points.reserveCapacity(preLayoutValues.count)
+        var searchIndex = 0
+
+        for preIndex in preLayoutValues.indices {
+            let target = preLayoutValues[preIndex]
+            guard target + sweepTolerance >= postStart,
+                  target - sweepTolerance <= postEnd else {
+                continue
+            }
+
+            while searchIndex + 1 < postLayoutValues.count
+                && postLayoutValues[searchIndex + 1] < target - sweepTolerance {
+                searchIndex += 1
+            }
+
+            if abs(postLayoutValues[searchIndex] - target) <= sweepTolerance {
+                points.append(AlignedPoint(
+                    prePoint: preIndex,
+                    postPoint: searchIndex,
+                    lowerPostPoint: nil,
+                    upperPostPoint: nil,
+                    interpolationFraction: 0
+                ))
+                continue
+            }
+
+            let upperIndex = searchIndex + 1
+            if upperIndex < postLayoutValues.count,
+               abs(postLayoutValues[upperIndex] - target) <= sweepTolerance {
+                points.append(AlignedPoint(
+                    prePoint: preIndex,
+                    postPoint: upperIndex,
+                    lowerPostPoint: nil,
+                    upperPostPoint: nil,
+                    interpolationFraction: 0
+                ))
+                continue
+            }
+
+            guard upperIndex < postLayoutValues.count else {
+                continue
+            }
+
+            let lowerSweep = postLayoutValues[searchIndex]
+            let upperSweep = postLayoutValues[upperIndex]
+            guard lowerSweep < target, target < upperSweep else {
+                continue
+            }
+            let fraction = (target - lowerSweep) / (upperSweep - lowerSweep)
+            points.append(AlignedPoint(
+                prePoint: preIndex,
+                postPoint: nil,
+                lowerPostPoint: searchIndex,
+                upperPostPoint: upperIndex,
+                interpolationFraction: fraction
+            ))
+        }
+
+        guard !points.isEmpty else {
+            return SweepAlignment(
+                points: [],
+                usesInterpolation: false,
+                diagnostics: ["No overlapping sweep values were available for comparison."]
+            )
+        }
+
+        return SweepAlignment(
+            points: points,
+            usesInterpolation: points.contains { $0.usesInterpolation },
+            diagnostics: []
+        )
+    }
+
+    private func isStrictlyIncreasing(_ values: [Double]) -> Bool {
+        guard values.count > 1 else {
+            return true
+        }
+        for index in 1..<values.count {
+            guard values[index] > values[index - 1] else {
+                return false
+            }
+        }
+        return true
     }
 
     private func compareVariable(
         named variableName: String,
-        pointCount: Int,
+        alignedPoints: [AlignedPoint],
         preLayoutWaveform: WaveformData,
         postLayoutWaveform: WaveformData
     ) -> PostLayoutVariableComparison? {
         guard let preIndex = preLayoutWaveform.variableIndex(named: variableName),
               let postIndex = postLayoutWaveform.variableIndex(named: variableName),
-              pointCount > 0 else {
+              !alignedPoints.isEmpty else {
             return nil
         }
 
@@ -220,12 +431,12 @@ public struct PostLayoutComparisonService: Sendable {
         var lastPreLayoutValue: Double?
         var lastPostLayoutValue: Double?
 
-        for point in 0..<pointCount {
+        for (alignedIndex, point) in alignedPoints.enumerated() {
             guard let preValue = comparableValue(
                 waveform: preLayoutWaveform,
                 variable: preIndex,
-                point: point
-            ), let postValue = comparableValue(
+                point: point.prePoint
+            ), let postValue = alignedPostValue(
                 waveform: postLayoutWaveform,
                 variable: postIndex,
                 point: point
@@ -233,7 +444,7 @@ public struct PostLayoutComparisonService: Sendable {
                 continue
             }
 
-            if point == 0 {
+            if alignedIndex == 0 {
                 firstPreLayoutValue = preValue
                 firstPostLayoutValue = postValue
             }
@@ -241,7 +452,7 @@ public struct PostLayoutComparisonService: Sendable {
             lastPostLayoutValue = postValue
 
             let absoluteDelta = abs(postValue - preValue)
-            let relativeDelta = absoluteDelta / max(abs(preValue), 1.0e-30)
+            let relativeDelta = absoluteDelta / max(abs(preValue), abs(postValue), 1.0e-30)
             maxAbsoluteDelta = max(maxAbsoluteDelta, absoluteDelta)
             maxRelativeDelta = max(maxRelativeDelta, relativeDelta)
         }
@@ -255,6 +466,23 @@ public struct PostLayoutComparisonService: Sendable {
             lastPreLayoutValue: lastPreLayoutValue,
             lastPostLayoutValue: lastPostLayoutValue
         )
+    }
+
+    private func alignedPostValue(
+        waveform: WaveformData,
+        variable: Int,
+        point: AlignedPoint
+    ) -> Double? {
+        if let postPoint = point.postPoint {
+            return comparableValue(waveform: waveform, variable: variable, point: postPoint)
+        }
+        guard let lowerPostPoint = point.lowerPostPoint,
+              let upperPostPoint = point.upperPostPoint,
+              let lowerValue = comparableValue(waveform: waveform, variable: variable, point: lowerPostPoint),
+              let upperValue = comparableValue(waveform: waveform, variable: variable, point: upperPostPoint) else {
+            return nil
+        }
+        return lowerValue + ((upperValue - lowerValue) * point.interpolationFraction)
     }
 
     private func comparableValue(waveform: WaveformData, variable: Int, point: Int) -> Double? {

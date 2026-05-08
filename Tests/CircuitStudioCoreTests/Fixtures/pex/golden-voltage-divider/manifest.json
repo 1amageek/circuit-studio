@@ -13,6 +13,13 @@
       "rawFiles": ["voltage-divider.spef"],
       "irFile": "tt_25c_1v0.json",
       "logFile": "extraction.log"
+    },
+    {
+      "cornerID": { "value": "ss_125c_0v9" },
+      "status": "success",
+      "rawFiles": ["voltage-divider.spef"],
+      "irFile": "ss_125c_0v9.json",
+      "logFile": "extraction.log"
     }
   ],
   "warnings": []

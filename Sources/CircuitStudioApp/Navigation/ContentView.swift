@@ -146,7 +146,7 @@ public struct ContentView: View {
                         .font(.caption)
                     Spacer()
                     Button("Regenerate") {
-                        project.generateLayout(catalog: services.catalog)
+                        project.generateLayout(service: services.designFlowService, catalog: services.catalog)
                     }
                     .controlSize(.small)
                 }
@@ -407,7 +407,7 @@ public struct ContentView: View {
         ToolbarItem(placement: .primaryAction) {
             if appState.isSimulating {
                 Button {
-                    appState.cancelSimulation(service: services.simulationService)
+                    appState.cancelSimulation(service: services.designFlowService)
                 } label: {
                     Label("Stop", systemImage: "stop.fill")
                 }
@@ -420,11 +420,10 @@ public struct ContentView: View {
                             await appState.runSchematicSimulation(
                                 document: schematicViewModel.document,
                                 analysisCommand: appState.selectedAnalysis,
-                                generator: services.netlistGenerator,
-                                service: services.simulationService
+                                service: services.designFlowService
                             )
                         case .netlist:
-                            await appState.runSimulation(service: services.simulationService)
+                            await appState.runSimulation(service: services.designFlowService)
                         }
                     }
                 } label: {
@@ -443,7 +442,7 @@ public struct ContentView: View {
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button {
-                    project.generateLayout(catalog: services.catalog)
+                    project.generateLayout(service: services.designFlowService, catalog: services.catalog)
                     appState.workspace = .integration
                 } label: {
                     Label("Generate Layout", systemImage: "cpu")

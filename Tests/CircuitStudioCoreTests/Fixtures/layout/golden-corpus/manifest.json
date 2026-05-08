@@ -1,0 +1,25 @@
+{
+  "corpusID": "golden-layout-signoff",
+  "layouts": [
+    {
+      "id": "voltage-divider-oasis-clean",
+      "format": "oas",
+      "topCell": "TOP",
+      "layoutFile": "golden-voltage-divider.oas",
+      "signoffLogs": [
+        {
+          "kind": "drc",
+          "toolName": "golden-calibre",
+          "logFile": "golden-calibre-drc-clean.log",
+          "success": true
+        },
+        {
+          "kind": "lvs",
+          "toolName": "golden-calibre",
+          "logFile": "golden-calibre-lvs-clean.log",
+          "success": true
+        }
+      ]
+    }
+  ]
+}

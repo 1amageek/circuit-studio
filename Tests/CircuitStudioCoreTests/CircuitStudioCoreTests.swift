@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import CoreGraphics
 @testable import CircuitStudioCore
@@ -601,6 +602,50 @@ struct SimulationServiceTests {
             command: .op
         )
         #expect(result.status == .completed)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func simulationFailureClearsActiveJobAndSurfacesTypedError() async throws {
+        let service = SimulationService()
+        let source = """
+        Invalid resistor
+        V1 in 0 5
+        R1 in out not_a_number
+        .op
+        .end
+        """
+
+        do {
+            _ = try await service.runSPICE(source: source, fileName: nil)
+            Issue.record("Expected simulation to fail")
+        } catch let error as StudioError {
+            switch error {
+            case .parseFailure, .loweringFailure, .compilationFailure, .deviceBindingFailure, .simulationFailure:
+                break
+            default:
+                Issue.record("Unexpected StudioError: \(error)")
+            }
+        } catch {
+            Issue.record("Expected StudioError, got \(error)")
+        }
+
+        #expect(service.activeJobID == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingRegisteredJobEmitsCancellationEvent() async {
+        let service = SimulationService()
+        let jobID = UUID()
+        let stream = service.events(jobID: jobID)
+        var iterator = stream.makeAsyncIterator()
+
+        service.cancel(jobID: jobID)
+        let event = await iterator.next()
+
+        guard let event, case .cancelled = event else {
+            Issue.record("Expected cancellation event, got \(String(describing: event))")
+            return
+        }
     }
 }
 
