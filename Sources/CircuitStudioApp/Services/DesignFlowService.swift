@@ -848,7 +848,9 @@ public struct DesignFlowService: Sendable {
                   let lvsLogPath = lvs.replayLogPath else {
                 return nil
             }
-            return try loadExternalSignoffReview(logs: [
+            let adapter = try SignoffAdapterFactory().replayAdapter(adapterID: signoff.adapterID)
+            return try adapter.run(request: SignoffAdapterRequest(
+                replayLogs: [
                 ExternalSignoffLogArtifact(
                     kind: .drc,
                     toolName: drc.toolName,
@@ -861,7 +863,9 @@ public struct DesignFlowService: Sendable {
                     logURL: package.resolvedURL(for: lvsLogPath),
                     success: lvs.expectedSuccess
                 ),
-            ])
+                ],
+                artifactDirectory: package.rootURL
+            ))
         case (.some(let drcPath), .some(let lvsPath)):
             return try loadExternalSignoffReview(logs: [
                 ExternalSignoffLogArtifact(

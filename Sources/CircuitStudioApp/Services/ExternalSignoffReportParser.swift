@@ -1,7 +1,18 @@
 import Foundation
 
 public struct ExternalSignoffReportParser: Sendable {
-    public init() {}
+    public enum Style: String, Sendable, Hashable, Codable {
+        case generic
+        case calibreLike
+        case magicNetgenLike
+        case klayoutLike
+    }
+
+    public let style: Style
+
+    public init(style: Style = .generic) {
+        self.style = style
+    }
 
     public func parse(
         kind: ExternalSignoffToolReport.Kind,
@@ -30,6 +41,13 @@ public struct ExternalSignoffReportParser: Sendable {
         }
 
         let fields = keyValueFields(in: trimmed)
+        if let diagnostic = styleSpecificDiagnostic(
+            line: trimmed,
+            severity: severity,
+            fields: fields
+        ) {
+            return diagnostic
+        }
         return ExternalSignoffDiagnostic(
             severity: severity,
             message: fields["message"] ?? strippedMessage(from: trimmed),
@@ -48,6 +66,13 @@ public struct ExternalSignoffReportParser: Sendable {
             || uppercased.contains("MISMATCH") {
             return .error
         }
+        if style == .calibreLike && uppercased.contains("INCORRECT") {
+            return .error
+        }
+        if style == .magicNetgenLike &&
+            (uppercased.contains("DO NOT MATCH") || uppercased.contains("NOT EQUIVALENT")) {
+            return .error
+        }
         if uppercased.contains("WARN") {
             return .warning
         }
@@ -55,6 +80,106 @@ public struct ExternalSignoffReportParser: Sendable {
             return .info
         }
         return nil
+    }
+
+    private func styleSpecificDiagnostic(
+        line: String,
+        severity: ExternalSignoffDiagnostic.Severity,
+        fields: [String: String]
+    ) -> ExternalSignoffDiagnostic? {
+        switch style {
+        case .generic:
+            return nil
+        case .calibreLike:
+            return calibreDiagnostic(line: line, severity: severity, fields: fields)
+        case .magicNetgenLike:
+            return magicNetgenDiagnostic(line: line, severity: severity, fields: fields)
+        case .klayoutLike:
+            return klayoutDiagnostic(line: line, severity: severity, fields: fields)
+        }
+    }
+
+    private func calibreDiagnostic(
+        line: String,
+        severity: ExternalSignoffDiagnostic.Severity,
+        fields: [String: String]
+    ) -> ExternalSignoffDiagnostic? {
+        let uppercased = line.uppercased()
+        if uppercased.contains("INCORRECT") && fields.isEmpty {
+            return ExternalSignoffDiagnostic(
+                severity: severity,
+                message: strippedMessage(from: line),
+                ruleID: "CALIBRE_SIGNOFF_INCORRECT",
+                rawLine: line
+            )
+        }
+        if let ruleID = fields["rule"] ?? fields["ruleID"] ?? fields["check"] {
+            return ExternalSignoffDiagnostic(
+                severity: severity,
+                message: fields["message"] ?? strippedMessage(from: line),
+                ruleID: ruleID,
+                componentName: fields["component"] ?? fields["instance"],
+                netName: fields["net"],
+                rawLine: line
+            )
+        }
+        return nil
+    }
+
+    private func magicNetgenDiagnostic(
+        line: String,
+        severity: ExternalSignoffDiagnostic.Severity,
+        fields: [String: String]
+    ) -> ExternalSignoffDiagnostic? {
+        let uppercased = line.uppercased()
+        if uppercased.contains("NETLISTS DO NOT MATCH") {
+            return ExternalSignoffDiagnostic(
+                severity: severity,
+                message: strippedMessage(from: line),
+                ruleID: "NETGEN_LVS_MISMATCH",
+                componentName: fields["device"] ?? fields["instance"] ?? fields["component"],
+                netName: fields["net"],
+                rawLine: line
+            )
+        }
+        if uppercased.contains("PROPERTY") && uppercased.contains("ERROR") {
+            return ExternalSignoffDiagnostic(
+                severity: severity,
+                message: fields["message"] ?? strippedMessage(from: line),
+                ruleID: "NETGEN_PROPERTY_MISMATCH",
+                componentName: fields["device"] ?? fields["instance"] ?? fields["component"],
+                netName: fields["net"],
+                rawLine: line
+            )
+        }
+        return nil
+    }
+
+    private func klayoutDiagnostic(
+        line: String,
+        severity: ExternalSignoffDiagnostic.Severity,
+        fields: [String: String]
+    ) -> ExternalSignoffDiagnostic? {
+        let parts = line.split(separator: ":", maxSplits: 2).map(String.init)
+        guard parts.count >= 2 else {
+            return nil
+        }
+        let severityToken = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard severityToken == "ERROR" || severityToken == "WARNING" || severityToken == "WARN" || severityToken == "INFO" else {
+            return nil
+        }
+        let ruleID = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = parts.count == 3
+            ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
+            : strippedMessage(from: line)
+        return ExternalSignoffDiagnostic(
+            severity: severity,
+            message: fields["message"] ?? message,
+            ruleID: ruleID.isEmpty ? nil : ruleID,
+            componentName: fields["component"] ?? fields["instance"],
+            netName: fields["net"],
+            rawLine: line
+        )
     }
 
     private func keyValueFields(in line: String) -> [String: String] {
