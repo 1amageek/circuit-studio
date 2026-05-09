@@ -46,7 +46,14 @@ struct CircuitStudioFlowRunner {
             layoutDocumentPath: options.layoutDocumentURL?.path(percentEncoded: false),
             outputLayoutDocumentPath: options.outputLayoutDocumentURL?.path(percentEncoded: false),
             designUnitPath: options.designUnitURL?.path(percentEncoded: false),
-            roundTripManifestPath: options.reviewManifestURL?.path(percentEncoded: false)
+            roundTripManifestPath: options.reviewManifestURL?.path(percentEncoded: false),
+            approvalGateID: options.approvalGateID,
+            approvalTargetPath: options.approvalTargetURL?.path(percentEncoded: false),
+            approvalReviewer: options.approvalReviewer,
+            approvalDecision: options.approvalDecision,
+            approvalPolicy: options.approvalPolicy,
+            approvalNote: options.approvalNote,
+            waiverIDs: options.waiverIDs
         )
     }
 
@@ -56,7 +63,7 @@ struct CircuitStudioFlowRunner {
             return nil
         case .applyDesignEdit, .applyLayoutEdit:
             return options.outputURL?.path(percentEncoded: false)
-        case .runVerification:
+        case .runVerification, .approveGate:
             return options.outputURL?.path(percentEncoded: false)
         case .reviewRoundTrip:
             return options.outputURL?.path(percentEncoded: false)
@@ -179,6 +186,13 @@ struct CircuitStudioFlowRunner {
             Swift.print("lvs_passed=\(result.verificationReport?.lvs.passed ?? false)")
             Swift.print("external_signoff=\(signoffSource(result: result, options: options))")
             Swift.print("signoff_approved=\(result.verificationReport?.externalSignoff?.approved ?? false)")
+        case .approveGate:
+            Swift.print("gate_approval=\(result.approvalRecord?.decision.rawValue ?? "")")
+            Swift.print("gate=\(result.approvalRecord?.gateID.rawValue ?? "")")
+            Swift.print("reviewer=\(result.approvalRecord?.reviewer ?? "")")
+            Swift.print("run_id=\(result.approvalRecord?.runID ?? "")")
+            Swift.print("approval_record=\(result.approvalRecordPath ?? "")")
+            Swift.print("target_sha256=\(result.approvalRecord?.targetArtifactSHA256 ?? "")")
         case .reviewRoundTrip:
             let review = result.roundTripReview
             Swift.print("round_trip_review=\(review?.status.rawValue ?? "")")
@@ -241,6 +255,7 @@ struct CircuitStudioFlowRunner {
           --apply-design-edit      Apply a design edit script through DesignFlowCommand
           --apply-layout-edit      Apply a layout edit script through DesignFlowCommand
           --run-verification       Run DRC/LVS/pre-PEX verification without a full round trip
+          --approve-gate           Write a typed gate approval record for human-in-the-loop review
           --review-round-trip      Load a round-trip review summary from manifest artifacts
           default                   Run the full fixture round trip through DesignFlowCommand
 
@@ -259,6 +274,18 @@ struct CircuitStudioFlowRunner {
           --design-unit PATH
                            Optional DesignUnit JSON path for --run-verification
           --manifest PATH Round-trip manifest path for --review-round-trip
+          --approval-gate ID
+                           Gate ID for --approve-gate. Values: external-signoff, pre-pex-verification, post-layout-comparison, physical-verification
+          --approval-target PATH
+                           Explicit target artifact path for --approve-gate
+          --reviewer NAME Reviewer identity for --approve-gate
+          --approval-decision VALUE
+                           Approval decision. Values: approved, rejected. Default: approved
+          --approval-policy TEXT
+                           Policy text or policy ID recorded in the approval artifact
+          --approval-note TEXT
+                           Free-form note recorded in the approval artifact
+          --waiver ID      Waiver ID recorded in the approval artifact. Can be repeated
           --technology-package PATH
                            Inject one technology package manifest into netlist, simulation, layout, signoff, and PEX inputs when supported
           --output PATH    Project/output directory. Default: ./round-trip-runs/<fixture-or-design-spec-name>
@@ -299,6 +326,7 @@ private enum RunnerMode: Equatable {
     case applyDesignEdit
     case applyLayoutEdit
     case runVerification
+    case approveGate
     case reviewRoundTrip
 
     func commandKind(usesDesignSpec: Bool) -> DesignFlowCommand.Kind {
@@ -323,6 +351,8 @@ private enum RunnerMode: Equatable {
             return .applyLayoutEdit
         case .runVerification:
             return .runVerification
+        case .approveGate:
+            return .approveGate
         case .reviewRoundTrip:
             return .reviewRoundTrip
         }
@@ -345,6 +375,13 @@ private struct RunnerOptions {
     var outputLayoutDocumentURL: URL?
     var designUnitURL: URL?
     var reviewManifestURL: URL?
+    var approvalGateID: FlowGateID?
+    var approvalTargetURL: URL?
+    var approvalReviewer: String?
+    var approvalDecision: GateApprovalDecision?
+    var approvalPolicy: String?
+    var approvalNote: String?
+    var waiverIDs: [String] = []
     var pexCornerID = "tt_25c_1v0"
     var signoffDRCLogURL: URL?
     var signoffLVSLogURL: URL?
@@ -378,6 +415,8 @@ private struct RunnerOptions {
                 try selectMode(.applyLayoutEdit)
             case "--run-verification":
                 try selectMode(.runVerification)
+            case "--approve-gate":
+                try selectMode(.approveGate)
             case "--review-round-trip":
                 try selectMode(.reviewRoundTrip)
             case "--fixture":
@@ -408,6 +447,20 @@ private struct RunnerOptions {
                 designUnitURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--manifest":
                 reviewManifestURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--approval-gate":
+                approvalGateID = try Self.gateID(after: argument, in: arguments, index: &index)
+            case "--approval-target":
+                approvalTargetURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--reviewer":
+                approvalReviewer = try Self.value(after: argument, in: arguments, index: &index)
+            case "--approval-decision":
+                approvalDecision = try Self.approvalDecision(after: argument, in: arguments, index: &index)
+            case "--approval-policy":
+                approvalPolicy = try Self.value(after: argument, in: arguments, index: &index)
+            case "--approval-note":
+                approvalNote = try Self.value(after: argument, in: arguments, index: &index)
+            case "--waiver":
+                waiverIDs.append(try Self.value(after: argument, in: arguments, index: &index))
             case "--pex-corner":
                 pexCornerID = try Self.value(after: argument, in: arguments, index: &index)
             case "--signoff-drc-log":
@@ -458,6 +511,26 @@ private struct RunnerOptions {
             throw RunnerError.invalidNumericValue(option, rawValue)
         }
         return value
+    }
+
+    private static func gateID(after option: String, in arguments: [String], index: inout Int) throws -> FlowGateID {
+        let rawValue = try value(after: option, in: arguments, index: &index)
+        guard let gateID = FlowGateID(rawValue: rawValue) else {
+            throw RunnerError.invalidGateID(rawValue)
+        }
+        return gateID
+    }
+
+    private static func approvalDecision(
+        after option: String,
+        in arguments: [String],
+        index: inout Int
+    ) throws -> GateApprovalDecision {
+        let rawValue = try value(after: option, in: arguments, index: &index)
+        guard let decision = GateApprovalDecision(rawValue: rawValue) else {
+            throw RunnerError.invalidApprovalDecision(rawValue)
+        }
+        return decision
     }
 
     private static func variableLimit(
@@ -522,6 +595,8 @@ private enum RunnerError: Error, LocalizedError {
     case missingValue(String)
     case invalidNumericValue(String, String)
     case invalidVariableLimit(String)
+    case invalidGateID(String)
+    case invalidApprovalDecision(String)
     case conflictingModes
 
     var errorDescription: String? {
@@ -534,6 +609,10 @@ private enum RunnerError: Error, LocalizedError {
             return "Invalid numeric value for \(option): \(value)"
         case .invalidVariableLimit(let value):
             return "Invalid variable comparison limit: \(value)"
+        case .invalidGateID(let value):
+            return "Invalid approval gate ID: \(value)"
+        case .invalidApprovalDecision(let value):
+            return "Invalid approval decision: \(value)"
         case .conflictingModes:
             return "Only one runner mode can be selected."
         }

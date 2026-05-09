@@ -187,6 +187,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case applyDesignEdit
         case applyLayoutEdit
         case runVerification
+        case approveGate
         case reviewRoundTrip
     }
 
@@ -212,6 +213,13 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let outputLayoutDocumentPath: String?
     public let designUnitPath: String?
     public let roundTripManifestPath: String?
+    public let approvalGateID: FlowGateID?
+    public let approvalTargetPath: String?
+    public let approvalReviewer: String?
+    public let approvalDecision: GateApprovalDecision?
+    public let approvalPolicy: String?
+    public let approvalNote: String?
+    public let waiverIDs: [String]
 
     public init(
         kind: Kind,
@@ -235,7 +243,14 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         layoutDocumentPath: String? = nil,
         outputLayoutDocumentPath: String? = nil,
         designUnitPath: String? = nil,
-        roundTripManifestPath: String? = nil
+        roundTripManifestPath: String? = nil,
+        approvalGateID: FlowGateID? = nil,
+        approvalTargetPath: String? = nil,
+        approvalReviewer: String? = nil,
+        approvalDecision: GateApprovalDecision? = nil,
+        approvalPolicy: String? = nil,
+        approvalNote: String? = nil,
+        waiverIDs: [String] = []
     ) {
         self.kind = kind
         self.fixtureName = fixtureName
@@ -259,6 +274,13 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.outputLayoutDocumentPath = outputLayoutDocumentPath
         self.designUnitPath = designUnitPath
         self.roundTripManifestPath = roundTripManifestPath
+        self.approvalGateID = approvalGateID
+        self.approvalTargetPath = approvalTargetPath
+        self.approvalReviewer = approvalReviewer
+        self.approvalDecision = approvalDecision
+        self.approvalPolicy = approvalPolicy
+        self.approvalNote = approvalNote
+        self.waiverIDs = waiverIDs
     }
 
     public static func listFixtures() -> DesignFlowCommand {
@@ -292,6 +314,8 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let layoutDiffPath: String?
     public let verificationReportPath: String?
     public let verificationReport: DesignFlowVerificationReport?
+    public let approvalRecordPath: String?
+    public let approvalRecord: GateApprovalRecord?
     public let roundTripReview: RoundTripReviewSummary?
     public let message: String?
 
@@ -321,6 +345,8 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         layoutDiffPath: String? = nil,
         verificationReportPath: String? = nil,
         verificationReport: DesignFlowVerificationReport? = nil,
+        approvalRecordPath: String? = nil,
+        approvalRecord: GateApprovalRecord? = nil,
         roundTripReview: RoundTripReviewSummary? = nil,
         message: String? = nil
     ) {
@@ -349,6 +375,8 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.layoutDiffPath = layoutDiffPath
         self.verificationReportPath = verificationReportPath
         self.verificationReport = verificationReport
+        self.approvalRecordPath = approvalRecordPath
+        self.approvalRecord = approvalRecord
         self.roundTripReview = roundTripReview
         self.message = message
     }
@@ -368,6 +396,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case missingOutputLayoutDocumentPath
     case missingVerificationDesignInput
     case missingRoundTripManifestPath
+    case missingApprovalGateID
+    case missingApprovalReviewer
 
     public var errorDescription: String? {
         switch self {
@@ -397,6 +427,10 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
             return "Design flow verification requires a design spec path or a fixture name."
         case .missingRoundTripManifestPath:
             return "Design flow command requires a round-trip manifest path, or a project root path with a run ID."
+        case .missingApprovalGateID:
+            return "Design flow command requires an approval gate ID."
+        case .missingApprovalReviewer:
+            return "Design flow command requires an approval reviewer."
         }
     }
 }
@@ -749,9 +783,40 @@ public struct DesignFlowService: Sendable {
             return try applyLayoutEdit(command)
         case .runVerification:
             return try runVerification(command)
+        case .approveGate:
+            return try approveGate(command)
         case .reviewRoundTrip:
             return try reviewRoundTrip(command)
         }
+    }
+
+    private func approveGate(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+        guard let gateID = command.approvalGateID else {
+            throw DesignFlowCommandError.missingApprovalGateID
+        }
+        guard let reviewer = command.approvalReviewer else {
+            throw DesignFlowCommandError.missingApprovalReviewer
+        }
+        let result = try FlowRunGovernanceService().approve(GateApprovalRequest(
+            gateID: gateID,
+            decision: command.approvalDecision ?? .approved,
+            reviewer: reviewer,
+            projectRoot: command.projectRootPath.map { URL(filePath: $0) },
+            runID: command.runID,
+            manifestURL: command.roundTripManifestPath.map { URL(filePath: $0) },
+            targetArtifactURL: command.approvalTargetPath.map { URL(filePath: $0) },
+            policy: command.approvalPolicy,
+            waiverIDs: command.waiverIDs,
+            note: command.approvalNote
+        ))
+        return DesignFlowCommandResult(
+            kind: command.kind,
+            runID: result.record.runID,
+            projectRootPath: command.projectRootPath,
+            approvalRecordPath: result.recordPath,
+            approvalRecord: result.record,
+            message: result.record.decision.rawValue
+        )
     }
 
     @MainActor

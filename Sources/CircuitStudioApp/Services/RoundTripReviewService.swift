@@ -42,6 +42,7 @@ public struct RoundTripReviewService: Sendable {
 
         let signoff = loadSignoffSummary(from: manifest.artifacts, diagnostics: &diagnostics)
         let comparison = loadComparisonSummary(from: manifest.artifacts, diagnostics: &diagnostics)
+        let approvals = loadApprovalRecords(manifest: manifest, manifestURL: manifestURL, diagnostics: &diagnostics)
         let stageSummaries = manifest.stages.map {
             RoundTripReviewStageSummary(
                 name: $0.name,
@@ -63,6 +64,7 @@ public struct RoundTripReviewService: Sendable {
             artifacts: artifactSummaries,
             externalSignoff: signoff,
             postLayoutComparison: comparison,
+            approvals: approvals,
             bottleneckSummary: manifest.bottleneckSummary,
             diagnostics: diagnostics,
             recommendations: recommendations(
@@ -72,6 +74,25 @@ public struct RoundTripReviewService: Sendable {
                 diagnostics: diagnostics
             )
         )
+    }
+
+    private func loadApprovalRecords(
+        manifest: HeadlessRoundTripService.Manifest,
+        manifestURL: URL,
+        diagnostics: inout [String]
+    ) -> [GateApprovalRecord] {
+        guard let projectRoot = projectRoot(fromManifestURL: manifestURL) else {
+            return []
+        }
+        do {
+            return try FlowRunGovernanceService().approvalRecords(
+                projectRoot: projectRoot,
+                runID: manifest.runID
+            )
+        } catch {
+            diagnostics.append("Failed to load gate approval records: \(error.localizedDescription)")
+            return []
+        }
     }
 
     private func summarize(
@@ -229,6 +250,15 @@ public struct RoundTripReviewService: Sendable {
                 "Failed to load \(context) from \(url.path(percentEncoded: false)): \(error.localizedDescription)"
             )
         }
+    }
+
+    private func projectRoot(fromManifestURL url: URL) -> URL? {
+        let flowRunsDirectory = url.deletingLastPathComponent().deletingLastPathComponent()
+        let configDirectory = flowRunsDirectory.deletingLastPathComponent()
+        guard configDirectory.lastPathComponent == ".xcircuite" else {
+            return nil
+        }
+        return configDirectory.deletingLastPathComponent()
     }
 
     private static func validateRunID(_ runID: String) throws {

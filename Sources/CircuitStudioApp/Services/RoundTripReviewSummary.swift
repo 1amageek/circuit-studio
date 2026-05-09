@@ -19,6 +19,7 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
     public let artifacts: [RoundTripReviewArtifactSummary]
     public let externalSignoff: RoundTripReviewSignoffSummary?
     public let postLayoutComparison: RoundTripReviewComparisonSummary?
+    public let approvals: [GateApprovalRecord]
     public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
     public let diagnostics: [String]
     public let recommendations: [String]
@@ -35,6 +36,7 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
         artifacts: [RoundTripReviewArtifactSummary],
         externalSignoff: RoundTripReviewSignoffSummary?,
         postLayoutComparison: RoundTripReviewComparisonSummary?,
+        approvals: [GateApprovalRecord] = [],
         bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?,
         diagnostics: [String],
         recommendations: [String]
@@ -50,6 +52,7 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
         self.artifacts = artifacts
         self.externalSignoff = externalSignoff
         self.postLayoutComparison = postLayoutComparison
+        self.approvals = approvals
         self.bottleneckSummary = bottleneckSummary
         self.diagnostics = diagnostics
         self.recommendations = recommendations

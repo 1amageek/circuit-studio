@@ -113,13 +113,15 @@ M6 update: the Agent edit loop now includes a layout-edit command for canonical 
 
 M6 verification update: Agent/API callers can now run DRC/LVS/pre-PEX verification without a full round trip. `DesignFlowCommand.runVerification` accepts a fixture or design spec plus a canonical layout JSON, optionally imports signoff logs and a DesignUnit, rebinds stale ID mappings by layout instance/net names when needed, and writes a Codable physical-verification report artifact. This makes edit -> verify loops materially shorter than rerunning simulation, PEX, and comparison each time.
 
+M6 governance update: human approval is now represented as an immutable gate approval record instead of a mutable side effect on the reviewed artifact. `GateApprovalRecord` stores the gate ID, decision, reviewer, timestamp, target artifact SHA256, manifest SHA256, policy, waiver IDs, and lineage back to the reviewed run. `DesignFlowCommand.approveGate` writes these records under `.xcircuite/approvals/<run-id>/`, and `RoundTripReviewService` includes them in the same review projection used by CLI/API/UI. Approval record paths validate both explicit and manifest-derived run IDs, and pre-PEX approvals require an explicit verification artifact instead of falling back to an unrelated later-stage artifact.
+
 M9 update: imported OAS raw topology now has a strict in-process DRC/LVS regression. Raw capacitor extraction/value comparison is covered, and imported-layout LVS can accept physical connectivity clusters plus top-level labels as net realization when generated `DesignUnit` net IDs are absent. The remaining layout gap is committed real foundry-style binary corpus coverage rather than only generated test artifacts.
 
 ## Recommended Next Work
 
 | Priority | Work |
 |---:|---|
-| 1 | Extend the M6 command loop from design/layout edits and verification-only to approval and rerun commands |
+| 1 | Extend the M6 command loop from design/layout edits, verification-only, and approval records to rerun commands |
 | 2 | Add committed real GDS/OASIS imported-layout corpora with foundry-style extraction expectations |
 | 3 | Add one-command multi-corner round-trip execution that emits aggregate post-layout comparison artifacts |
 | 4 | Render `RoundTripReviewSummary` in UI panels without reinterpreting raw manifest fields |

@@ -372,6 +372,154 @@ struct DesignFlowServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
+    func commandAPIApprovesGateAndWritesAuditRecord() async throws {
+        let root = try makeTemporaryRoot("gate-approval")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "approval-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+            runID: "approval-run",
+            title: "Approval run",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_100),
+            isRoundTripComplete: true,
+            isReadyForPEX: true,
+            stages: [
+                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
+            ],
+            artifacts: [
+                HeadlessRoundTripService.Artifact(
+                    kind: "post-layout-comparison",
+                    path: comparisonURL.path(percentEncoded: false)
+                ),
+            ]
+        ), to: manifestURL)
+
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .approveGate,
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "approval-run",
+            roundTripManifestPath: manifestURL.path(percentEncoded: false),
+            approvalGateID: .postLayoutComparison,
+            approvalReviewer: "layout-reviewer",
+            approvalPolicy: "strict-post-layout-comparison",
+            approvalNote: "Reviewed comparison artifact",
+            waiverIDs: ["W-007"]
+        ))
+
+        let recordPath = try #require(result.approvalRecordPath)
+        #expect(FileManager.default.fileExists(atPath: recordPath))
+        #expect(result.approvalRecord?.gateID == .postLayoutComparison)
+        #expect(result.approvalRecord?.decision == .approved)
+        #expect(result.approvalRecord?.reviewer == "layout-reviewer")
+        #expect(result.approvalRecord?.waiverIDs == ["W-007"])
+        #expect(result.approvalRecord?.targetArtifactPath == comparisonURL.path(percentEncoded: false))
+        #expect(result.approvalRecord?.targetArtifactSHA256.count == 64)
+        #expect(result.approvalRecord?.manifestSHA256?.count == 64)
+        #expect(result.approvalRecord?.lineage?.parentRunID == "approval-run")
+
+        let review = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+        #expect(review.approvals.count == 1)
+        #expect(review.approvals.first?.gateID == .postLayoutComparison)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIRejectsGateApprovalForInvalidManifestRunID() async throws {
+        let root = try makeTemporaryRoot("gate-approval-invalid-run")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "approval-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+            runID: "../escape",
+            title: "Invalid approval run",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_200),
+            isRoundTripComplete: true,
+            isReadyForPEX: true,
+            stages: [
+                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
+            ],
+            artifacts: [
+                HeadlessRoundTripService.Artifact(
+                    kind: "post-layout-comparison",
+                    path: comparisonURL.path(percentEncoded: false)
+                ),
+            ]
+        ), to: manifestURL)
+
+        do {
+            _ = try await DesignFlowService().execute(DesignFlowCommand(
+                kind: .approveGate,
+                projectRootPath: root.path(percentEncoded: false),
+                roundTripManifestPath: manifestURL.path(percentEncoded: false),
+                approvalGateID: .postLayoutComparison,
+                approvalReviewer: "layout-reviewer"
+            ))
+            Issue.record("Expected invalid manifest run ID to fail gate approval.")
+        } catch let error as FlowRunGovernanceError {
+            #expect(error == .invalidRunID("../escape"))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIRejectsPrePEXApprovalWithoutVerificationArtifact() async throws {
+        let root = try makeTemporaryRoot("gate-approval-missing-pre-pex")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "approval-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+            runID: "approval-run",
+            title: "Missing pre-PEX approval target",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_300),
+            isRoundTripComplete: true,
+            isReadyForPEX: true,
+            stages: [
+                HeadlessRoundTripService.Stage(name: "pre-pex-verification", status: .passed),
+                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
+            ],
+            artifacts: [
+                HeadlessRoundTripService.Artifact(
+                    kind: "post-layout-comparison",
+                    path: comparisonURL.path(percentEncoded: false)
+                ),
+            ]
+        ), to: manifestURL)
+
+        do {
+            _ = try await DesignFlowService().execute(DesignFlowCommand(
+                kind: .approveGate,
+                projectRootPath: root.path(percentEncoded: false),
+                runID: "approval-run",
+                roundTripManifestPath: manifestURL.path(percentEncoded: false),
+                approvalGateID: .prePEXVerification,
+                approvalReviewer: "layout-reviewer"
+            ))
+            Issue.record("Expected missing pre-PEX verification artifact to fail gate approval.")
+        } catch let error as FlowRunGovernanceError {
+            #expect(error == .missingArtifactForGate(.prePEXVerification))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
     func commandAPIRejectsUnsafeDesignSpecNamesAndDuplicateTerminals() async throws {
         let root = try makeTemporaryRoot("invalid-design-spec")
         defer { removeTemporaryRoot(root) }
@@ -1218,6 +1366,14 @@ struct DesignFlowServiceTests {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(designUnit)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func writeHeadlessManifest(_ manifest: HeadlessRoundTripService.Manifest, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(manifest)
         try data.write(to: url, options: .atomic)
     }
 
