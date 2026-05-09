@@ -3,10 +3,9 @@ import CircuitStudioCore
 import SchematicEditor
 import WaveformViewer
 import LayoutEditor
-import UniformTypeIdentifiers
 
-/// Main content area with macOS HIG-compliant layout:
-/// Sidebar (navigator) | Workspace Content | Inspector
+/// Main content area following Xcode's information architecture:
+/// Navigator (tabbed) | Editor (jump bar + content + optional debug area) | Inspector (tabbed)
 public struct ContentView: View {
     @Bindable var appState: AppState
     let services: ServiceContainer
@@ -28,24 +27,15 @@ public struct ContentView: View {
 
     public var body: some View {
         NavigationSplitView {
-            sidebarContent
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
+            NavigatorPane(appState: appState, services: services, project: project)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
         } detail: {
-            VStack(spacing: 0) {
-                workspaceContent
-                    .layoutPriority(1)
-                if appState.showConsole {
-                    SimulationConsoleView(appState: appState)
-                        .frame(maxHeight: 200)
-                }
-            }
-            .toolbar {
-                toolbarContent
-            }
+            editorArea
+                .toolbar { toolbarContent }
         }
         .inspector(isPresented: $appState.showInspector) {
-            inspectorContent
-                .inspectorColumnWidth(min: 200, ideal: 280, max: 400)
+            InspectorPane(appState: appState, services: services, project: project)
+                .inspectorColumnWidth(min: 220, ideal: 300, max: 420)
         }
         .onChange(of: appState.streamingWaveformVersion) { _, _ in
             if let waveform = appState.streamingWaveform {
@@ -58,7 +48,6 @@ public struct ContentView: View {
                let waveform = appState.simulationResult?.waveform {
                 waveformViewModel.load(waveform: waveform)
 
-                // Filter waveform to PORT components if any are placed
                 let resolver = TerminalResolver()
                 let extractor = NetExtractor()
                 let nets = extractor.extract(from: schematicViewModel.document)
@@ -80,13 +69,24 @@ public struct ContentView: View {
         }
     }
 
-    // MARK: - Sidebar (Project Navigator only)
+    // MARK: - Editor Area
 
-    private var sidebarContent: some View {
-        ProjectNavigatorView(
-            appState: appState,
-            fileSystemService: services.fileSystemService
-        )
+    @ViewBuilder
+    private var editorArea: some View {
+        VStack(spacing: 0) {
+            EditorJumpBar(appState: appState)
+            if appState.showDebugArea {
+                VSplitView {
+                    workspaceContent
+                        .frame(minHeight: 200, maxHeight: .infinity)
+                    DebugAreaPane(appState: appState, project: project)
+                        .frame(minHeight: 120, idealHeight: 220)
+                }
+            } else {
+                workspaceContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
     }
 
     // MARK: - Workspace Content
@@ -95,26 +95,13 @@ public struct ContentView: View {
     private var workspaceContent: some View {
         switch appState.workspace {
         case .schematicCapture:
-            schematicCaptureContent
+            schematicEditorContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .layout:
             layoutContent
         case .integration:
             integrationContent
         }
-    }
-
-    /// schematicCapture workspace: schematic or netlist editor + optional waveform panel
-    @ViewBuilder
-    private var schematicCaptureContent: some View {
-        HSplitView {
-            schematicEditorContent
-                .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
-            if appState.showSimulationResults {
-                WaveformResultView(viewModel: waveformViewModel)
-                    .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -127,63 +114,16 @@ public struct ContentView: View {
         }
     }
 
-    /// layout workspace: layout editor (DRC built-in)
     private var layoutContent: some View {
         LayoutEditorView(viewModel: layoutViewModel)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear { layoutViewModel.fitAll() }
     }
 
-    /// integration workspace: schematic + layout side by side
     @ViewBuilder
     private var integrationContent: some View {
         VStack(spacing: 0) {
-            if project.isLayoutStale {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text("Layout is out of date. Regenerate to reflect schematic changes.")
-                        .font(.caption)
-                    Spacer()
-                    Button("Regenerate") {
-                        project.generateLayout(service: services.designFlowService, catalog: services.catalog)
-                    }
-                    .controlSize(.small)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.orange.opacity(0.1))
-            }
-            if let error = project.layoutGenerationError {
-                HStack(spacing: 6) {
-                    Image(systemName: "xmark.octagon.fill")
-                        .foregroundStyle(.red)
-                    Text(error)
-                        .font(.caption)
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.red.opacity(0.1))
-            }
-            if !project.skippedComponents.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundStyle(.blue)
-                    Text("Skipped: \(project.skippedComponents.joined(separator: ", "))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if let name = project.techName {
-                        Text(name)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .background(.blue.opacity(0.05))
-            }
+            integrationStatusBanners
             HSplitView {
                 SchematicEditorView(viewModel: schematicViewModel)
                     .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
@@ -198,6 +138,56 @@ public struct ContentView: View {
         }
         .onChange(of: layoutViewModel.selectedInstanceID) { _, instID in
             syncLayoutToSchematic(instID)
+        }
+    }
+
+    @ViewBuilder
+    private var integrationStatusBanners: some View {
+        if project.isLayoutStale {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("Layout is out of date. Regenerate to reflect schematic changes.")
+                    .font(.caption)
+                Spacer()
+                Button("Regenerate") {
+                    project.generateLayout(service: services.designFlowService, catalog: services.catalog)
+                }
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.orange.opacity(0.1))
+        }
+        if let error = project.layoutGenerationError {
+            HStack(spacing: 6) {
+                Image(systemName: "xmark.octagon.fill")
+                    .foregroundStyle(.red)
+                Text(error)
+                    .font(.caption)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.red.opacity(0.1))
+        }
+        if !project.skippedComponents.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle.fill")
+                    .foregroundStyle(.blue)
+                Text("Skipped: \(project.skippedComponents.joined(separator: ", "))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if let name = project.techName {
+                    Text(name)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(.blue.opacity(0.05))
         }
     }
 
@@ -224,106 +214,77 @@ public struct ContentView: View {
         schematicViewModel.highlightedIDs = [compID]
     }
 
-    // MARK: - Toolbar
+    // MARK: - Toolbar (slim, Xcode-style)
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Workspace picker (center)
         ToolbarItem(placement: .principal) {
-            HStack(spacing: 8) {
-                Picker("Workspace", selection: $appState.workspace) {
-                    Label("Schematic", systemImage: "square.grid.3x3")
-                        .tag(Workspace.schematicCapture)
-                    Label("Layout", systemImage: "square.dashed")
-                        .tag(Workspace.layout)
-                    Label("Integration", systemImage: "rectangle.split.2x1")
-                        .tag(Workspace.integration)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 300)
-
-                if appState.workspace == .schematicCapture {
-                    Picker("Mode", selection: $appState.schematicMode) {
-                        Label("Visual", systemImage: "square.grid.3x3")
-                            .tag(SchematicMode.visual)
-                        Label("Netlist", systemImage: "doc.text")
-                            .tag(SchematicMode.netlist)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 160)
-                }
-            }
+            simulationStatusBadge
         }
 
-        // Context-dependent actions
-        contextToolbarItems
-
-        if appState.showSimulationResults {
-            waveformToolbarItems
+        ToolbarItem(placement: .primaryAction) {
+            runOrStopButton
         }
 
-        // Simulation status
-        ToolbarItem(placement: .status) {
-            if let status = appState.simulationStatus {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-        }
-
-        // Panel toggles
-        ToolbarItemGroup {
-            if appState.workspace == .schematicCapture {
-                Button {
-                    appState.showSimulationResults.toggle()
-                } label: {
-                    Label("Simulation Results",
-                          systemImage: "rectangle.righthalf.inset.filled")
-                }
-                .disabled(appState.simulationResult == nil && !appState.isSimulating)
-            }
-
+        ToolbarItemGroup(placement: .primaryAction) {
             Button {
-                appState.showConsole.toggle()
+                appState.showDebugArea.toggle()
             } label: {
-                Label("Console", systemImage: "terminal")
+                Label("Debug Area", systemImage: "rectangle.bottomthird.inset.filled")
             }
+            .keyboardShortcut("y", modifiers: [.command, .shift])
+            .help("Show/Hide Debug Area")
 
             Button {
                 appState.showInspector.toggle()
             } label: {
                 Label("Inspector", systemImage: "sidebar.trailing")
             }
+            .keyboardShortcut("0", modifiers: [.command, .option])
+            .help("Show/Hide Inspector")
         }
     }
 
-    @ToolbarContentBuilder
-    private var contextToolbarItems: some ToolbarContent {
-        switch appState.workspace {
-        case .schematicCapture:
-            schematicToolbarItems
-        case .layout, .integration:
-            layoutToolbarItems
+    @ViewBuilder
+    private var simulationStatusBadge: some View {
+        if let status = appState.simulationStatus {
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        } else {
+            EmptyView()
         }
     }
 
-    // MARK: - Schematic Toolbar
-
-    private var canGenerateLayout: Bool {
-        !schematicViewModel.document.components.isEmpty
-            && !schematicViewModel.document.wires.isEmpty
+    @ViewBuilder
+    private var runOrStopButton: some View {
+        if appState.isSimulating {
+            Button {
+                appState.cancelSimulation(service: services.designFlowService)
+            } label: {
+                Label("Stop", systemImage: "stop.fill")
+            }
+            .keyboardShortcut(".", modifiers: .command)
+        } else {
+            Button {
+                runActiveSimulation()
+            } label: {
+                Label("Run", systemImage: "play.fill")
+            }
+            .disabled(runButtonDisabled)
+            .keyboardShortcut("r", modifiers: .command)
+        }
     }
 
-    private var runPEXDisabled: Bool {
-        appState.isRunningPEX || appState.projectRootURL == nil || project.designUnit == nil
-    }
+    // MARK: - Run Logic
 
     private var runButtonDisabled: Bool {
+        guard appState.workspace == .schematicCapture else { return true }
         if appState.isSimulating { return true }
         switch appState.schematicMode {
         case .visual:
@@ -336,672 +297,21 @@ public struct ContentView: View {
         }
     }
 
-    private var analysisLabel: String {
-        switch appState.selectedAnalysis {
-        case .op: return "OP"
-        case .tran: return "Tran"
-        case .ac: return "AC"
-        case .dcSweep: return "DC"
-        case .noise: return "Noise"
-        case .tf: return "TF"
-        case .pz: return "PZ"
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var schematicToolbarItems: some ToolbarContent {
-        if appState.schematicMode == .visual {
-            ToolbarItemGroup(placement: .secondaryAction) {
-                Button {
-                    schematicViewModel.tool = .select
-                } label: {
-                    Label("Select", systemImage: "arrow.uturn.left")
-                }
-                .help("Select tool")
-
-                Button {
-                    schematicViewModel.tool = .wire
-                } label: {
-                    Label("Wire", systemImage: "line.diagonal")
-                }
-                .help("Wire tool")
-
-                Button {
-                    schematicViewModel.tool = .label
-                } label: {
-                    Label("Net Label", systemImage: "tag")
-                }
-                .help("Net label tool")
-            }
-        }
-
-        if appState.schematicMode == .netlist {
-            ToolbarItem(placement: .status) {
-                if let fileName = appState.spiceFileName {
-                    Text(fileName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Button("Operating Point") {
-                    appState.selectedAnalysis = .op
-                }
-                Button("Transient (1ms)") {
-                    appState.selectedAnalysis = .tran(TranSpec(stopTime: 1e-3, stepTime: 10e-6))
-                }
-                Button("AC Sweep (1Hz\u{2013}1MHz)") {
-                    appState.selectedAnalysis = .ac(ACSpec(
-                        scaleType: .decade, numberOfPoints: 20,
-                        startFrequency: 1, stopFrequency: 1e6
-                    ))
-                }
-            } label: {
-                Label(analysisLabel, systemImage: "function")
-            }
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            if appState.isSimulating {
-                Button {
-                    appState.cancelSimulation(service: services.designFlowService)
-                } label: {
-                    Label("Stop", systemImage: "stop.fill")
-                }
-                .keyboardShortcut(".", modifiers: .command)
-            } else {
-                Button {
-                    Task {
-                        switch appState.schematicMode {
-                        case .visual:
-                            await appState.runSchematicSimulation(
-                                document: schematicViewModel.document,
-                                analysisCommand: appState.selectedAnalysis,
-                                service: services.designFlowService
-                            )
-                        case .netlist:
-                            await appState.runSimulation(service: services.designFlowService)
-                        }
-                    }
-                } label: {
-                    Label("Run", systemImage: "play.fill")
-                }
-                .disabled(runButtonDisabled)
-                .keyboardShortcut("r", modifiers: .command)
-            }
-        }
-    }
-
-    // MARK: - Layout Toolbar
-
-    @ToolbarContentBuilder
-    private var layoutToolbarItems: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Button {
-                    project.generateLayout(service: services.designFlowService, catalog: services.catalog)
-                    appState.workspace = .integration
-                } label: {
-                    Label("Generate Layout", systemImage: "cpu")
-                }
-                .disabled(!canGenerateLayout)
-
-                Divider()
-
-                Button {
-                    loadTechFile()
-                } label: {
-                    if let name = project.techName {
-                        Label("Tech: \(name)", systemImage: "checkmark")
-                    } else {
-                        Label("Load Tech File...", systemImage: "gearshape.2")
-                    }
-                }
-            } label: {
-                Label("Layout", systemImage: "cpu")
-            }
-            .help("Generate layout or load technology file")
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                layoutViewModel.runDRC()
-            } label: {
-                Label("Run DRC", systemImage: "checkmark.shield")
-            }
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                Task {
-                    await runPEXAndExportCircuit()
-                }
-            } label: {
-                if appState.isRunningPEX {
-                    Label("Running PEX...", systemImage: "hourglass")
-                } else {
-                    Label("Run PEX", systemImage: "waveform.path.ecg")
-                }
-            }
-            .disabled(runPEXDisabled)
-            .help("Run pexengine and write a post-PEX circuit netlist")
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var waveformToolbarItems: some ToolbarContent {
-        WaveformToolbarContent(viewModel: waveformViewModel)
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                waveformViewModel.exportWaveform()
-            } label: {
-                Label("Export", systemImage: "square.and.arrow.up")
-            }
-            .disabled(waveformViewModel.waveformData == nil)
-            .help("Export waveform data")
-        }
-    }
-
-    // MARK: - Inspector
-
-    @ViewBuilder
-    private var inspectorContent: some View {
-        switch appState.workspace {
-        case .schematicCapture:
-            if appState.showSimulationResults {
-                WaveformInspectorView(viewModel: waveformViewModel)
-            } else {
-                switch appState.schematicMode {
-                case .visual:
-                    PropertyInspector(viewModel: schematicViewModel)
-                case .netlist:
-                    NetlistInspectorView(appState: appState)
-                }
-            }
-        case .layout:
-            LayoutInspectorView(viewModel: layoutViewModel)
-        case .integration:
-            LayoutInspectorView(viewModel: layoutViewModel)
-        }
-    }
-
-    // MARK: - Tech File Open
-
-    private func loadTechFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "json")!,
-            UTType(filenameExtension: "lef")!,
-            UTType(filenameExtension: "lyp")!,
-        ]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                try project.loadTechFile(from: url)
-                appState.log("Loaded tech: \(url.lastPathComponent)", kind: .success)
-            } catch {
-                appState.simulationError = "Failed to load tech: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    // MARK: - PEX
-
-    @MainActor
-    private func runPEXAndExportCircuit() async {
-        guard let projectRoot = appState.projectRootURL else {
-            appState.log("Open a project folder before running PEX.", kind: .warning)
-            return
-        }
-        guard project.designUnit != nil else {
-            appState.log("Generate layout before running PEX.", kind: .warning)
-            return
-        }
-        guard !appState.spiceSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            appState.log("Netlist is empty.", kind: .warning)
-            return
-        }
-
-        appState.isRunningPEX = true
-        appState.showConsole = true
-        appState.log("Preparing PEX inputs...", kind: .info)
-        defer { appState.isRunningPEX = false }
-
-        do {
-            try services.projectService.ensurePEXProjectFiles(projectRoot: projectRoot)
-            let config = try services.projectService.loadPEXProjectConfig(projectRoot: projectRoot)
-
-            try services.projectService.saveNetlist(
-                appState.spiceSource,
-                relativePath: config.inputs.netlist,
-                projectRoot: projectRoot
-            )
-            try services.projectService.saveLayout(
-                document: project.layoutViewModel.editor.document,
-                tech: project.layoutViewModel.tech,
-                relativePath: config.inputs.layout,
-                projectRoot: projectRoot
-            )
-
-            appState.log("Running pexengine extract...", kind: .info)
-            let pexCommandService = services.pexCommandService
-            let configPath = services.projectService.pexConfigPath(projectRoot: projectRoot)
-            let result = try await Task.detached(priority: .userInitiated) {
-                try pexCommandService.extract(
-                    configURL: configPath,
-                    workingDirectory: projectRoot
+    private func runActiveSimulation() {
+        Task {
+            switch appState.schematicMode {
+            case .visual:
+                await appState.runSchematicSimulation(
+                    document: schematicViewModel.document,
+                    analysisCommand: appState.selectedAnalysis,
+                    service: services.designFlowService
                 )
-            }.value
-
-            if !result.standardOutput.isEmpty {
-                appState.log(result.standardOutput, kind: .output)
-            }
-            if !result.standardError.isEmpty {
-                appState.log(result.standardError, kind: .warning)
-            }
-
-            guard let manifestURL = extractManifestURL(from: result.standardOutput) else {
-                throw StudioError.exportFailure("Could not locate manifest path from pexengine output.")
-            }
-
-            let postNetlistURL = try writePostPEXNetlist(
-                projectRoot: projectRoot,
-                config: config,
-                manifestURL: manifestURL
-            )
-            appState.pexOutputNetlistURL = postNetlistURL
-            appState.log("PEX complete. Wrote \(postNetlistURL.lastPathComponent)", kind: .success)
-        } catch {
-            appState.log("PEX failed: \(error.localizedDescription)", kind: .error)
-        }
-    }
-
-    private func writePostPEXNetlist(
-        projectRoot: URL,
-        config: PEXProjectConfig,
-        manifestURL: URL
-    ) throws -> URL {
-        let manifestData = try Data(contentsOf: manifestURL)
-        let manifest = try JSONDecoder().decode(LocalPEXManifest.self, from: manifestData)
-
-        let runDirectory = manifestURL.deletingLastPathComponent()
-        let outputURL = projectRoot
-            .appending(path: ".xcircuite")
-            .appending(path: "pex")
-            .appending(path: "post_pex.cir")
-
-        let baseNetlistURL = resolvePath(config.inputs.netlist, projectRoot: projectRoot)
-        let baseNetlist = try String(contentsOf: baseNetlistURL, encoding: .utf8)
-
-        var lines: [String] = []
-        lines.append("* Auto-generated post-PEX circuit")
-        lines.append("* Base netlist: \(baseNetlistURL.path(percentEncoded: false))")
-        lines.append("* Manifest: \(manifestURL.path(percentEncoded: false))")
-        lines.append("")
-        lines.append(baseNetlist)
-        lines.append("")
-        lines.append("* --- Parasitic extraction artifacts ---")
-
-        for corner in manifest.corners {
-            lines.append("* Corner: \(corner.cornerID.value) [\(corner.status)]")
-            for file in corner.rawFiles {
-                let rawURL = runDirectory
-                    .appending(path: "raw")
-                    .appending(path: corner.cornerID.value)
-                    .appending(path: file)
-                lines.append("*   \(rawURL.path(percentEncoded: false))")
-            }
-        }
-
-        lines.append("")
-        lines.append(".end")
-
-        let parent = outputURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        try lines.joined(separator: "\n").write(to: outputURL, atomically: true, encoding: .utf8)
-        return outputURL
-    }
-
-    private func extractManifestURL(from stdout: String) -> URL? {
-        for line in stdout.split(separator: "\n") {
-            if line.hasPrefix("Artifacts: ") {
-                let path = line.dropFirst("Artifacts: ".count).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !path.isEmpty {
-                    return URL(filePath: path)
-                }
-            }
-        }
-        return nil
-    }
-
-    private func resolvePath(_ rawPath: String, projectRoot: URL) -> URL {
-        let expanded = NSString(string: rawPath).expandingTildeInPath
-        if expanded.hasPrefix("/") {
-            return URL(filePath: expanded)
-        }
-        return projectRoot.appending(path: expanded)
-    }
-
-}
-
-private struct LocalPEXManifest: Decodable {
-    let corners: [CornerEntry]
-
-    struct CornerEntry: Decodable {
-        let cornerID: CornerIDValue
-        let status: String
-        let rawFiles: [String]
-    }
-
-    struct CornerIDValue: Decodable {
-        let value: String
-    }
-}
-
-/// Inspector panel for the netlist editor showing parsed netlist info.
-private struct NetlistInspectorView: View {
-    @Bindable var appState: AppState
-
-    var body: some View {
-        Form {
-            fileSection
-            processSection
-            analysisSection
-            componentsSection
-            nodesSection
-            modelsSection
-            diagnosticsSection
-            simulationErrorSection
-        }
-        .formStyle(.grouped)
-    }
-
-    // MARK: - File
-
-    private var fileSection: some View {
-        Section("File") {
-            LabeledContent("Name", value: appState.spiceFileName ?? "Untitled")
-            LabeledContent("Lines", value: "\(appState.spiceSource.components(separatedBy: "\n").count)")
-            if let title = appState.netlistInfo?.title {
-                LabeledContent("Title", value: title)
+            case .netlist:
+                await appState.runSimulation(service: services.designFlowService)
             }
         }
     }
 
-    // MARK: - Process
-
-    @ViewBuilder
-    private var processSection: some View {
-        Section("Process") {
-            if let technology = appState.processConfiguration.technology {
-                LabeledContent("Name", value: technology.name)
-                if let version = technology.version, !version.isEmpty {
-                    LabeledContent("Version", value: version)
-                }
-                if let foundry = technology.foundry, !foundry.isEmpty {
-                    LabeledContent("Foundry", value: foundry)
-                }
-
-                if !technology.cornerSet.corners.isEmpty {
-                    Picker("Corner", selection: Binding<UUID?>(
-                        get: { appState.processConfiguration.cornerID },
-                        set: { appState.processConfiguration.cornerID = $0 }
-                    )) {
-                        Text("Default").tag(UUID?.none)
-                        ForEach(technology.cornerSet.corners) { corner in
-                            Text(corner.name).tag(Optional(corner.id))
-                        }
-                    }
-                }
-
-                TextField("Temp Override (C)", text: temperatureOverrideBinding)
-                    .textFieldStyle(.roundedBorder)
-
-                HStack {
-                    Button("Change...") { openProcessFile() }
-                    Button("Clear") { clearProcessConfiguration() }
-                }
-            } else {
-                Text("No process loaded")
-                    .foregroundStyle(.secondary)
-                Button("Load Process...") { openProcessFile() }
-            }
-        }
-    }
-
-    private var temperatureOverrideBinding: Binding<String> {
-        Binding(
-            get: {
-                if let value = appState.processConfiguration.temperatureOverride {
-                    return String(format: "%.4g", value)
-                }
-                return ""
-            },
-            set: { newValue in
-                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty {
-                    appState.processConfiguration.temperatureOverride = nil
-                    return
-                }
-                if let parsed = Double(trimmed) {
-                    appState.processConfiguration.temperatureOverride = parsed
-                }
-            }
-        )
-    }
-
-    private func openProcessFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "json")!,
-            .plainText,
-        ]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                let data = try Data(contentsOf: url)
-                let technology = try JSONDecoder().decode(ProcessTechnology.self, from: data)
-                appState.processConfiguration.technology = technology
-                appState.processConfiguration.cornerID = technology.defaultCornerID
-                appState.processConfiguration.resolveIncludes = true
-                appState.log("Loaded process: \(technology.name)", kind: .success)
-            } catch {
-                appState.simulationError = "Failed to load process: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    private func clearProcessConfiguration() {
-        appState.processConfiguration = ProcessConfiguration()
-    }
-
-    // MARK: - Analysis
-
-    @ViewBuilder
-    private var analysisSection: some View {
-        let detected = appState.netlistInfo?.analyses ?? []
-        Section("Analysis") {
-            if detected.isEmpty {
-                Picker("Type", selection: $appState.selectedAnalysis) {
-                    Text("OP").tag(AnalysisCommand.op)
-                    Text("Tran").tag(AnalysisCommand.tran(TranSpec(stopTime: 1e-3, stepTime: 10e-6)))
-                    Text("AC").tag(AnalysisCommand.ac(ACSpec(
-                        scaleType: .decade, numberOfPoints: 20,
-                        startFrequency: 1, stopFrequency: 1e6
-                    )))
-                }
-            } else {
-                ForEach(detected) { analysis in
-                    LabeledContent(analysis.type) {
-                        Text(analysis.label)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Components
-
-    @ViewBuilder
-    private var componentsSection: some View {
-        let components = appState.netlistInfo?.components ?? []
-        if !components.isEmpty {
-            Section("Components (\(components.count))") {
-                ForEach(components) { component in
-                    HStack {
-                        Text(component.name)
-                            .font(.system(.body, design: .monospaced))
-                            .fontWeight(.medium)
-                        Spacer()
-                        if let model = component.modelName {
-                            Text(model)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if let value = component.primaryValue {
-                            Text(value)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(component.type)
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Nodes
-
-    @ViewBuilder
-    private var nodesSection: some View {
-        let nodes = appState.netlistInfo?.nodes ?? []
-        if !nodes.isEmpty {
-            Section("Nodes (\(nodes.count))") {
-                ForEach(nodes, id: \.self) { node in
-                    Text(node)
-                        .font(.system(.body, design: .monospaced))
-                }
-            }
-        }
-    }
-
-    // MARK: - Models
-
-    @ViewBuilder
-    private var modelsSection: some View {
-        let models = appState.netlistInfo?.models ?? []
-        if !models.isEmpty {
-            Section("Models (\(models.count))") {
-                ForEach(models) { model in
-                    LabeledContent(model.name) {
-                        Text(model.type)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Diagnostics
-
-    @ViewBuilder
-    private var diagnosticsSection: some View {
-        let diagnostics = appState.netlistInfo?.diagnostics ?? []
-        if !diagnostics.isEmpty {
-            Section("Diagnostics") {
-                ForEach(diagnostics) { d in
-                    HStack(spacing: 6) {
-                        Image(systemName: diagnosticIcon(d.severity))
-                            .foregroundStyle(diagnosticColor(d.severity))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(d.message)
-                                .font(.caption)
-                            if let line = d.line {
-                                Text("Line \(line)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Simulation Error
-
-    @ViewBuilder
-    private var simulationErrorSection: some View {
-        if let error = appState.simulationError {
-            Section("Error") {
-                Text(error)
-                    .foregroundStyle(.red)
-                    .font(.caption)
-            }
-        }
-    }
-
-    // MARK: - Diagnostic Helpers
-
-    private func diagnosticIcon(_ severity: NetlistDiagnostic.Severity) -> String {
-        switch severity {
-        case .error: return "xmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .info: return "info.circle.fill"
-        case .hint: return "lightbulb.fill"
-        }
-    }
-
-    private func diagnosticColor(_ severity: NetlistDiagnostic.Severity) -> Color {
-        switch severity {
-        case .error: return .red
-        case .warning: return .orange
-        case .info: return .blue
-        case .hint: return .secondary
-        }
-    }
-}
-
-/// Inspector panel for the waveform viewer showing data metadata.
-private struct WaveformInspectorView: View {
-    @Bindable var viewModel: WaveformViewModel
-
-    var body: some View {
-        Form {
-            Section("Data") {
-                LabeledContent("Sweep", value: viewModel.sweepLabel)
-                LabeledContent("Points", value: "\(viewModel.waveformData?.pointCount ?? 0)")
-                LabeledContent("Signals", value: "\(viewModel.document.traces.count)")
-                LabeledContent("Visible", value: "\(viewModel.document.traces.filter(\.isVisible).count)")
-            }
-            if viewModel.isComplex {
-                Section("Mode") {
-                    LabeledContent("Type", value: "Complex (AC)")
-                }
-            }
-            if let error = viewModel.exportError {
-                Section("Export Error") {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .font(.caption)
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
 }
 
 /// Simple text editor view for SPICE netlist source.

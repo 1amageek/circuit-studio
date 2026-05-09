@@ -4,6 +4,7 @@ import CircuitStudioCore
 import WaveformViewer
 import SchematicEditor
 import LayoutEditor
+import UniformTypeIdentifiers
 
 public struct CircuitStudioApp: App {
     @State private var appState = AppState()
@@ -23,33 +24,201 @@ public struct CircuitStudioApp: App {
         }
         .defaultSize(width: 1200, height: 700)
         .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("New Project...") {
-                    newProject()
-                }
+            fileCommands
+            viewCommands
+            workspaceCommands
+            simulationCommands
+            layoutCommands
+        }
+    }
+
+    // MARK: - File Menu
+
+    @CommandsBuilder
+    private var fileCommands: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Project...") { newProject() }
                 .keyboardShortcut("n")
-
-                Divider()
-
-                Button("Open...") {
-                    openSPICEFile()
-                }
+            Divider()
+            Button("Open...") { openSPICEFile() }
                 .keyboardShortcut("o")
-
-                Button("Open Folder...") {
-                    openFolder()
-                }
+            Button("Open Folder...") { openFolder() }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
-
-                Divider()
-
-                Button("Save") {
-                    saveAction()
-                }
+            Divider()
+            Button("Save") { saveAction() }
                 .keyboardShortcut("s")
                 .disabled(appState.spiceSource.isEmpty && appState.projectRootURL == nil)
+        }
+    }
+
+    // MARK: - View Menu (panes + navigator tabs)
+
+    @CommandsBuilder
+    private var viewCommands: some Commands {
+        CommandGroup(after: .toolbar) {
+            Button(appState.showInspector ? "Hide Inspector" : "Show Inspector") {
+                appState.showInspector.toggle()
+            }
+            .keyboardShortcut("0", modifiers: [.command, .option])
+
+            Button(appState.showDebugArea ? "Hide Debug Area" : "Show Debug Area") {
+                appState.showDebugArea.toggle()
+            }
+            .keyboardShortcut("y", modifiers: [.command, .shift])
+
+            Divider()
+
+            ForEach(NavigatorTab.allCases, id: \.self) { tab in
+                Button("Show \(navigatorTabTitle(tab))") {
+                    appState.navigatorTab = tab
+                }
+                .keyboardShortcut(navigatorTabShortcut(tab), modifiers: .command)
             }
         }
+    }
+
+    private func navigatorTabTitle(_ tab: NavigatorTab) -> String {
+        switch tab {
+        case .project: return "Project Navigator"
+        case .schematic: return "Schematic Navigator"
+        case .layout: return "Layout Navigator"
+        case .issues: return "Issues Navigator"
+        case .simulation: return "Simulation Navigator"
+        }
+    }
+
+    private func navigatorTabShortcut(_ tab: NavigatorTab) -> KeyEquivalent {
+        switch tab {
+        case .project: return "1"
+        case .schematic: return "2"
+        case .layout: return "3"
+        case .issues: return "4"
+        case .simulation: return "5"
+        }
+    }
+
+    // MARK: - Workspace Menu
+
+    @CommandsBuilder
+    private var workspaceCommands: some Commands {
+        CommandMenu("Workspace") {
+            Button("Schematic Capture") { appState.workspace = .schematicCapture }
+                .keyboardShortcut("1", modifiers: [.command, .control])
+            Button("Layout") { appState.workspace = .layout }
+                .keyboardShortcut("2", modifiers: [.command, .control])
+            Button("Integration") { appState.workspace = .integration }
+                .keyboardShortcut("3", modifiers: [.command, .control])
+            Divider()
+            Button("Visual Mode") { appState.schematicMode = .visual }
+                .keyboardShortcut("V", modifiers: [.command, .shift])
+                .disabled(appState.workspace != .schematicCapture)
+            Button("Netlist Mode") { appState.schematicMode = .netlist }
+                .keyboardShortcut("N", modifiers: [.command, .shift])
+                .disabled(appState.workspace != .schematicCapture)
+        }
+    }
+
+    // MARK: - Simulation Menu
+
+    @CommandsBuilder
+    private var simulationCommands: some Commands {
+        CommandMenu("Simulation") {
+            Button("Run") { runActiveSimulation() }
+                .keyboardShortcut("r")
+                .disabled(runDisabled)
+            Button("Stop") { appState.cancelSimulation(service: services.designFlowService) }
+                .keyboardShortcut(".", modifiers: .command)
+                .disabled(!appState.isSimulating)
+            Divider()
+            Button("Operating Point") {
+                appState.selectedAnalysis = .op
+            }
+            Button("Transient (1ms)") {
+                appState.selectedAnalysis = .tran(TranSpec(stopTime: 1e-3, stepTime: 10e-6))
+            }
+            Button("AC Sweep (1Hz–1MHz)") {
+                appState.selectedAnalysis = .ac(ACSpec(
+                    scaleType: .decade, numberOfPoints: 20,
+                    startFrequency: 1, stopFrequency: 1e6
+                ))
+            }
+            Button("DC Sweep (V1, 0–5V)") {
+                appState.selectedAnalysis = .dcSweep(DCSweepSpec(
+                    source: "V1", startValue: 0, stopValue: 5, stepValue: 0.1
+                ))
+            }
+        }
+    }
+
+    private var runDisabled: Bool {
+        if appState.isSimulating { return true }
+        guard appState.workspace == .schematicCapture else { return true }
+        switch appState.schematicMode {
+        case .visual:
+            return project.schematicViewModel.document.components.isEmpty
+                || project.schematicViewModel.hasErrors
+        case .netlist:
+            if appState.spiceSource.isEmpty { return true }
+            guard let info = appState.netlistInfo else { return true }
+            return info.hasErrors || info.components.isEmpty
+        }
+    }
+
+    private func runActiveSimulation() {
+        Task { @MainActor in
+            switch appState.schematicMode {
+            case .visual:
+                await appState.runSchematicSimulation(
+                    document: project.schematicViewModel.document,
+                    analysisCommand: appState.selectedAnalysis,
+                    service: services.designFlowService
+                )
+            case .netlist:
+                await appState.runSimulation(service: services.designFlowService)
+            }
+        }
+    }
+
+    // MARK: - Layout Menu
+
+    @CommandsBuilder
+    private var layoutCommands: some Commands {
+        CommandMenu("Layout") {
+            Button("Generate Layout") {
+                project.generateLayout(service: services.designFlowService, catalog: services.catalog)
+                appState.workspace = .integration
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(!canGenerateLayout)
+
+            Button("Run DRC") {
+                project.layoutViewModel.runDRC()
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+
+            Button("Run PEX") {
+                Task { @MainActor in
+                    await runPEXAndExportCircuit()
+                }
+            }
+            .keyboardShortcut("x", modifiers: [.command, .shift])
+            .disabled(runPEXDisabled)
+
+            Divider()
+
+            Button(project.techName.map { "Load Tech File... (current: \($0))" } ?? "Load Tech File...") {
+                loadTechFile()
+            }
+        }
+    }
+
+    private var canGenerateLayout: Bool {
+        !project.schematicViewModel.document.components.isEmpty
+            && !project.schematicViewModel.document.wires.isEmpty
+    }
+
+    private var runPEXDisabled: Bool {
+        appState.isRunningPEX || appState.projectRootURL == nil || project.designUnit == nil
     }
 
     // MARK: - File Operations
@@ -60,20 +229,17 @@ public struct CircuitStudioApp: App {
         panel.nameFieldLabel = "Project Name:"
         panel.nameFieldStringValue = "Untitled"
         panel.canCreateDirectories = true
-        // Prompt user to choose a location; we create a directory there.
         panel.allowedContentTypes = [.folder]
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         do {
-            // Create directory if it doesn't exist
             try FileManager.default.createDirectory(
                 at: url,
                 withIntermediateDirectories: true
             )
             try services.projectService.createProject(at: url)
 
-            // Set up app state
             let root = try services.fileSystemService.scanDirectory(at: url)
             appState.projectRootURL = url
             appState.projectRoot = root
@@ -121,12 +287,10 @@ public struct CircuitStudioApp: App {
             appState.projectRootURL = url
             appState.projectRoot = root
 
-            // Detect and load .xcircuite/ project config
             if services.projectService.isProject(url) {
                 loadProjectConfig(from: url)
             }
 
-            // Auto-detect .cir files in the project root
             autoLoadNetlist(from: url)
         } catch {
             appState.simulationError = "Failed to open folder: \(error.localizedDescription)"
@@ -140,7 +304,6 @@ public struct CircuitStudioApp: App {
             appState.log("Could not prepare PEX files: \(error.localizedDescription)", kind: .warning)
         }
 
-        // Load workspace config
         do {
             let config = try services.projectService.loadWorkspaceConfig(projectRoot: projectRoot)
             appState.apply(config)
@@ -148,7 +311,6 @@ public struct CircuitStudioApp: App {
             appState.log("Could not load workspace config: \(error.localizedDescription)", kind: .warning)
         }
 
-        // Load schematic placement
         do {
             let placement = try services.projectService.loadSchematicPlacement(projectRoot: projectRoot)
             project.apply(placement)
@@ -157,7 +319,6 @@ public struct CircuitStudioApp: App {
             // Not an error — placement may not exist yet
         }
 
-        // Load simulation config
         do {
             let config = try services.projectService.loadSimulationConfig(projectRoot: projectRoot)
             appState.apply(config)
@@ -167,7 +328,6 @@ public struct CircuitStudioApp: App {
     }
 
     private func autoLoadNetlist(from projectRoot: URL) {
-        // Look for top.cir or any .cir file
         let topCir = projectRoot.appending(path: "top.cir")
         if FileManager.default.fileExists(atPath: topCir.path(percentEncoded: false)) {
             do {
@@ -196,25 +356,21 @@ public struct CircuitStudioApp: App {
         do {
             try services.projectService.ensurePEXProjectFiles(projectRoot: projectRoot)
 
-            // Workspace config
             try services.projectService.saveWorkspaceConfig(
                 appState.workspaceConfig(),
                 projectRoot: projectRoot
             )
 
-            // Schematic placement
             try services.projectService.saveSchematicPlacement(
                 project.schematicPlacement(sourceNetlist: appState.spiceSource),
                 projectRoot: projectRoot
             )
 
-            // Simulation config
             try services.projectService.saveSimulationConfig(
                 appState.simulationConfig(),
                 projectRoot: projectRoot
             )
 
-            // Netlist
             if !appState.spiceSource.isEmpty {
                 let fileName = appState.spiceFileName ?? "top.cir"
                 try services.projectService.saveNetlist(
@@ -224,7 +380,6 @@ public struct CircuitStudioApp: App {
                 )
             }
 
-            // Layout (if generated)
             if project.designUnit != nil {
                 try services.projectService.saveLayout(
                     document: project.layoutViewModel.editor.document,
@@ -238,5 +393,179 @@ public struct CircuitStudioApp: App {
         } catch {
             appState.log("Save failed: \(error.localizedDescription)", kind: .error)
         }
+    }
+
+    // MARK: - Tech File
+
+    private func loadTechFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "json")!,
+            UTType(filenameExtension: "lef")!,
+            UTType(filenameExtension: "lyp")!,
+        ]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try project.loadTechFile(from: url)
+                appState.log("Loaded tech: \(url.lastPathComponent)", kind: .success)
+            } catch {
+                appState.simulationError = "Failed to load tech: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: - PEX
+
+    @MainActor
+    private func runPEXAndExportCircuit() async {
+        guard let projectRoot = appState.projectRootURL else {
+            appState.log("Open a project folder before running PEX.", kind: .warning)
+            return
+        }
+        guard project.designUnit != nil else {
+            appState.log("Generate layout before running PEX.", kind: .warning)
+            return
+        }
+        guard !appState.spiceSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            appState.log("Netlist is empty.", kind: .warning)
+            return
+        }
+
+        appState.isRunningPEX = true
+        appState.showDebugArea = true
+        appState.debugAreaTab = .console
+        appState.log("Preparing PEX inputs...", kind: .info)
+        defer { appState.isRunningPEX = false }
+
+        do {
+            try services.projectService.ensurePEXProjectFiles(projectRoot: projectRoot)
+            let config = try services.projectService.loadPEXProjectConfig(projectRoot: projectRoot)
+
+            try services.projectService.saveNetlist(
+                appState.spiceSource,
+                relativePath: config.inputs.netlist,
+                projectRoot: projectRoot
+            )
+            try services.projectService.saveLayout(
+                document: project.layoutViewModel.editor.document,
+                tech: project.layoutViewModel.tech,
+                relativePath: config.inputs.layout,
+                projectRoot: projectRoot
+            )
+
+            appState.log("Running pexengine extract...", kind: .info)
+            let pexCommandService = services.pexCommandService
+            let configPath = services.projectService.pexConfigPath(projectRoot: projectRoot)
+            let result = try await Task.detached(priority: .userInitiated) {
+                try pexCommandService.extract(
+                    configURL: configPath,
+                    workingDirectory: projectRoot
+                )
+            }.value
+
+            if !result.standardOutput.isEmpty {
+                appState.log(result.standardOutput, kind: .output)
+            }
+            if !result.standardError.isEmpty {
+                appState.log(result.standardError, kind: .warning)
+            }
+
+            guard let manifestURL = extractManifestURL(from: result.standardOutput) else {
+                throw StudioError.exportFailure("Could not locate manifest path from pexengine output.")
+            }
+
+            let postNetlistURL = try writePostPEXNetlist(
+                projectRoot: projectRoot,
+                config: config,
+                manifestURL: manifestURL
+            )
+            appState.pexOutputNetlistURL = postNetlistURL
+            appState.log("PEX complete. Wrote \(postNetlistURL.lastPathComponent)", kind: .success)
+        } catch {
+            appState.log("PEX failed: \(error.localizedDescription)", kind: .error)
+        }
+    }
+
+    private func writePostPEXNetlist(
+        projectRoot: URL,
+        config: PEXProjectConfig,
+        manifestURL: URL
+    ) throws -> URL {
+        let manifestData = try Data(contentsOf: manifestURL)
+        let manifest = try JSONDecoder().decode(LocalPEXManifest.self, from: manifestData)
+
+        let runDirectory = manifestURL.deletingLastPathComponent()
+        let outputURL = projectRoot
+            .appending(path: ".xcircuite")
+            .appending(path: "pex")
+            .appending(path: "post_pex.cir")
+
+        let baseNetlistURL = resolvePath(config.inputs.netlist, projectRoot: projectRoot)
+        let baseNetlist = try String(contentsOf: baseNetlistURL, encoding: .utf8)
+
+        var lines: [String] = []
+        lines.append("* Auto-generated post-PEX circuit")
+        lines.append("* Base netlist: \(baseNetlistURL.path(percentEncoded: false))")
+        lines.append("* Manifest: \(manifestURL.path(percentEncoded: false))")
+        lines.append("")
+        lines.append(baseNetlist)
+        lines.append("")
+        lines.append("* --- Parasitic extraction artifacts ---")
+
+        for corner in manifest.corners {
+            lines.append("* Corner: \(corner.cornerID.value) [\(corner.status)]")
+            for file in corner.rawFiles {
+                let rawURL = runDirectory
+                    .appending(path: "raw")
+                    .appending(path: corner.cornerID.value)
+                    .appending(path: file)
+                lines.append("*   \(rawURL.path(percentEncoded: false))")
+            }
+        }
+
+        lines.append("")
+        lines.append(".end")
+
+        let parent = outputURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        try lines.joined(separator: "\n").write(to: outputURL, atomically: true, encoding: .utf8)
+        return outputURL
+    }
+
+    private func extractManifestURL(from stdout: String) -> URL? {
+        for line in stdout.split(separator: "\n") {
+            if line.hasPrefix("Artifacts: ") {
+                let path = line.dropFirst("Artifacts: ".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty {
+                    return URL(filePath: path)
+                }
+            }
+        }
+        return nil
+    }
+
+    private func resolvePath(_ rawPath: String, projectRoot: URL) -> URL {
+        let expanded = NSString(string: rawPath).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            return URL(filePath: expanded)
+        }
+        return projectRoot.appending(path: expanded)
+    }
+}
+
+private struct LocalPEXManifest: Decodable {
+    let corners: [CornerEntry]
+
+    struct CornerEntry: Decodable {
+        let cornerID: CornerIDValue
+        let status: String
+        let rawFiles: [String]
+    }
+
+    struct CornerIDValue: Decodable {
+        let value: String
     }
 }

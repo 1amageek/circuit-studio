@@ -15,7 +15,6 @@ struct ProjectNavigatorView: View {
                 emptyContent
             }
         }
-        .navigationTitle("Project")
     }
 
     @ViewBuilder

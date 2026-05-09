@@ -4,6 +4,7 @@ import SwiftUI
 ///
 /// Shows timestamped log entries for each stage: netlist generation,
 /// generated SPICE source, analysis execution, and results.
+/// Used as a tab inside the Debug Area; chrome (header / close) is provided by the surrounding tab bar.
 struct SimulationConsoleView: View {
     @Bindable var appState: AppState
 
@@ -14,56 +15,7 @@ struct SimulationConsoleView: View {
     }()
 
     var body: some View {
-        VStack(spacing: 0) {
-            consoleToolbar
-            Divider()
-            consoleBody
-        }
-    }
-
-    // MARK: - Toolbar
-
-    private var consoleToolbar: some View {
-        HStack(spacing: 8) {
-            Label("Console", systemImage: "terminal")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-
-            if let status = appState.simulationStatus {
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text(status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer()
-
-            Button {
-                appState.clearConsole()
-            } label: {
-                Image(systemName: "trash")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Clear console")
-
-            Button {
-                appState.showConsole = false
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Hide console")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(.bar)
+        consoleBody
     }
 
     // MARK: - Body
@@ -86,7 +38,6 @@ struct SimulationConsoleView: View {
                 }
             }
         }
-        .frame(maxHeight: 200)
         .background(Color(nsColor: .textBackgroundColor))
         .font(.system(.caption, design: .monospaced))
     }

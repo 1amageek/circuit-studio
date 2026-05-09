@@ -22,6 +22,30 @@ public enum SchematicMode: String, Hashable, Sendable, Codable {
     case netlist
 }
 
+/// Active tab in the navigator (left sidebar). Mirrors Xcode's navigator pattern.
+public enum NavigatorTab: String, Hashable, Sendable, Codable, CaseIterable {
+    case project
+    case schematic
+    case layout
+    case issues
+    case simulation
+}
+
+/// Active tab in the inspector (right sidebar). Mirrors Xcode's inspector pattern.
+public enum InspectorTab: String, Hashable, Sendable, Codable, CaseIterable {
+    case properties
+    case process
+    case analysis
+    case waveform
+}
+
+/// Active tab in the debug area (bottom). Mirrors Xcode's debug area.
+public enum DebugAreaTab: String, Hashable, Sendable, Codable, CaseIterable {
+    case console
+    case waveform
+    case issues
+}
+
 /// A single entry in the simulation console.
 public struct ConsoleEntry: Identifiable, Sendable {
     public enum Kind: Sendable {
@@ -52,8 +76,15 @@ public final class AppState {
     // Navigation
     public var workspace: Workspace = .schematicCapture
     public var schematicMode: SchematicMode = .netlist
+
+    // Pane visibility
     public var showInspector: Bool = false
-    public var showSimulationResults: Bool = false
+    public var showDebugArea: Bool = false
+
+    // Pane-tab selection
+    public var navigatorTab: NavigatorTab = .project
+    public var inspectorTab: InspectorTab = .properties
+    public var debugAreaTab: DebugAreaTab = .console
 
     // Project
     public var projectRootURL: URL?
@@ -82,7 +113,6 @@ public final class AppState {
 
     // Console
     public var consoleEntries: [ConsoleEntry] = []
-    public var showConsole: Bool = false
 
     // Live parsing
     public var netlistInfo: NetlistInfo?
@@ -99,8 +129,8 @@ public final class AppState {
             schematicMode: schematicMode.rawValue,
             panels: WorkspaceConfig.PanelState(
                 inspector: showInspector,
-                console: showConsole,
-                simulationResults: showSimulationResults
+                console: showDebugArea && debugAreaTab == .console,
+                simulationResults: showDebugArea && debugAreaTab == .waveform
             )
         )
     }
@@ -118,8 +148,15 @@ public final class AppState {
         workspace = Workspace(rawValue: config.activeWorkspace) ?? .schematicCapture
         schematicMode = SchematicMode(rawValue: config.schematicMode) ?? .netlist
         showInspector = config.panels.inspector
-        showConsole = config.panels.console
-        showSimulationResults = config.panels.simulationResults
+        if config.panels.simulationResults {
+            showDebugArea = true
+            debugAreaTab = .waveform
+        } else if config.panels.console {
+            showDebugArea = true
+            debugAreaTab = .console
+        } else {
+            showDebugArea = false
+        }
     }
 
     /// Restores simulation settings from a persisted config.
@@ -227,8 +264,8 @@ public final class AppState {
         simulationError = nil
         streamingWaveform = nil
         clearConsole()
-        showConsole = true
-        showSimulationResults = true
+        showDebugArea = true
+        debugAreaTab = .console
 
         let start = Date()
         log("Running simulation...")
@@ -281,8 +318,8 @@ public final class AppState {
         simulationError = nil
         streamingWaveform = nil
         clearConsole()
-        showConsole = true
-        showSimulationResults = true
+        showDebugArea = true
+        debugAreaTab = .console
 
         let start = Date()
 
@@ -353,7 +390,8 @@ public final class AppState {
         isSimulating = true
         simulationError = nil
         clearConsole()
-        showConsole = true
+        showDebugArea = true
+        debugAreaTab = .console
 
         let start = Date()
         log("Running analysis...")
