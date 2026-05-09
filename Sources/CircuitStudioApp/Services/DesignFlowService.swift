@@ -166,6 +166,28 @@ public struct DesignFlowPEXInput: Sendable, Hashable {
     }
 }
 
+public struct DesignFlowPEXExtractionRequest: Sendable, Hashable {
+    public let configURL: URL
+    public let workingDirectory: URL?
+    public let cornerID: String
+    public let executablePath: String?
+    public let additionalArguments: [String]
+
+    public init(
+        configURL: URL,
+        workingDirectory: URL? = nil,
+        cornerID: String = "tt_25c_1v0",
+        executablePath: String? = nil,
+        additionalArguments: [String] = []
+    ) {
+        self.configURL = configURL
+        self.workingDirectory = workingDirectory
+        self.cornerID = cornerID
+        self.executablePath = executablePath
+        self.additionalArguments = additionalArguments
+    }
+}
+
 private struct DesignFlowVerificationInput {
     let schematic: SchematicDocument
     let fixtureName: String?
@@ -611,6 +633,19 @@ public struct DesignFlowService: Sendable {
         return DesignFlowPEXInput(ir: ir, artifactPaths: artifactPaths)
     }
 
+    public func runPEXExtraction(
+        _ request: DesignFlowPEXExtractionRequest
+    ) throws -> PEXBackendExtractionResult {
+        let adapter = PEXEngineCommandBackendAdapter(executablePath: request.executablePath)
+        return try adapter.extract(request: PEXBackendExtractionRequest(
+            configURL: request.configURL,
+            workingDirectory: request.workingDirectory,
+            cornerID: request.cornerID,
+            executablePath: request.executablePath,
+            additionalArguments: request.additionalArguments
+        ))
+    }
+
     public func loadExternalSignoffReview(
         logs: [ExternalSignoffLogArtifact]
     ) throws -> ExternalSignoffReview {
@@ -964,8 +999,7 @@ public struct DesignFlowService: Sendable {
         guard let pexConfigPath = command.pexConfigPath else {
             throw DesignFlowCommandError.missingPEXConfigPath
         }
-        let adapter = PEXEngineCommandBackendAdapter(executablePath: command.pexExecutablePath)
-        let result = try adapter.extract(request: PEXBackendExtractionRequest(
+        let result = try runPEXExtraction(DesignFlowPEXExtractionRequest(
             configURL: URL(filePath: pexConfigPath),
             cornerID: command.pexCornerID ?? "tt_25c_1v0",
             executablePath: command.pexExecutablePath

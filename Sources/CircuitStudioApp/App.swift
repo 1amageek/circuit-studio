@@ -457,33 +457,37 @@ public struct CircuitStudioApp: App {
             )
 
             appState.log("Running pexengine extract...", kind: .info)
-            let pexCommandService = services.pexCommandService
+            let designFlowService = services.designFlowService
             let configPath = services.projectService.pexConfigPath(projectRoot: projectRoot)
-            let result = try await Task.detached(priority: .userInitiated) {
-                try pexCommandService.extract(
+            let extraction = try await Task.detached(priority: .userInitiated) {
+                try designFlowService.runPEXExtraction(DesignFlowPEXExtractionRequest(
                     configURL: configPath,
-                    workingDirectory: projectRoot
-                )
+                    workingDirectory: projectRoot,
+                    cornerID: config.normalizedCorners.first ?? "tt_25c_1v0",
+                    executablePath: config.executablePath
+                ))
             }.value
 
-            if !result.standardOutput.isEmpty {
+            if let result = extraction.commandResult, !result.standardOutput.isEmpty {
                 appState.log(result.standardOutput, kind: .output)
             }
-            if !result.standardError.isEmpty {
+            if let result = extraction.commandResult, !result.standardError.isEmpty {
                 appState.log(result.standardError, kind: .warning)
             }
-
-            guard let manifestURL = extractManifestURL(from: result.standardOutput) else {
-                throw StudioError.exportFailure("Could not locate manifest path from pexengine output.")
+            for diagnostic in extraction.ir.diagnostics {
+                appState.log(diagnostic.message, kind: .warning)
             }
 
             let postNetlistURL = try writePostPEXNetlist(
                 projectRoot: projectRoot,
-                config: config,
-                manifestURL: manifestURL
+                baseNetlist: appState.spiceSource,
+                parasitics: extraction.ir
             )
             appState.pexOutputNetlistURL = postNetlistURL
-            appState.log("PEX complete. Wrote \(postNetlistURL.lastPathComponent)", kind: .success)
+            appState.log(
+                "PEX complete. Loaded \(extraction.ir.elements.count) parasitics from \(extraction.artifacts.manifestURL.lastPathComponent) and wrote \(postNetlistURL.lastPathComponent)",
+                kind: .success
+            )
         } catch {
             appState.log("PEX failed: \(error.localizedDescription)", kind: .error)
         }
@@ -491,81 +495,20 @@ public struct CircuitStudioApp: App {
 
     private func writePostPEXNetlist(
         projectRoot: URL,
-        config: PEXProjectConfig,
-        manifestURL: URL
+        baseNetlist: String,
+        parasitics: PEXParasiticIR
     ) throws -> URL {
-        let manifestData = try Data(contentsOf: manifestURL)
-        let manifest = try JSONDecoder().decode(LocalPEXManifest.self, from: manifestData)
-
-        let runDirectory = manifestURL.deletingLastPathComponent()
         let outputURL = projectRoot
             .appending(path: ".xcircuite")
             .appending(path: "pex")
             .appending(path: "post_pex.cir")
-
-        let baseNetlistURL = resolvePath(config.inputs.netlist, projectRoot: projectRoot)
-        let baseNetlist = try String(contentsOf: baseNetlistURL, encoding: .utf8)
-
-        var lines: [String] = []
-        lines.append("* Auto-generated post-PEX circuit")
-        lines.append("* Base netlist: \(baseNetlistURL.path(percentEncoded: false))")
-        lines.append("* Manifest: \(manifestURL.path(percentEncoded: false))")
-        lines.append("")
-        lines.append(baseNetlist)
-        lines.append("")
-        lines.append("* --- Parasitic extraction artifacts ---")
-
-        for corner in manifest.corners {
-            lines.append("* Corner: \(corner.cornerID.value) [\(corner.status)]")
-            for file in corner.rawFiles {
-                let rawURL = runDirectory
-                    .appending(path: "raw")
-                    .appending(path: corner.cornerID.value)
-                    .appending(path: file)
-                lines.append("*   \(rawURL.path(percentEncoded: false))")
-            }
-        }
-
-        lines.append("")
-        lines.append(".end")
-
         let parent = outputURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        try lines.joined(separator: "\n").write(to: outputURL, atomically: true, encoding: .utf8)
+        let postLayoutNetlist = services.designFlowService.buildPostLayoutNetlist(
+            baseNetlist: baseNetlist,
+            parasitics: parasitics
+        )
+        try postLayoutNetlist.write(to: outputURL, atomically: true, encoding: .utf8)
         return outputURL
-    }
-
-    private func extractManifestURL(from stdout: String) -> URL? {
-        for line in stdout.split(separator: "\n") {
-            if line.hasPrefix("Artifacts: ") {
-                let path = line.dropFirst("Artifacts: ".count).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !path.isEmpty {
-                    return URL(filePath: path)
-                }
-            }
-        }
-        return nil
-    }
-
-    private func resolvePath(_ rawPath: String, projectRoot: URL) -> URL {
-        let expanded = NSString(string: rawPath).expandingTildeInPath
-        if expanded.hasPrefix("/") {
-            return URL(filePath: expanded)
-        }
-        return projectRoot.appending(path: expanded)
-    }
-}
-
-private struct LocalPEXManifest: Decodable {
-    let corners: [CornerEntry]
-
-    struct CornerEntry: Decodable {
-        let cornerID: CornerIDValue
-        let status: String
-        let rawFiles: [String]
-    }
-
-    struct CornerIDValue: Decodable {
-        let value: String
     }
 }

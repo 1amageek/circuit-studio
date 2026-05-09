@@ -1228,6 +1228,49 @@ struct DesignFlowServiceTests {
         #expect(result.message == "mock-pexengine")
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func sharedPEXExtractionAPIProducesInjectablePostLayoutNetlist() throws {
+        let root = try makeTemporaryRoot("pex-extraction-shared-api")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root.appending(path: "pex-runs").appending(path: "mock-run")
+        try writePEXArtifacts(runDirectory: runDirectory)
+        let configURL = root.appending(path: "pex-config.json")
+        try "{}".write(to: configURL, atomically: true, encoding: .utf8)
+        let executable = try writeExecutable(
+            named: "mock-pexengine",
+            in: root,
+            contents: """
+            #!/bin/sh
+            printf '{"artifacts":{"manifestURL":"%s"}}\\n' "\(runDirectory.appending(path: "manifest.json").path(percentEncoded: false))"
+            exit 0
+            """
+        )
+
+        let service = DesignFlowService()
+        let extraction = try service.runPEXExtraction(DesignFlowPEXExtractionRequest(
+            configURL: configURL,
+            workingDirectory: root,
+            cornerID: "tt_25c_1v0",
+            executablePath: executable.path(percentEncoded: false)
+        ))
+        let postLayoutNetlist = service.buildPostLayoutNetlist(
+            baseNetlist: """
+            * Base
+            V1 out 0 1
+            .op
+            .end
+            """,
+            parasitics: extraction.ir
+        )
+
+        #expect(extraction.commandResult?.exitCode == 0)
+        #expect(extraction.artifacts.manifestURL == runDirectory.appending(path: "manifest.json"))
+        #expect(extraction.ir.elements.count == 1)
+        #expect(postLayoutNetlist.contains("* --- Extracted parasitics ---"))
+        #expect(postLayoutNetlist.contains("RPEX_r_out out 0 12"))
+        #expect(!postLayoutNetlist.contains("top.spef"))
+    }
+
     private func makeSignoffCommands(in root: URL) throws -> [ExternalSignoffCommand] {
         let drc = try writeExecutable(
             named: "mock-drc",
