@@ -472,6 +472,26 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         self.pexIR = pexIR.map(ParasiticIR.init)
     }
 
+    public init(
+        name: String,
+        schemaVersion: Int = Self.currentSchemaVersion,
+        title: String? = nil,
+        components: [Component],
+        nets: [Net],
+        analyses: [Analysis],
+        postLayoutAnalysis: Analysis? = nil,
+        parasiticIR: ParasiticIR?
+    ) {
+        self.name = name
+        self.schemaVersion = schemaVersion
+        self.title = title
+        self.components = components
+        self.nets = nets
+        self.analyses = analyses
+        self.postLayoutAnalysis = postLayoutAnalysis
+        self.pexIR = parasiticIR
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.name = try container.decode(String.self, forKey: .name)

@@ -157,6 +157,59 @@ struct DesignFlowServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
+    func commandAPIAppliesDesignEditAndWritesAuditArtifacts() async throws {
+        let root = try makeTemporaryRoot("design-edit")
+        defer { removeTemporaryRoot(root) }
+        let inputURL = root.appending(path: "input.json")
+        let scriptURL = root.appending(path: "edits.json")
+        let outputURL = root.appending(path: "edited.json")
+        try writeDesignSpec(agentResistorDividerSpec(), to: inputURL)
+        try writeDesignEditScript(DesignFlowDesignEditScript(edits: [
+            DesignFlowDesignEdit(
+                kind: .setComponentParameters,
+                componentName: "R2",
+                parameters: ["r": 3000]
+            ),
+            DesignFlowDesignEdit(
+                kind: .renameComponent,
+                componentName: "R2",
+                newComponentName: "RLOAD"
+            ),
+        ]), to: scriptURL)
+
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .applyDesignEdit,
+            designSpecPath: inputURL.path(percentEncoded: false),
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "edit-run",
+            editScriptPath: scriptURL.path(percentEncoded: false),
+            outputDesignSpecPath: outputURL.path(percentEncoded: false)
+        ))
+
+        #expect(result.designSpecPath == outputURL.path(percentEncoded: false))
+        let actionLogPath = try #require(result.actionLogPath)
+        let diffPath = try #require(result.designDiffPath)
+        #expect(FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: actionLogPath))
+        #expect(FileManager.default.fileExists(atPath: diffPath))
+
+        let editedSpec = try DesignFlowService().loadDesignSpec(outputURL)
+        #expect(editedSpec.components.contains {
+            $0.name == "RLOAD" && $0.parameters["r"] == 3000
+        })
+        #expect(editedSpec.nets.contains {
+            $0.terminals.contains(DesignFlowDesignSpec.Terminal(component: "RLOAD", port: "pos"))
+        })
+
+        let simulation = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .runDesignSimulation,
+            designSpecPath: outputURL.path(percentEncoded: false)
+        ))
+        #expect(simulation.simulationStatus == "completed")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
     func commandAPIRejectsUnsafeDesignSpecNamesAndDuplicateTerminals() async throws {
         let root = try makeTemporaryRoot("invalid-design-spec")
         defer { removeTemporaryRoot(root) }
@@ -982,6 +1035,13 @@ struct DesignFlowServiceTests {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(spec)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func writeDesignEditScript(_ script: DesignFlowDesignEditScript, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(script)
         try data.write(to: url, options: .atomic)
     }
 

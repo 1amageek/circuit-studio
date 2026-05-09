@@ -140,6 +140,7 @@ Element IDs must be unique. Element values must be finite and positive.
 | Netlist | `swift run circuit-studio-flow-runner --generate-netlist --design-spec <path>` |
 | Simulation | `swift run circuit-studio-flow-runner --simulate --design-spec <path>` |
 | Full round trip | `swift run circuit-studio-flow-runner --design-spec <path> --approve-signoff` |
+| Design edit | `swift run circuit-studio-flow-runner --apply-design-edit --design-spec <path> --edit-script <path> --output-design-spec <path>` |
 | Bottleneck summary | `swift run circuit-studio-flow-runner --summarize-bottlenecks --design-spec <path>` |
 
 When `--output` is omitted, design-spec round trips use `./round-trip-runs/<design-spec-file-name-without-extension>`.
@@ -151,6 +152,29 @@ The round-trip manifest records the original spec as:
 | `kind: design-spec` | Captured copy under `input-artifacts/design/` |
 | `sourcePath` | Original source path passed to `--design-spec` |
 
+## Design Edit Script
+
+`--apply-design-edit` applies a Codable edit script to an existing design spec and writes three audit artifacts:
+
+| Artifact | Meaning |
+|---|---|
+| Edited design spec | The output JSON passed to `--output-design-spec`. |
+| `actions.jsonl` | One applied edit action per line. |
+| `design-diff.json` | Component and net additions, removals, and changes. |
+
+Supported edit kinds:
+
+| Kind | Required fields | Optional fields |
+|---|---|---|
+| `placeComponent` | `componentName`, `deviceKindID` | `parameters`, `modelPresetID`, `modelName` |
+| `removeComponent` | `componentName` | None |
+| `renameComponent` | `componentName`, `newComponentName` | None |
+| `setComponentParameters` | `componentName`, `parameters` | `modelPresetID`, `modelName` |
+| `connectNet` | `netName`, `terminal` | None |
+| `disconnectTerminal` | `netName`, `terminal` | None |
+
+The edited spec is validated with the same builder used by simulation and round-trip commands before artifacts are returned.
+
 ## Current Limits
 
 | Limit | Impact |
@@ -160,3 +184,4 @@ The round-trip manifest records the original spec as:
 | Geometry is auto-generated | The spec describes circuit intent, not hand-authored layout. |
 | Inline PEX is optional only when `--pex-manifest` is supplied | Full round trip needs parasitics from one of those two sources. |
 | No subcircuits or hierarchy | Current contract builds one flat schematic. |
+| Edit scripts target design specs only | Layout-edit, approval, and rerun commands are separate future command surfaces. |

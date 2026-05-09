@@ -178,6 +178,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case summarizeBottlenecks
         case loadTechnologyPackage
         case runPEXExtraction
+        case applyDesignEdit
     }
 
     public let kind: Kind
@@ -196,6 +197,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let technologyPackagePath: String?
     public let pexConfigPath: String?
     public let pexExecutablePath: String?
+    public let editScriptPath: String?
+    public let outputDesignSpecPath: String?
 
     public init(
         kind: Kind,
@@ -213,7 +216,9 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         variableComparisonLimits: [PostLayoutVariableComparisonLimit] = [],
         technologyPackagePath: String? = nil,
         pexConfigPath: String? = nil,
-        pexExecutablePath: String? = nil
+        pexExecutablePath: String? = nil,
+        editScriptPath: String? = nil,
+        outputDesignSpecPath: String? = nil
     ) {
         self.kind = kind
         self.fixtureName = fixtureName
@@ -231,6 +236,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.technologyPackagePath = technologyPackagePath
         self.pexConfigPath = pexConfigPath
         self.pexExecutablePath = pexExecutablePath
+        self.editScriptPath = editScriptPath
+        self.outputDesignSpecPath = outputDesignSpecPath
     }
 
     public static func listFixtures() -> DesignFlowCommand {
@@ -257,6 +264,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let technologyPackageID: String?
     public let technologyPackagePath: String?
     public let validationDiagnostics: [TechnologyPackageValidationReport.Diagnostic]?
+    public let designSpecPath: String?
+    public let actionLogPath: String?
+    public let designDiffPath: String?
     public let message: String?
 
     public init(
@@ -278,6 +288,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         technologyPackageID: String? = nil,
         technologyPackagePath: String? = nil,
         validationDiagnostics: [TechnologyPackageValidationReport.Diagnostic]? = nil,
+        designSpecPath: String? = nil,
+        actionLogPath: String? = nil,
+        designDiffPath: String? = nil,
         message: String? = nil
     ) {
         self.kind = kind
@@ -298,6 +311,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.technologyPackageID = technologyPackageID
         self.technologyPackagePath = technologyPackagePath
         self.validationDiagnostics = validationDiagnostics
+        self.designSpecPath = designSpecPath
+        self.actionLogPath = actionLogPath
+        self.designDiffPath = designDiffPath
         self.message = message
     }
 }
@@ -310,6 +326,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case invalidComparisonLimits([String])
     case missingTechnologyPackagePath
     case missingPEXConfigPath
+    case missingEditScriptPath
+    case missingOutputDesignSpecPath
 
     public var errorDescription: String? {
         switch self {
@@ -327,6 +345,10 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
             return "Design flow command requires a technology package path."
         case .missingPEXConfigPath:
             return "Design flow command requires a PEX config path."
+        case .missingEditScriptPath:
+            return "Design flow command requires a design edit script path."
+        case .missingOutputDesignSpecPath:
+            return "Design flow command requires an output design spec path."
         }
     }
 }
@@ -529,6 +551,16 @@ public struct DesignFlowService: Sendable {
         }
     }
 
+    public func loadDesignEditScript(_ url: URL) throws -> DesignFlowDesignEditScript {
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            return try decoder.decode(DesignFlowDesignEditScript.self, from: data)
+        } catch {
+            throw StudioError.projectLoadFailed("Failed to load design edit script: \(error.localizedDescription)")
+        }
+    }
+
     public func loadTechnologyPackage(_ manifestURL: URL) throws -> TechnologyPackage {
         try TechnologyPackageLoader().load(manifestURL: manifestURL)
     }
@@ -633,7 +665,44 @@ public struct DesignFlowService: Sendable {
             )
         case .runPEXExtraction:
             return try runPEXExtraction(command)
+        case .applyDesignEdit:
+            return try applyDesignEdit(command)
         }
+    }
+
+    private func applyDesignEdit(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+        guard let designSpecPath = command.designSpecPath else {
+            throw DesignFlowCommandError.missingDesignSpecPath
+        }
+        guard let editScriptPath = command.editScriptPath else {
+            throw DesignFlowCommandError.missingEditScriptPath
+        }
+        guard let outputDesignSpecPath = command.outputDesignSpecPath else {
+            throw DesignFlowCommandError.missingOutputDesignSpecPath
+        }
+
+        let design = try loadDesignSpec(URL(filePath: designSpecPath))
+        let script = try loadDesignEditScript(URL(filePath: editScriptPath))
+        let result = try DesignFlowDesignEditService().apply(script: script, to: design)
+        let outputURL = URL(filePath: outputDesignSpecPath)
+        try writeJSON(result.designSpec, to: outputURL)
+
+        let artifactDirectory = designEditArtifactDirectory(for: command, outputURL: outputURL)
+        try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
+        let actionLogURL = artifactDirectory.appending(path: "actions.jsonl")
+        let diffURL = artifactDirectory.appending(path: "design-diff.json")
+        try writeActionLog(result.actionLog, to: actionLogURL)
+        try writeJSON(result.diff, to: diffURL)
+
+        return DesignFlowCommandResult(
+            kind: command.kind,
+            designName: result.designSpec.name,
+            projectRootPath: command.projectRootPath,
+            designSpecPath: outputURL.path(percentEncoded: false),
+            actionLogPath: actionLogURL.path(percentEncoded: false),
+            designDiffPath: diffURL.path(percentEncoded: false),
+            message: "\(result.actionLog.count) design edit actions applied"
+        )
     }
 
     private func runPEXExtraction(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
@@ -979,6 +1048,44 @@ public struct DesignFlowService: Sendable {
             ofItemAtPath: url.path(percentEncoded: false)
         )
         return url
+    }
+
+    private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(value)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func writeActionLog(_ actions: [DesignFlowDesignEditAction], to url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let lines = try actions.map { action -> String in
+            let data = try encoder.encode(action)
+            guard let line = String(data: data, encoding: .utf8) else {
+                throw StudioError.projectSaveFailed("Failed to encode design edit action log.")
+            }
+            return line
+        }
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func designEditArtifactDirectory(for command: DesignFlowCommand, outputURL: URL) -> URL {
+        let root = command.projectRootPath.map { URL(filePath: $0) }
+            ?? outputURL.deletingLastPathComponent()
+        let runID = command.runID ?? Self.timestamp()
+        return root
+            .appending(path: ".xcircuite")
+            .appending(path: "design-edits")
+            .appending(path: runID)
     }
 
     private func defaultCommandProjectRoot(fixtureName: String) -> String {

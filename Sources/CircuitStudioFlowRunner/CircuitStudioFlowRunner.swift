@@ -40,7 +40,9 @@ struct CircuitStudioFlowRunner {
             variableComparisonLimits: options.variableComparisonLimits,
             technologyPackagePath: options.technologyPackageURL?.path(percentEncoded: false),
             pexConfigPath: options.pexConfigURL?.path(percentEncoded: false),
-            pexExecutablePath: options.pexExecutableURL?.path(percentEncoded: false)
+            pexExecutablePath: options.pexExecutableURL?.path(percentEncoded: false),
+            editScriptPath: options.editScriptURL?.path(percentEncoded: false),
+            outputDesignSpecPath: options.outputDesignSpecURL?.path(percentEncoded: false)
         )
     }
 
@@ -48,6 +50,8 @@ struct CircuitStudioFlowRunner {
         switch options.mode {
         case .listFixtures, .generateNetlist, .simulate, .loadTechnologyPackage, .runPEXExtraction:
             return nil
+        case .applyDesignEdit:
+            return options.outputURL?.path(percentEncoded: false)
         case .runRoundTrip:
             return (options.outputURL ?? defaultOutputURL(from: options))
                 .path(percentEncoded: false)
@@ -146,6 +150,12 @@ struct CircuitStudioFlowRunner {
             Swift.print("pex_manifest=\(result.pexManifestPath ?? "")")
             Swift.print("pex_corner=\(result.pexCornerID ?? "")")
             Swift.print("pex_elements=\(result.pexElementCount ?? 0)")
+        case .applyDesignEdit:
+            Swift.print("design_edit=applied")
+            Swift.print("design=\(result.designName ?? "")")
+            Swift.print("design_spec=\(result.designSpecPath ?? "")")
+            Swift.print("actions=\(result.actionLogPath ?? "")")
+            Swift.print("design_diff=\(result.designDiffPath ?? "")")
         }
     }
 
@@ -173,7 +183,7 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--variable-limit SPEC]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--variable-limit SPEC] [--edit-script PATH --output-design-spec PATH]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
@@ -185,12 +195,17 @@ struct CircuitStudioFlowRunner {
           --summarize-bottlenecks   Summarize existing flow manifests under --output through DesignFlowCommand
           --load-technology-package Load and validate a technology package manifest through DesignFlowCommand
           --run-pex-extraction     Run pexengine extract through DesignFlowCommand
+          --apply-design-edit      Apply a design edit script through DesignFlowCommand
           default                   Run the full fixture round trip through DesignFlowCommand
 
         Options:
           --fixture NAME   Fixture to run. Default: voltage-divider
           --design-spec PATH
                            Load a structured design spec JSON instead of a built-in fixture
+          --edit-script PATH
+                           JSON design edit script for --apply-design-edit
+          --output-design-spec PATH
+                           Edited design spec path for --apply-design-edit
           --technology-package PATH
                            Inject one technology package manifest into netlist, simulation, layout, signoff, and PEX inputs when supported
           --output PATH    Project/output directory. Default: ./round-trip-runs/<fixture-or-design-spec-name>
@@ -228,6 +243,7 @@ private enum RunnerMode: Equatable {
     case summarizeBottlenecks
     case loadTechnologyPackage
     case runPEXExtraction
+    case applyDesignEdit
 
     func commandKind(usesDesignSpec: Bool) -> DesignFlowCommand.Kind {
         switch self {
@@ -245,6 +261,8 @@ private enum RunnerMode: Equatable {
             return .loadTechnologyPackage
         case .runPEXExtraction:
             return .runPEXExtraction
+        case .applyDesignEdit:
+            return .applyDesignEdit
         }
     }
 }
@@ -259,6 +277,8 @@ private struct RunnerOptions {
     var pexManifestURL: URL?
     var pexConfigURL: URL?
     var pexExecutableURL: URL?
+    var editScriptURL: URL?
+    var outputDesignSpecURL: URL?
     var pexCornerID = "tt_25c_1v0"
     var signoffDRCLogURL: URL?
     var signoffLVSLogURL: URL?
@@ -286,6 +306,8 @@ private struct RunnerOptions {
                 try selectMode(.loadTechnologyPackage)
             case "--run-pex-extraction":
                 try selectMode(.runPEXExtraction)
+            case "--apply-design-edit":
+                try selectMode(.applyDesignEdit)
             case "--fixture":
                 fixtureName = try Self.value(after: argument, in: arguments, index: &index)
             case "--design-spec":
@@ -302,6 +324,10 @@ private struct RunnerOptions {
                 pexConfigURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--pex-executable":
                 pexExecutableURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--edit-script":
+                editScriptURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--output-design-spec":
+                outputDesignSpecURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--pex-corner":
                 pexCornerID = try Self.value(after: argument, in: arguments, index: &index)
             case "--signoff-drc-log":
