@@ -39,6 +39,38 @@ struct PEXArtifactServiceTests {
         #expect(artifacts.corners[0].logURL == runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "extraction.log"))
     }
 
+    @Test func loadArtifactsResolvesRunRelativePEXEnginePaths() throws {
+        let root = try makeTemporaryRoot("manifest-relative")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root.appending(path: "run-1")
+        let manifestURL = runDirectory.appending(path: "manifest.json")
+        try FileManager.default.createDirectory(
+            at: runDirectory.appending(path: "raw").appending(path: "tt"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: runDirectory.appending(path: "ir"),
+            withIntermediateDirectories: true
+        )
+        try manifestJSON(
+            runID: "run-1",
+            cornerID: "tt",
+            rawFiles: ["raw/tt/tt.spef"],
+            irFile: "ir/tt.json",
+            logFile: "raw/tt/extraction.log"
+        )
+        .write(to: manifestURL, atomically: true, encoding: .utf8)
+
+        let artifacts = try PEXArtifactService().loadArtifacts(manifestURL: manifestURL)
+
+        #expect(artifacts.corners[0].rawFileURLs == [
+            runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "tt.spef"),
+        ])
+        #expect(artifacts.corners[0].irURL == runDirectory.appending(path: "ir").appending(path: "tt.json"))
+        #expect(artifacts.corners[0].logURL == runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "extraction.log"))
+    }
+
     @Test func loadIRDecodesParasiticElements() throws {
         let root = try makeTemporaryRoot("ir")
         defer { removeTemporaryRoot(root) }
@@ -129,6 +161,13 @@ struct PEXArtifactServiceTests {
 
         #expect(artifacts.status == "success")
         #expect(artifacts.corners.count == 1)
+        #expect(artifacts.corners[0].rawFileURLs == [
+            root
+                .appending(path: result.runID.description)
+                .appending(path: "raw")
+                .appending(path: "tt")
+                .appending(path: "tt.spef"),
+        ])
         #expect(ir.elements.count > 0)
         #expect(ir.diagnostics.isEmpty)
         #expect(postLayoutNetlist.contains("* --- Extracted parasitics ---"))
@@ -264,8 +303,18 @@ struct PEXArtifactServiceTests {
         }
     }
 
-    private func manifestJSON(runID: String, cornerID: String) -> String {
-        """
+    private func manifestJSON(
+        runID: String,
+        cornerID: String,
+        rawFiles: [String]? = nil,
+        irFile: String? = nil,
+        logFile: String? = nil
+    ) -> String {
+        let resolvedRawFiles = rawFiles ?? ["\(cornerID).spef"]
+        let resolvedIRFile = irFile ?? "\(cornerID).json"
+        let resolvedLogFile = logFile ?? "extraction.log"
+        let rawFilesJSON = resolvedRawFiles.map { "\"\($0)\"" }.joined(separator: ", ")
+        return """
         {
           "version": 1,
           "runID": { "value": "\(runID)" },
@@ -278,9 +327,9 @@ struct PEXArtifactServiceTests {
             {
               "cornerID": { "value": "\(cornerID)" },
               "status": "success",
-              "rawFiles": ["\(cornerID).spef"],
-              "irFile": "\(cornerID).json",
-              "logFile": "extraction.log"
+              "rawFiles": [\(rawFilesJSON)],
+              "irFile": "\(resolvedIRFile)",
+              "logFile": "\(resolvedLogFile)"
             }
           ],
           "warnings": ["low confidence"]

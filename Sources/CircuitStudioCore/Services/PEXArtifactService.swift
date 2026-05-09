@@ -30,16 +30,10 @@ public struct PEXArtifactService: Sendable {
                 cornerID: corner.cornerID.value,
                 status: corner.status,
                 rawFileURLs: corner.rawFiles.map {
-                    runDirectory.appending(path: "raw")
-                        .appending(path: corner.cornerID.value)
-                        .appending(path: $0)
+                    resolveRawURL($0, cornerID: corner.cornerID.value, runDirectory: runDirectory)
                 },
                 irURL: corner.irFile.map { resolveIRURL($0, cornerID: corner.cornerID.value, runDirectory: runDirectory) },
-                logURL: corner.logFile.map {
-                    runDirectory.appending(path: "raw")
-                        .appending(path: corner.cornerID.value)
-                        .appending(path: $0)
-                }
+                logURL: corner.logFile.map { resolveRawURL($0, cornerID: corner.cornerID.value, runDirectory: runDirectory) }
             )
         }
 
@@ -135,6 +129,29 @@ public struct PEXArtifactService: Sendable {
     }
 
     private func resolveIRURL(_ fileName: String, cornerID: String, runDirectory: URL) -> URL {
+        resolveArtifactURL(
+            fileName,
+            defaultDirectory: runDirectory.appending(path: "ir"),
+            defaultFileName: "\(cornerID).json",
+            runDirectory: runDirectory
+        )
+    }
+
+    private func resolveRawURL(_ fileName: String, cornerID: String, runDirectory: URL) -> URL {
+        resolveArtifactURL(
+            fileName,
+            defaultDirectory: runDirectory.appending(path: "raw").appending(path: cornerID),
+            defaultFileName: fileName,
+            runDirectory: runDirectory
+        )
+    }
+
+    private func resolveArtifactURL(
+        _ fileName: String,
+        defaultDirectory: URL,
+        defaultFileName: String,
+        runDirectory: URL
+    ) -> URL {
         let expanded = NSString(string: fileName).expandingTildeInPath
         if expanded.hasPrefix("/") {
             return URL(filePath: expanded)
@@ -142,7 +159,7 @@ public struct PEXArtifactService: Sendable {
         if fileName.contains("/") {
             return runDirectory.appending(path: fileName)
         }
-        return runDirectory.appending(path: "ir").appending(path: fileName.isEmpty ? "\(cornerID).json" : fileName)
+        return defaultDirectory.appending(path: fileName.isEmpty ? defaultFileName : fileName)
     }
 }
 
