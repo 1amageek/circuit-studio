@@ -3,6 +3,7 @@ import Testing
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 import LayoutCore
+import LayoutIO
 import LayoutTech
 import LayoutVerify
 
@@ -720,6 +721,78 @@ struct PhysicalVerificationServiceTests {
         #expect(report.deviceParameterMismatches.map(\.parameterName) == ["r"])
     }
 
+    @Test func rawCapacitorLVSRecognizesCapacitanceWithoutMetadata() {
+        let capacitance = 8.6e-15 * 20
+        let schematic = makeSingleCapacitorSchematic(capacitance: capacitance)
+        let layout = makeRawCapacitorLayout(name: "C1", overlapWidth: 10, overlapHeight: 2)
+        let designUnit = DesignUnit(schematicHash: DesignUnit.schematicHash(for: schematic))
+
+        let report = PhysicalVerificationService().runLVS(
+            schematic: schematic,
+            layout: layout,
+            designUnit: designUnit,
+            tech: .sampleProcess()
+        )
+
+        #expect(report.passed)
+        #expect(report.missingLayoutInstances.isEmpty)
+        #expect(report.deviceParameterMismatches.isEmpty)
+    }
+
+    @Test func rawCapacitorLVSRejectsCapacitanceMismatch() {
+        let schematic = makeSingleCapacitorSchematic(capacitance: 8.6e-15 * 25)
+        let layout = makeRawCapacitorLayout(name: "C1", overlapWidth: 10, overlapHeight: 2)
+        let designUnit = DesignUnit(schematicHash: DesignUnit.schematicHash(for: schematic))
+
+        let report = PhysicalVerificationService().runLVS(
+            schematic: schematic,
+            layout: layout,
+            designUnit: designUnit,
+            tech: .sampleProcess()
+        )
+
+        #expect(!report.passed)
+        #expect(report.deviceParameterMismatches.map(\.parameterName) == ["c"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func importedOASRawTopologyPassesStrictDRCAndLVS() throws {
+        let schematic = makeImportedVoltageDividerSchematic()
+        let sourceLayout = makeImportedVoltageDividerLayout()
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "circuit-studio-imported-oas-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            do {
+                try FileManager.default.removeItem(at: directory)
+            } catch {
+                Issue.record("Failed to remove temporary directory: \(error)")
+            }
+        }
+
+        let layoutURL = directory.appending(path: "voltage-divider.oas")
+        let io = LayoutIOService(converter: MaskDataFormatConverter(tech: .sampleProcess()))
+        try io.saveDocument(sourceLayout, to: layoutURL, format: .oasis)
+        let importedLayout = try io.loadDocument(from: layoutURL, format: .oasis)
+        let designUnit = DesignUnit(schematicHash: DesignUnit.schematicHash(for: schematic))
+
+        let report = PhysicalVerificationService().runPrePEXVerification(
+            schematic: schematic,
+            layout: importedLayout,
+            tech: .sampleProcess(),
+            designUnit: designUnit
+        )
+
+        if !report.isReadyForPEX {
+            Issue.record("DRC: \(report.drc)")
+            Issue.record("LVS: \(report.lvs)")
+        }
+
+        #expect(report.drc.passed)
+        #expect(report.lvs.passed)
+        #expect(report.isReadyForPEX)
+    }
+
     @Test func rawMOSLVSRecognizesMultiFingerParameters() {
         let schematic = makeSingleNMOSSchematic(width: 10e-6, length: 1e-6, fingerCount: 2)
         let layout = makeRawMOSLayout(name: "MN1", width: 10, length: 1, fingerCount: 2)
@@ -963,6 +1036,60 @@ struct PhysicalVerificationServiceTests {
                 parameters: ["r": resistance]
             ),
         ])
+    }
+
+    private func makeSingleCapacitorSchematic(capacitance: Double) -> SchematicDocument {
+        SchematicDocument(components: [
+            PlacedComponent(
+                deviceKindID: "capacitor",
+                name: "C1",
+                position: .zero,
+                parameters: ["c": capacitance]
+            ),
+        ])
+    }
+
+    private func makeImportedVoltageDividerSchematic() -> SchematicDocument {
+        let v1 = PlacedComponent(deviceKindID: "vsource", name: "V1", position: CGPoint(x: 0, y: 0))
+        let r1 = PlacedComponent(
+            deviceKindID: "resistor",
+            name: "R1",
+            position: CGPoint(x: 100, y: 0),
+            parameters: ["r": 1000]
+        )
+        let r2 = PlacedComponent(
+            deviceKindID: "resistor",
+            name: "R2",
+            position: CGPoint(x: 200, y: 0),
+            parameters: ["r": 1000]
+        )
+        let gnd = PlacedComponent(deviceKindID: "ground", name: "GND1", position: CGPoint(x: 300, y: 0))
+        return SchematicDocument(
+            components: [v1, r1, r2, gnd],
+            wires: [
+                Wire(
+                    startPoint: .zero,
+                    endPoint: CGPoint(x: 100, y: 0),
+                    startPin: PinReference(componentID: v1.id, portID: "pos"),
+                    endPin: PinReference(componentID: r1.id, portID: "neg"),
+                    netName: "vin"
+                ),
+                Wire(
+                    startPoint: CGPoint(x: 100, y: 50),
+                    endPoint: CGPoint(x: 200, y: 50),
+                    startPin: PinReference(componentID: r1.id, portID: "pos"),
+                    endPin: PinReference(componentID: r2.id, portID: "neg"),
+                    netName: "out"
+                ),
+                Wire(
+                    startPoint: CGPoint(x: 200, y: 100),
+                    endPoint: CGPoint(x: 300, y: 100),
+                    startPin: PinReference(componentID: r2.id, portID: "pos"),
+                    endPin: PinReference(componentID: gnd.id, portID: "gnd"),
+                    netName: "0"
+                ),
+            ]
+        )
     }
 
     private func makeLayoutDocument(
@@ -1559,6 +1686,98 @@ struct PhysicalVerificationServiceTests {
             labels: [LayoutLabel(text: name, position: polyBox.center, layer: m1)]
         )
         return LayoutDocument(name: "Layout", cells: [top], topCellID: top.id)
+    }
+
+    private func makeRawCapacitorLayout(
+        name: String,
+        overlapWidth: Double,
+        overlapHeight: Double
+    ) -> LayoutDocument {
+        let active = LayoutLayerID(name: "ACTIVE", purpose: "drawing")
+        let poly = LayoutLayerID(name: "POLY", purpose: "drawing")
+        let nimp = LayoutLayerID(name: "NIMP", purpose: "drawing")
+        let nwell = LayoutLayerID(name: "NWELL", purpose: "drawing")
+        let m1 = LayoutLayerID(name: "M1", purpose: "drawing")
+        let activeBox = LayoutRect(
+            origin: .zero,
+            size: LayoutSize(width: overlapWidth + 1, height: overlapHeight)
+        )
+        let polyBox = LayoutRect(
+            origin: LayoutPoint(x: 1, y: 0),
+            size: LayoutSize(width: overlapWidth + 1, height: overlapHeight)
+        )
+        let top = LayoutCell(
+            name: "TOP",
+            shapes: [
+                LayoutShape(layer: active, geometry: .rect(activeBox)),
+                LayoutShape(layer: nimp, geometry: .rect(activeBox.expanded(by: 0.2, 0.2))),
+                LayoutShape(layer: nwell, geometry: .rect(activeBox.expanded(by: 0.3, 0.3))),
+                LayoutShape(layer: poly, geometry: .rect(polyBox)),
+                LayoutShape(
+                    layer: m1,
+                    geometry: .rect(LayoutRect(
+                        origin: LayoutPoint(x: 0, y: 0),
+                        size: LayoutSize(width: 0.5, height: overlapHeight)
+                    ))
+                ),
+                LayoutShape(
+                    layer: m1,
+                    geometry: .rect(LayoutRect(
+                        origin: LayoutPoint(x: overlapWidth + 1.5, y: 0),
+                        size: LayoutSize(width: 0.5, height: overlapHeight)
+                    ))
+                ),
+            ],
+            labels: [LayoutLabel(text: name, position: activeBox.center, layer: m1)]
+        )
+        return LayoutDocument(name: "Layout", cells: [top], topCellID: top.id)
+    }
+
+    private func makeImportedVoltageDividerLayout() -> LayoutDocument {
+        let poly = LayoutLayerID(name: "POLY", purpose: "drawing")
+        let resi = LayoutLayerID(name: "RESI", purpose: "drawing")
+        let m1 = LayoutLayerID(name: "M1", purpose: "drawing")
+        let r1Body = LayoutRect(origin: .zero, size: LayoutSize(width: 10, height: 2))
+        let r2Body = LayoutRect(origin: LayoutPoint(x: 20, y: 0), size: LayoutSize(width: 10, height: 2))
+        let resiEnclosure = 0.12
+        let top = LayoutCell(
+            name: "TOP",
+            shapes: [
+                LayoutShape(layer: poly, geometry: .rect(r1Body)),
+                LayoutShape(layer: resi, geometry: .rect(r1Body.expanded(by: resiEnclosure, resiEnclosure))),
+                LayoutShape(layer: poly, geometry: .rect(r2Body)),
+                LayoutShape(layer: resi, geometry: .rect(r2Body.expanded(by: resiEnclosure, resiEnclosure))),
+                LayoutShape(
+                    layer: m1,
+                    geometry: .rect(LayoutRect(
+                        origin: LayoutPoint(x: 0, y: 0),
+                        size: LayoutSize(width: 0.5, height: 2)
+                    ))
+                ),
+                LayoutShape(
+                    layer: m1,
+                    geometry: .rect(LayoutRect(
+                        origin: LayoutPoint(x: 9.5, y: 0),
+                        size: LayoutSize(width: 11, height: 2)
+                    ))
+                ),
+                LayoutShape(
+                    layer: m1,
+                    geometry: .rect(LayoutRect(
+                        origin: LayoutPoint(x: 29.5, y: 0),
+                        size: LayoutSize(width: 0.5, height: 2)
+                    ))
+                ),
+            ],
+            labels: [
+                LayoutLabel(text: "R1", position: r1Body.center, layer: m1),
+                LayoutLabel(text: "R2", position: r2Body.center, layer: m1),
+                LayoutLabel(text: "vin", position: LayoutPoint(x: 0.25, y: 1), layer: m1),
+                LayoutLabel(text: "out", position: LayoutPoint(x: 15, y: 1), layer: m1),
+                LayoutLabel(text: "0", position: LayoutPoint(x: 29.75, y: 1), layer: m1),
+            ]
+        )
+        return LayoutDocument(name: "ImportedVoltageDivider", cells: [top], topCellID: top.id)
     }
 
     private enum RawMOSTestKind {

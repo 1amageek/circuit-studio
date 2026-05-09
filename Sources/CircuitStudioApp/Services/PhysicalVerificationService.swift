@@ -258,6 +258,17 @@ public struct PhysicalVerificationService: Sendable {
         } ?? []
         let physicalNetRequirements = physicalNetRequirements(in: schematic, catalog: catalog)
         let physicalNetNames = physicalNetRequirements.map(\.name)
+        let fullLVS = tech.map {
+            runFullLVS(
+                schematic: schematic,
+                layout: layout,
+                tech: $0,
+                designUnit: designUnit,
+                catalog: catalog,
+                physicalNetRequirements: physicalNetRequirements,
+                rawDevices: rawDevices
+            )
+        }
         let actualInstanceIDs = hierarchicalInstanceIDs(layout: layout, topCell: topCell)
         let actualNetIDs = physicallyRealizedLayoutNetIDs(layout: layout, topCell: topCell)
         let actualNetNames = layoutNetNames(layout: layout, topCell: topCell)
@@ -281,6 +292,9 @@ public struct PhysicalVerificationService: Sendable {
         let schematicNetNames = Set(physicalNetNames)
         let missingNets = schematicNetNames
             .filter { name in
+                if fullLVS?.realizedNetNames.contains(name) == true {
+                    return false
+                }
                 guard let netID = designUnit.netNameToLayoutNet[name] else {
                     return true
                 }
@@ -303,17 +317,6 @@ public struct PhysicalVerificationService: Sendable {
             rawDevices: rawDevices,
             tech: tech
         )
-        let fullLVS = tech.map {
-            runFullLVS(
-                schematic: schematic,
-                layout: layout,
-                tech: $0,
-                designUnit: designUnit,
-                catalog: catalog,
-                physicalNetRequirements: physicalNetRequirements,
-                rawDevices: rawDevices
-            )
-        }
         let shouldRunConnectivityExtraction = !physicalNetRequirements.isEmpty
             || !expectedNetNamesByTerminal(schematic: schematic, physicalComponentIDs: Set(physicalComponents.map(\.id))).isEmpty
 
@@ -551,6 +554,32 @@ public struct PhysicalVerificationService: Sendable {
                 )
             }
         }
+        for component in schematic.components {
+            guard let kind = catalog.device(for: component.deviceKindID),
+                  kind.spicePrefix == "C",
+                  let rawDevice = devicesByName[component.name]?.first else {
+                continue
+            }
+            if rawDevice.kind != .capacitor {
+                mismatches.append(LVSVerificationReport.DeviceParameterMismatch(
+                    componentName: component.name,
+                    parameterName: "kind",
+                    expectedValue: RawLayoutDevice.Kind.capacitor.numericValue,
+                    actualValue: rawDevice.kind.numericValue,
+                    tolerance: 0
+                ))
+            }
+            if let expectedC = component.parameters["c"], let actualC = rawDevice.capacitance {
+                appendMismatchIfNeeded(
+                    componentName: component.name,
+                    parameterName: "c",
+                    expectedLayoutValue: expectedC,
+                    actualLayoutValue: actualC,
+                    tolerance: max(abs(expectedC) * 0.05, 1e-18),
+                    into: &mismatches
+                )
+            }
+        }
 
         return RawLayoutDeviceComparison(
             parameterMismatches: mismatches.sorted {
@@ -778,7 +807,8 @@ public struct PhysicalVerificationService: Sendable {
             },
             missingExternalPorts: missingExternalPorts,
             invalidTerminals: invalidTerminals,
-            duplicateTerminals: duplicateTerminals
+            duplicateTerminals: duplicateTerminals,
+            realizedNetNames: Set(clusterIDsByExpectedNet.keys)
         )
     }
 
@@ -899,6 +929,7 @@ private struct FullLVSResult: Sendable, Hashable {
     var missingExternalPorts: [String] = []
     var invalidTerminals: [LVSVerificationReport.Terminal] = []
     var duplicateTerminals: [LVSVerificationReport.Terminal] = []
+    var realizedNetNames: Set<String> = []
 }
 
 private struct PhysicalNetRequirement: Sendable, Hashable {
@@ -911,12 +942,14 @@ private struct RawLayoutDevice: Sendable, Hashable {
         case nmos
         case pmos
         case resistor
+        case capacitor
 
         var numericValue: Double {
             switch self {
             case .nmos: return 0
             case .pmos: return 1
             case .resistor: return 2
+            case .capacitor: return 3
             }
         }
     }
@@ -927,6 +960,7 @@ private struct RawLayoutDevice: Sendable, Hashable {
     let length: Double
     let fingerCount: Int
     let resistance: Double?
+    let capacitance: Double?
     let terminals: [RawLayoutTerminal]
 }
 
@@ -1515,6 +1549,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
 
     private let layerResolver: LayoutLayerAliasResolver
     private let resistorSheetResistance = 200.0
+    private let capacitorDensity = 8.6e-15
 
     init(tech: LayoutTechDatabase?) {
         self.layerResolver = LayoutLayerAliasResolver(tech: tech)
@@ -1535,8 +1570,12 @@ private struct RawLayoutDeviceExtractor: Sendable {
 
         var devices: [RawLayoutDevice] = []
         devices.append(contentsOf: extractResistors(resis: resis, polys: polys, m1Shapes: m1Shapes, labels: labels))
+        devices.append(contentsOf: extractCapacitors(actives: actives, polys: polys, m1Shapes: m1Shapes, labels: labels))
         for active in actives {
             let activeBox = LayoutGeometryUtils.boundingBox(for: active.geometry)
+            if isCapacitorActive(activeBox: activeBox, polys: polys, labels: labels) {
+                continue
+            }
             let channels = polys.compactMap { poly -> (polyBox: LayoutRect, channel: LayoutRect)? in
                 let polyBox = LayoutGeometryUtils.boundingBox(for: poly.geometry)
                 guard let channel = positiveIntersection(activeBox, polyBox) else { return nil }
@@ -1599,6 +1638,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
                 length: group.channels.map(\.channel.size.width).reduce(0, +) / Double(group.channels.count),
                 fingerCount: group.channels.count,
                 resistance: nil,
+                capacitance: nil,
                 terminals: mosTerminals(
                     activeBox: activeBox,
                     polyBox: mergedPolyBox,
@@ -1637,10 +1677,63 @@ private struct RawLayoutDeviceExtractor: Sendable {
                 length: length,
                 fingerCount: 1,
                 resistance: resistorSheetResistance * length / width,
+                capacitance: nil,
                 terminals: resistorTerminals(polyBox: polyBox, m1Shapes: m1Shapes)
             ))
         }
         return devices
+    }
+
+    private func extractCapacitors(
+        actives: [ShapeRecord],
+        polys: [ShapeRecord],
+        m1Shapes: [ShapeRecord],
+        labels: [LabelRecord]
+    ) -> [RawLayoutDevice] {
+        var devices: [RawLayoutDevice] = []
+        for active in actives {
+            let activeBox = LayoutGeometryUtils.boundingBox(for: active.geometry)
+            guard let name = capacitorName(for: activeBox, labels: labels) else { continue }
+            let overlaps = polys.compactMap { poly -> (polyBox: LayoutRect, overlap: LayoutRect)? in
+                let polyBox = LayoutGeometryUtils.boundingBox(for: poly.geometry)
+                guard let overlap = positiveIntersection(activeBox, polyBox) else { return nil }
+                return (polyBox, overlap)
+            }
+            guard let largestOverlap = overlaps.max(by: {
+                $0.overlap.size.width * $0.overlap.size.height < $1.overlap.size.width * $1.overlap.size.height
+            }) else {
+                continue
+            }
+            let area = largestOverlap.overlap.size.width * largestOverlap.overlap.size.height
+            guard area > 0 else { continue }
+            devices.append(RawLayoutDevice(
+                name: name,
+                kind: .capacitor,
+                width: largestOverlap.overlap.size.height,
+                length: largestOverlap.overlap.size.width,
+                fingerCount: 1,
+                resistance: nil,
+                capacitance: capacitorDensity * area,
+                terminals: capacitorTerminals(
+                    activeBox: activeBox,
+                    polyBox: largestOverlap.polyBox,
+                    overlapBox: largestOverlap.overlap,
+                    m1Shapes: m1Shapes
+                )
+            ))
+        }
+        return devices
+    }
+
+    private func isCapacitorActive(
+        activeBox: LayoutRect,
+        polys: [ShapeRecord],
+        labels: [LabelRecord]
+    ) -> Bool {
+        guard capacitorName(for: activeBox, labels: labels) != nil else { return false }
+        return polys.contains { poly in
+            positiveIntersection(activeBox, LayoutGeometryUtils.boundingBox(for: poly.geometry)) != nil
+        }
     }
 
     private func collect(
@@ -1676,6 +1769,12 @@ private struct RawLayoutDeviceExtractor: Sendable {
 
     private func componentName(for activeBox: LayoutRect, labels: [LabelRecord]) -> String? {
         componentLabels(for: activeBox, labels: labels).first?.text
+    }
+
+    private func capacitorName(for activeBox: LayoutRect, labels: [LabelRecord]) -> String? {
+        componentLabels(for: activeBox, labels: labels)
+            .first { $0.text.uppercased().hasPrefix("C") }?
+            .text
     }
 
     private func componentLabels(for activeBox: LayoutRect, labels: [LabelRecord]) -> [LabelRecord] {
@@ -1784,6 +1883,32 @@ private struct RawLayoutDeviceExtractor: Sendable {
         if let pos = terminal(pinName: "pos", shapes: m1Shapes.filter {
             let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
             return rect.intersects(polyBox) && rect.center.x > polyBox.center.x
+        }) {
+            terminals.append(pos)
+        }
+        return terminals
+    }
+
+    private func capacitorTerminals(
+        activeBox: LayoutRect,
+        polyBox: LayoutRect,
+        overlapBox: LayoutRect,
+        m1Shapes: [ShapeRecord]
+    ) -> [RawLayoutTerminal] {
+        var terminals: [RawLayoutTerminal] = []
+        if let neg = terminal(pinName: "neg", shapes: m1Shapes.filter {
+            let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            return rect.intersects(activeBox)
+                && !rect.intersects(overlapBox)
+                && rect.center.x < overlapBox.center.x
+        }) {
+            terminals.append(neg)
+        }
+        if let pos = terminal(pinName: "pos", shapes: m1Shapes.filter {
+            let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            return rect.intersects(polyBox)
+                && !rect.intersects(overlapBox)
+                && rect.center.x > overlapBox.center.x
         }) {
             terminals.append(pos)
         }
