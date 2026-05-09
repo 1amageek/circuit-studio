@@ -166,6 +166,12 @@ public struct DesignFlowPEXInput: Sendable, Hashable {
     }
 }
 
+private struct DesignFlowVerificationInput {
+    let schematic: SchematicDocument
+    let fixtureName: String?
+    let designName: String?
+}
+
 public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public enum Kind: String, Sendable, Hashable, Codable {
         case listFixtures
@@ -180,6 +186,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case runPEXExtraction
         case applyDesignEdit
         case applyLayoutEdit
+        case runVerification
         case reviewRoundTrip
     }
 
@@ -203,6 +210,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let outputDesignSpecPath: String?
     public let layoutDocumentPath: String?
     public let outputLayoutDocumentPath: String?
+    public let designUnitPath: String?
     public let roundTripManifestPath: String?
 
     public init(
@@ -226,6 +234,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         outputDesignSpecPath: String? = nil,
         layoutDocumentPath: String? = nil,
         outputLayoutDocumentPath: String? = nil,
+        designUnitPath: String? = nil,
         roundTripManifestPath: String? = nil
     ) {
         self.kind = kind
@@ -248,6 +257,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.outputDesignSpecPath = outputDesignSpecPath
         self.layoutDocumentPath = layoutDocumentPath
         self.outputLayoutDocumentPath = outputLayoutDocumentPath
+        self.designUnitPath = designUnitPath
         self.roundTripManifestPath = roundTripManifestPath
     }
 
@@ -280,6 +290,8 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let actionLogPath: String?
     public let designDiffPath: String?
     public let layoutDiffPath: String?
+    public let verificationReportPath: String?
+    public let verificationReport: DesignFlowVerificationReport?
     public let roundTripReview: RoundTripReviewSummary?
     public let message: String?
 
@@ -307,6 +319,8 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         actionLogPath: String? = nil,
         designDiffPath: String? = nil,
         layoutDiffPath: String? = nil,
+        verificationReportPath: String? = nil,
+        verificationReport: DesignFlowVerificationReport? = nil,
         roundTripReview: RoundTripReviewSummary? = nil,
         message: String? = nil
     ) {
@@ -333,6 +347,8 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.actionLogPath = actionLogPath
         self.designDiffPath = designDiffPath
         self.layoutDiffPath = layoutDiffPath
+        self.verificationReportPath = verificationReportPath
+        self.verificationReport = verificationReport
         self.roundTripReview = roundTripReview
         self.message = message
     }
@@ -350,6 +366,7 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case missingOutputDesignSpecPath
     case missingLayoutDocumentPath
     case missingOutputLayoutDocumentPath
+    case missingVerificationDesignInput
     case missingRoundTripManifestPath
 
     public var errorDescription: String? {
@@ -376,6 +393,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
             return "Design flow command requires a layout document path."
         case .missingOutputLayoutDocumentPath:
             return "Design flow command requires an output layout document path."
+        case .missingVerificationDesignInput:
+            return "Design flow verification requires a design spec path or a fixture name."
         case .missingRoundTripManifestPath:
             return "Design flow command requires a round-trip manifest path, or a project root path with a run ID."
         }
@@ -610,6 +629,16 @@ public struct DesignFlowService: Sendable {
         }
     }
 
+    public func loadDesignUnit(_ url: URL) throws -> DesignUnit {
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            return try decoder.decode(DesignUnit.self, from: data)
+        } catch {
+            throw StudioError.projectLoadFailed("Failed to load design unit: \(error.localizedDescription)")
+        }
+    }
+
     public func loadTechnologyPackage(_ manifestURL: URL) throws -> TechnologyPackage {
         try TechnologyPackageLoader().load(manifestURL: manifestURL)
     }
@@ -718,9 +747,61 @@ public struct DesignFlowService: Sendable {
             return try applyDesignEdit(command)
         case .applyLayoutEdit:
             return try applyLayoutEdit(command)
+        case .runVerification:
+            return try runVerification(command)
         case .reviewRoundTrip:
             return try reviewRoundTrip(command)
         }
+    }
+
+    @MainActor
+    private func runVerification(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+        guard let layoutDocumentPath = command.layoutDocumentPath else {
+            throw DesignFlowCommandError.missingLayoutDocumentPath
+        }
+        let verificationInput = try verificationDesign(for: command)
+        let package = try technologyPackage(for: command)
+        try validateSignoffLogPair(in: command)
+        let layout = try loadLayoutDocument(URL(filePath: layoutDocumentPath))
+        let loadedDesignUnit = try command.designUnitPath.map { try loadDesignUnit(URL(filePath: $0)) }
+        let designUnit = verificationDesignUnit(
+            provided: loadedDesignUnit,
+            schematic: verificationInput.schematic,
+            layout: layout
+        )
+        let rawExternalSignoff = try loadExternalSignoffReview(from: command, package: package)
+        let externalSignoff = command.approveSignoff
+            ? rawExternalSignoff?.approving(by: "design-flow-command", at: Date())
+            : rawExternalSignoff
+        let tech = try layoutTech(for: package) ?? .sampleProcess()
+        let report = runPrePEXVerification(DesignFlowPrePEXVerificationRequest(
+            schematic: verificationInput.schematic,
+            layout: layout,
+            tech: tech,
+            designUnit: designUnit,
+            catalog: .standard(),
+            externalSignoff: externalSignoff
+        ))
+        let verificationReport = DesignFlowVerificationReport(report: report)
+
+        let artifactDirectory = verificationArtifactDirectory(for: command)
+        try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
+        let reportURL = artifactDirectory.appending(path: "physical-verification.json")
+        try writeJSON(verificationReport, to: reportURL)
+
+        return DesignFlowCommandResult(
+            kind: command.kind,
+            fixtureName: verificationInput.fixtureName,
+            designName: verificationInput.designName,
+            runID: command.runID,
+            projectRootPath: command.projectRootPath,
+            readyForPEX: verificationReport.readyForPEX,
+            technologyPackageID: package?.manifest.packageID,
+            technologyPackagePath: package?.manifestURL.path(percentEncoded: false),
+            verificationReportPath: reportURL.path(percentEncoded: false),
+            verificationReport: verificationReport,
+            message: verificationReport.status
+        )
     }
 
     private func reviewRoundTrip(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
@@ -1110,6 +1191,68 @@ public struct DesignFlowService: Sendable {
         return try loadDesignSpec(URL(filePath: designSpecPath)).build()
     }
 
+    @MainActor
+    private func verificationDesign(for command: DesignFlowCommand) throws -> DesignFlowVerificationInput {
+        if command.designSpecPath != nil {
+            let design = try design(for: command)
+            return DesignFlowVerificationInput(
+                schematic: design.schematic,
+                fixtureName: nil,
+                designName: design.name
+            )
+        }
+        if command.fixtureName != nil {
+            let fixture = try fixture(for: command)
+            return DesignFlowVerificationInput(
+                schematic: fixture.schematic,
+                fixtureName: fixture.name,
+                designName: nil
+            )
+        }
+        throw DesignFlowCommandError.missingVerificationDesignInput
+    }
+
+    private func verificationDesignUnit(
+        provided: DesignUnit?,
+        schematic: SchematicDocument,
+        layout: LayoutDocument
+    ) -> DesignUnit {
+        let currentHash = DesignUnit.schematicHash(for: schematic)
+        guard provided?.schematicHash != currentHash else {
+            return provided ?? DesignUnit(schematicHash: currentHash)
+        }
+
+        guard let topCellID = layout.topCellID,
+              let topCell = layout.cell(withID: topCellID) else {
+            return DesignUnit(
+                componentToInstance: [:],
+                netNameToLayoutNet: [:],
+                deviceKindToCell: provided?.deviceKindToCell ?? [:],
+                schematicHash: currentHash
+            )
+        }
+
+        let instancesByName = Dictionary(
+            topCell.instances.map { ($0.name, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let componentToInstance = Dictionary(
+            uniqueKeysWithValues: schematic.components.compactMap { component in
+                instancesByName[component.name].map { (component.id, $0) }
+            }
+        )
+        let netNameToLayoutNet = Dictionary(
+            topCell.nets.map { ($0.name, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return DesignUnit(
+            componentToInstance: componentToInstance,
+            netNameToLayoutNet: netNameToLayoutNet,
+            deviceKindToCell: provided?.deviceKindToCell ?? [:],
+            schematicHash: currentHash
+        )
+    }
+
     private func makeMockSignoffCommands(in projectRoot: URL) throws -> [ExternalSignoffCommand] {
         let toolDirectory = projectRoot
             .appending(path: ".xcircuite")
@@ -1166,6 +1309,7 @@ public struct DesignFlowService: Sendable {
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(value)
         try data.write(to: url, options: .atomic)
     }
@@ -1212,6 +1356,17 @@ public struct DesignFlowService: Sendable {
         return root
             .appending(path: ".xcircuite")
             .appending(path: "layout-edits")
+            .appending(path: runID)
+    }
+
+    private func verificationArtifactDirectory(for command: DesignFlowCommand) -> URL {
+        let root = command.projectRootPath.map { URL(filePath: $0) }
+            ?? URL(filePath: FileManager.default.currentDirectoryPath)
+                .appending(path: "verification-runs")
+        let runID = command.runID ?? Self.timestamp()
+        return root
+            .appending(path: ".xcircuite")
+            .appending(path: "verification")
             .appending(path: runID)
     }
 

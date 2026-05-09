@@ -111,13 +111,15 @@ M10 update: human review now has a manifest-backed projection layer before UI wo
 
 M6 update: the Agent edit loop now includes a layout-edit command for canonical `LayoutDocument` JSON. `DesignFlowCommand.applyLayoutEdit` can add/remove layout nets, rect/path routing shapes, pins, and labels, then writes an edited layout document plus JSONL actions and a layout diff artifact. This closes the first physical-edit gap for DRC/LVS repair loops, while OAS/GDS import/export and richer geometry edits remain separate follow-up work.
 
+M6 verification update: Agent/API callers can now run DRC/LVS/pre-PEX verification without a full round trip. `DesignFlowCommand.runVerification` accepts a fixture or design spec plus a canonical layout JSON, optionally imports signoff logs and a DesignUnit, rebinds stale ID mappings by layout instance/net names when needed, and writes a Codable physical-verification report artifact. This makes edit -> verify loops materially shorter than rerunning simulation, PEX, and comparison each time.
+
 M9 update: imported OAS raw topology now has a strict in-process DRC/LVS regression. Raw capacitor extraction/value comparison is covered, and imported-layout LVS can accept physical connectivity clusters plus top-level labels as net realization when generated `DesignUnit` net IDs are absent. The remaining layout gap is committed real foundry-style binary corpus coverage rather than only generated test artifacts.
 
 ## Recommended Next Work
 
 | Priority | Work |
 |---:|---|
-| 1 | Extend the M6 command loop from design/layout edits to approval, verification-only, and rerun commands |
+| 1 | Extend the M6 command loop from design/layout edits and verification-only to approval and rerun commands |
 | 2 | Add committed real GDS/OASIS imported-layout corpora with foundry-style extraction expectations |
 | 3 | Add one-command multi-corner round-trip execution that emits aggregate post-layout comparison artifacts |
 | 4 | Render `RoundTripReviewSummary` in UI panels without reinterpreting raw manifest fields |

@@ -338,6 +338,40 @@ struct DesignFlowServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
+    func commandAPIRunsVerificationOnlyAndWritesReportArtifact() async throws {
+        let root = try makeTemporaryRoot("verification-only")
+        defer { removeTemporaryRoot(root) }
+        let layoutURL = root.appending(path: "layout.json")
+        let designUnitURL = root.appending(path: "design-unit.json")
+        let service = DesignFlowService()
+        let fixture = try DesignFlowFixtureLibrary.fixture(named: "voltage-divider")
+        let layoutOutput = try service.generateLayout(DesignFlowLayoutGenerationRequest(
+            schematic: fixture.schematic,
+            catalog: .standard()
+        ))
+        try writeLayoutDocument(layoutOutput.document, to: layoutURL)
+        try writeDesignUnit(layoutOutput.designUnit, to: designUnitURL)
+
+        let result = try await service.execute(DesignFlowCommand(
+            kind: .runVerification,
+            fixtureName: "voltage-divider",
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "verification-run",
+            layoutDocumentPath: layoutURL.path(percentEncoded: false),
+            designUnitPath: designUnitURL.path(percentEncoded: false)
+        ))
+
+        #expect(result.fixtureName == "voltage-divider")
+        #expect(result.readyForPEX == true)
+        let reportPath = try #require(result.verificationReportPath)
+        #expect(FileManager.default.fileExists(atPath: reportPath))
+        #expect(result.verificationReport?.status == "passed")
+        #expect(result.verificationReport?.drc.passed == true)
+        #expect(result.verificationReport?.lvs.passed == true)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
     func commandAPIRejectsUnsafeDesignSpecNamesAndDuplicateTerminals() async throws {
         let root = try makeTemporaryRoot("invalid-design-spec")
         defer { removeTemporaryRoot(root) }
@@ -1177,6 +1211,13 @@ struct DesignFlowServiceTests {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(layout)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func writeDesignUnit(_ designUnit: DesignUnit, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(designUnit)
         try data.write(to: url, options: .atomic)
     }
 

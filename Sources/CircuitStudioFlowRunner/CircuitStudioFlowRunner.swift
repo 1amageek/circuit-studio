@@ -45,6 +45,7 @@ struct CircuitStudioFlowRunner {
             outputDesignSpecPath: options.outputDesignSpecURL?.path(percentEncoded: false),
             layoutDocumentPath: options.layoutDocumentURL?.path(percentEncoded: false),
             outputLayoutDocumentPath: options.outputLayoutDocumentURL?.path(percentEncoded: false),
+            designUnitPath: options.designUnitURL?.path(percentEncoded: false),
             roundTripManifestPath: options.reviewManifestURL?.path(percentEncoded: false)
         )
     }
@@ -54,6 +55,8 @@ struct CircuitStudioFlowRunner {
         case .listFixtures, .generateNetlist, .simulate, .loadTechnologyPackage, .runPEXExtraction:
             return nil
         case .applyDesignEdit, .applyLayoutEdit:
+            return options.outputURL?.path(percentEncoded: false)
+        case .runVerification:
             return options.outputURL?.path(percentEncoded: false)
         case .reviewRoundTrip:
             return options.outputURL?.path(percentEncoded: false)
@@ -166,6 +169,16 @@ struct CircuitStudioFlowRunner {
             Swift.print("layout_document=\(result.layoutDocumentPath ?? "")")
             Swift.print("actions=\(result.actionLogPath ?? "")")
             Swift.print("layout_diff=\(result.layoutDiffPath ?? "")")
+        case .runVerification:
+            Swift.print("verification=\(result.verificationReport?.status ?? "")")
+            printDesignOrFixture(result: result, options: options)
+            Swift.print("ready_for_pex=\(result.readyForPEX ?? false)")
+            Swift.print("verification_report=\(result.verificationReportPath ?? "")")
+            Swift.print("drc_passed=\(result.verificationReport?.drc.passed ?? false)")
+            Swift.print("drc_violations=\(result.verificationReport?.drc.violationCount ?? 0)")
+            Swift.print("lvs_passed=\(result.verificationReport?.lvs.passed ?? false)")
+            Swift.print("external_signoff=\(signoffSource(result: result, options: options))")
+            Swift.print("signoff_approved=\(result.verificationReport?.externalSignoff?.approved ?? false)")
         case .reviewRoundTrip:
             let review = result.roundTripReview
             Swift.print("round_trip_review=\(review?.status.rawValue ?? "")")
@@ -227,6 +240,7 @@ struct CircuitStudioFlowRunner {
           --run-pex-extraction     Run pexengine extract through DesignFlowCommand
           --apply-design-edit      Apply a design edit script through DesignFlowCommand
           --apply-layout-edit      Apply a layout edit script through DesignFlowCommand
+          --run-verification       Run DRC/LVS/pre-PEX verification without a full round trip
           --review-round-trip      Load a round-trip review summary from manifest artifacts
           default                   Run the full fixture round trip through DesignFlowCommand
 
@@ -239,9 +253,11 @@ struct CircuitStudioFlowRunner {
           --output-design-spec PATH
                            Edited design spec path for --apply-design-edit
           --layout-document PATH
-                           Layout document JSON path for --apply-layout-edit
+                           Layout document JSON path for --apply-layout-edit or --run-verification
           --output-layout-document PATH
                            Edited layout document JSON path for --apply-layout-edit
+          --design-unit PATH
+                           Optional DesignUnit JSON path for --run-verification
           --manifest PATH Round-trip manifest path for --review-round-trip
           --technology-package PATH
                            Inject one technology package manifest into netlist, simulation, layout, signoff, and PEX inputs when supported
@@ -282,6 +298,7 @@ private enum RunnerMode: Equatable {
     case runPEXExtraction
     case applyDesignEdit
     case applyLayoutEdit
+    case runVerification
     case reviewRoundTrip
 
     func commandKind(usesDesignSpec: Bool) -> DesignFlowCommand.Kind {
@@ -304,6 +321,8 @@ private enum RunnerMode: Equatable {
             return .applyDesignEdit
         case .applyLayoutEdit:
             return .applyLayoutEdit
+        case .runVerification:
+            return .runVerification
         case .reviewRoundTrip:
             return .reviewRoundTrip
         }
@@ -324,6 +343,7 @@ private struct RunnerOptions {
     var outputDesignSpecURL: URL?
     var layoutDocumentURL: URL?
     var outputLayoutDocumentURL: URL?
+    var designUnitURL: URL?
     var reviewManifestURL: URL?
     var pexCornerID = "tt_25c_1v0"
     var signoffDRCLogURL: URL?
@@ -356,6 +376,8 @@ private struct RunnerOptions {
                 try selectMode(.applyDesignEdit)
             case "--apply-layout-edit":
                 try selectMode(.applyLayoutEdit)
+            case "--run-verification":
+                try selectMode(.runVerification)
             case "--review-round-trip":
                 try selectMode(.reviewRoundTrip)
             case "--fixture":
@@ -382,6 +404,8 @@ private struct RunnerOptions {
                 layoutDocumentURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--output-layout-document":
                 outputLayoutDocumentURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--design-unit":
+                designUnitURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--manifest":
                 reviewManifestURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--pex-corner":
