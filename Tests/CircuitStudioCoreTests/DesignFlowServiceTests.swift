@@ -629,6 +629,23 @@ struct DesignFlowServiceTests {
             _ = try await service.execute(DesignFlowCommand(
                 kind: .runFixtureRoundTrip,
                 fixtureName: "voltage-divider",
+                projectRootPath: invalidRoot.path(percentEncoded: false),
+                variableComparisonLimits: [
+                    PostLayoutVariableComparisonLimit(variableName: "V(out)"),
+                ]
+            ))
+            Issue.record("Expected invalid variable comparison limits to throw.")
+        } catch DesignFlowCommandError.invalidComparisonLimits(let diagnostics) {
+            #expect(diagnostics.contains { $0.contains("V(out)") })
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+        #expect(!FileManager.default.fileExists(atPath: invalidRoot.path(percentEncoded: false)))
+
+        do {
+            _ = try await service.execute(DesignFlowCommand(
+                kind: .runFixtureRoundTrip,
+                fixtureName: "voltage-divider",
                 projectRootPath: invalidRunIDRoot.path(percentEncoded: false),
                 runID: "../escaped-run",
                 approveSignoff: true,

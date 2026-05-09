@@ -72,6 +72,30 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
                 "Post-layout maximum relative delta \(maxRelativeDelta) exceeds limit \(maxRelativeDeltaLimit)."
             )
         }
+        var comparisonsByName: [String: PostLayoutVariableComparison] = [:]
+        for comparison in comparedVariables where comparisonsByName[comparison.variableName] == nil {
+            comparisonsByName[comparison.variableName] = comparison
+        }
+        for variableLimit in limits.variableLimits {
+            guard let comparison = comparisonsByName[variableLimit.variableName] else {
+                violations.append(
+                    "Post-layout variable \(variableLimit.variableName) was not compared for a variable-specific limit."
+                )
+                continue
+            }
+            if let maxAbsoluteDeltaLimit = variableLimit.maxAbsoluteDelta,
+               comparison.maxAbsoluteDelta > maxAbsoluteDeltaLimit {
+                violations.append(
+                    "Post-layout variable \(variableLimit.variableName) absolute delta \(comparison.maxAbsoluteDelta) exceeds limit \(maxAbsoluteDeltaLimit)."
+                )
+            }
+            if let maxRelativeDeltaLimit = variableLimit.maxRelativeDelta,
+               comparison.maxRelativeDelta > maxRelativeDeltaLimit {
+                violations.append(
+                    "Post-layout variable \(variableLimit.variableName) relative delta \(comparison.maxRelativeDelta) exceeds limit \(maxRelativeDeltaLimit)."
+                )
+            }
+        }
         return violations
     }
 
@@ -118,10 +142,32 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
 public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
+    public let variableLimits: [PostLayoutVariableComparisonLimit]
 
-    public init(maxAbsoluteDelta: Double? = nil, maxRelativeDelta: Double? = nil) {
+    public init(
+        maxAbsoluteDelta: Double? = nil,
+        maxRelativeDelta: Double? = nil,
+        variableLimits: [PostLayoutVariableComparisonLimit] = []
+    ) {
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
+        self.variableLimits = variableLimits
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case maxAbsoluteDelta
+        case maxRelativeDelta
+        case variableLimits
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.maxAbsoluteDelta = try container.decodeIfPresent(Double.self, forKey: .maxAbsoluteDelta)
+        self.maxRelativeDelta = try container.decodeIfPresent(Double.self, forKey: .maxRelativeDelta)
+        self.variableLimits = try container.decodeIfPresent(
+            [PostLayoutVariableComparisonLimit].self,
+            forKey: .variableLimits
+        ) ?? []
     }
 
     public func validationDiagnostics() -> [String] {
@@ -132,11 +178,55 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
         if let maxRelativeDelta, !Self.isValidLimit(maxRelativeDelta) {
             diagnostics.append("Invalid max relative delta limit: \(maxRelativeDelta).")
         }
+        var seenVariableNames = Set<String>()
+        for variableLimit in variableLimits {
+            diagnostics.append(contentsOf: variableLimit.validationDiagnostics())
+            if !seenVariableNames.insert(variableLimit.variableName).inserted {
+                diagnostics.append("Duplicate variable-specific comparison limit: \(variableLimit.variableName).")
+            }
+        }
         return diagnostics
     }
 
     public var isValid: Bool {
         validationDiagnostics().isEmpty
+    }
+
+    private static func isValidLimit(_ value: Double) -> Bool {
+        value.isFinite && value >= 0
+    }
+}
+
+public struct PostLayoutVariableComparisonLimit: Sendable, Hashable, Codable {
+    public let variableName: String
+    public let maxAbsoluteDelta: Double?
+    public let maxRelativeDelta: Double?
+
+    public init(
+        variableName: String,
+        maxAbsoluteDelta: Double? = nil,
+        maxRelativeDelta: Double? = nil
+    ) {
+        self.variableName = variableName
+        self.maxAbsoluteDelta = maxAbsoluteDelta
+        self.maxRelativeDelta = maxRelativeDelta
+    }
+
+    public func validationDiagnostics() -> [String] {
+        var diagnostics: [String] = []
+        if variableName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            diagnostics.append("Variable-specific comparison limit has an empty variable name.")
+        }
+        if maxAbsoluteDelta == nil && maxRelativeDelta == nil {
+            diagnostics.append("Variable-specific comparison limit for \(variableName) has no numeric limit.")
+        }
+        if let maxAbsoluteDelta, !Self.isValidLimit(maxAbsoluteDelta) {
+            diagnostics.append("Invalid max absolute delta limit for \(variableName): \(maxAbsoluteDelta).")
+        }
+        if let maxRelativeDelta, !Self.isValidLimit(maxRelativeDelta) {
+            diagnostics.append("Invalid max relative delta limit for \(variableName): \(maxRelativeDelta).")
+        }
+        return diagnostics
     }
 
     private static func isValidLimit(_ value: Double) -> Bool {
@@ -169,6 +259,55 @@ public struct PostLayoutVariableComparison: Sendable, Hashable, Codable {
         self.firstPostLayoutValue = firstPostLayoutValue
         self.lastPreLayoutValue = lastPreLayoutValue
         self.lastPostLayoutValue = lastPostLayoutValue
+    }
+}
+
+public struct PostLayoutCornerComparisonReport: Sendable, Hashable, Codable {
+    public let cornerID: String
+    public let report: PostLayoutComparisonReport
+
+    public init(cornerID: String, report: PostLayoutComparisonReport) {
+        self.cornerID = cornerID
+        self.report = report
+    }
+}
+
+public struct PostLayoutMultiCornerComparisonReport: Sendable, Hashable, Codable {
+    public let status: String
+    public let cornerReports: [PostLayoutCornerComparisonReport]
+    public let maxAbsoluteDelta: Double
+    public let maxRelativeDelta: Double
+    public let worstAbsoluteCornerID: String?
+    public let worstRelativeCornerID: String?
+    public let gateStatus: String
+    public let gateViolations: [String]
+
+    public init(cornerReports: [PostLayoutCornerComparisonReport]) {
+        self.cornerReports = cornerReports
+        self.maxAbsoluteDelta = cornerReports.map(\.report.maxAbsoluteDelta).max() ?? 0
+        self.maxRelativeDelta = cornerReports.map(\.report.maxRelativeDelta).max() ?? 0
+        self.worstAbsoluteCornerID = cornerReports.max {
+            $0.report.maxAbsoluteDelta < $1.report.maxAbsoluteDelta
+        }?.cornerID
+        self.worstRelativeCornerID = cornerReports.max {
+            $0.report.maxRelativeDelta < $1.report.maxRelativeDelta
+        }?.cornerID
+        let violations = cornerReports.flatMap { cornerReport in
+            cornerReport.report.gateViolations.map { "[\(cornerReport.cornerID)] \($0)" }
+        }
+        if cornerReports.isEmpty {
+            self.status = "not-comparable"
+            self.gateStatus = "failed"
+            self.gateViolations = ["No corner reports were provided."]
+        } else if cornerReports.contains(where: { $0.report.status != "compared" }) {
+            self.status = "not-comparable"
+            self.gateStatus = violations.isEmpty ? "not-evaluated" : "failed"
+            self.gateViolations = violations
+        } else {
+            self.status = "compared"
+            self.gateStatus = violations.isEmpty ? "passed" : "failed"
+            self.gateViolations = violations
+        }
     }
 }
 
@@ -260,6 +399,12 @@ public struct PostLayoutComparisonService: Sendable {
             addedInPostLayout: postVariableNames.filter { !preNameSet.contains($0) },
             diagnostics: comparisonDiagnostics
         )
+    }
+
+    public func aggregate(
+        cornerReports: [PostLayoutCornerComparisonReport]
+    ) -> PostLayoutMultiCornerComparisonReport {
+        PostLayoutMultiCornerComparisonReport(cornerReports: cornerReports)
     }
 
     private struct AlignedPoint {

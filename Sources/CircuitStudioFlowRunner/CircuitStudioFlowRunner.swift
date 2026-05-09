@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioApp
+import CircuitStudioCore
 
 @main
 struct CircuitStudioFlowRunner {
@@ -36,6 +37,7 @@ struct CircuitStudioFlowRunner {
             signoffLVSLogPath: options.signoffLVSLogURL?.path(percentEncoded: false),
             maxAbsoluteDelta: options.maxAbsoluteDelta,
             maxRelativeDelta: options.maxRelativeDelta,
+            variableComparisonLimits: options.variableComparisonLimits,
             technologyPackagePath: options.technologyPackageURL?.path(percentEncoded: false),
             pexConfigPath: options.pexConfigURL?.path(percentEncoded: false),
             pexExecutablePath: options.pexExecutableURL?.path(percentEncoded: false)
@@ -171,7 +173,7 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--variable-limit SPEC]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
@@ -210,6 +212,8 @@ struct CircuitStudioFlowRunner {
                            Fail the post-layout comparison gate when the maximum absolute delta exceeds VALUE
           --max-rel-delta VALUE
                            Fail the post-layout comparison gate when the maximum relative delta exceeds VALUE
+          --variable-limit SPEC
+                           Add a variable-specific post-layout comparison gate. Format: VARIABLE:abs=VALUE,rel=VALUE
           --help           Show this help
         """
     }
@@ -260,6 +264,7 @@ private struct RunnerOptions {
     var signoffLVSLogURL: URL?
     var maxAbsoluteDelta: Double?
     var maxRelativeDelta: Double?
+    var variableComparisonLimits: [PostLayoutVariableComparisonLimit] = []
     var technologyPackageURL: URL?
     var approveSignoff = false
     var showHelp = false
@@ -307,6 +312,10 @@ private struct RunnerOptions {
                 maxAbsoluteDelta = try Self.doubleValue(after: argument, in: arguments, index: &index)
             case "--max-rel-delta":
                 maxRelativeDelta = try Self.doubleValue(after: argument, in: arguments, index: &index)
+            case "--variable-limit":
+                variableComparisonLimits.append(
+                    try Self.variableLimit(after: argument, in: arguments, index: &index)
+                )
             case "--approve-signoff":
                 approveSignoff = true
             case "--help", "-h":
@@ -345,12 +354,56 @@ private struct RunnerOptions {
         return value
     }
 
+    private static func variableLimit(
+        after option: String,
+        in arguments: [String],
+        index: inout Int
+    ) throws -> PostLayoutVariableComparisonLimit {
+        let rawValue = try value(after: option, in: arguments, index: &index)
+        let parts = rawValue.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2, !parts[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw RunnerError.invalidVariableLimit(rawValue)
+        }
+
+        var maxAbsoluteDelta: Double?
+        var maxRelativeDelta: Double?
+        for assignment in parts[1].split(separator: ",").map(String.init) {
+            let assignmentParts = assignment.split(separator: "=", maxSplits: 1).map(String.init)
+            guard assignmentParts.count == 2 else {
+                throw RunnerError.invalidVariableLimit(rawValue)
+            }
+            let key = assignmentParts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let valueText = assignmentParts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let value = Double(valueText), value.isFinite, value >= 0 else {
+                throw RunnerError.invalidVariableLimit(rawValue)
+            }
+            switch key {
+            case "abs":
+                maxAbsoluteDelta = value
+            case "rel":
+                maxRelativeDelta = value
+            default:
+                throw RunnerError.invalidVariableLimit(rawValue)
+            }
+        }
+
+        let limit = PostLayoutVariableComparisonLimit(
+            variableName: parts[0],
+            maxAbsoluteDelta: maxAbsoluteDelta,
+            maxRelativeDelta: maxRelativeDelta
+        )
+        guard limit.validationDiagnostics().isEmpty else {
+            throw RunnerError.invalidVariableLimit(rawValue)
+        }
+        return limit
+    }
+
     var usesImportedSignoff: Bool {
         signoffDRCLogURL != nil || signoffLVSLogURL != nil
     }
 
     var usesComparisonLimits: Bool {
-        maxAbsoluteDelta != nil || maxRelativeDelta != nil
+        maxAbsoluteDelta != nil || maxRelativeDelta != nil || !variableComparisonLimits.isEmpty
     }
 
     var commandKind: DesignFlowCommand.Kind {
@@ -362,6 +415,7 @@ private enum RunnerError: Error, LocalizedError {
     case invalidArgument(String)
     case missingValue(String)
     case invalidNumericValue(String, String)
+    case invalidVariableLimit(String)
     case conflictingModes
 
     var errorDescription: String? {
@@ -372,6 +426,8 @@ private enum RunnerError: Error, LocalizedError {
             return "Missing value for \(option)"
         case .invalidNumericValue(let option, let value):
             return "Invalid numeric value for \(option): \(value)"
+        case .invalidVariableLimit(let value):
+            return "Invalid variable comparison limit: \(value)"
         case .conflictingModes:
             return "Only one runner mode can be selected."
         }

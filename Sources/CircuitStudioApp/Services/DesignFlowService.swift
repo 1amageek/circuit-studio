@@ -192,6 +192,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let signoffLVSLogPath: String?
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
+    public let variableComparisonLimits: [PostLayoutVariableComparisonLimit]?
     public let technologyPackagePath: String?
     public let pexConfigPath: String?
     public let pexExecutablePath: String?
@@ -209,6 +210,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         signoffLVSLogPath: String? = nil,
         maxAbsoluteDelta: Double? = nil,
         maxRelativeDelta: Double? = nil,
+        variableComparisonLimits: [PostLayoutVariableComparisonLimit] = [],
         technologyPackagePath: String? = nil,
         pexConfigPath: String? = nil,
         pexExecutablePath: String? = nil
@@ -225,6 +227,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.signoffLVSLogPath = signoffLVSLogPath
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
+        self.variableComparisonLimits = variableComparisonLimits.isEmpty ? nil : variableComparisonLimits
         self.technologyPackagePath = technologyPackagePath
         self.pexConfigPath = pexConfigPath
         self.pexExecutablePath = pexExecutablePath
@@ -854,12 +857,14 @@ public struct DesignFlowService: Sendable {
     }
 
     private func comparisonLimits(from command: DesignFlowCommand) throws -> PostLayoutComparisonLimits? {
-        guard command.maxAbsoluteDelta != nil || command.maxRelativeDelta != nil else {
+        let variableLimits = command.variableComparisonLimits ?? []
+        guard command.maxAbsoluteDelta != nil || command.maxRelativeDelta != nil || !variableLimits.isEmpty else {
             return nil
         }
         let limits = PostLayoutComparisonLimits(
             maxAbsoluteDelta: command.maxAbsoluteDelta,
-            maxRelativeDelta: command.maxRelativeDelta
+            maxRelativeDelta: command.maxRelativeDelta,
+            variableLimits: variableLimits
         )
         let diagnostics = limits.validationDiagnostics()
         guard diagnostics.isEmpty else {
