@@ -43,6 +43,8 @@ struct CircuitStudioFlowRunner {
             pexExecutablePath: options.pexExecutableURL?.path(percentEncoded: false),
             editScriptPath: options.editScriptURL?.path(percentEncoded: false),
             outputDesignSpecPath: options.outputDesignSpecURL?.path(percentEncoded: false),
+            layoutDocumentPath: options.layoutDocumentURL?.path(percentEncoded: false),
+            outputLayoutDocumentPath: options.outputLayoutDocumentURL?.path(percentEncoded: false),
             roundTripManifestPath: options.reviewManifestURL?.path(percentEncoded: false)
         )
     }
@@ -51,7 +53,7 @@ struct CircuitStudioFlowRunner {
         switch options.mode {
         case .listFixtures, .generateNetlist, .simulate, .loadTechnologyPackage, .runPEXExtraction:
             return nil
-        case .applyDesignEdit:
+        case .applyDesignEdit, .applyLayoutEdit:
             return options.outputURL?.path(percentEncoded: false)
         case .reviewRoundTrip:
             return options.outputURL?.path(percentEncoded: false)
@@ -159,6 +161,11 @@ struct CircuitStudioFlowRunner {
             Swift.print("design_spec=\(result.designSpecPath ?? "")")
             Swift.print("actions=\(result.actionLogPath ?? "")")
             Swift.print("design_diff=\(result.designDiffPath ?? "")")
+        case .applyLayoutEdit:
+            Swift.print("layout_edit=applied")
+            Swift.print("layout_document=\(result.layoutDocumentPath ?? "")")
+            Swift.print("actions=\(result.actionLogPath ?? "")")
+            Swift.print("layout_diff=\(result.layoutDiffPath ?? "")")
         case .reviewRoundTrip:
             let review = result.roundTripReview
             Swift.print("round_trip_review=\(review?.status.rawValue ?? "")")
@@ -219,6 +226,7 @@ struct CircuitStudioFlowRunner {
           --load-technology-package Load and validate a technology package manifest through DesignFlowCommand
           --run-pex-extraction     Run pexengine extract through DesignFlowCommand
           --apply-design-edit      Apply a design edit script through DesignFlowCommand
+          --apply-layout-edit      Apply a layout edit script through DesignFlowCommand
           --review-round-trip      Load a round-trip review summary from manifest artifacts
           default                   Run the full fixture round trip through DesignFlowCommand
 
@@ -230,6 +238,10 @@ struct CircuitStudioFlowRunner {
                            JSON design edit script for --apply-design-edit
           --output-design-spec PATH
                            Edited design spec path for --apply-design-edit
+          --layout-document PATH
+                           Layout document JSON path for --apply-layout-edit
+          --output-layout-document PATH
+                           Edited layout document JSON path for --apply-layout-edit
           --manifest PATH Round-trip manifest path for --review-round-trip
           --technology-package PATH
                            Inject one technology package manifest into netlist, simulation, layout, signoff, and PEX inputs when supported
@@ -269,6 +281,7 @@ private enum RunnerMode: Equatable {
     case loadTechnologyPackage
     case runPEXExtraction
     case applyDesignEdit
+    case applyLayoutEdit
     case reviewRoundTrip
 
     func commandKind(usesDesignSpec: Bool) -> DesignFlowCommand.Kind {
@@ -289,6 +302,8 @@ private enum RunnerMode: Equatable {
             return .runPEXExtraction
         case .applyDesignEdit:
             return .applyDesignEdit
+        case .applyLayoutEdit:
+            return .applyLayoutEdit
         case .reviewRoundTrip:
             return .reviewRoundTrip
         }
@@ -307,6 +322,8 @@ private struct RunnerOptions {
     var pexExecutableURL: URL?
     var editScriptURL: URL?
     var outputDesignSpecURL: URL?
+    var layoutDocumentURL: URL?
+    var outputLayoutDocumentURL: URL?
     var reviewManifestURL: URL?
     var pexCornerID = "tt_25c_1v0"
     var signoffDRCLogURL: URL?
@@ -337,6 +354,8 @@ private struct RunnerOptions {
                 try selectMode(.runPEXExtraction)
             case "--apply-design-edit":
                 try selectMode(.applyDesignEdit)
+            case "--apply-layout-edit":
+                try selectMode(.applyLayoutEdit)
             case "--review-round-trip":
                 try selectMode(.reviewRoundTrip)
             case "--fixture":
@@ -359,6 +378,10 @@ private struct RunnerOptions {
                 editScriptURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--output-design-spec":
                 outputDesignSpecURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--layout-document":
+                layoutDocumentURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--output-layout-document":
+                outputLayoutDocumentURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--manifest":
                 reviewManifestURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--pex-corner":

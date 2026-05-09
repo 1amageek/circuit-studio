@@ -179,6 +179,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case loadTechnologyPackage
         case runPEXExtraction
         case applyDesignEdit
+        case applyLayoutEdit
         case reviewRoundTrip
     }
 
@@ -200,6 +201,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let pexExecutablePath: String?
     public let editScriptPath: String?
     public let outputDesignSpecPath: String?
+    public let layoutDocumentPath: String?
+    public let outputLayoutDocumentPath: String?
     public let roundTripManifestPath: String?
 
     public init(
@@ -221,6 +224,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         pexExecutablePath: String? = nil,
         editScriptPath: String? = nil,
         outputDesignSpecPath: String? = nil,
+        layoutDocumentPath: String? = nil,
+        outputLayoutDocumentPath: String? = nil,
         roundTripManifestPath: String? = nil
     ) {
         self.kind = kind
@@ -241,6 +246,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.pexExecutablePath = pexExecutablePath
         self.editScriptPath = editScriptPath
         self.outputDesignSpecPath = outputDesignSpecPath
+        self.layoutDocumentPath = layoutDocumentPath
+        self.outputLayoutDocumentPath = outputLayoutDocumentPath
         self.roundTripManifestPath = roundTripManifestPath
     }
 
@@ -269,8 +276,10 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let technologyPackagePath: String?
     public let validationDiagnostics: [TechnologyPackageValidationReport.Diagnostic]?
     public let designSpecPath: String?
+    public let layoutDocumentPath: String?
     public let actionLogPath: String?
     public let designDiffPath: String?
+    public let layoutDiffPath: String?
     public let roundTripReview: RoundTripReviewSummary?
     public let message: String?
 
@@ -294,8 +303,10 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         technologyPackagePath: String? = nil,
         validationDiagnostics: [TechnologyPackageValidationReport.Diagnostic]? = nil,
         designSpecPath: String? = nil,
+        layoutDocumentPath: String? = nil,
         actionLogPath: String? = nil,
         designDiffPath: String? = nil,
+        layoutDiffPath: String? = nil,
         roundTripReview: RoundTripReviewSummary? = nil,
         message: String? = nil
     ) {
@@ -318,8 +329,10 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.technologyPackagePath = technologyPackagePath
         self.validationDiagnostics = validationDiagnostics
         self.designSpecPath = designSpecPath
+        self.layoutDocumentPath = layoutDocumentPath
         self.actionLogPath = actionLogPath
         self.designDiffPath = designDiffPath
+        self.layoutDiffPath = layoutDiffPath
         self.roundTripReview = roundTripReview
         self.message = message
     }
@@ -335,6 +348,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case missingPEXConfigPath
     case missingEditScriptPath
     case missingOutputDesignSpecPath
+    case missingLayoutDocumentPath
+    case missingOutputLayoutDocumentPath
     case missingRoundTripManifestPath
 
     public var errorDescription: String? {
@@ -357,6 +372,10 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
             return "Design flow command requires a design edit script path."
         case .missingOutputDesignSpecPath:
             return "Design flow command requires an output design spec path."
+        case .missingLayoutDocumentPath:
+            return "Design flow command requires a layout document path."
+        case .missingOutputLayoutDocumentPath:
+            return "Design flow command requires an output layout document path."
         case .missingRoundTripManifestPath:
             return "Design flow command requires a round-trip manifest path, or a project root path with a run ID."
         }
@@ -571,6 +590,26 @@ public struct DesignFlowService: Sendable {
         }
     }
 
+    public func loadLayoutDocument(_ url: URL) throws -> LayoutDocument {
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            return try decoder.decode(LayoutDocument.self, from: data)
+        } catch {
+            throw StudioError.projectLoadFailed("Failed to load layout document: \(error.localizedDescription)")
+        }
+    }
+
+    public func loadLayoutEditScript(_ url: URL) throws -> DesignFlowLayoutEditScript {
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            return try decoder.decode(DesignFlowLayoutEditScript.self, from: data)
+        } catch {
+            throw StudioError.projectLoadFailed("Failed to load layout edit script: \(error.localizedDescription)")
+        }
+    }
+
     public func loadTechnologyPackage(_ manifestURL: URL) throws -> TechnologyPackage {
         try TechnologyPackageLoader().load(manifestURL: manifestURL)
     }
@@ -677,6 +716,8 @@ public struct DesignFlowService: Sendable {
             return try runPEXExtraction(command)
         case .applyDesignEdit:
             return try applyDesignEdit(command)
+        case .applyLayoutEdit:
+            return try applyLayoutEdit(command)
         case .reviewRoundTrip:
             return try reviewRoundTrip(command)
         }
@@ -701,6 +742,40 @@ public struct DesignFlowService: Sendable {
             readyForPEX: summary.isReadyForPEX,
             roundTripReview: summary,
             message: summary.status.rawValue
+        )
+    }
+
+    private func applyLayoutEdit(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+        guard let layoutDocumentPath = command.layoutDocumentPath else {
+            throw DesignFlowCommandError.missingLayoutDocumentPath
+        }
+        guard let editScriptPath = command.editScriptPath else {
+            throw DesignFlowCommandError.missingEditScriptPath
+        }
+        guard let outputLayoutDocumentPath = command.outputLayoutDocumentPath else {
+            throw DesignFlowCommandError.missingOutputLayoutDocumentPath
+        }
+
+        let layout = try loadLayoutDocument(URL(filePath: layoutDocumentPath))
+        let script = try loadLayoutEditScript(URL(filePath: editScriptPath))
+        let result = try DesignFlowLayoutEditService().apply(script: script, to: layout)
+        let outputURL = URL(filePath: outputLayoutDocumentPath)
+        try writeJSON(result.layout, to: outputURL)
+
+        let artifactDirectory = layoutEditArtifactDirectory(for: command, outputURL: outputURL)
+        try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
+        let actionLogURL = artifactDirectory.appending(path: "actions.jsonl")
+        let diffURL = artifactDirectory.appending(path: "layout-diff.json")
+        try writeLayoutActionLog(result.actionLog, to: actionLogURL)
+        try writeJSON(result.diff, to: diffURL)
+
+        return DesignFlowCommandResult(
+            kind: command.kind,
+            projectRootPath: command.projectRootPath,
+            layoutDocumentPath: outputURL.path(percentEncoded: false),
+            actionLogPath: actionLogURL.path(percentEncoded: false),
+            layoutDiffPath: diffURL.path(percentEncoded: false),
+            message: "\(result.actionLog.count) layout edit actions applied"
         )
     }
 
@@ -1096,16 +1171,24 @@ public struct DesignFlowService: Sendable {
     }
 
     private func writeActionLog(_ actions: [DesignFlowDesignEditAction], to url: URL) throws {
+        try writeJSONLines(actions, to: url)
+    }
+
+    private func writeLayoutActionLog(_ actions: [DesignFlowLayoutEditAction], to url: URL) throws {
+        try writeJSONLines(actions, to: url)
+    }
+
+    private func writeJSONLines<T: Encodable>(_ values: [T], to url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let lines = try actions.map { action -> String in
-            let data = try encoder.encode(action)
+        let lines = try values.map { value -> String in
+            let data = try encoder.encode(value)
             guard let line = String(data: data, encoding: .utf8) else {
-                throw StudioError.projectSaveFailed("Failed to encode design edit action log.")
+                throw StudioError.projectSaveFailed("Failed to encode action log.")
             }
             return line
         }
@@ -1119,6 +1202,16 @@ public struct DesignFlowService: Sendable {
         return root
             .appending(path: ".xcircuite")
             .appending(path: "design-edits")
+            .appending(path: runID)
+    }
+
+    private func layoutEditArtifactDirectory(for command: DesignFlowCommand, outputURL: URL) -> URL {
+        let root = command.projectRootPath.map { URL(filePath: $0) }
+            ?? outputURL.deletingLastPathComponent()
+        let runID = command.runID ?? Self.timestamp()
+        return root
+            .appending(path: ".xcircuite")
+            .appending(path: "layout-edits")
             .appending(path: runID)
     }
 

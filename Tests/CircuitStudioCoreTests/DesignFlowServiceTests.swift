@@ -210,6 +210,134 @@ struct DesignFlowServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
+    func commandAPIAppliesLayoutEditAndWritesAuditArtifacts() async throws {
+        let root = try makeTemporaryRoot("layout-edit")
+        defer { removeTemporaryRoot(root) }
+        let inputURL = root.appending(path: "layout.json")
+        let scriptURL = root.appending(path: "layout-edits.json")
+        let outputURL = root.appending(path: "edited-layout.json")
+        let cellID = UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
+        let netID = UUID(uuidString: "00000000-0000-0000-0000-000000000102")!
+        let shapeID = UUID(uuidString: "00000000-0000-0000-0000-000000000103")!
+        let pinID = UUID(uuidString: "00000000-0000-0000-0000-000000000104")!
+        let labelID = UUID(uuidString: "00000000-0000-0000-0000-000000000105")!
+        let layout = LayoutDocument(
+            name: "AgentLayout",
+            cells: [LayoutCell(id: cellID, name: "TOP")],
+            topCellID: cellID
+        )
+        try writeLayoutDocument(layout, to: inputURL)
+        try writeLayoutEditScript(DesignFlowLayoutEditScript(edits: [
+            DesignFlowLayoutEdit(
+                kind: .addNet,
+                cellName: "TOP",
+                netID: netID,
+                netName: "out"
+            ),
+            DesignFlowLayoutEdit(
+                kind: .addRectShape,
+                cellName: "TOP",
+                elementID: shapeID,
+                netName: "out",
+                layerName: "M1",
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 1,
+                properties: ["lvs.net": "out"]
+            ),
+            DesignFlowLayoutEdit(
+                kind: .addPin,
+                cellName: "TOP",
+                elementID: pinID,
+                netName: "out",
+                layerName: "M1",
+                x: 1,
+                y: 0.5,
+                width: 0.5,
+                height: 0.5,
+                pinName: "OUT"
+            ),
+            DesignFlowLayoutEdit(
+                kind: .addLabel,
+                cellName: "TOP",
+                elementID: labelID,
+                netName: "out",
+                layerName: "M1",
+                x: 1,
+                y: 0.5,
+                labelText: "out"
+            ),
+        ]), to: scriptURL)
+
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .applyLayoutEdit,
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "layout-edit-run",
+            editScriptPath: scriptURL.path(percentEncoded: false),
+            layoutDocumentPath: inputURL.path(percentEncoded: false),
+            outputLayoutDocumentPath: outputURL.path(percentEncoded: false)
+        ))
+
+        #expect(result.layoutDocumentPath == outputURL.path(percentEncoded: false))
+        let actionLogPath = try #require(result.actionLogPath)
+        let diffPath = try #require(result.layoutDiffPath)
+        #expect(FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: actionLogPath))
+        #expect(FileManager.default.fileExists(atPath: diffPath))
+
+        let edited = try DesignFlowService().loadLayoutDocument(outputURL)
+        let top = try #require(edited.cells.first)
+        #expect(top.nets.contains { $0.name == "out" && $0.id == netID })
+        #expect(top.shapes.contains { $0.id == shapeID && $0.netID == netID })
+        #expect(top.pins.contains { $0.id == pinID && $0.name == "OUT" && $0.netID == netID })
+        #expect(top.labels.contains { $0.id == labelID && $0.text == "out" && $0.netID == netID })
+
+        let diff = try loadLayoutDiff(URL(filePath: diffPath))
+        #expect(diff.addedNets == ["TOP:out"])
+        #expect(diff.addedShapes == [shapeID])
+        #expect(diff.addedPins == ["TOP:OUT"])
+        #expect(diff.addedLabels == ["TOP:out"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func layoutEditRejectsRemovingReferencedNet() throws {
+        let cellID = UUID(uuidString: "00000000-0000-0000-0000-000000000301")!
+        let netID = UUID(uuidString: "00000000-0000-0000-0000-000000000302")!
+        let shapeID = UUID(uuidString: "00000000-0000-0000-0000-000000000303")!
+        let layout = LayoutDocument(
+            name: "ReferencedNetLayout",
+            cells: [
+                LayoutCell(
+                    id: cellID,
+                    name: "TOP",
+                    shapes: [
+                        LayoutShape(
+                            id: shapeID,
+                            layer: LayoutLayerID(name: "M1", purpose: "drawing"),
+                            netID: netID,
+                            geometry: .rect(LayoutRect(
+                                origin: LayoutPoint(x: 0, y: 0),
+                                size: LayoutSize(width: 1, height: 1)
+                            ))
+                        ),
+                    ],
+                    nets: [LayoutNet(id: netID, name: "out")]
+                ),
+            ],
+            topCellID: cellID
+        )
+        let script = DesignFlowLayoutEditScript(edits: [
+            DesignFlowLayoutEdit(kind: .removeNet, cellName: "TOP", netName: "out"),
+        ])
+
+        #expect(throws: DesignFlowLayoutEditError.netInUse("out")) {
+            try DesignFlowLayoutEditService().apply(script: script, to: layout)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
     func commandAPIRejectsUnsafeDesignSpecNamesAndDuplicateTerminals() async throws {
         let root = try makeTemporaryRoot("invalid-design-spec")
         defer { removeTemporaryRoot(root) }
@@ -1043,6 +1171,25 @@ struct DesignFlowServiceTests {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(script)
         try data.write(to: url, options: .atomic)
+    }
+
+    private func writeLayoutDocument(_ layout: LayoutDocument, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(layout)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func writeLayoutEditScript(_ script: DesignFlowLayoutEditScript, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(script)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func loadLayoutDiff(_ url: URL) throws -> DesignFlowLayoutDiff {
+        let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode(DesignFlowLayoutDiff.self, from: data)
     }
 
     private func writeDesignSpecJSON(_ json: String, to url: URL) throws {
