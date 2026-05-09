@@ -214,6 +214,7 @@ flowchart LR
 | LVS-M35: Variable and aggregate comparison gates | Done for comparison artifact/API layer | Add variable-specific post-layout comparison policy, validate missing/invalid variable policies before run execution, persist the applied policy in comparison artifacts, expose CLI `--variable-limit`, and provide an aggregate multi-corner report schema | `PostLayoutComparisonServiceTests`, `commandAPIRejectsIncompleteSignoffPairAndInvalidLimits()`, `swift run circuit-studio-flow-runner --variable-limit 'V(1):abs=1e-3,rel=1e-3'` |
 | LVS-M36: Agent design edit command loop | Done for design-spec schematic edits | Apply structured design edit scripts without UI, validate the edited spec through the existing design-spec builder, write an edited spec plus action log and design diff artifacts, and prove the edited spec still runs through simulation | `commandAPIAppliesDesignEditAndWritesAuditArtifacts()` |
 | LVS-M37: Imported raw topology DRC/LVS | Done for M9 corpus slice | Export a raw voltage-divider layout to OASIS, import it back through `MaskDataFormatConverter`, recognize raw resistor/capacitor-style devices from polygons and labels, accept physical connectivity clusters/top-level labels as net realization without generated net IDs, and run strict DRC/LVS | `importedOASRawTopologyPassesStrictDRCAndLVS()`, `rawCapacitorLVSRecognizesCapacitanceWithoutMetadata()`, `rawCapacitorLVSRejectsCapacitanceMismatch()` |
+| LVS-M38: Manifest-backed review projection | Done for API/CLI review layer | Load a completed or failed round-trip manifest and project its captured DRC/LVS approval, post-layout comparison gate, stages, artifacts, bottlenecks, diagnostics, and recommendations into one Codable review summary without rerunning tools; mark missing captured artifacts as `incomplete` instead of silently passing | `RoundTripReviewServiceTests`, `DesignFlowCommand.reviewRoundTrip`, `swift run circuit-studio-flow-runner --review-round-trip --manifest <round-trip-manifest.json>` |
 
 ## Next Execution Order
 
@@ -221,5 +222,5 @@ flowchart LR
 |---:|---|---|
 | 1 | M6 Agent edit loop follow-up | Design-spec edits are covered, but layout-edit, explicit approval, and rerun commands still need the same artifact contract. |
 | 2 | M8 CoreSpice production gaps / FV-007 | Solver and parser limitations affect broader circuit classes after the flow spine is stable. |
-| 3 | M10 Human review cockpit / FV-004 | Human-in-the-loop review can stay file-based until the command/artifact contracts are broader. |
+| 3 | M10 Human review cockpit / FV-004 | The manifest-backed review projection is now API/CLI-ready; the remaining work is UI panels that render the same summary rather than duplicating interpretation logic. |
 | 4 | M11 CI/release gate | M9 now has strict imported-topology coverage, so the remaining quality gate should be automated across repos. |

@@ -179,6 +179,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case loadTechnologyPackage
         case runPEXExtraction
         case applyDesignEdit
+        case reviewRoundTrip
     }
 
     public let kind: Kind
@@ -199,6 +200,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let pexExecutablePath: String?
     public let editScriptPath: String?
     public let outputDesignSpecPath: String?
+    public let roundTripManifestPath: String?
 
     public init(
         kind: Kind,
@@ -218,7 +220,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         pexConfigPath: String? = nil,
         pexExecutablePath: String? = nil,
         editScriptPath: String? = nil,
-        outputDesignSpecPath: String? = nil
+        outputDesignSpecPath: String? = nil,
+        roundTripManifestPath: String? = nil
     ) {
         self.kind = kind
         self.fixtureName = fixtureName
@@ -238,6 +241,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.pexExecutablePath = pexExecutablePath
         self.editScriptPath = editScriptPath
         self.outputDesignSpecPath = outputDesignSpecPath
+        self.roundTripManifestPath = roundTripManifestPath
     }
 
     public static func listFixtures() -> DesignFlowCommand {
@@ -267,6 +271,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let designSpecPath: String?
     public let actionLogPath: String?
     public let designDiffPath: String?
+    public let roundTripReview: RoundTripReviewSummary?
     public let message: String?
 
     public init(
@@ -291,6 +296,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         designSpecPath: String? = nil,
         actionLogPath: String? = nil,
         designDiffPath: String? = nil,
+        roundTripReview: RoundTripReviewSummary? = nil,
         message: String? = nil
     ) {
         self.kind = kind
@@ -314,6 +320,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.designSpecPath = designSpecPath
         self.actionLogPath = actionLogPath
         self.designDiffPath = designDiffPath
+        self.roundTripReview = roundTripReview
         self.message = message
     }
 }
@@ -328,6 +335,7 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case missingPEXConfigPath
     case missingEditScriptPath
     case missingOutputDesignSpecPath
+    case missingRoundTripManifestPath
 
     public var errorDescription: String? {
         switch self {
@@ -349,6 +357,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
             return "Design flow command requires a design edit script path."
         case .missingOutputDesignSpecPath:
             return "Design flow command requires an output design spec path."
+        case .missingRoundTripManifestPath:
+            return "Design flow command requires a round-trip manifest path, or a project root path with a run ID."
         }
     }
 }
@@ -667,7 +677,31 @@ public struct DesignFlowService: Sendable {
             return try runPEXExtraction(command)
         case .applyDesignEdit:
             return try applyDesignEdit(command)
+        case .reviewRoundTrip:
+            return try reviewRoundTrip(command)
         }
+    }
+
+    private func reviewRoundTrip(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+        let service = RoundTripReviewService()
+        let summary: RoundTripReviewSummary
+        if let path = command.roundTripManifestPath {
+            summary = try service.loadReview(manifestURL: URL(filePath: path))
+        } else if let projectRootPath = command.projectRootPath,
+                  let runID = command.runID {
+            summary = try service.loadReview(projectRoot: URL(filePath: projectRootPath), runID: runID)
+        } else {
+            throw DesignFlowCommandError.missingRoundTripManifestPath
+        }
+        return DesignFlowCommandResult(
+            kind: command.kind,
+            runID: summary.runID,
+            projectRootPath: command.projectRootPath,
+            manifestPath: summary.manifestPath,
+            readyForPEX: summary.isReadyForPEX,
+            roundTripReview: summary,
+            message: summary.status.rawValue
+        )
     }
 
     private func applyDesignEdit(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
