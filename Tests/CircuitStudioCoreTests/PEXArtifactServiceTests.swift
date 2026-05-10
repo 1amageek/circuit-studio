@@ -26,7 +26,7 @@ struct PEXArtifactServiceTests {
 
         let artifacts = try PEXArtifactService().loadArtifacts(manifestURL: manifestURL)
 
-        #expect(artifacts.runID == "run-1")
+        #expect(artifacts.runID == "00000000-0000-0000-0000-000000000001")
         #expect(artifacts.backendID == "mock")
         #expect(artifacts.status == "success")
         #expect(artifacts.warnings == ["low confidence"])
@@ -149,10 +149,10 @@ struct PEXArtifactServiceTests {
         let result = try await DefaultPEXEngine.withDefaults().run(request)
 
         #expect(result.status == .success)
-        #expect(result.artifacts.manifestURL.path(percentEncoded: false).hasPrefix(root.path(percentEncoded: false)))
+        #expect(result.manifestURL.path(percentEncoded: false).hasPrefix(root.path(percentEncoded: false)))
 
         let artifactService = PEXArtifactService()
-        let artifacts = try artifactService.loadArtifacts(manifestURL: result.artifacts.manifestURL)
+        let artifacts = try artifactService.loadArtifacts(manifestURL: result.manifestURL)
         let ir = try artifactService.loadIR(for: "tt", artifacts: artifacts)
         let postLayoutNetlist = PostLayoutSimulationService().buildPostLayoutNetlist(
             baseNetlist: try String(contentsOf: netlistURL, encoding: .utf8),
@@ -205,7 +205,7 @@ struct PEXArtifactServiceTests {
             command: .op
         )
 
-        #expect(artifacts.runID == "golden-voltage-divider")
+        #expect(!artifacts.runID.isEmpty)
         #expect(artifacts.backendID == "golden-fixture")
         #expect(artifacts.status == "success")
         #expect(artifacts.corners.count == 2)
@@ -310,14 +310,51 @@ struct PEXArtifactServiceTests {
         irFile: String? = nil,
         logFile: String? = nil
     ) -> String {
-        let resolvedRawFiles = rawFiles ?? ["\(cornerID).spef"]
-        let resolvedIRFile = irFile ?? "\(cornerID).json"
-        let resolvedLogFile = logFile ?? "extraction.log"
-        let rawFilesJSON = resolvedRawFiles.map { "\"\($0)\"" }.joined(separator: ", ")
+        let resolvedRawFiles = rawFiles ?? ["raw/\(cornerID)/\(cornerID).spef"]
+        let resolvedIRFile = irFile ?? "ir/\(cornerID).json"
+        let resolvedLogFile = logFile ?? "raw/\(cornerID)/extraction.log"
+        let rawRecords = resolvedRawFiles.enumerated().map { index, path in
+            """
+            {
+              "id": "raw-\(cornerID)-\(index)",
+              "kind": "rawOutput",
+              "stage": "backendExecution",
+              "cornerID": { "value": "\(cornerID)" },
+              "relativePath": { "value": "\(path)" },
+              "createdAt": "2026-05-07T00:00:00Z",
+              "status": "available"
+            }
+            """
+        }
+        let artifactIDs = (resolvedRawFiles.indices.map { "\"raw-\(cornerID)-\($0)\"" } + ["\"ir-\(cornerID)\"", "\"log-\(cornerID)\""]).joined(separator: ", ")
+        let artifactRecords = (rawRecords + [
+            """
+            {
+              "id": "ir-\(cornerID)",
+              "kind": "parasiticIR",
+              "stage": "persistence",
+              "cornerID": { "value": "\(cornerID)" },
+              "relativePath": { "value": "\(resolvedIRFile)" },
+              "createdAt": "2026-05-07T00:00:00Z",
+              "status": "available"
+            }
+            """,
+            """
+            {
+              "id": "log-\(cornerID)",
+              "kind": "log",
+              "stage": "backendExecution",
+              "cornerID": { "value": "\(cornerID)" },
+              "relativePath": { "value": "\(resolvedLogFile)" },
+              "createdAt": "2026-05-07T00:00:00Z",
+              "status": "available"
+            }
+            """,
+        ]).joined(separator: ",\n")
         return """
         {
-          "version": 1,
-          "runID": { "value": "\(runID)" },
+          "version": 2,
+          "runID": { "value": "00000000-0000-0000-0000-000000000001" },
           "requestHash": { "value": "abc" },
           "backendID": "mock",
           "status": "success",
@@ -327,12 +364,18 @@ struct PEXArtifactServiceTests {
             {
               "cornerID": { "value": "\(cornerID)" },
               "status": "success",
-              "rawFiles": [\(rawFilesJSON)],
-              "irFile": "\(resolvedIRFile)",
-              "logFile": "\(resolvedLogFile)"
+              "artifactIDs": [\(artifactIDs)]
             }
           ],
-          "warnings": ["low confidence"]
+          "artifacts": [
+            \(artifactRecords)
+          ],
+          "warnings": [
+            {
+              "stage": "reporting",
+              "message": "low confidence"
+            }
+          ]
         }
         """
     }

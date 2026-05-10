@@ -117,10 +117,14 @@ public struct PEXEngineCommandBackendAdapter: PEXBackendAdapter {
         }
         do {
             let decoded = try JSONDecoder().decode(PEXCommandOutputDTO.self, from: data)
-            if let url = decoded.artifacts.manifestURL.urlValue {
+            let manifestURL = decoded.manifestURL ?? decoded.artifacts?.manifestURL
+            guard let manifestURL else {
+                throw PEXBackendAdapterError.missingManifestURLInCommandOutput
+            }
+            if let url = manifestURL.urlValue {
                 return url
             }
-            throw PEXBackendAdapterError.invalidManifestURL(decoded.artifacts.manifestURL.value)
+            throw PEXBackendAdapterError.invalidManifestURL(manifestURL.value)
         } catch let error as PEXBackendAdapterError {
             throw error
         } catch {
@@ -134,7 +138,8 @@ private struct PEXCommandOutputDTO: Decodable {
         let manifestURL: FlexibleURL
     }
 
-    let artifacts: Artifacts
+    let manifestURL: FlexibleURL?
+    let artifacts: Artifacts?
 }
 
 private struct FlexibleURL: Decodable {

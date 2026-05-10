@@ -1,4 +1,5 @@
 import Foundation
+import PEXEngine
 
 public struct PEXArtifactService: Sendable {
     private let decoder: JSONDecoder
@@ -10,40 +11,39 @@ public struct PEXArtifactService: Sendable {
     }
 
     public func loadArtifacts(manifestURL: URL) throws -> PEXRunArtifacts {
-        let data: Data
+        let resolver: PEXArtifactResolver
         do {
-            data = try Data(contentsOf: manifestURL)
+            resolver = try PEXArtifactResolver(manifestURL: manifestURL)
         } catch {
-            throw StudioError.projectLoadFailed("Failed to read PEX manifest: \(error.localizedDescription)")
+            throw StudioError.projectLoadFailed("Failed to load PEX artifact manifest: \(error.localizedDescription)")
         }
 
-        let manifest: ManifestDTO
-        do {
-            manifest = try decoder.decode(ManifestDTO.self, from: data)
-        } catch {
-            throw StudioError.projectLoadFailed("Failed to decode PEX manifest: \(error.localizedDescription)")
-        }
-
-        let runDirectory = manifestURL.deletingLastPathComponent()
+        let manifest = resolver.manifest
         let corners = manifest.corners.map { corner in
-            PEXCornerArtifacts(
+            let rawURLs = resolver.records(kind: .rawOutput, cornerID: corner.cornerID, status: .available)
+                .map { resolver.url(for: $0) }
+            let irURL = resolver.records(kind: .parasiticIR, cornerID: corner.cornerID, status: .available)
+                .first
+                .map { resolver.url(for: $0) }
+            let logURL = resolver.records(kind: .log, cornerID: corner.cornerID, status: .available)
+                .first
+                .map { resolver.url(for: $0) }
+            return PEXCornerArtifacts(
                 cornerID: corner.cornerID.value,
-                status: corner.status,
-                rawFileURLs: corner.rawFiles.map {
-                    resolveRawURL($0, cornerID: corner.cornerID.value, runDirectory: runDirectory)
-                },
-                irURL: corner.irFile.map { resolveIRURL($0, cornerID: corner.cornerID.value, runDirectory: runDirectory) },
-                logURL: corner.logFile.map { resolveRawURL($0, cornerID: corner.cornerID.value, runDirectory: runDirectory) }
+                status: corner.status.rawValue,
+                rawFileURLs: rawURLs,
+                irURL: irURL,
+                logURL: logURL
             )
         }
 
         return PEXRunArtifacts(
             manifestURL: manifestURL,
-            runID: manifest.runID.value,
+            runID: manifest.runID.description,
             backendID: manifest.backendID,
-            status: manifest.status,
+            status: manifest.status.rawValue,
             corners: corners,
-            warnings: manifest.warnings
+            warnings: manifest.warnings.map(\.message)
         )
     }
 
@@ -119,77 +119,77 @@ public struct PEXArtifactService: Sendable {
     }
 
     public func loadIR(for cornerID: String, artifacts: PEXRunArtifacts) throws -> PEXParasiticIR {
-        guard let corner = artifacts.corner(id: cornerID) else {
-            throw StudioError.projectLoadFailed("PEX corner '\(cornerID)' was not found in manifest.")
+        do {
+            let resolver = try PEXArtifactResolver(manifestURL: artifacts.manifestURL)
+            let ir = try resolver.loadIR(cornerID: PEXCornerID(cornerID))
+            return try convert(ir)
+        } catch {
+            if let corner = artifacts.corner(id: cornerID), let irURL = corner.irURL {
+                return try loadIR(from: irURL)
+            }
+            throw StudioError.projectLoadFailed("PEX corner '\(cornerID)' has no readable IR artifact: \(error.localizedDescription)")
         }
-        guard let irURL = corner.irURL else {
-            throw StudioError.projectLoadFailed("PEX corner '\(cornerID)' has no IR artifact.")
-        }
-        return try loadIR(from: irURL)
     }
 
-    private func resolveIRURL(_ fileName: String, cornerID: String, runDirectory: URL) -> URL {
-        resolveArtifactURL(
-            fileName,
-            defaultDirectory: runDirectory.appending(path: "ir"),
-            defaultFileName: "\(cornerID).json",
-            runDirectory: runDirectory
+    public func auditArtifactURLs(manifestURL: URL, cornerID: String) throws -> [URL] {
+        do {
+            let resolver = try PEXArtifactResolver(manifestURL: manifestURL)
+            let corner = PEXCornerID(cornerID)
+            let records = resolver.records(kind: .rawOutput, cornerID: corner, status: .available)
+                + resolver.records(kind: .parasiticIR, cornerID: corner, status: .available)
+                + resolver.records(kind: .log, cornerID: corner, status: .available)
+            return [manifestURL] + records.map { resolver.url(for: $0) }
+        } catch {
+            throw StudioError.projectLoadFailed("Failed to resolve PEX audit artifacts: \(error.localizedDescription)")
+        }
+    }
+
+    private func convert(_ ir: ParasiticIR) throws -> PEXParasiticIR {
+        var elements: [PEXParasiticElement] = []
+        var diagnostics: [PEXArtifactDiagnostic] = []
+
+        for element in ir.elements {
+            guard let kind = PEXParasiticElement.Kind(rawValue: element.kind.rawValue) else {
+                diagnostics.append(PEXArtifactDiagnostic(
+                    severity: .warning,
+                    message: "Unsupported PEX element kind '\(element.kind.rawValue)' was ignored.",
+                    elementID: element.id
+                ))
+                continue
+            }
+            guard element.value > 0 else {
+                diagnostics.append(PEXArtifactDiagnostic(
+                    severity: .warning,
+                    message: "Non-positive PEX element value was ignored.",
+                    elementID: element.id
+                ))
+                continue
+            }
+            elements.append(PEXParasiticElement(
+                id: element.id,
+                kind: kind,
+                nodeA: spiceNodeName(element.nodeA),
+                nodeB: element.nodeB.map(spiceNodeName),
+                value: element.value
+            ))
+        }
+
+        return PEXParasiticIR(
+            version: ir.version,
+            cornerID: ir.cornerID.value,
+            units: .canonical,
+            elements: elements,
+            diagnostics: diagnostics
         )
     }
 
-    private func resolveRawURL(_ fileName: String, cornerID: String, runDirectory: URL) -> URL {
-        resolveArtifactURL(
-            fileName,
-            defaultDirectory: runDirectory.appending(path: "raw").appending(path: cornerID),
-            defaultFileName: fileName,
-            runDirectory: runDirectory
-        )
-    }
-
-    private func resolveArtifactURL(
-        _ fileName: String,
-        defaultDirectory: URL,
-        defaultFileName: String,
-        runDirectory: URL
-    ) -> URL {
-        let expanded = NSString(string: fileName).expandingTildeInPath
-        if expanded.hasPrefix("/") {
-            return URL(filePath: expanded)
+    private func spiceNodeName(_ node: NodeRef) -> String {
+        let nodeName = node.nodeName.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !nodeName.isEmpty {
+            return nodeName
         }
-        if fileName.contains("/") {
-            return runDirectory.appending(path: fileName)
-        }
-        return defaultDirectory.appending(path: fileName.isEmpty ? defaultFileName : fileName)
+        return node.netName.value
     }
-}
-
-private struct ManifestDTO: Decodable {
-    let runID: FlexibleValue
-    let backendID: String
-    let status: String
-    let corners: [CornerDTO]
-    let warnings: [String]
-
-    private enum CodingKeys: String, CodingKey {
-        case runID, backendID, status, corners, warnings
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.runID = try container.decode(FlexibleValue.self, forKey: .runID)
-        self.backendID = try container.decode(String.self, forKey: .backendID)
-        self.status = try container.decode(String.self, forKey: .status)
-        self.corners = try container.decode([CornerDTO].self, forKey: .corners)
-        self.warnings = try container.decodeIfPresent([String].self, forKey: .warnings) ?? []
-    }
-}
-
-private struct CornerDTO: Decodable {
-    let cornerID: FlexibleValue
-    let status: String
-    let rawFiles: [String]
-    let irFile: String?
-    let logFile: String?
 }
 
 private struct IRDTO: Decodable {

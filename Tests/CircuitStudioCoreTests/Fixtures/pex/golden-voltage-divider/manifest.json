@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "runID": { "value": "golden-voltage-divider" },
+  "version": 2,
+  "runID": { "value": "00000000-0000-0000-0000-000000000100" },
   "requestHash": { "value": "fixture" },
   "backendID": "golden-fixture",
   "status": "success",
@@ -10,16 +10,68 @@
     {
       "cornerID": { "value": "tt_25c_1v0" },
       "status": "success",
-      "rawFiles": ["voltage-divider.spef"],
-      "irFile": "tt_25c_1v0.json",
-      "logFile": "extraction.log"
+      "artifactIDs": ["raw-tt", "ir-tt", "log-tt"]
     },
     {
       "cornerID": { "value": "ss_125c_0v9" },
       "status": "success",
-      "rawFiles": ["voltage-divider.spef"],
-      "irFile": "ss_125c_0v9.json",
-      "logFile": "extraction.log"
+      "artifactIDs": ["raw-ss", "ir-ss", "log-ss"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "raw-tt",
+      "kind": "rawOutput",
+      "stage": "backendExecution",
+      "cornerID": { "value": "tt_25c_1v0" },
+      "relativePath": { "value": "raw/tt_25c_1v0/voltage-divider.spef" },
+      "createdAt": "2026-05-07T00:00:00Z",
+      "status": "available"
+    },
+    {
+      "id": "ir-tt",
+      "kind": "parasiticIR",
+      "stage": "persistence",
+      "cornerID": { "value": "tt_25c_1v0" },
+      "relativePath": { "value": "ir/tt_25c_1v0.json" },
+      "createdAt": "2026-05-07T00:00:00Z",
+      "status": "available"
+    },
+    {
+      "id": "log-tt",
+      "kind": "log",
+      "stage": "backendExecution",
+      "cornerID": { "value": "tt_25c_1v0" },
+      "relativePath": { "value": "raw/tt_25c_1v0/extraction.log" },
+      "createdAt": "2026-05-07T00:00:00Z",
+      "status": "available"
+    },
+    {
+      "id": "raw-ss",
+      "kind": "rawOutput",
+      "stage": "backendExecution",
+      "cornerID": { "value": "ss_125c_0v9" },
+      "relativePath": { "value": "raw/ss_125c_0v9/voltage-divider.spef" },
+      "createdAt": "2026-05-07T00:00:00Z",
+      "status": "available"
+    },
+    {
+      "id": "ir-ss",
+      "kind": "parasiticIR",
+      "stage": "persistence",
+      "cornerID": { "value": "ss_125c_0v9" },
+      "relativePath": { "value": "ir/ss_125c_0v9.json" },
+      "createdAt": "2026-05-07T00:00:00Z",
+      "status": "available"
+    },
+    {
+      "id": "log-ss",
+      "kind": "log",
+      "stage": "backendExecution",
+      "cornerID": { "value": "ss_125c_0v9" },
+      "relativePath": { "value": "raw/ss_125c_0v9/extraction.log" },
+      "createdAt": "2026-05-07T00:00:00Z",
+      "status": "available"
     }
   ],
   "warnings": []

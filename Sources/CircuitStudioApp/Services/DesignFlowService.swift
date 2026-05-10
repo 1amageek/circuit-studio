@@ -620,16 +620,8 @@ public struct DesignFlowService: Sendable {
         let service = PEXArtifactService()
         let artifacts = try service.loadArtifacts(manifestURL: manifestURL)
         let ir = try service.loadIR(for: cornerID, artifacts: artifacts)
-        var artifactPaths = [manifestURL.path(percentEncoded: false)]
-        if let corner = artifacts.corner(id: cornerID) {
-            artifactPaths.append(contentsOf: corner.rawFileURLs.map { $0.path(percentEncoded: false) })
-            if let irURL = corner.irURL {
-                artifactPaths.append(irURL.path(percentEncoded: false))
-            }
-            if let logURL = corner.logURL {
-                artifactPaths.append(logURL.path(percentEncoded: false))
-            }
-        }
+        let artifactPaths = try service.auditArtifactURLs(manifestURL: manifestURL, cornerID: cornerID)
+            .map { $0.path(percentEncoded: false) }
         return DesignFlowPEXInput(ir: ir, artifactPaths: artifactPaths)
     }
 

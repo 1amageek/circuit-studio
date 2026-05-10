@@ -1330,18 +1330,47 @@ struct DesignFlowServiceTests {
         """.write(to: irDirectory.appending(path: "tt_25c_1v0.json"), atomically: true, encoding: .utf8)
         try """
         {
-          "version": 1,
-          "runID": { "value": "mock-run" },
+          "version": 2,
+          "runID": { "value": "00000000-0000-0000-0000-000000000300" },
           "requestHash": { "value": "fixture" },
           "backendID": "mock-pexengine",
           "status": "success",
+          "startedAt": "2026-05-07T00:00:00Z",
+          "finishedAt": "2026-05-07T00:00:01Z",
           "corners": [
             {
               "cornerID": { "value": "tt_25c_1v0" },
               "status": "success",
-              "rawFiles": ["top.spef"],
-              "irFile": "tt_25c_1v0.json",
-              "logFile": "extraction.log"
+              "artifactIDs": ["raw-tt", "ir-tt", "log-tt"]
+            }
+          ],
+          "artifacts": [
+            {
+              "id": "raw-tt",
+              "kind": "rawOutput",
+              "stage": "backendExecution",
+              "cornerID": { "value": "tt_25c_1v0" },
+              "relativePath": { "value": "raw/tt_25c_1v0/top.spef" },
+              "createdAt": "2026-05-07T00:00:00Z",
+              "status": "available"
+            },
+            {
+              "id": "ir-tt",
+              "kind": "parasiticIR",
+              "stage": "persistence",
+              "cornerID": { "value": "tt_25c_1v0" },
+              "relativePath": { "value": "ir/tt_25c_1v0.json" },
+              "createdAt": "2026-05-07T00:00:00Z",
+              "status": "available"
+            },
+            {
+              "id": "log-tt",
+              "kind": "log",
+              "stage": "backendExecution",
+              "cornerID": { "value": "tt_25c_1v0" },
+              "relativePath": { "value": "raw/tt_25c_1v0/extraction.log" },
+              "createdAt": "2026-05-07T00:00:00Z",
+              "status": "available"
             }
           ],
           "warnings": []
