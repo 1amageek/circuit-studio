@@ -31,7 +31,11 @@ public struct NgspiceRunner: Sendable {
                     process.terminate()
                     break
                 }
-                try? await Task.sleep(for: .milliseconds(100))
+                do {
+                    try await Task.sleep(for: .milliseconds(100))
+                } catch {
+                    break
+                }
             }
         }
 

@@ -63,7 +63,11 @@ public struct ExternalModelDetector: Sendable {
                 return true
             }
 
-            if fileContainsAdvancedModels(resolved) {
+            do {
+                if try fileContainsAdvancedModels(resolved) {
+                    return true
+                }
+            } catch {
                 return true
             }
         }
@@ -137,12 +141,19 @@ public struct ExternalModelDetector: Sendable {
         return nil
     }
 
-    private func fileContainsAdvancedModels(_ url: URL) -> Bool {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
-        defer { try? handle.close() }
-
+    private func fileContainsAdvancedModels(_ url: URL) throws -> Bool {
+        let handle = try FileHandle(forReadingFrom: url)
         let maxBytes = 5 * 1024 * 1024
-        let data = try? handle.read(upToCount: maxBytes)
+
+        let data: Data?
+        do {
+            data = try handle.read(upToCount: maxBytes)
+            try handle.close()
+        } catch {
+            try handle.close()
+            throw error
+        }
+
         guard let data, let text = String(data: data, encoding: .utf8) else { return false }
 
         let lower = text.lowercased()

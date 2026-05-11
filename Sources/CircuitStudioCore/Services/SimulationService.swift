@@ -231,6 +231,9 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             continuation.onTermination = { [weak self] _ in
                 _ = self?.continuations.withLock { $0.removeValue(forKey: jobID) }
             }
+            if isTerminalJob(jobID: jobID) {
+                finishEvents(jobID: jobID)
+            }
         }
     }
 
@@ -825,10 +828,50 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
     // MARK: - Event Emission
 
     private func emit(jobID: UUID, event: SimulationEvent) {
-        let cont = continuations.withLock { conts in
-            conts[jobID]
+        let continuation = continuations.withLock { continuations in
+            continuations[jobID]
         }
-        cont?.yield(event)
+        continuation?.yield(event)
+
+        if event.isTerminal {
+            finishEvents(jobID: jobID)
+        }
+    }
+
+    private func finishEvents(jobID: UUID) {
+        let continuation = continuations.withLock { continuations in
+            continuations.removeValue(forKey: jobID)
+        }
+        continuation?.finish()
+    }
+
+    private func isTerminalJob(jobID: UUID) -> Bool {
+        jobs.withLock { jobs in
+            guard let status = jobs[jobID]?.status else { return false }
+            return status.isTerminal
+        }
+    }
+}
+
+private extension SimulationEvent {
+    var isTerminal: Bool {
+        switch self {
+        case .completed, .failed, .cancelled:
+            return true
+        case .started, .progress, .waveformUpdate:
+            return false
+        }
+    }
+}
+
+private extension RunStatus {
+    var isTerminal: Bool {
+        switch self {
+        case .completed, .failed, .cancelled:
+            return true
+        case .pending, .running:
+            return false
+        }
     }
 }
 

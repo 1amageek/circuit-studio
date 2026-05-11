@@ -386,9 +386,7 @@ private final class ScrollCaptureNSView: NSView {
     override func scrollWheel(with event: NSEvent) {
         let delta = event.scrollingDeltaX
         guard abs(delta) > 0.1 else { return }
-        DispatchQueue.main.async { [onPan] in
-            onPan(delta)
-        }
+        onPan(delta)
     }
 }
 

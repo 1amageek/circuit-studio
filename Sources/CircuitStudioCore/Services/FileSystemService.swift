@@ -11,12 +11,15 @@ public struct FileSystemService: Sendable {
         let resourceKeys: [URLResourceKey] = [.isDirectoryKey, .nameKey]
         let options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles]
 
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: resourceKeys,
-            options: options
-        ) else {
-            return FileNode(id: url, name: url.lastPathComponent, isDirectory: true, children: [])
+        let contents: [URL]
+        do {
+            contents = try fileManager.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: resourceKeys,
+                options: options
+            )
+        } catch {
+            throw StudioError.projectLoadFailed(error.localizedDescription)
         }
 
         var children: [FileNode] = []

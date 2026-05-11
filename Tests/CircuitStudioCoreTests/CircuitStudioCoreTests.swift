@@ -646,6 +646,9 @@ struct SimulationServiceTests {
             Issue.record("Expected cancellation event, got \(String(describing: event))")
             return
         }
+
+        let nextEvent = await iterator.next()
+        #expect(nextEvent == nil)
     }
 }
 
