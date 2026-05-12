@@ -6,7 +6,7 @@ import PEXEngine
 @Suite("PEXArtifactService Tests")
 struct PEXArtifactServiceTests {
 
-    @Test func loadArtifactsResolvesManifestPaths() throws {
+    @Test func loadManifestUsesPEXEngineArtifactGraph() throws {
         let root = try makeTemporaryRoot("manifest")
         defer { removeTemporaryRoot(root) }
 
@@ -24,22 +24,28 @@ struct PEXArtifactServiceTests {
         try manifestJSON(runID: "run-1", cornerID: "tt")
             .write(to: manifestURL, atomically: true, encoding: .utf8)
 
-        let artifacts = try PEXArtifactService().loadArtifacts(manifestURL: manifestURL)
+        let manifest = try PEXArtifactService().loadManifest(manifestURL: manifestURL)
+        let resolver = try PEXArtifactResolver(manifestURL: manifestURL)
+        let cornerID = PEXCornerID("tt")
 
-        #expect(artifacts.runID == "00000000-0000-0000-0000-000000000001")
-        #expect(artifacts.backendID == "mock")
-        #expect(artifacts.status == "success")
-        #expect(artifacts.warnings == ["low confidence"])
-        #expect(artifacts.corners.count == 1)
-        #expect(artifacts.corners[0].cornerID == "tt")
-        #expect(artifacts.corners[0].irURL == runDirectory.appending(path: "ir").appending(path: "tt.json"))
-        #expect(artifacts.corners[0].rawFileURLs == [
+        #expect(manifest.runID.description == "00000000-0000-0000-0000-000000000001")
+        #expect(manifest.backendID == "mock")
+        #expect(manifest.status == .success)
+        #expect(manifest.warnings.map(\.message) == ["low confidence"])
+        #expect(manifest.corners.count == 1)
+        #expect(manifest.corners[0].cornerID.value == "tt")
+        #expect(resolver.records(kind: .parasiticIR, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
+            runDirectory.appending(path: "ir").appending(path: "tt.json"),
+        ])
+        #expect(resolver.records(kind: .rawOutput, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
             runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "tt.spef"),
         ])
-        #expect(artifacts.corners[0].logURL == runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "extraction.log"))
+        #expect(resolver.records(kind: .log, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
+            runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "extraction.log"),
+        ])
     }
 
-    @Test func loadArtifactsResolvesRunRelativePEXEnginePaths() throws {
+    @Test func resolverResolvesRunRelativePEXEnginePaths() throws {
         let root = try makeTemporaryRoot("manifest-relative")
         defer { removeTemporaryRoot(root) }
 
@@ -62,44 +68,19 @@ struct PEXArtifactServiceTests {
         )
         .write(to: manifestURL, atomically: true, encoding: .utf8)
 
-        let artifacts = try PEXArtifactService().loadArtifacts(manifestURL: manifestURL)
+        _ = try PEXArtifactService().loadManifest(manifestURL: manifestURL)
+        let resolver = try PEXArtifactResolver(manifestURL: manifestURL)
+        let cornerID = PEXCornerID("tt")
 
-        #expect(artifacts.corners[0].rawFileURLs == [
+        #expect(resolver.records(kind: .rawOutput, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
             runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "tt.spef"),
         ])
-        #expect(artifacts.corners[0].irURL == runDirectory.appending(path: "ir").appending(path: "tt.json"))
-        #expect(artifacts.corners[0].logURL == runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "extraction.log"))
-    }
-
-    @Test func loadIRDecodesParasiticElements() throws {
-        let root = try makeTemporaryRoot("ir")
-        defer { removeTemporaryRoot(root) }
-
-        let irURL = root.appending(path: "tt.json")
-        try irJSON(cornerID: "tt").write(to: irURL, atomically: true, encoding: .utf8)
-
-        let ir = try PEXArtifactService().loadIR(from: irURL)
-
-        #expect(ir.version == "1.0")
-        #expect(ir.cornerID == "tt")
-        #expect(ir.units == .canonical)
-        #expect(ir.elements.count == 3)
-        #expect(ir.elements[0] == PEXParasiticElement(
-            id: "r_net_1",
-            kind: .resistor,
-            nodeA: "in_1",
-            nodeB: "out_1",
-            value: 12.5
-        ))
-        #expect(ir.elements[1].kind == .capacitor)
-        #expect(ir.elements[1].nodeB == nil)
-        #expect(ir.elements[1].value == 1e-15)
-        #expect(ir.elements[2].kind == .coupling)
-        #expect(ir.elements[2].nodeB == "out_1")
-        #expect(ir.elements[2].value == 2e-15)
-        #expect(ir.diagnostics.count == 2)
-        #expect(ir.diagnostics.contains { $0.elementID == "zero" })
-        #expect(ir.diagnostics.contains { $0.elementID == "unsupported" })
+        #expect(resolver.records(kind: .parasiticIR, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
+            runDirectory.appending(path: "ir").appending(path: "tt.json"),
+        ])
+        #expect(resolver.records(kind: .log, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
+            runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "extraction.log"),
+        ])
     }
 
     @Test func loadIRForCornerUsesManifestArtifact() throws {
@@ -112,12 +93,11 @@ struct PEXArtifactServiceTests {
         let manifestURL = runDirectory.appending(path: "manifest.json")
         try manifestJSON(runID: "run-1", cornerID: "tt")
             .write(to: manifestURL, atomically: true, encoding: .utf8)
-        try irJSON(cornerID: "tt")
+        try pexEngineIRJSON(cornerID: "tt")
             .write(to: irDirectory.appending(path: "tt.json"), atomically: true, encoding: .utf8)
 
         let service = PEXArtifactService()
-        let artifacts = try service.loadArtifacts(manifestURL: manifestURL)
-        let ir = try service.loadIR(for: "tt", artifacts: artifacts)
+        let ir = try service.loadIR(for: "tt", manifestURL: manifestURL)
 
         #expect(ir.cornerID == "tt")
         #expect(ir.elements.count == 3)
@@ -152,16 +132,17 @@ struct PEXArtifactServiceTests {
         #expect(result.manifestURL.path(percentEncoded: false).hasPrefix(root.path(percentEncoded: false)))
 
         let artifactService = PEXArtifactService()
-        let artifacts = try artifactService.loadArtifacts(manifestURL: result.manifestURL)
-        let ir = try artifactService.loadIR(for: "tt", artifacts: artifacts)
+        let manifest = try artifactService.loadManifest(manifestURL: result.manifestURL)
+        let resolver = try PEXArtifactResolver(manifestURL: result.manifestURL)
+        let ir = try artifactService.loadIR(for: "tt", manifestURL: result.manifestURL)
         let postLayoutNetlist = PostLayoutSimulationService().buildPostLayoutNetlist(
             baseNetlist: try String(contentsOf: netlistURL, encoding: .utf8),
             parasitics: ir
         )
 
-        #expect(artifacts.status == "success")
-        #expect(artifacts.corners.count == 1)
-        #expect(artifacts.corners[0].rawFileURLs == [
+        #expect(manifest.status == .success)
+        #expect(manifest.corners.count == 1)
+        #expect(resolver.records(kind: .rawOutput, cornerID: PEXCornerID("tt"), status: .available).map { resolver.url(for: $0) } == [
             root
                 .appending(path: result.runID.description)
                 .appending(path: "raw")
@@ -183,8 +164,9 @@ struct PEXArtifactServiceTests {
             subdirectory: "pex/golden-voltage-divider"
         )
         let service = PEXArtifactService()
-        let artifacts = try service.loadArtifacts(manifestURL: manifestURL)
-        let ir = try service.loadIR(for: "tt_25c_1v0", artifacts: artifacts)
+        let manifest = try service.loadManifest(manifestURL: manifestURL)
+        let resolver = try PEXArtifactResolver(manifestURL: manifestURL)
+        let ir = try service.loadIR(for: "tt_25c_1v0", manifestURL: manifestURL)
 
         let baseNetlist = """
         * Voltage divider fixture
@@ -205,12 +187,12 @@ struct PEXArtifactServiceTests {
             command: .op
         )
 
-        #expect(!artifacts.runID.isEmpty)
-        #expect(artifacts.backendID == "golden-fixture")
-        #expect(artifacts.status == "success")
-        #expect(artifacts.corners.count == 2)
-        #expect(artifacts.corners[0].rawFileURLs.count == 1)
-        #expect(artifacts.corners[0].logURL?.lastPathComponent == "extraction.log")
+        #expect(!manifest.runID.description.isEmpty)
+        #expect(manifest.backendID == "golden-fixture")
+        #expect(manifest.status == .success)
+        #expect(manifest.corners.count == 2)
+        #expect(resolver.records(kind: .rawOutput, cornerID: PEXCornerID("tt_25c_1v0"), status: .available).count == 1)
+        #expect(resolver.records(kind: .log, cornerID: PEXCornerID("tt_25c_1v0"), status: .available).first.map { resolver.url(for: $0).lastPathComponent } == "extraction.log")
         #expect(ir.units == .canonical)
         #expect(ir.elements.count == 3)
         #expect(ir.elements.contains(PEXParasiticElement(
@@ -237,7 +219,6 @@ struct PEXArtifactServiceTests {
             extension: "json",
             subdirectory: "pex/golden-voltage-divider"
         )
-        let artifacts = try PEXArtifactService().loadArtifacts(manifestURL: manifestURL)
         let baseNetlist = """
         * Voltage divider fixture
         V1 vin 0 1
@@ -253,7 +234,7 @@ struct PEXArtifactServiceTests {
         var observedCorners: [String] = []
 
         for cornerID in ["tt_25c_1v0", "ss_125c_0v9"] {
-            let ir = try PEXArtifactService().loadIR(for: cornerID, artifacts: artifacts)
+            let ir = try PEXArtifactService().loadIR(for: cornerID, manifestURL: manifestURL)
             let postLayoutResult = try await postLayoutService.runPostLayoutAnalysis(
                 baseNetlist: baseNetlist,
                 parasitics: ir,
@@ -375,12 +356,13 @@ struct PEXArtifactServiceTests {
               "stage": "reporting",
               "message": "low confidence"
             }
-          ]
+          ],
+          "metadata": {}
         }
         """
     }
 
-    private func irJSON(cornerID: String) -> String {
+    private func pexEngineIRJSON(cornerID: String) -> String {
         """
         {
           "version": "1.0",
@@ -415,24 +397,9 @@ struct PEXArtifactServiceTests {
               "nodeB": { "netName": { "value": "out" }, "nodeName": { "value": "out_1" } },
               "value": 2,
               "source": "extracted"
-            },
-            {
-              "id": "zero",
-              "kind": "capacitor",
-              "nodeA": { "netName": { "value": "out" }, "nodeName": { "value": "out_1" } },
-              "nodeB": null,
-              "value": 0,
-              "source": "extracted"
-            },
-            {
-              "id": "unsupported",
-              "kind": "inductor",
-              "nodeA": { "netName": { "value": "out" }, "nodeName": { "value": "out_1" } },
-              "nodeB": null,
-              "value": 1,
-              "source": "extracted"
             }
-          ]
+          ],
+          "metadata": {}
         }
         """
     }

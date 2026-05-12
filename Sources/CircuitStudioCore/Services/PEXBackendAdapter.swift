@@ -1,4 +1,5 @@
 import Foundation
+import PEXEngine
 
 public struct PEXBackendExtractionRequest: Sendable, Hashable {
     public let configURL: URL
@@ -23,16 +24,19 @@ public struct PEXBackendExtractionRequest: Sendable, Hashable {
 }
 
 public struct PEXBackendExtractionResult: Sendable, Hashable {
-    public let artifacts: PEXRunArtifacts
+    public let manifestURL: URL
+    public let manifest: PEXArtifactManifest
     public let ir: PEXParasiticIR
     public let commandResult: PEXCommandResult?
 
     public init(
-        artifacts: PEXRunArtifacts,
+        manifestURL: URL,
+        manifest: PEXArtifactManifest,
         ir: PEXParasiticIR,
         commandResult: PEXCommandResult? = nil
     ) {
-        self.artifacts = artifacts
+        self.manifestURL = manifestURL
+        self.manifest = manifest
         self.ir = ir
         self.commandResult = commandResult
     }
@@ -70,9 +74,9 @@ public struct SavedPEXManifestBackendAdapter: PEXBackendAdapter {
     }
 
     public func extract(request: PEXBackendExtractionRequest) throws -> PEXBackendExtractionResult {
-        let artifacts = try artifactService.loadArtifacts(manifestURL: request.configURL)
-        let ir = try artifactService.loadIR(for: request.cornerID, artifacts: artifacts)
-        return PEXBackendExtractionResult(artifacts: artifacts, ir: ir)
+        let manifest = try artifactService.loadManifest(manifestURL: request.configURL)
+        let ir = try artifactService.loadIR(for: request.cornerID, manifestURL: request.configURL)
+        return PEXBackendExtractionResult(manifestURL: request.configURL, manifest: manifest, ir: ir)
     }
 }
 
@@ -102,10 +106,11 @@ public struct PEXEngineCommandBackendAdapter: PEXBackendAdapter {
             additionalArguments: arguments
         )
         let manifestURL = try manifestURL(from: result.standardOutput)
-        let artifacts = try artifactService.loadArtifacts(manifestURL: manifestURL)
-        let ir = try artifactService.loadIR(for: request.cornerID, artifacts: artifacts)
+        let manifest = try artifactService.loadManifest(manifestURL: manifestURL)
+        let ir = try artifactService.loadIR(for: request.cornerID, manifestURL: manifestURL)
         return PEXBackendExtractionResult(
-            artifacts: artifacts,
+            manifestURL: manifestURL,
+            manifest: manifest,
             ir: ir,
             commandResult: result
         )

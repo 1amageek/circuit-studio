@@ -14,7 +14,7 @@
       "nodeA": { "netName": { "value": "out" }, "nodeName": { "value": "out" } },
       "nodeB": { "netName": { "value": "out" }, "nodeName": { "value": "out_pex" } },
       "value": 0.0021,
-      "source": "golden-fixture"
+      "source": "extracted"
     },
     {
       "id": "c_out_to_substrate",
@@ -22,7 +22,7 @@
       "nodeA": { "netName": { "value": "out" }, "nodeName": { "value": "out_pex" } },
       "nodeB": null,
       "value": 5.7,
-      "source": "golden-fixture"
+      "source": "extracted"
     },
     {
       "id": "cc_vin_out",
@@ -30,7 +30,8 @@
       "nodeA": { "netName": { "value": "vin" }, "nodeName": { "value": "vin" } },
       "nodeB": { "netName": { "value": "out" }, "nodeName": { "value": "out_pex" } },
       "value": 0.49,
-      "source": "golden-fixture"
+      "source": "extracted"
     }
-  ]
+  ],
+  "metadata": {}
 }

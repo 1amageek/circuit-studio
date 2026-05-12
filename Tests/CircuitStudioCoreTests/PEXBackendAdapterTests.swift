@@ -17,7 +17,7 @@ struct PEXBackendAdapterTests {
         ))
 
         #expect(result.commandResult == nil)
-        #expect(result.artifacts.backendID == "golden-fixture")
+        #expect(result.manifest.backendID == "golden-fixture")
         #expect(result.ir.cornerID == "tt_25c_1v0")
         #expect(result.ir.elements.count == 3)
     }
@@ -55,7 +55,7 @@ struct PEXBackendAdapterTests {
             configURL.path(percentEncoded: false),
             "--json",
         ])
-        #expect(result.artifacts.manifestURL == runDirectory.appending(path: "manifest.json"))
+        #expect(result.manifestURL == runDirectory.appending(path: "manifest.json"))
         #expect(result.ir.elements == [
             PEXParasiticElement(
                 id: "r_out",
@@ -102,17 +102,20 @@ struct PEXBackendAdapterTests {
         try """
         {
           "version": "1.0",
-          "cornerID": "tt_25c_1v0",
+          "cornerID": { "value": "tt_25c_1v0" },
           "units": { "resistance": "ohm", "capacitance": "F", "coordinate": "um" },
+          "nets": [],
           "elements": [
             {
               "id": "r_out",
               "kind": "resistor",
-              "nodeA": { "netName": "out", "nodeName": "out" },
-              "nodeB": { "netName": "0", "nodeName": "0" },
-              "value": 12.0
+              "nodeA": { "netName": { "value": "out" }, "nodeName": { "value": "out" } },
+              "nodeB": { "netName": { "value": "0" }, "nodeName": { "value": "0" } },
+              "value": 12.0,
+              "source": "extracted"
             }
-          ]
+          ],
+          "metadata": {}
         }
         """.write(to: irDirectory.appending(path: "tt_25c_1v0.json"), atomically: true, encoding: .utf8)
         try """

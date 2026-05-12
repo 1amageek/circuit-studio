@@ -28,7 +28,7 @@ struct GoldenLayoutCorpusServiceTests {
         #expect(entry.signoffReview.reports.allSatisfy { $0.success })
         #expect(entry.pexManifests.count == 1)
         #expect(entry.pexManifests[0].defaultCornerID == "tt_25c_1v0")
-        #expect(entry.pexManifests[0].artifacts.corners.map(\.cornerID).contains("tt_25c_1v0"))
+        #expect(entry.pexManifests[0].manifest.corners.map(\.cornerID.value).contains("tt_25c_1v0"))
         #expect(entry.requiresApproval)
     }
 

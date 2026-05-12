@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import PEXEngine
 
 public struct GoldenLayoutCorpusService: Sendable {
     public struct Corpus: Sendable, Hashable {
@@ -73,12 +74,12 @@ public struct GoldenLayoutCorpusService: Sendable {
     public struct PEXManifest: Sendable, Hashable {
         public let manifestURL: URL
         public let defaultCornerID: String?
-        public let artifacts: PEXRunArtifacts
+        public let manifest: PEXArtifactManifest
 
-        public init(manifestURL: URL, defaultCornerID: String?, artifacts: PEXRunArtifacts) {
+        public init(manifestURL: URL, defaultCornerID: String?, manifest: PEXArtifactManifest) {
             self.manifestURL = manifestURL
             self.defaultCornerID = defaultCornerID
-            self.artifacts = artifacts
+            self.manifest = manifest
         }
     }
 
@@ -182,11 +183,11 @@ public struct GoldenLayoutCorpusService: Sendable {
             throw StudioError.fileNotFound(manifestURL.path(percentEncoded: false))
         }
 
-        let artifacts = try PEXArtifactService().loadArtifacts(manifestURL: manifestURL)
+        let manifest = try PEXArtifactService().loadManifest(manifestURL: manifestURL)
         return PEXManifest(
             manifestURL: manifestURL,
             defaultCornerID: dto.defaultCornerID,
-            artifacts: artifacts
+            manifest: manifest
         )
     }
 }

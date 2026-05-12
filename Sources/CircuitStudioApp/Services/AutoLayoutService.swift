@@ -113,7 +113,7 @@ public final class AutoLayoutService {
         let placement: PlacementResult
         switch placementStrategy {
         case .greedy:
-            placement = RowBasedPlacementEngine().place(
+            placement = try RowBasedPlacementEngine().place(
                 instances: instances,
                 nets: placementNets,
                 tech: tech
@@ -123,7 +123,7 @@ public final class AutoLayoutService {
                 configuration: .init(initialTemperature: 1000, coolingRate: 0.97, minTemperature: 0.1),
                 constraints: constraints
             )
-            placement = saEngine.place(
+            placement = try saEngine.place(
                 instances: instances,
                 nets: placementNets,
                 tech: tech
@@ -143,7 +143,7 @@ public final class AutoLayoutService {
         let routing: RoutingResult
         switch routingStrategy {
         case .simple:
-            routing = SimpleRoutingEngine().route(
+            routing = try SimpleRoutingEngine().route(
                 nets: routingNets,
                 placements: placement.placements,
                 cells: cells,
@@ -151,7 +151,7 @@ public final class AutoLayoutService {
                 tech: tech
             )
         case .steiner:
-            routing = SteinerRoutingEngine().route(
+            routing = try SteinerRoutingEngine().route(
                 nets: routingNets,
                 placements: placement.placements,
                 cells: cells,

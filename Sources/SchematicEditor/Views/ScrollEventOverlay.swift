@@ -7,8 +7,6 @@ import SwiftUI
 /// `scrollWheel` (pan / Cmd+zoom) and `magnify` (pinch-to-zoom) events
 /// when the cursor is over the canvas area.
 ///
-/// Event monitors always run on the main thread, so `@MainActor`-isolated
-/// NSView methods are safe to call despite the compiler warnings.
 struct ScrollEventOverlay: NSViewRepresentable {
     var onScroll: (_ deltaX: CGFloat, _ deltaY: CGFloat) -> Void
     var onZoom: (_ magnification: CGFloat, _ cursorLocation: CGPoint) -> Void
@@ -40,13 +38,15 @@ struct ScrollEventOverlay: NSViewRepresentable {
         private var scrollMonitor: Any?
         private var magnifyMonitor: Any?
 
-        // Event monitors always execute on the main thread.
-        // The nonisolated access to @MainActor NSView methods below is safe.
         func startMonitoring() {
             scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                 guard let self, let view = self.view else { return event }
-                let location = view.convert(event.locationInWindow, from: nil)
-                guard view.bounds.contains(location) else { return event }
+                let locationInWindow = event.locationInWindow
+                let (location, isInside) = MainActor.assumeIsolated {
+                    let location = view.convert(locationInWindow, from: nil)
+                    return (location, view.bounds.contains(location))
+                }
+                guard isInside else { return event }
 
                 if event.modifierFlags.contains(.command) {
                     let factor: CGFloat
@@ -73,8 +73,12 @@ struct ScrollEventOverlay: NSViewRepresentable {
 
             magnifyMonitor = NSEvent.addLocalMonitorForEvents(matching: .magnify) { [weak self] event in
                 guard let self, let view = self.view else { return event }
-                let location = view.convert(event.locationInWindow, from: nil)
-                guard view.bounds.contains(location) else { return event }
+                let locationInWindow = event.locationInWindow
+                let (location, isInside) = MainActor.assumeIsolated {
+                    let location = view.convert(locationInWindow, from: nil)
+                    return (location, view.bounds.contains(location))
+                }
+                guard isInside else { return event }
 
                 self.onZoom?(event.magnification, location)
                 return nil

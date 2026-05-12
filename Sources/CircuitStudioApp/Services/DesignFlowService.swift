@@ -618,8 +618,8 @@ public struct DesignFlowService: Sendable {
         cornerID: String
     ) throws -> DesignFlowPEXInput {
         let service = PEXArtifactService()
-        let artifacts = try service.loadArtifacts(manifestURL: manifestURL)
-        let ir = try service.loadIR(for: cornerID, artifacts: artifacts)
+        _ = try service.loadManifest(manifestURL: manifestURL)
+        let ir = try service.loadIR(for: cornerID, manifestURL: manifestURL)
         let artifactPaths = try service.auditArtifactURLs(manifestURL: manifestURL, cornerID: cornerID)
             .map { $0.path(percentEncoded: false) }
         return DesignFlowPEXInput(ir: ir, artifactPaths: artifactPaths)
@@ -1000,8 +1000,8 @@ public struct DesignFlowService: Sendable {
             kind: command.kind,
             pexCornerID: result.ir.cornerID,
             pexElementCount: result.ir.elements.count,
-            pexManifestPath: result.artifacts.manifestURL.path(percentEncoded: false),
-            message: result.artifacts.backendID
+            pexManifestPath: result.manifestURL.path(percentEncoded: false),
+            message: result.manifest.backendID
         )
     }
 

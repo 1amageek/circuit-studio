@@ -485,7 +485,7 @@ public struct CircuitStudioApp: App {
             )
             appState.pexOutputNetlistURL = postNetlistURL
             appState.log(
-                "PEX complete. Loaded \(extraction.ir.elements.count) parasitics from \(extraction.artifacts.manifestURL.lastPathComponent) and wrote \(postNetlistURL.lastPathComponent)",
+                "PEX complete. Loaded \(extraction.ir.elements.count) parasitics from \(extraction.manifestURL.lastPathComponent) and wrote \(postNetlistURL.lastPathComponent)",
                 kind: .success
             )
         } catch {
