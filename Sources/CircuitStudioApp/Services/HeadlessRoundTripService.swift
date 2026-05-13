@@ -600,8 +600,9 @@ public final class HeadlessRoundTripService {
         let postLayoutComparisonStartedAt = Date()
         let comparisonReport = PostLayoutComparisonService().compare(
             preLayoutResult: preLayoutResult,
-            postLayoutResult: postLayoutResult
-        ).applyingLimits(configuration.postLayoutComparisonLimits)
+            postLayoutResult: postLayoutResult,
+            limits: configuration.postLayoutComparisonLimits
+        )
         let comparisonReportURL = runDirectory.appending(path: "post-layout-comparison.json")
         do {
             try writeJSON(comparisonReport, to: comparisonReportURL)

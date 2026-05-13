@@ -225,6 +225,15 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
         validationDiagnostics().isEmpty
     }
 
+    public var requestedOscillationMetricVariableNames: [String] {
+        var names: [String] = []
+        var seen = Set<String>()
+        for metricLimit in oscillationMetricLimits where seen.insert(metricLimit.variableName).inserted {
+            names.append(metricLimit.variableName)
+        }
+        return names
+    }
+
     private static func isValidLimit(_ value: Double) -> Bool {
         value.isFinite && value >= 0
     }
@@ -560,7 +569,8 @@ public struct PostLayoutComparisonService: Sendable {
 
     public func compare(
         preLayoutResult: SimulationResult,
-        postLayoutResult: SimulationResult
+        postLayoutResult: SimulationResult,
+        oscillationMetricVariableNames: [String] = []
     ) -> PostLayoutComparisonReport {
         guard let preLayoutWaveform = preLayoutResult.waveform else {
             return missingWaveformReport(message: "Pre-layout waveform is missing.")
@@ -626,7 +636,11 @@ public struct PostLayoutComparisonService: Sendable {
 
         let maxAbsoluteDelta = comparisons.map(\.maxAbsoluteDelta).max() ?? 0
         let maxRelativeDelta = comparisons.map(\.maxRelativeDelta).max() ?? 0
-        let oscillationMetrics = commonVariableNames.compactMap { variableName in
+        let requestedOscillationMetricNames = requestedMetricNames(
+            requestedNames: oscillationMetricVariableNames,
+            availableNames: commonVariableNames
+        )
+        let oscillationMetrics = requestedOscillationMetricNames.compactMap { variableName in
             compareOscillationMetric(
                 named: variableName,
                 preLayoutWaveform: preLayoutWaveform,
@@ -648,6 +662,18 @@ public struct PostLayoutComparisonService: Sendable {
             addedInPostLayout: postVariableNames.filter { !preNameSet.contains($0) },
             diagnostics: comparisonDiagnostics
         )
+    }
+
+    public func compare(
+        preLayoutResult: SimulationResult,
+        postLayoutResult: SimulationResult,
+        limits: PostLayoutComparisonLimits?
+    ) -> PostLayoutComparisonReport {
+        compare(
+            preLayoutResult: preLayoutResult,
+            postLayoutResult: postLayoutResult,
+            oscillationMetricVariableNames: limits?.requestedOscillationMetricVariableNames ?? []
+        ).applyingLimits(limits)
     }
 
     public func aggregate(
@@ -804,6 +830,17 @@ public struct PostLayoutComparisonService: Sendable {
             }
         }
         return true
+    }
+
+    private func requestedMetricNames(requestedNames: [String], availableNames: [String]) -> [String] {
+        let availableNameSet = Set(availableNames)
+        var names: [String] = []
+        var seen = Set<String>()
+        for requestedName in requestedNames
+            where availableNameSet.contains(requestedName) && seen.insert(requestedName).inserted {
+            names.append(requestedName)
+        }
+        return names
     }
 
     private func compareVariable(

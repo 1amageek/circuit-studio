@@ -605,8 +605,9 @@ public struct DesignFlowService: Sendable {
     ) -> PostLayoutComparisonReport {
         PostLayoutComparisonService().compare(
             preLayoutResult: preLayoutResult,
-            postLayoutResult: postLayoutResult
-        ).applyingLimits(limits)
+            postLayoutResult: postLayoutResult,
+            limits: limits
+        )
     }
 
     @MainActor

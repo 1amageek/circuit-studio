@@ -226,8 +226,8 @@ struct PostLayoutComparisonServiceTests {
             status: .completed,
             waveform: makeWaveform(
                 sweepValues: [0, 1, 2, 3, 4],
-                variables: ["out"],
-                values: [[0], [1], [0], [1], [0]]
+                variables: ["out", "vdd"],
+                values: [[0, 1], [1, 1], [0, 1], [1, 1], [0, 1]]
             )
         )
         let postLayout = SimulationResult(
@@ -235,16 +235,11 @@ struct PostLayoutComparisonServiceTests {
             status: .completed,
             waveform: makeWaveform(
                 sweepValues: [0, 1, 2, 3, 4],
-                variables: ["out"],
-                values: [[0], [0.9], [0], [0.9], [0]]
+                variables: ["out", "vdd"],
+                values: [[0, 1], [0.9, 1], [0, 1], [0.9, 1], [0, 1]]
             )
         )
 
-        let report = PostLayoutComparisonService().compare(
-            preLayoutResult: preLayout,
-            postLayoutResult: postLayout
-        )
-        let metric = try #require(report.oscillationMetrics.first { $0.variableName == "V(out)" })
         let limits = PostLayoutComparisonLimits(
             oscillationMetricLimits: [
                 PostLayoutOscillationMetricLimit(
@@ -256,14 +251,25 @@ struct PostLayoutComparisonServiceTests {
                 ),
             ]
         )
-        let gatedReport = report.applyingLimits(limits)
+        let untargetedReport = PostLayoutComparisonService().compare(
+            preLayoutResult: preLayout,
+            postLayoutResult: postLayout
+        )
+        let report = PostLayoutComparisonService().compare(
+            preLayoutResult: preLayout,
+            postLayoutResult: postLayout,
+            limits: limits
+        )
+        let metric = try #require(report.oscillationMetrics.first { $0.variableName == "V(out)" })
 
+        #expect(untargetedReport.oscillationMetrics.isEmpty)
+        #expect(report.oscillationMetrics.map(\.variableName) == ["V(out)"])
         #expect(metric.preLayout?.transitionCount == 4)
         #expect(metric.postLayout?.transitionCount == 4)
         #expect((metric.frequencyRelativeDelta ?? 1) < 1.0e-12)
         #expect((metric.dutyCycleDelta ?? 1) < 0.1)
-        #expect(gatedReport.gateStatus == "passed")
-        #expect(gatedReport.gateViolations.isEmpty)
+        #expect(report.gateStatus == "passed")
+        #expect(report.gateViolations.isEmpty)
     }
 
     @Test func aggregateMultiCornerReportPreservesWorstCornerAndGateStatus() {
