@@ -35,13 +35,22 @@ public struct RoundTripReviewService: Sendable {
             from: manifestURL,
             context: "round-trip manifest"
         )
+        let runDirectory = manifestURL.deletingLastPathComponent()
         var diagnostics: [String] = []
         let artifactSummaries = manifest.artifacts.map { artifact in
-            summarize(artifact: artifact, diagnostics: &diagnostics)
+            summarize(artifact: artifact, runDirectory: runDirectory, diagnostics: &diagnostics)
         }
 
-        let signoff = loadSignoffSummary(from: manifest.artifacts, diagnostics: &diagnostics)
-        let comparison = loadComparisonSummary(from: manifest.artifacts, diagnostics: &diagnostics)
+        let signoff = loadSignoffSummary(
+            from: manifest.artifacts,
+            runDirectory: runDirectory,
+            diagnostics: &diagnostics
+        )
+        let comparison = loadComparisonSummary(
+            from: manifest.artifacts,
+            runDirectory: runDirectory,
+            diagnostics: &diagnostics
+        )
         let approvals = loadApprovalRecords(manifest: manifest, manifestURL: manifestURL, diagnostics: &diagnostics)
         let stageSummaries = manifest.stages.map {
             RoundTripReviewStageSummary(
@@ -97,15 +106,18 @@ public struct RoundTripReviewService: Sendable {
 
     private func summarize(
         artifact: HeadlessRoundTripService.Artifact,
+        runDirectory: URL,
         diagnostics: inout [String]
     ) -> RoundTripReviewArtifactSummary {
-        let exists = FileManager.default.fileExists(atPath: artifact.path)
+        let url = resolvedArtifactURL(artifact, runDirectory: runDirectory)
+        let path = url.path(percentEncoded: false)
+        let exists = FileManager.default.fileExists(atPath: path)
         if !exists {
-            diagnostics.append("Artifact is missing: \(artifact.kind) at \(artifact.path)")
+            diagnostics.append("Artifact is missing: \(artifact.kind) at \(path)")
         }
         return RoundTripReviewArtifactSummary(
             kind: artifact.kind,
-            path: artifact.path,
+            path: path,
             sourcePath: artifact.sourcePath,
             exists: exists,
             isCapturedCopy: artifact.sourcePath != nil
@@ -114,14 +126,16 @@ public struct RoundTripReviewService: Sendable {
 
     private func loadSignoffSummary(
         from artifacts: [HeadlessRoundTripService.Artifact],
+        runDirectory: URL,
         diagnostics: inout [String]
     ) -> RoundTripReviewSignoffSummary? {
         guard let artifact = artifacts.first(where: { $0.kind == "external-signoff-review" }) else {
             return nil
         }
-        let url = URL(filePath: artifact.path)
-        guard FileManager.default.fileExists(atPath: artifact.path) else {
-            diagnostics.append("External signoff review artifact is missing: \(artifact.path)")
+        let url = resolvedArtifactURL(artifact, runDirectory: runDirectory)
+        let path = url.path(percentEncoded: false)
+        guard FileManager.default.fileExists(atPath: path) else {
+            diagnostics.append("External signoff review artifact is missing: \(path)")
             return nil
         }
 
@@ -154,14 +168,16 @@ public struct RoundTripReviewService: Sendable {
 
     private func loadComparisonSummary(
         from artifacts: [HeadlessRoundTripService.Artifact],
+        runDirectory: URL,
         diagnostics: inout [String]
     ) -> RoundTripReviewComparisonSummary? {
         guard let artifact = artifacts.first(where: { $0.kind == "post-layout-comparison" }) else {
             return nil
         }
-        let url = URL(filePath: artifact.path)
-        guard FileManager.default.fileExists(atPath: artifact.path) else {
-            diagnostics.append("Post-layout comparison artifact is missing: \(artifact.path)")
+        let url = resolvedArtifactURL(artifact, runDirectory: runDirectory)
+        let path = url.path(percentEncoded: false)
+        guard FileManager.default.fileExists(atPath: path) else {
+            diagnostics.append("Post-layout comparison artifact is missing: \(path)")
             return nil
         }
 
@@ -265,6 +281,16 @@ public struct RoundTripReviewService: Sendable {
                 "Failed to load \(context) from \(url.path(percentEncoded: false)): \(error.localizedDescription)"
             )
         }
+    }
+
+    private func resolvedArtifactURL(
+        _ artifact: HeadlessRoundTripService.Artifact,
+        runDirectory: URL
+    ) -> URL {
+        if artifact.path.hasPrefix("/") {
+            return URL(filePath: artifact.path)
+        }
+        return runDirectory.appending(path: artifact.path)
     }
 
     private func projectRoot(fromManifestURL url: URL) -> URL? {

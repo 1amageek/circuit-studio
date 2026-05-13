@@ -94,12 +94,12 @@ struct RoundTripReviewServiceTests {
             artifacts: [
                 HeadlessRoundTripService.Artifact(
                     kind: "external-signoff-review",
-                    path: signoffURL.path(percentEncoded: false),
+                    path: signoffURL.lastPathComponent,
                     sourcePath: "/source/external-signoff-review.json"
                 ),
                 HeadlessRoundTripService.Artifact(
                     kind: "post-layout-comparison",
-                    path: comparisonURL.path(percentEncoded: false)
+                    path: comparisonURL.lastPathComponent
                 ),
             ],
             bottleneckSummary: HeadlessRoundTripService.BottleneckSummary(

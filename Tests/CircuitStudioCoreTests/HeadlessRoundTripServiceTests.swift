@@ -165,22 +165,22 @@ struct HeadlessRoundTripServiceTests {
         #expect(result.manifest.artifacts.contains {
             $0.kind == "external-signoff-log"
                 && $0.sourcePath == drcLogURL.path(percentEncoded: false)
-                && $0.path.contains("/input-artifacts/signoff/")
+                && $0.path.contains("input-artifacts/signoff/")
         })
         #expect(result.manifest.artifacts.contains {
             $0.kind == "external-signoff-log"
                 && $0.sourcePath == lvsLogURL.path(percentEncoded: false)
-                && $0.path.contains("/input-artifacts/signoff/")
+                && $0.path.contains("input-artifacts/signoff/")
         })
         #expect(result.manifest.artifacts.contains {
             $0.kind == "pex-artifact"
                 && $0.sourcePath == pexManifestURL.path(percentEncoded: false)
-                && $0.path.contains("/input-artifacts/pex/")
+                && $0.path.contains("input-artifacts/pex/")
         })
         #expect(result.manifest.artifacts.contains {
             $0.kind == "external-signoff-review"
                 && $0.sourcePath?.hasSuffix(".xcircuite/signoff/external-signoff-review.json") == true
-                && $0.path.contains("/input-artifacts/signoff/")
+                && $0.path.contains("input-artifacts/signoff/")
         })
         #expect(!result.manifest.artifacts.map(\.path).contains { $0.hasSuffix("mock-drc.log") })
 
@@ -217,7 +217,11 @@ struct HeadlessRoundTripServiceTests {
         let comparisonURL = try #require(manifest.artifacts.first {
             $0.kind == "post-layout-comparison"
         }).path
-        let comparisonData = try Data(contentsOf: URL(filePath: comparisonURL))
+        let comparisonData = try Data(contentsOf: artifactURL(
+            path: comparisonURL,
+            projectRoot: root,
+            runID: "comparison-mismatch"
+        ))
         let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
         #expect(comparison.status == "not-comparable")
         #expect(comparison.diagnostics.contains { $0.contains("Sweep variable mismatch") })
@@ -343,7 +347,11 @@ struct HeadlessRoundTripServiceTests {
         let comparisonURL = try #require(manifest.artifacts.first {
             $0.kind == "post-layout-comparison"
         }).path
-        let comparisonData = try Data(contentsOf: URL(filePath: comparisonURL))
+        let comparisonData = try Data(contentsOf: artifactURL(
+            path: comparisonURL,
+            projectRoot: root,
+            runID: "comparison-limit-delta"
+        ))
         let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
         #expect(comparison.status == "compared")
         #expect(comparison.gateStatus == "failed")
@@ -382,7 +390,11 @@ struct HeadlessRoundTripServiceTests {
         let comparisonURL = try #require(manifest.artifacts.first {
             $0.kind == "post-layout-comparison"
         }).path
-        let comparisonData = try Data(contentsOf: URL(filePath: comparisonURL))
+        let comparisonData = try Data(contentsOf: artifactURL(
+            path: comparisonURL,
+            projectRoot: root,
+            runID: "comparison-limit-pass"
+        ))
         let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
         #expect(comparison.comparisonLimits == limits)
         #expect(comparison.gateStatus == "passed")
@@ -570,7 +582,8 @@ struct HeadlessRoundTripServiceTests {
         })
 
         #expect(pexArtifact.sourcePath == pexManifestURL.path(percentEncoded: false))
-        #expect(pexArtifact.path.contains("/flow-runs/\(runID)/input-artifacts/pex/"))
+        #expect(pexArtifact.path.contains("input-artifacts/pex/"))
+        #expect(!pexArtifact.path.hasPrefix("/"))
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -617,9 +630,10 @@ struct HeadlessRoundTripServiceTests {
         })
 
         #expect(pexArtifact.sourcePath == symlinkURL.path(percentEncoded: false))
-        #expect(pexArtifact.path.contains("/flow-runs/\(runID)/input-artifacts/pex/"))
+        #expect(pexArtifact.path.contains("input-artifacts/pex/"))
+        #expect(!pexArtifact.path.hasPrefix("/"))
         let capturedContents = try String(
-            contentsOf: URL(filePath: pexArtifact.path),
+            contentsOf: artifactURL(path: pexArtifact.path, projectRoot: root, runID: runID),
             encoding: .utf8
         )
         #expect(capturedContents == "external pex log\n")
@@ -677,7 +691,7 @@ struct HeadlessRoundTripServiceTests {
         #expect(manifest.artifacts.contains {
             $0.kind == "external-signoff-review"
                 && $0.sourcePath?.hasSuffix(".xcircuite/signoff/external-signoff-review.json") == true
-                && $0.path.contains("/input-artifacts/signoff/")
+                && $0.path.contains("input-artifacts/signoff/")
         })
         #expect(manifest.artifacts.contains {
             $0.kind == "pre-layout-simulation-report"
@@ -690,11 +704,27 @@ struct HeadlessRoundTripServiceTests {
         let layoutArtifact = try #require(manifest.artifacts.first { $0.kind == "layout-document" })
         let designUnitArtifact = try #require(manifest.artifacts.first { $0.kind == "design-unit" })
         let verificationArtifact = try #require(manifest.artifacts.first { $0.kind == "physical-verification-report" })
-        #expect(FileManager.default.fileExists(atPath: layoutArtifact.path))
-        #expect(FileManager.default.fileExists(atPath: designUnitArtifact.path))
-        #expect(FileManager.default.fileExists(atPath: verificationArtifact.path))
+        #expect(FileManager.default.fileExists(atPath: artifactURL(
+            path: layoutArtifact.path,
+            projectRoot: root,
+            runID: "pre-pex-failure"
+        ).path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: artifactURL(
+            path: designUnitArtifact.path,
+            projectRoot: root,
+            runID: "pre-pex-failure"
+        ).path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: artifactURL(
+            path: verificationArtifact.path,
+            projectRoot: root,
+            runID: "pre-pex-failure"
+        ).path(percentEncoded: false)))
 
-        let verificationData = try Data(contentsOf: URL(filePath: verificationArtifact.path))
+        let verificationData = try Data(contentsOf: artifactURL(
+            path: verificationArtifact.path,
+            projectRoot: root,
+            runID: "pre-pex-failure"
+        ))
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let verificationReport = try decoder.decode(DesignFlowVerificationReport.self, from: verificationData)
@@ -847,6 +877,7 @@ struct HeadlessRoundTripServiceTests {
         #expect(FileManager.default.fileExists(atPath: result.manifestURL.path(percentEncoded: false)))
 
         let artifactPaths = result.manifest.artifacts.map(\.path)
+        #expect(artifactPaths.allSatisfy { !$0.hasPrefix("/") })
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout.cir") })
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout-simulation.json") })
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout-waveform.csv") })
@@ -860,13 +891,16 @@ struct HeadlessRoundTripServiceTests {
         #expect(result.manifest.artifacts.contains {
             $0.kind == "external-signoff-review"
                 && $0.sourcePath?.hasSuffix(".xcircuite/signoff/external-signoff-review.json") == true
-                && $0.path.contains("/input-artifacts/signoff/")
+                && $0.path.contains("input-artifacts/signoff/")
         })
 
         let comparisonURL = try #require(result.manifest.artifacts.first {
             $0.kind == "post-layout-comparison"
         }).path
-        let comparisonData = try Data(contentsOf: URL(filePath: comparisonURL))
+        let comparisonData = try Data(contentsOf: artifactURL(
+            path: comparisonURL,
+            manifestURL: result.manifestURL
+        ))
         let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
         #expect(comparison.status == "compared")
         #expect(!comparison.comparedVariables.isEmpty)
@@ -896,7 +930,7 @@ struct HeadlessRoundTripServiceTests {
         for skippedStage in skippedStages {
             #expect(manifest.stages.first { $0.name == skippedStage }?.status == .skipped)
         }
-        #expect(FileManager.default.fileExists(atPath: manifest.artifacts.first?.path ?? ""))
+        #expect(manifest.artifacts.first?.path.isEmpty == false)
     }
 
     @MainActor
@@ -1041,5 +1075,21 @@ struct HeadlessRoundTripServiceTests {
             ofItemAtPath: url.path(percentEncoded: false)
         )
         return url
+    }
+
+    private func artifactURL(path: String, projectRoot: URL, runID: String) -> URL {
+        let manifestURL = projectRoot
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: runID)
+            .appending(path: "round-trip-manifest.json")
+        return artifactURL(path: path, manifestURL: manifestURL)
+    }
+
+    private func artifactURL(path: String, manifestURL: URL) -> URL {
+        if path.hasPrefix("/") {
+            return URL(filePath: path)
+        }
+        return manifestURL.deletingLastPathComponent().appending(path: path)
     }
 }

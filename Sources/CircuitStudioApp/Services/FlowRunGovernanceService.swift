@@ -176,7 +176,8 @@ public struct FlowRunGovernanceService: Sendable {
         let targetURL = try approvalTargetURL(
             gateID: request.gateID,
             explicitTargetURL: request.targetArtifactURL,
-            manifest: manifest
+            manifest: manifest,
+            manifestURL: request.manifestURL
         )
         guard FileManager.default.fileExists(atPath: targetURL.path(percentEncoded: false)) else {
             throw FlowRunGovernanceError.missingArtifact(targetURL)
@@ -237,7 +238,8 @@ public struct FlowRunGovernanceService: Sendable {
     private func approvalTargetURL(
         gateID: FlowGateID,
         explicitTargetURL: URL?,
-        manifest: HeadlessRoundTripService.Manifest?
+        manifest: HeadlessRoundTripService.Manifest?,
+        manifestURL: URL?
     ) throws -> URL {
         if let explicitTargetURL {
             return explicitTargetURL
@@ -249,7 +251,7 @@ public struct FlowRunGovernanceService: Sendable {
         guard let artifact = manifest.artifacts.first(where: { targetKinds.contains($0.kind) }) else {
             throw FlowRunGovernanceError.missingArtifactForGate(gateID)
         }
-        return URL(filePath: artifact.path)
+        return resolvedArtifactURL(artifact, manifestURL: manifestURL)
     }
 
     private func artifactKinds(for gateID: FlowGateID) -> [String] {
@@ -293,6 +295,19 @@ public struct FlowRunGovernanceService: Sendable {
             return nil
         }
         return configDirectory.deletingLastPathComponent()
+    }
+
+    private func resolvedArtifactURL(
+        _ artifact: HeadlessRoundTripService.Artifact,
+        manifestURL: URL?
+    ) -> URL {
+        if artifact.path.hasPrefix("/") {
+            return URL(filePath: artifact.path)
+        }
+        guard let manifestURL else {
+            return URL(filePath: artifact.path)
+        }
+        return manifestURL.deletingLastPathComponent().appending(path: artifact.path)
     }
 
     private func lineage(

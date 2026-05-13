@@ -148,11 +148,15 @@ struct DesignFlowServiceTests {
         #expect(!manifest.stages.contains { $0.name == "external-signoff" })
         #expect(manifest.artifacts.contains {
             $0.kind == "design-spec"
-                && $0.path.contains("/input-artifacts/design/")
+                && $0.path.contains("input-artifacts/design/")
                 && $0.sourcePath == specURL.path(percentEncoded: false)
         })
         let comparisonPath = try #require(manifest.artifacts.first { $0.kind == "post-layout-comparison" }?.path)
-        let comparisonData = try Data(contentsOf: URL(filePath: comparisonPath))
+        #expect(!comparisonPath.hasPrefix("/"))
+        let comparisonData = try Data(contentsOf: artifactURL(
+            path: comparisonPath,
+            manifestPath: try #require(roundTrip.manifestPath)
+        ))
         let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
         #expect(comparison.comparisonLimits == embeddedLimits)
 
@@ -401,7 +405,7 @@ struct DesignFlowServiceTests {
             artifacts: [
                 HeadlessRoundTripService.Artifact(
                     kind: "post-layout-comparison",
-                    path: comparisonURL.path(percentEncoded: false)
+                    path: comparisonURL.lastPathComponent
                 ),
             ]
         ), to: manifestURL)
@@ -549,7 +553,7 @@ struct DesignFlowServiceTests {
             artifacts: [
                 HeadlessRoundTripService.Artifact(
                     kind: "physical-verification-report",
-                    path: verificationURL.path(percentEncoded: false)
+                    path: verificationURL.lastPathComponent
                 ),
             ]
         ), to: manifestURL)
@@ -1728,4 +1732,11 @@ private extension String {
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(HeadlessRoundTripService.Manifest.self, from: data)
     }
+}
+
+private func artifactURL(path: String, manifestPath: String) -> URL {
+    if path.hasPrefix("/") {
+        return URL(filePath: path)
+    }
+    return URL(filePath: manifestPath).deletingLastPathComponent().appending(path: path)
 }

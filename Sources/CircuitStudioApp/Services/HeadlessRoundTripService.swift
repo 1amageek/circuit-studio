@@ -263,7 +263,7 @@ public final class HeadlessRoundTripService {
         )
         let preLayoutNetlistURL = runDirectory.appending(path: "pre-layout.cir")
         try write(baseNetlist, to: preLayoutNetlistURL)
-        artifacts.append(Artifact(kind: "pre-layout-netlist", path: preLayoutNetlistURL.path(percentEncoded: false)))
+        artifacts.append(artifact(kind: "pre-layout-netlist", url: preLayoutNetlistURL, runDirectory: runDirectory))
         stages.append(Stage(
             name: "netlist-generation",
             status: .passed,
@@ -504,7 +504,7 @@ public final class HeadlessRoundTripService {
                 runDirectory: runDirectory,
                 subdirectory: "pex"
             ))
-            artifacts.append(Artifact(kind: "post-layout-netlist", path: postLayoutNetlistURL.path(percentEncoded: false)))
+            artifacts.append(artifact(kind: "post-layout-netlist", url: postLayoutNetlistURL, runDirectory: runDirectory))
             stages.append(Stage(
                 name: "pex-injection",
                 status: configuration.pexIR.elements.isEmpty ? .failed : .passed,
@@ -606,9 +606,10 @@ public final class HeadlessRoundTripService {
         let comparisonReportURL = runDirectory.appending(path: "post-layout-comparison.json")
         do {
             try writeJSON(comparisonReport, to: comparisonReportURL)
-            artifacts.append(Artifact(
+            artifacts.append(artifact(
                 kind: "post-layout-comparison",
-                path: comparisonReportURL.path(percentEncoded: false)
+                url: comparisonReportURL,
+                runDirectory: runDirectory
             ))
         } catch {
             stages.append(Stage(
@@ -885,20 +886,14 @@ public final class HeadlessRoundTripService {
     ) async throws {
         let summaryURL = runDirectory.appending(path: "\(prefix)-simulation.json")
         try writeJSON(SimulationArtifactSummary(result: result), to: summaryURL)
-        artifacts.append(Artifact(
-            kind: "\(prefix)-simulation-report",
-            path: summaryURL.path(percentEncoded: false)
-        ))
+        artifacts.append(artifact(kind: "\(prefix)-simulation-report", url: summaryURL, runDirectory: runDirectory))
 
         guard let waveform = result.waveform else {
             return
         }
         let waveformURL = runDirectory.appending(path: "\(prefix)-waveform.csv")
         try await WaveformService().export(waveform: waveform, to: waveformURL)
-        artifacts.append(Artifact(
-            kind: "\(prefix)-waveform",
-            path: waveformURL.path(percentEncoded: false)
-        ))
+        artifacts.append(artifact(kind: "\(prefix)-waveform", url: waveformURL, runDirectory: runDirectory))
     }
 
     private func persistAutoLayoutArtifacts(
@@ -910,14 +905,8 @@ public final class HeadlessRoundTripService {
         let designUnitURL = runDirectory.appending(path: "design-unit.json")
         try writeJSON(output.document, to: layoutURL)
         try writeJSON(output.designUnit, to: designUnitURL)
-        artifacts.append(Artifact(
-            kind: "layout-document",
-            path: layoutURL.path(percentEncoded: false)
-        ))
-        artifacts.append(Artifact(
-            kind: "design-unit",
-            path: designUnitURL.path(percentEncoded: false)
-        ))
+        artifacts.append(artifact(kind: "layout-document", url: layoutURL, runDirectory: runDirectory))
+        artifacts.append(artifact(kind: "design-unit", url: designUnitURL, runDirectory: runDirectory))
     }
 
     private func persistPrePEXVerificationArtifact(
@@ -927,10 +916,7 @@ public final class HeadlessRoundTripService {
     ) throws {
         let reportURL = runDirectory.appending(path: "physical-verification.json")
         try writeJSON(DesignFlowVerificationReport(report: report), to: reportURL)
-        artifacts.append(Artifact(
-            kind: "physical-verification-report",
-            path: reportURL.path(percentEncoded: false)
-        ))
+        artifacts.append(artifact(kind: "physical-verification-report", url: reportURL, runDirectory: runDirectory))
     }
 
     private func captureInputArtifacts(
@@ -957,7 +943,7 @@ public final class HeadlessRoundTripService {
             }
 
             if isArtifactAlreadyInsideRunDirectory(sourceURL: sourceURL, runDirectory: runDirectory) {
-                return Artifact(kind: kind, path: sourcePath)
+                return artifact(kind: kind, url: sourceURL, runDirectory: runDirectory)
             }
 
             let resolvedSourceURL = sourceURL.resolvingSymlinksInPath()
@@ -974,12 +960,66 @@ public final class HeadlessRoundTripService {
                 )
             }
 
-            return Artifact(
+            return artifact(
                 kind: kind,
-                path: destinationURL.path(percentEncoded: false),
+                url: destinationURL,
+                runDirectory: runDirectory,
                 sourcePath: sourcePath
             )
         }
+    }
+
+    private func artifact(
+        kind: String,
+        url: URL,
+        runDirectory: URL,
+        sourcePath: String? = nil
+    ) -> Artifact {
+        Artifact(
+            kind: kind,
+            path: runRelativePath(for: url, runDirectory: runDirectory),
+            sourcePath: sourcePath
+        )
+    }
+
+    private func runRelativePath(for url: URL, runDirectory: URL) -> String {
+        let path = standardizedPath(url)
+        let directoryPath = standardizedPath(runDirectory)
+        if path == directoryPath {
+            return "."
+        }
+        if path.hasPrefix(directoryPath + "/") {
+            return String(path.dropFirst(directoryPath.count + 1))
+        }
+        let resolved = resolvedPath(url)
+        let resolvedDirectory = resolvedPath(runDirectory)
+        if resolved == resolvedDirectory {
+            return "."
+        }
+        if resolved.hasPrefix(resolvedDirectory + "/") {
+            return String(resolved.dropFirst(resolvedDirectory.count + 1))
+        }
+        if let markerRelativePath = markerRelativePath(for: url, runDirectory: runDirectory) {
+            return markerRelativePath
+        }
+        return path
+    }
+
+    private func markerRelativePath(for url: URL, runDirectory: URL) -> String? {
+        let pathComponents = url.standardizedFileURL.pathComponents
+        let marker = [".xcircuite", "flow-runs", runDirectory.lastPathComponent]
+        guard pathComponents.count >= marker.count else {
+            return nil
+        }
+        for index in 0...(pathComponents.count - marker.count) {
+            let candidate = Array(pathComponents[index..<(index + marker.count)])
+            guard candidate == marker else {
+                continue
+            }
+            let relativeComponents = pathComponents.dropFirst(index + marker.count)
+            return relativeComponents.isEmpty ? "." : relativeComponents.joined(separator: "/")
+        }
+        return nil
     }
 
     private func uniqueCaptureURL(
