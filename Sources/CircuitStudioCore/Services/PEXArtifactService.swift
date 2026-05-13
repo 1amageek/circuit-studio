@@ -29,7 +29,8 @@ public struct PEXArtifactService: Sendable {
             let records = resolver.records(kind: .rawOutput, cornerID: corner, status: .available)
                 + resolver.records(kind: .parasiticIR, cornerID: corner, status: .available)
                 + resolver.records(kind: .log, cornerID: corner, status: .available)
-            return [manifestURL] + records.map { resolver.url(for: $0) }
+            let artifactURLs = try records.map { try resolver.validatedURL(for: $0) }
+            return [manifestURL] + artifactURLs
         } catch {
             throw StudioError.projectLoadFailed("Failed to resolve PEX audit artifacts: \(error.localizedDescription)")
         }
