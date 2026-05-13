@@ -220,6 +220,52 @@ struct PostLayoutComparisonServiceTests {
         })
     }
 
+    @Test func oscillationMetricLimitsGateFrequencyAmplitudeAndDuty() throws {
+        let preLayout = SimulationResult(
+            experimentID: UUID(),
+            status: .completed,
+            waveform: makeWaveform(
+                sweepValues: [0, 1, 2, 3, 4],
+                variables: ["out"],
+                values: [[0], [1], [0], [1], [0]]
+            )
+        )
+        let postLayout = SimulationResult(
+            experimentID: UUID(),
+            status: .completed,
+            waveform: makeWaveform(
+                sweepValues: [0, 1, 2, 3, 4],
+                variables: ["out"],
+                values: [[0], [0.9], [0], [0.9], [0]]
+            )
+        )
+
+        let report = PostLayoutComparisonService().compare(
+            preLayoutResult: preLayout,
+            postLayoutResult: postLayout
+        )
+        let metric = try #require(report.oscillationMetrics.first { $0.variableName == "V(out)" })
+        let limits = PostLayoutComparisonLimits(
+            oscillationMetricLimits: [
+                PostLayoutOscillationMetricLimit(
+                    variableName: "V(out)",
+                    minTransitionCount: 4,
+                    minAmplitude: 0.8,
+                    maxFrequencyRelativeDelta: 1.0e-12,
+                    maxDutyCycleDelta: 0.1
+                ),
+            ]
+        )
+        let gatedReport = report.applyingLimits(limits)
+
+        #expect(metric.preLayout?.transitionCount == 4)
+        #expect(metric.postLayout?.transitionCount == 4)
+        #expect((metric.frequencyRelativeDelta ?? 1) < 1.0e-12)
+        #expect((metric.dutyCycleDelta ?? 1) < 0.1)
+        #expect(gatedReport.gateStatus == "passed")
+        #expect(gatedReport.gateViolations.isEmpty)
+    }
+
     @Test func aggregateMultiCornerReportPreservesWorstCornerAndGateStatus() {
         let passing = PostLayoutComparisonReport(
             status: "compared",

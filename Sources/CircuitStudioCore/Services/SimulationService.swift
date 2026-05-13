@@ -245,6 +245,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         let plan: ExecutionPlan
         let devices: [any BoundDevice]
         let nodeNameMap: [String: Node]
+        let nodeNamesByID: [Int: String]
     }
 
     private func loadPipeline(
@@ -290,10 +291,17 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             throw StudioError.deviceBindingFailure("\(error)")
         }
 
-        // Build node name → Node mapping from parsed components + IR instances
-        let nodeNameMap = Self.buildNodeNameMap(netlist: netlist, ir: ir)
+        // Build node name provenance from parsed components + IR instances.
+        let nodeNameMaps = Self.buildNodeNameMaps(netlist: netlist, ir: ir)
 
-        return Pipeline(netlist: netlist, ir: ir, plan: plan, devices: devices, nodeNameMap: nodeNameMap)
+        return Pipeline(
+            netlist: netlist,
+            ir: ir,
+            plan: plan,
+            devices: devices,
+            nodeNameMap: nodeNameMaps.nodeByName,
+            nodeNamesByID: nodeNameMaps.nameByNodeID
+        )
     }
 
     private func parseNetlist(
@@ -375,10 +383,13 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         }
     }
 
-    /// Builds a mapping from node name strings to Node objects.
-    /// Uses the parsed netlist component nodes and the corresponding IR instances.
-    private static func buildNodeNameMap(netlist: ParsedNetlist, ir: CircuitIR) -> [String: Node] {
-        var map: [String: Node] = ["0": .ground, "gnd": .ground]
+    /// Builds node-name provenance from parsed netlist nodes and matching IR instances.
+    private static func buildNodeNameMaps(
+        netlist: ParsedNetlist,
+        ir: CircuitIR
+    ) -> (nodeByName: [String: Node], nameByNodeID: [Int: String]) {
+        var nodeByName: [String: Node] = ["0": .ground, "gnd": .ground]
+        var nameByNodeID: [Int: String] = [Node.ground.id: "0"]
 
         // Build an instance lookup by name from the IR
         var irInstanceByName: [String: Instance] = [:]
@@ -394,13 +405,16 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             let nodeNames = component.nodes.map(\.name)
             for (name, node) in zip(nodeNames, irInstance.nodes) {
                 let normalizedName = name.lowercased()
-                if map[normalizedName] == nil {
-                    map[normalizedName] = node
+                if nodeByName[normalizedName] == nil {
+                    nodeByName[normalizedName] = node
+                }
+                if nameByNodeID[node.id] == nil {
+                    nameByNodeID[node.id] = name
                 }
             }
         }
 
-        return map
+        return (nodeByName, nameByNodeID)
     }
 
     // MARK: - Analysis Execution
@@ -416,6 +430,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         let devices = pipeline.devices
         let solver = SparseLUSolver()
         let topology = plan.topology.circuitTopology
+        let nodeNamesByID = pipeline.nodeNamesByID
 
         // Robust convergence config for circuits with nonlinear devices
         // (MOSFETs, BJTs, diodes). Slightly elevated gmin and iteration
@@ -434,7 +449,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 plan: plan, devices: devices, solver: solver,
                 observer: nil, cancellation: cancellation
             )
-            return WaveformData.from(dcResult: result, topology: topology, title: "Operating Point")
+            return Self.applyingNodeNames(
+                WaveformData.from(dcResult: result, topology: topology, title: "Operating Point"),
+                nodeNamesByID: nodeNamesByID
+            )
 
         case .tran(let spec):
             let config = TransientConfig(
@@ -452,7 +470,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             // Polling task owns the builder (local variable, no sharing).
             // Drains the channel every 200ms and builds incremental WaveformData.
             let pollingTask = Task { [weak self] in
-                var builder = TransientWaveformBuilder(variableMap: variableMap)
+                var builder = TransientWaveformBuilder(
+                    variableMap: variableMap,
+                    nodeNamesByID: nodeNamesByID
+                )
                 while !Task.isCancelled {
                     do {
                         try await Task.sleep(for: .milliseconds(200))
@@ -492,7 +513,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 )
                 pollingTask.cancel()
                 await pollingTask.value
-                return WaveformData.from(transientResult: result, topology: topology, title: "Transient")
+                return Self.applyingNodeNames(
+                    WaveformData.from(transientResult: result, topology: topology, title: "Transient"),
+                    nodeNamesByID: nodeNamesByID
+                )
             } catch {
                 pollingTask.cancel()
                 await pollingTask.value
@@ -515,7 +539,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 plan: plan, devices: devices, solver: solver,
                 observer: nil, cancellation: cancellation
             )
-            return WaveformData.from(acResult: result, topology: topology, title: "AC")
+            return Self.applyingNodeNames(
+                WaveformData.from(acResult: result, topology: topology, title: "AC"),
+                nodeNamesByID: nodeNamesByID
+            )
 
         case .dcSweep(let spec):
             guard spec.stepValue != 0 else {
@@ -539,7 +566,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             }
 
             let sweepResult = SweepResult(parameterName: spec.source, values: values, results: results)
-            return WaveformData.from(sweepResult: sweepResult, topology: topology, title: "DC Sweep")
+            return Self.applyingNodeNames(
+                WaveformData.from(sweepResult: sweepResult, topology: topology, title: "DC Sweep"),
+                nodeNamesByID: nodeNamesByID
+            )
 
         case .noise(let spec):
             let outputNode = try resolveNode(name: spec.outputNode, pipeline: pipeline)
@@ -562,7 +592,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 plan: plan, devices: devices, solver: solver,
                 observer: nil, cancellation: cancellation
             )
-            return Self.waveformFromNoiseResult(result, title: "Noise")
+            return Self.applyingNodeNames(
+                Self.waveformFromNoiseResult(result, title: "Noise"),
+                nodeNamesByID: nodeNamesByID
+            )
 
         case .tf(let spec):
             let outputNode = try resolveNode(name: spec.output, pipeline: pipeline)
@@ -574,7 +607,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 plan: plan, devices: devices, solver: solver,
                 observer: nil, cancellation: cancellation
             )
-            return WaveformData.from(transferFunctionResult: result, title: "Transfer Function")
+            return Self.applyingNodeNames(
+                WaveformData.from(transferFunctionResult: result, title: "Transfer Function"),
+                nodeNamesByID: nodeNamesByID
+            )
 
         case .pz(let spec):
             let outputNode = try resolveNode(name: spec.outputNode, pipeline: pipeline)
@@ -586,7 +622,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 plan: plan, devices: devices, solver: solver,
                 observer: nil, cancellation: cancellation
             )
-            return Self.waveformFromPoleZeroResult(result, title: "Pole-Zero")
+            return Self.applyingNodeNames(
+                Self.waveformFromPoleZeroResult(result, title: "Pole-Zero"),
+                nodeNamesByID: nodeNamesByID
+            )
         }
     }
 
@@ -598,6 +637,76 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             return node
         }
         throw StudioError.simulationFailure("Cannot resolve node name '\(name)' to a circuit node")
+    }
+
+    private static func applyingNodeNames(
+        _ waveform: WaveformData,
+        nodeNamesByID: [Int: String]
+    ) -> WaveformData {
+        guard !nodeNamesByID.isEmpty else {
+            return waveform
+        }
+
+        let variables = waveform.variables.map { descriptor in
+            guard descriptor.type == .voltage,
+                  let nodeID = nodeID(fromVoltageVariableName: descriptor.name),
+                  let nodeName = nodeNamesByID[nodeID] else {
+                return descriptor
+            }
+            return VariableDescriptor(
+                name: "V(\(nodeName))",
+                unit: descriptor.unit,
+                type: descriptor.type,
+                index: descriptor.index
+            )
+        }
+
+        if waveform.isComplex {
+            var complexData: [[(real: Double, imag: Double)]] = []
+            complexData.reserveCapacity(waveform.pointCount)
+            for point in 0..<waveform.pointCount {
+                var row: [(real: Double, imag: Double)] = []
+                row.reserveCapacity(waveform.variableCount)
+                for variable in 0..<waveform.variableCount {
+                    row.append(waveform.complexValue(variable: variable, point: point) ?? (real: 0, imag: 0))
+                }
+                complexData.append(row)
+            }
+            return WaveformData(
+                metadata: waveform.metadata,
+                sweepVariable: waveform.sweepVariable,
+                sweepValues: waveform.sweepValues,
+                variables: variables,
+                complexData: complexData
+            )
+        }
+
+        var realData: [[Double]] = []
+        realData.reserveCapacity(waveform.pointCount)
+        for point in 0..<waveform.pointCount {
+            var row: [Double] = []
+            row.reserveCapacity(waveform.variableCount)
+            for variable in 0..<waveform.variableCount {
+                row.append(waveform.realValue(variable: variable, point: point) ?? 0)
+            }
+            realData.append(row)
+        }
+        return WaveformData(
+            metadata: waveform.metadata,
+            sweepVariable: waveform.sweepVariable,
+            sweepValues: waveform.sweepValues,
+            variables: variables,
+            realData: realData
+        )
+    }
+
+    private static func nodeID(fromVoltageVariableName name: String) -> Int? {
+        guard name.hasPrefix("V("), name.hasSuffix(")") else {
+            return nil
+        }
+        let start = name.index(name.startIndex, offsetBy: 2)
+        let end = name.index(before: name.endIndex)
+        return Int(name[start..<end])
     }
 
     // MARK: - WaveformData Conversion for Noise/PoleZero

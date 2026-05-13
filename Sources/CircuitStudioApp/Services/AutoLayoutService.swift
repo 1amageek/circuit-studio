@@ -379,7 +379,8 @@ public final class AutoLayoutService {
                     instanceID: conn.componentID,
                     pinName: conn.portID,
                     absolutePosition: absPos,
-                    layer: m1ID
+                    layer: m1ID,
+                    size: cellPin.size
                 )
             }
 
@@ -434,7 +435,10 @@ public final class AutoLayoutService {
         componentToCellID: [UUID: UUID]
     ) -> LayoutDocument {
         // Create top cell with instances and routing shapes
-        var topShapes: [LayoutShape] = placement.powerRails
+        var topShapes: [LayoutShape] = assignPowerRailNets(
+            placement.powerRails,
+            routingNets: routingNets
+        )
         var topVias: [LayoutVia] = []
         var topInstances: [LayoutInstance] = []
         var topNets: [LayoutNet] = []
@@ -512,6 +516,64 @@ public final class AutoLayoutService {
         guard !addedNetIDs.contains(id) else { return }
         nets.append(LayoutNet(id: id, name: name))
         addedNetIDs.insert(id)
+    }
+
+    private func assignPowerRailNets(
+        _ powerRails: [LayoutShape],
+        routingNets: [RoutingNet]
+    ) -> [LayoutShape] {
+        let groundNetID = routingNets.first {
+            let name = $0.name.lowercased()
+            return name == "0" || name == "vss" || name == "gnd"
+        }?.id
+        let supplyNetID = routingNets.first {
+            let name = $0.name.lowercased()
+            return name == "vdd" || name == "vcc"
+        }?.id
+
+        let indexedRails = powerRails.enumerated().sorted {
+            railCenterY($0.element) < railCenterY($1.element)
+        }
+        var netIDsByIndex: [Int: UUID] = [:]
+        if let first = indexedRails.first, let groundNetID {
+            netIDsByIndex[first.offset] = groundNetID
+        }
+        if let last = indexedRails.last, let supplyNetID {
+            netIDsByIndex[last.offset] = supplyNetID
+        }
+
+        return powerRails.enumerated().map { index, shape in
+            var nettedShape = shape
+            if let netID = netIDsByIndex[index] {
+                nettedShape.netID = netID
+            }
+            return nettedShape
+        }
+    }
+
+    private func railCenterY(_ shape: LayoutShape) -> Double {
+        switch shape.geometry {
+        case .rect(let rect):
+            return rect.origin.y + rect.size.height / 2
+        case .polygon(let polygon):
+            guard let first = polygon.points.first else { return 0 }
+            var minY = first.y
+            var maxY = first.y
+            for point in polygon.points.dropFirst() {
+                minY = min(minY, point.y)
+                maxY = max(maxY, point.y)
+            }
+            return (minY + maxY) / 2
+        case .path(let path):
+            guard let first = path.points.first else { return 0 }
+            var minY = first.y
+            var maxY = first.y
+            for point in path.points.dropFirst() {
+                minY = min(minY, point.y)
+                maxY = max(maxY, point.y)
+            }
+            return (minY + maxY) / 2
+        }
     }
 
     // MARK: - DesignUnit

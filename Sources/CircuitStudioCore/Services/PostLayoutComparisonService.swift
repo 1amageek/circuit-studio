@@ -10,6 +10,7 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
     public let maxAbsoluteDelta: Double
     public let maxRelativeDelta: Double
     public let comparedVariables: [PostLayoutVariableComparison]
+    public let oscillationMetrics: [PostLayoutOscillationMetricComparison]
     public let missingInPostLayout: [String]
     public let addedInPostLayout: [String]
     public let diagnostics: [String]
@@ -26,6 +27,7 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
         maxAbsoluteDelta: Double,
         maxRelativeDelta: Double,
         comparedVariables: [PostLayoutVariableComparison],
+        oscillationMetrics: [PostLayoutOscillationMetricComparison] = [],
         missingInPostLayout: [String],
         addedInPostLayout: [String],
         diagnostics: [String],
@@ -41,6 +43,7 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
         self.comparedVariables = comparedVariables
+        self.oscillationMetrics = oscillationMetrics
         self.missingInPostLayout = missingInPostLayout
         self.addedInPostLayout = addedInPostLayout
         self.diagnostics = diagnostics
@@ -96,6 +99,19 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
                 )
             }
         }
+        var oscillationMetricsByName: [String: PostLayoutOscillationMetricComparison] = [:]
+        for metric in oscillationMetrics where oscillationMetricsByName[metric.variableName] == nil {
+            oscillationMetricsByName[metric.variableName] = metric
+        }
+        for metricLimit in limits.oscillationMetricLimits {
+            guard let metric = oscillationMetricsByName[metricLimit.variableName] else {
+                violations.append(
+                    "Post-layout oscillation metric for \(metricLimit.variableName) was not computed."
+                )
+                continue
+            }
+            violations.append(contentsOf: metric.limitViolations(metricLimit))
+        }
         return violations
     }
 
@@ -110,6 +126,7 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
                 maxAbsoluteDelta: maxAbsoluteDelta,
                 maxRelativeDelta: maxRelativeDelta,
                 comparedVariables: comparedVariables,
+                oscillationMetrics: oscillationMetrics,
                 missingInPostLayout: missingInPostLayout,
                 addedInPostLayout: addedInPostLayout,
                 diagnostics: diagnostics,
@@ -129,6 +146,7 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
             maxAbsoluteDelta: maxAbsoluteDelta,
             maxRelativeDelta: maxRelativeDelta,
             comparedVariables: comparedVariables,
+            oscillationMetrics: oscillationMetrics,
             missingInPostLayout: missingInPostLayout,
             addedInPostLayout: addedInPostLayout,
             diagnostics: diagnostics,
@@ -143,21 +161,25 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
     public let variableLimits: [PostLayoutVariableComparisonLimit]
+    public let oscillationMetricLimits: [PostLayoutOscillationMetricLimit]
 
     public init(
         maxAbsoluteDelta: Double? = nil,
         maxRelativeDelta: Double? = nil,
-        variableLimits: [PostLayoutVariableComparisonLimit] = []
+        variableLimits: [PostLayoutVariableComparisonLimit] = [],
+        oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = []
     ) {
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
         self.variableLimits = variableLimits
+        self.oscillationMetricLimits = oscillationMetricLimits
     }
 
     private enum CodingKeys: String, CodingKey {
         case maxAbsoluteDelta
         case maxRelativeDelta
         case variableLimits
+        case oscillationMetricLimits
     }
 
     public init(from decoder: Decoder) throws {
@@ -167,6 +189,10 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
         self.variableLimits = try container.decodeIfPresent(
             [PostLayoutVariableComparisonLimit].self,
             forKey: .variableLimits
+        ) ?? []
+        self.oscillationMetricLimits = try container.decodeIfPresent(
+            [PostLayoutOscillationMetricLimit].self,
+            forKey: .oscillationMetricLimits
         ) ?? []
     }
 
@@ -183,6 +209,13 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
             diagnostics.append(contentsOf: variableLimit.validationDiagnostics())
             if !seenVariableNames.insert(variableLimit.variableName).inserted {
                 diagnostics.append("Duplicate variable-specific comparison limit: \(variableLimit.variableName).")
+            }
+        }
+        var seenOscillationVariableNames = Set<String>()
+        for metricLimit in oscillationMetricLimits {
+            diagnostics.append(contentsOf: metricLimit.validationDiagnostics())
+            if !seenOscillationVariableNames.insert(metricLimit.variableName).inserted {
+                diagnostics.append("Duplicate oscillation metric limit: \(metricLimit.variableName).")
             }
         }
         return diagnostics
@@ -234,6 +267,71 @@ public struct PostLayoutVariableComparisonLimit: Sendable, Hashable, Codable {
     }
 }
 
+public struct PostLayoutOscillationMetricLimit: Sendable, Hashable, Codable {
+    public let variableName: String
+    public let threshold: Double?
+    public let minTransitionCount: Int?
+    public let minAmplitude: Double?
+    public let maxFrequencyRelativeDelta: Double?
+    public let maxPeriodRelativeDelta: Double?
+    public let maxDutyCycleDelta: Double?
+
+    public init(
+        variableName: String,
+        threshold: Double? = nil,
+        minTransitionCount: Int? = nil,
+        minAmplitude: Double? = nil,
+        maxFrequencyRelativeDelta: Double? = nil,
+        maxPeriodRelativeDelta: Double? = nil,
+        maxDutyCycleDelta: Double? = nil
+    ) {
+        self.variableName = variableName
+        self.threshold = threshold
+        self.minTransitionCount = minTransitionCount
+        self.minAmplitude = minAmplitude
+        self.maxFrequencyRelativeDelta = maxFrequencyRelativeDelta
+        self.maxPeriodRelativeDelta = maxPeriodRelativeDelta
+        self.maxDutyCycleDelta = maxDutyCycleDelta
+    }
+
+    public func validationDiagnostics() -> [String] {
+        var diagnostics: [String] = []
+        if variableName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            diagnostics.append("Oscillation metric limit has an empty variable name.")
+        }
+        if threshold.map({ !$0.isFinite }) == true {
+            diagnostics.append("Invalid oscillation threshold for \(variableName): \(threshold ?? .nan).")
+        }
+        if let minTransitionCount, minTransitionCount < 0 {
+            diagnostics.append("Invalid minimum transition count for \(variableName): \(minTransitionCount).")
+        }
+        if let minAmplitude, !Self.isValidNonNegativeLimit(minAmplitude) {
+            diagnostics.append("Invalid minimum amplitude for \(variableName): \(minAmplitude).")
+        }
+        if let maxFrequencyRelativeDelta, !Self.isValidNonNegativeLimit(maxFrequencyRelativeDelta) {
+            diagnostics.append("Invalid maximum frequency relative delta for \(variableName): \(maxFrequencyRelativeDelta).")
+        }
+        if let maxPeriodRelativeDelta, !Self.isValidNonNegativeLimit(maxPeriodRelativeDelta) {
+            diagnostics.append("Invalid maximum period relative delta for \(variableName): \(maxPeriodRelativeDelta).")
+        }
+        if let maxDutyCycleDelta, !Self.isValidNonNegativeLimit(maxDutyCycleDelta) {
+            diagnostics.append("Invalid maximum duty cycle delta for \(variableName): \(maxDutyCycleDelta).")
+        }
+        if minTransitionCount == nil
+            && minAmplitude == nil
+            && maxFrequencyRelativeDelta == nil
+            && maxPeriodRelativeDelta == nil
+            && maxDutyCycleDelta == nil {
+            diagnostics.append("Oscillation metric limit for \(variableName) has no numeric limit.")
+        }
+        return diagnostics
+    }
+
+    private static func isValidNonNegativeLimit(_ value: Double) -> Bool {
+        value.isFinite && value >= 0
+    }
+}
+
 public struct PostLayoutVariableComparison: Sendable, Hashable, Codable {
     public let variableName: String
     public let maxAbsoluteDelta: Double
@@ -259,6 +357,148 @@ public struct PostLayoutVariableComparison: Sendable, Hashable, Codable {
         self.firstPostLayoutValue = firstPostLayoutValue
         self.lastPreLayoutValue = lastPreLayoutValue
         self.lastPostLayoutValue = lastPostLayoutValue
+    }
+}
+
+public struct PostLayoutOscillationMetrics: Sendable, Hashable, Codable {
+    public let transitionCount: Int
+    public let risingEdgeCount: Int
+    public let fallingEdgeCount: Int
+    public let minValue: Double
+    public let maxValue: Double
+    public let amplitude: Double
+    public let averagePeriod: Double?
+    public let frequency: Double?
+    public let dutyCycle: Double?
+    public let firstRisingEdgeTime: Double?
+    public let lastRisingEdgeTime: Double?
+
+    public init(
+        transitionCount: Int,
+        risingEdgeCount: Int,
+        fallingEdgeCount: Int,
+        minValue: Double,
+        maxValue: Double,
+        amplitude: Double,
+        averagePeriod: Double?,
+        frequency: Double?,
+        dutyCycle: Double?,
+        firstRisingEdgeTime: Double?,
+        lastRisingEdgeTime: Double?
+    ) {
+        self.transitionCount = transitionCount
+        self.risingEdgeCount = risingEdgeCount
+        self.fallingEdgeCount = fallingEdgeCount
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.amplitude = amplitude
+        self.averagePeriod = averagePeriod
+        self.frequency = frequency
+        self.dutyCycle = dutyCycle
+        self.firstRisingEdgeTime = firstRisingEdgeTime
+        self.lastRisingEdgeTime = lastRisingEdgeTime
+    }
+}
+
+public struct PostLayoutOscillationMetricComparison: Sendable, Hashable, Codable {
+    public let variableName: String
+    public let threshold: Double
+    public let preLayout: PostLayoutOscillationMetrics?
+    public let postLayout: PostLayoutOscillationMetrics?
+    public let frequencyRelativeDelta: Double?
+    public let periodRelativeDelta: Double?
+    public let dutyCycleDelta: Double?
+    public let diagnostics: [String]
+
+    public init(
+        variableName: String,
+        threshold: Double,
+        preLayout: PostLayoutOscillationMetrics?,
+        postLayout: PostLayoutOscillationMetrics?,
+        frequencyRelativeDelta: Double?,
+        periodRelativeDelta: Double?,
+        dutyCycleDelta: Double?,
+        diagnostics: [String]
+    ) {
+        self.variableName = variableName
+        self.threshold = threshold
+        self.preLayout = preLayout
+        self.postLayout = postLayout
+        self.frequencyRelativeDelta = frequencyRelativeDelta
+        self.periodRelativeDelta = periodRelativeDelta
+        self.dutyCycleDelta = dutyCycleDelta
+        self.diagnostics = diagnostics
+    }
+
+    public func limitViolations(_ limit: PostLayoutOscillationMetricLimit) -> [String] {
+        var violations: [String] = []
+        if !diagnostics.isEmpty {
+            violations.append(
+                "Post-layout oscillation metric for \(variableName) is not comparable: \(diagnostics.joined(separator: "; "))."
+            )
+        }
+        guard let preLayout, let postLayout else {
+            violations.append("Post-layout oscillation metric for \(variableName) is missing pre or post data.")
+            return violations
+        }
+        if let minTransitionCount = limit.minTransitionCount {
+            if preLayout.transitionCount < minTransitionCount {
+                violations.append(
+                    "Pre-layout oscillation transition count \(preLayout.transitionCount) for \(variableName) is below limit \(minTransitionCount)."
+                )
+            }
+            if postLayout.transitionCount < minTransitionCount {
+                violations.append(
+                    "Post-layout oscillation transition count \(postLayout.transitionCount) for \(variableName) is below limit \(minTransitionCount)."
+                )
+            }
+        }
+        if let minAmplitude = limit.minAmplitude {
+            if preLayout.amplitude < minAmplitude {
+                violations.append(
+                    "Pre-layout oscillation amplitude \(preLayout.amplitude) for \(variableName) is below limit \(minAmplitude)."
+                )
+            }
+            if postLayout.amplitude < minAmplitude {
+                violations.append(
+                    "Post-layout oscillation amplitude \(postLayout.amplitude) for \(variableName) is below limit \(minAmplitude)."
+                )
+            }
+        }
+        if let maxFrequencyRelativeDelta = limit.maxFrequencyRelativeDelta {
+            guard let frequencyRelativeDelta else {
+                violations.append("Post-layout oscillation frequency delta for \(variableName) is unavailable.")
+                return violations
+            }
+            if frequencyRelativeDelta > maxFrequencyRelativeDelta {
+                violations.append(
+                    "Post-layout oscillation frequency relative delta \(frequencyRelativeDelta) for \(variableName) exceeds limit \(maxFrequencyRelativeDelta)."
+                )
+            }
+        }
+        if let maxPeriodRelativeDelta = limit.maxPeriodRelativeDelta {
+            guard let periodRelativeDelta else {
+                violations.append("Post-layout oscillation period delta for \(variableName) is unavailable.")
+                return violations
+            }
+            if periodRelativeDelta > maxPeriodRelativeDelta {
+                violations.append(
+                    "Post-layout oscillation period relative delta \(periodRelativeDelta) for \(variableName) exceeds limit \(maxPeriodRelativeDelta)."
+                )
+            }
+        }
+        if let maxDutyCycleDelta = limit.maxDutyCycleDelta {
+            guard let dutyCycleDelta else {
+                violations.append("Post-layout oscillation duty-cycle delta for \(variableName) is unavailable.")
+                return violations
+            }
+            if dutyCycleDelta > maxDutyCycleDelta {
+                violations.append(
+                    "Post-layout oscillation duty-cycle delta \(dutyCycleDelta) for \(variableName) exceeds limit \(maxDutyCycleDelta)."
+                )
+            }
+        }
+        return violations
     }
 }
 
@@ -357,6 +597,7 @@ public struct PostLayoutComparisonService: Sendable {
                 maxAbsoluteDelta: 0,
                 maxRelativeDelta: 0,
                 comparedVariables: [],
+                oscillationMetrics: [],
                 missingInPostLayout: preVariableNames.filter { !postNameSet.contains($0) },
                 addedInPostLayout: postVariableNames.filter { !preNameSet.contains($0) },
                 diagnostics: diagnostics
@@ -385,6 +626,13 @@ public struct PostLayoutComparisonService: Sendable {
 
         let maxAbsoluteDelta = comparisons.map(\.maxAbsoluteDelta).max() ?? 0
         let maxRelativeDelta = comparisons.map(\.maxRelativeDelta).max() ?? 0
+        let oscillationMetrics = commonVariableNames.compactMap { variableName in
+            compareOscillationMetric(
+                named: variableName,
+                preLayoutWaveform: preLayoutWaveform,
+                postLayoutWaveform: postLayoutWaveform
+            )
+        }
 
         return PostLayoutComparisonReport(
             status: comparisons.isEmpty ? "not-comparable" : "compared",
@@ -395,6 +643,7 @@ public struct PostLayoutComparisonService: Sendable {
             maxAbsoluteDelta: maxAbsoluteDelta,
             maxRelativeDelta: maxRelativeDelta,
             comparedVariables: comparisons,
+            oscillationMetrics: oscillationMetrics,
             missingInPostLayout: preVariableNames.filter { !postNameSet.contains($0) },
             addedInPostLayout: postVariableNames.filter { !preNameSet.contains($0) },
             diagnostics: comparisonDiagnostics
@@ -637,6 +886,166 @@ public struct PostLayoutComparisonService: Sendable {
         return waveform.realValue(variable: variable, point: point)
     }
 
+    private func compareOscillationMetric(
+        named variableName: String,
+        preLayoutWaveform: WaveformData,
+        postLayoutWaveform: WaveformData
+    ) -> PostLayoutOscillationMetricComparison? {
+        guard let preIndex = preLayoutWaveform.variableIndex(named: variableName),
+              let postIndex = postLayoutWaveform.variableIndex(named: variableName),
+              let preValues = realValues(waveform: preLayoutWaveform, variable: preIndex),
+              let postValues = realValues(waveform: postLayoutWaveform, variable: postIndex) else {
+            return nil
+        }
+
+        let combinedMin = min(preValues.min() ?? 0, postValues.min() ?? 0)
+        let combinedMax = max(preValues.max() ?? 0, postValues.max() ?? 0)
+        guard combinedMax > combinedMin else {
+            return PostLayoutOscillationMetricComparison(
+                variableName: variableName,
+                threshold: combinedMin,
+                preLayout: nil,
+                postLayout: nil,
+                frequencyRelativeDelta: nil,
+                periodRelativeDelta: nil,
+                dutyCycleDelta: nil,
+                diagnostics: ["Waveform amplitude is zero."]
+            )
+        }
+
+        let threshold = (combinedMin + combinedMax) / 2.0
+        let preMetrics = oscillationMetrics(
+            sweepValues: preLayoutWaveform.sweepValues,
+            values: preValues,
+            threshold: threshold
+        )
+        let postMetrics = oscillationMetrics(
+            sweepValues: postLayoutWaveform.sweepValues,
+            values: postValues,
+            threshold: threshold
+        )
+        var diagnostics: [String] = []
+        if preMetrics.transitionCount == 0 {
+            diagnostics.append("Pre-layout waveform has no threshold transitions.")
+        }
+        if postMetrics.transitionCount == 0 {
+            diagnostics.append("Post-layout waveform has no threshold transitions.")
+        }
+
+        return PostLayoutOscillationMetricComparison(
+            variableName: variableName,
+            threshold: threshold,
+            preLayout: preMetrics,
+            postLayout: postMetrics,
+            frequencyRelativeDelta: relativeDelta(preMetrics.frequency, postMetrics.frequency),
+            periodRelativeDelta: relativeDelta(preMetrics.averagePeriod, postMetrics.averagePeriod),
+            dutyCycleDelta: absoluteDelta(preMetrics.dutyCycle, postMetrics.dutyCycle),
+            diagnostics: diagnostics
+        )
+    }
+
+    private func realValues(waveform: WaveformData, variable: Int) -> [Double]? {
+        var values: [Double] = []
+        values.reserveCapacity(waveform.pointCount)
+        for point in 0..<waveform.pointCount {
+            guard let value = comparableValue(waveform: waveform, variable: variable, point: point),
+                  value.isFinite else {
+                return nil
+            }
+            values.append(value)
+        }
+        return values
+    }
+
+    private func oscillationMetrics(
+        sweepValues: [Double],
+        values: [Double],
+        threshold: Double
+    ) -> PostLayoutOscillationMetrics {
+        guard !sweepValues.isEmpty, sweepValues.count == values.count else {
+            return PostLayoutOscillationMetrics(
+                transitionCount: 0,
+                risingEdgeCount: 0,
+                fallingEdgeCount: 0,
+                minValue: 0,
+                maxValue: 0,
+                amplitude: 0,
+                averagePeriod: nil,
+                frequency: nil,
+                dutyCycle: nil,
+                firstRisingEdgeTime: nil,
+                lastRisingEdgeTime: nil
+            )
+        }
+
+        let minValue = values.min() ?? 0
+        let maxValue = values.max() ?? 0
+        var risingEdges: [Double] = []
+        var fallingEdges: [Double] = []
+        var highDuration = 0.0
+
+        for index in 1..<values.count {
+            let previousValue = values[index - 1]
+            let currentValue = values[index]
+            let previousTime = sweepValues[index - 1]
+            let currentTime = sweepValues[index]
+            let duration = max(0, currentTime - previousTime)
+            let previousOffset = previousValue - threshold
+            let currentOffset = currentValue - threshold
+
+            if previousValue >= threshold && currentValue >= threshold {
+                highDuration += duration
+            } else if previousValue < threshold && currentValue < threshold {
+                continue
+            } else {
+                let crossingFraction = previousOffset == currentOffset
+                    ? 0.5
+                    : max(0, min(1, -previousOffset / (currentOffset - previousOffset)))
+                let crossingTime = previousTime + duration * crossingFraction
+                if previousValue < threshold && currentValue >= threshold {
+                    risingEdges.append(crossingTime)
+                    highDuration += max(0, currentTime - crossingTime)
+                } else {
+                    fallingEdges.append(crossingTime)
+                    highDuration += max(0, crossingTime - previousTime)
+                }
+            }
+        }
+
+        let periods = zip(risingEdges, risingEdges.dropFirst()).map { $1 - $0 }.filter { $0 > 0 }
+        let averagePeriod = periods.isEmpty ? nil : periods.reduce(0, +) / Double(periods.count)
+        let totalDuration = max(0, (sweepValues.last ?? 0) - (sweepValues.first ?? 0))
+        let dutyCycle = totalDuration > 0 ? highDuration / totalDuration : nil
+
+        return PostLayoutOscillationMetrics(
+            transitionCount: risingEdges.count + fallingEdges.count,
+            risingEdgeCount: risingEdges.count,
+            fallingEdgeCount: fallingEdges.count,
+            minValue: minValue,
+            maxValue: maxValue,
+            amplitude: maxValue - minValue,
+            averagePeriod: averagePeriod,
+            frequency: averagePeriod.map { 1.0 / $0 },
+            dutyCycle: dutyCycle,
+            firstRisingEdgeTime: risingEdges.first,
+            lastRisingEdgeTime: risingEdges.last
+        )
+    }
+
+    private func relativeDelta(_ lhs: Double?, _ rhs: Double?) -> Double? {
+        guard let lhs, let rhs, lhs.isFinite, rhs.isFinite else {
+            return nil
+        }
+        return abs(rhs - lhs) / max(abs(lhs), abs(rhs), 1.0e-30)
+    }
+
+    private func absoluteDelta(_ lhs: Double?, _ rhs: Double?) -> Double? {
+        guard let lhs, let rhs, lhs.isFinite, rhs.isFinite else {
+            return nil
+        }
+        return abs(rhs - lhs)
+    }
+
     private func missingWaveformReport(message: String) -> PostLayoutComparisonReport {
         PostLayoutComparisonReport(
             status: "not-comparable",
@@ -647,6 +1056,7 @@ public struct PostLayoutComparisonService: Sendable {
             maxAbsoluteDelta: 0,
             maxRelativeDelta: 0,
             comparedVariables: [],
+            oscillationMetrics: [],
             missingInPostLayout: [],
             addedInPostLayout: [],
             diagnostics: [message]

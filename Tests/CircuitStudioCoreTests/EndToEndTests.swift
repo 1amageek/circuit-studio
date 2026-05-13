@@ -33,6 +33,28 @@ struct EndToEndTests {
 
     // MARK: - J1: Basic Passive Circuit
 
+    @Test("J0: Waveform variables preserve SPICE node names", .timeLimit(.minutes(1)))
+    func waveformVariablesPreserveNodeNames() async throws {
+        let source = """
+        Named node waveform
+        V1 vdd 0 dc 1.8
+        R1 vdd out 1k
+        R2 out 0 1k
+        .op
+        .end
+        """
+
+        let result = try await service.runSPICE(source: source, fileName: nil)
+        #expect(result.status == .completed)
+
+        let waveform = try #require(result.waveform)
+        let variableNames = Set(waveform.variables.map(\.name))
+        #expect(variableNames.contains("V(vdd)"))
+        #expect(variableNames.contains("V(out)"))
+        #expect(!variableNames.contains("V(1)"))
+        #expect(!variableNames.contains("V(2)"))
+    }
+
     @Test("J1: Voltage divider operating point", .timeLimit(.minutes(1)))
     func voltageDividerOP() async throws {
         let source = """

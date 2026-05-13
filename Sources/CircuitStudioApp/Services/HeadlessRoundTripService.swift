@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import CoreSpiceWaveform
 import LayoutCore
 import LayoutTech
 
@@ -298,6 +299,22 @@ public final class HeadlessRoundTripService {
             message: preLayoutResult.status.rawValue,
             durationSeconds: duration(since: preLayoutSimulationStartedAt)
         ))
+        do {
+            try await persistSimulationArtifacts(
+                preLayoutResult,
+                prefix: "pre-layout",
+                runDirectory: runDirectory,
+                artifacts: &artifacts
+            )
+        } catch {
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
         guard preLayoutResult.status == .completed else {
             try failRun(
                 configuration: configuration,
@@ -314,7 +331,8 @@ public final class HeadlessRoundTripService {
             layoutOutput = try AutoLayoutService().generate(
                 from: schematic,
                 catalog: configuration.catalog,
-                tech: configuration.layoutTech
+                tech: configuration.layoutTech,
+                placementStrategy: .optimized
             )
         } catch {
             stages.append(Stage(
@@ -337,6 +355,21 @@ public final class HeadlessRoundTripService {
             message: layoutOutput.unroutedNets.isEmpty ? nil : "Unrouted nets: \(layoutOutput.unroutedNets.joined(separator: ", "))",
             durationSeconds: duration(since: autoLayoutStartedAt)
         ))
+        do {
+            try persistAutoLayoutArtifacts(
+                layoutOutput,
+                runDirectory: runDirectory,
+                artifacts: &artifacts
+            )
+        } catch {
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
         guard layoutOutput.unroutedNets.isEmpty else {
             try failRun(
                 configuration: configuration,
@@ -417,6 +450,28 @@ public final class HeadlessRoundTripService {
             catalog: configuration.catalog,
             externalSignoff: externalSignoff
         )
+        do {
+            try persistPrePEXVerificationArtifact(
+                verification,
+                runDirectory: runDirectory,
+                artifacts: &artifacts
+            )
+        } catch {
+            stages.append(Stage(
+                name: "pre-pex-verification",
+                status: .failed,
+                message: error.localizedDescription,
+                durationSeconds: duration(since: prePEXVerificationStartedAt)
+            ))
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                isReadyForPEX: verification.isReadyForPEX,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
         stages.append(Stage(
             name: "pre-pex-verification",
             status: verification.isReadyForPEX ? .passed : .failed,
@@ -514,6 +569,23 @@ public final class HeadlessRoundTripService {
             message: postLayoutResult.status.rawValue,
             durationSeconds: duration(since: postLayoutSimulationStartedAt)
         ))
+        do {
+            try await persistSimulationArtifacts(
+                postLayoutResult,
+                prefix: "post-layout",
+                runDirectory: runDirectory,
+                artifacts: &artifacts
+            )
+        } catch {
+            try failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                isReadyForPEX: verification.isReadyForPEX,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
         guard postLayoutResult.status == .completed else {
             try failRun(
                 configuration: configuration,
@@ -804,6 +876,62 @@ public final class HeadlessRoundTripService {
         return review
     }
 
+    private func persistSimulationArtifacts(
+        _ result: SimulationResult,
+        prefix: String,
+        runDirectory: URL,
+        artifacts: inout [Artifact]
+    ) async throws {
+        let summaryURL = runDirectory.appending(path: "\(prefix)-simulation.json")
+        try writeJSON(SimulationArtifactSummary(result: result), to: summaryURL)
+        artifacts.append(Artifact(
+            kind: "\(prefix)-simulation-report",
+            path: summaryURL.path(percentEncoded: false)
+        ))
+
+        guard let waveform = result.waveform else {
+            return
+        }
+        let waveformURL = runDirectory.appending(path: "\(prefix)-waveform.csv")
+        try await WaveformService().export(waveform: waveform, to: waveformURL)
+        artifacts.append(Artifact(
+            kind: "\(prefix)-waveform",
+            path: waveformURL.path(percentEncoded: false)
+        ))
+    }
+
+    private func persistAutoLayoutArtifacts(
+        _ output: AutoLayoutOutput,
+        runDirectory: URL,
+        artifacts: inout [Artifact]
+    ) throws {
+        let layoutURL = runDirectory.appending(path: "layout-document.json")
+        let designUnitURL = runDirectory.appending(path: "design-unit.json")
+        try writeJSON(output.document, to: layoutURL)
+        try writeJSON(output.designUnit, to: designUnitURL)
+        artifacts.append(Artifact(
+            kind: "layout-document",
+            path: layoutURL.path(percentEncoded: false)
+        ))
+        artifacts.append(Artifact(
+            kind: "design-unit",
+            path: designUnitURL.path(percentEncoded: false)
+        ))
+    }
+
+    private func persistPrePEXVerificationArtifact(
+        _ report: PhysicalVerificationReport,
+        runDirectory: URL,
+        artifacts: inout [Artifact]
+    ) throws {
+        let reportURL = runDirectory.appending(path: "physical-verification.json")
+        try writeJSON(DesignFlowVerificationReport(report: report), to: reportURL)
+        artifacts.append(Artifact(
+            kind: "physical-verification-report",
+            path: reportURL.path(percentEncoded: false)
+        ))
+    }
+
     private func captureInputArtifacts(
         paths: [String],
         kind: String,
@@ -940,6 +1068,44 @@ public final class HeadlessRoundTripService {
             try data.write(to: url, options: .atomic)
         } catch {
             throw StudioError.projectSaveFailed("Failed to write headless flow manifest: \(error.localizedDescription)")
+        }
+    }
+
+    private struct SimulationArtifactSummary: Sendable, Encodable {
+        let id: UUID
+        let experimentID: UUID
+        let status: RunStatus
+        let startedAt: Date
+        let finishedAt: Date?
+        let waveform: WaveformSummary?
+        let logMessages: [String]
+
+        init(result: SimulationResult) {
+            self.id = result.id
+            self.experimentID = result.experimentID
+            self.status = result.status
+            self.startedAt = result.startedAt
+            self.finishedAt = result.finishedAt
+            self.waveform = result.waveform.map(WaveformSummary.init)
+            self.logMessages = result.logMessages
+        }
+    }
+
+    private struct WaveformSummary: Sendable, Encodable {
+        let metadata: SimulationMetadata
+        let sweepVariable: VariableDescriptor
+        let pointCount: Int
+        let variableCount: Int
+        let isComplex: Bool
+        let variables: [VariableDescriptor]
+
+        init(waveform: WaveformData) {
+            self.metadata = waveform.metadata
+            self.sweepVariable = waveform.sweepVariable
+            self.pointCount = waveform.pointCount
+            self.variableCount = waveform.variableCount
+            self.isComplex = waveform.isComplex
+            self.variables = waveform.variables
         }
     }
 }

@@ -1109,6 +1109,7 @@ private struct LayoutConnectivityExtractor: Sendable {
             componentToInstance: componentToInstance,
             componentNamesByID: componentNamesByID
         )
+        let mappedComponentNames = Set(componentToInstance.keys.compactMap { componentNamesByID[$0] })
         let layerResolver = LayoutLayerAliasResolver(tech: tech)
         var elements: [ConnectivityElement] = []
         let componentIDsByName = Dictionary(uniqueKeysWithValues: componentNamesByID.map { ($0.value, $0.key) })
@@ -1130,6 +1131,7 @@ private struct LayoutConnectivityExtractor: Sendable {
         )
         appendRawDeviceTerminals(
             rawDevices: rawDevices,
+            mappedComponentNames: mappedComponentNames,
             componentIDsByName: componentIDsByName,
             layerResolver: layerResolver,
             elements: &elements
@@ -1349,11 +1351,13 @@ private struct LayoutConnectivityExtractor: Sendable {
 
     private func appendRawDeviceTerminals(
         rawDevices: [RawLayoutDevice],
+        mappedComponentNames: Set<String>,
         componentIDsByName: [String: UUID],
         layerResolver: LayoutLayerAliasResolver,
         elements: inout [ConnectivityElement]
     ) {
         for device in rawDevices {
+            guard !mappedComponentNames.contains(device.name) else { continue }
             guard let componentID = componentIDsByName[device.name] else { continue }
             for terminal in device.terminals {
                 elements.append(ConnectivityElement(

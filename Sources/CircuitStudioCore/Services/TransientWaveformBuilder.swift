@@ -16,7 +16,7 @@ public struct TransientWaveformBuilder {
     private var timePoints: [Double] = []
     private var realData: [[Double]] = []
 
-    public init(variableMap: [MNAVariable: Int]) {
+    public init(variableMap: [MNAVariable: Int], nodeNamesByID: [Int: String] = [:]) {
         self.sortedVars = variableMap.sorted { $0.value < $1.value }
         var vars: [VariableDescriptor] = []
         vars.reserveCapacity(sortedVars.count)
@@ -24,7 +24,7 @@ public struct TransientWaveformBuilder {
             switch mnaVar {
             case .nodeVoltage(let node):
                 vars.append(VariableDescriptor(
-                    name: "V(\(node.id))",
+                    name: "V(\(nodeNamesByID[node.id] ?? String(node.id)))",
                     unit: .volt,
                     type: .voltage,
                     index: idx

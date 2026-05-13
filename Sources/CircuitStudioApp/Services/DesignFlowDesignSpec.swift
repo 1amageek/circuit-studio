@@ -142,6 +142,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         public let schematic: SchematicDocument
         public let testbench: Testbench
         public let postLayoutCommand: AnalysisCommand
+        public let postLayoutComparisonLimits: PostLayoutComparisonLimits?
         public let pexIR: PEXParasiticIR?
 
         public init(
@@ -150,6 +151,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
             schematic: SchematicDocument,
             testbench: Testbench,
             postLayoutCommand: AnalysisCommand,
+            postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
             pexIR: PEXParasiticIR?
         ) {
             self.name = name
@@ -157,6 +159,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
             self.schematic = schematic
             self.testbench = testbench
             self.postLayoutCommand = postLayoutCommand
+            self.postLayoutComparisonLimits = postLayoutComparisonLimits
             self.pexIR = pexIR
         }
     }
@@ -446,10 +449,11 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
     public let nets: [Net]
     public let analyses: [Analysis]
     public let postLayoutAnalysis: Analysis?
+    public let postLayoutComparisonLimits: PostLayoutComparisonLimits?
     public let pexIR: ParasiticIR?
 
     private enum CodingKeys: String, CodingKey {
-        case name, schemaVersion, title, components, nets, analyses, postLayoutAnalysis, pexIR
+        case name, schemaVersion, title, components, nets, analyses, postLayoutAnalysis, postLayoutComparisonLimits, pexIR
     }
 
     public init(
@@ -460,6 +464,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         nets: [Net],
         analyses: [Analysis],
         postLayoutAnalysis: Analysis? = nil,
+        postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
         pexIR: PEXParasiticIR? = nil
     ) {
         self.name = name
@@ -469,6 +474,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         self.nets = nets
         self.analyses = analyses
         self.postLayoutAnalysis = postLayoutAnalysis
+        self.postLayoutComparisonLimits = postLayoutComparisonLimits
         self.pexIR = pexIR.map(ParasiticIR.init)
     }
 
@@ -480,6 +486,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         nets: [Net],
         analyses: [Analysis],
         postLayoutAnalysis: Analysis? = nil,
+        postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
         parasiticIR: ParasiticIR?
     ) {
         self.name = name
@@ -489,6 +496,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         self.nets = nets
         self.analyses = analyses
         self.postLayoutAnalysis = postLayoutAnalysis
+        self.postLayoutComparisonLimits = postLayoutComparisonLimits
         self.pexIR = parasiticIR
     }
 
@@ -502,6 +510,10 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         self.nets = try container.decode([Net].self, forKey: .nets)
         self.analyses = try container.decode([Analysis].self, forKey: .analyses)
         self.postLayoutAnalysis = try container.decodeIfPresent(Analysis.self, forKey: .postLayoutAnalysis)
+        self.postLayoutComparisonLimits = try container.decodeIfPresent(
+            PostLayoutComparisonLimits.self,
+            forKey: .postLayoutComparisonLimits
+        )
         self.pexIR = try container.decodeIfPresent(ParasiticIR.self, forKey: .pexIR)
     }
 
@@ -606,6 +618,12 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         if let postLayoutAnalysis {
             try validateAnalysis(postLayoutAnalysis)
         }
+        if let postLayoutComparisonLimits {
+            let diagnostics = postLayoutComparisonLimits.validationDiagnostics()
+            guard diagnostics.isEmpty else {
+                throw DesignFlowDesignSpecError.invalidAnalysisValue(diagnostics.joined(separator: "; "))
+            }
+        }
         let commands = try analyses.map { try $0.command() }
         let postLayoutCommand = try (postLayoutAnalysis?.command() ?? commands[0])
         let designTitle = title ?? name
@@ -622,6 +640,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
                 analysisCommands: commands
             ),
             postLayoutCommand: postLayoutCommand,
+            postLayoutComparisonLimits: postLayoutComparisonLimits,
             pexIR: try pexIR?.normalizedCore()
         )
     }

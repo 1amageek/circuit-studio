@@ -38,6 +38,7 @@ struct CircuitStudioFlowRunner {
             maxAbsoluteDelta: options.maxAbsoluteDelta,
             maxRelativeDelta: options.maxRelativeDelta,
             variableComparisonLimits: options.variableComparisonLimits,
+            oscillationMetricLimits: options.oscillationMetricLimits,
             technologyPackagePath: options.technologyPackageURL?.path(percentEncoded: false),
             pexConfigPath: options.pexConfigURL?.path(percentEncoded: false),
             pexExecutablePath: options.pexExecutableURL?.path(percentEncoded: false),
@@ -125,8 +126,8 @@ struct CircuitStudioFlowRunner {
             Swift.print("pex_corner=\(result.pexCornerID ?? "")")
             Swift.print("pex_elements=\(result.pexElementCount ?? 0)")
             Swift.print("external_signoff=\(signoffSource(result: result, options: options))")
-            Swift.print("signoff_approved=\(options.approveSignoff)")
-            Swift.print("comparison_limits=\(options.usesComparisonLimits ? "configured" : "none")")
+            Swift.print("signoff_approved=\(signoffApproved(result: result, options: options))")
+            Swift.print("comparison_limits=\(result.comparisonLimitsConfigured == true ? "configured" : "none")")
         case .runDesignRoundTrip:
             Swift.print("round_trip=passed")
             printDesignOrFixture(result: result, options: options)
@@ -137,8 +138,8 @@ struct CircuitStudioFlowRunner {
             Swift.print("pex_corner=\(result.pexCornerID ?? "")")
             Swift.print("pex_elements=\(result.pexElementCount ?? 0)")
             Swift.print("external_signoff=\(signoffSource(result: result, options: options))")
-            Swift.print("signoff_approved=\(options.approveSignoff)")
-            Swift.print("comparison_limits=\(options.usesComparisonLimits ? "configured" : "none")")
+            Swift.print("signoff_approved=\(signoffApproved(result: result, options: options))")
+            Swift.print("comparison_limits=\(result.comparisonLimitsConfigured == true ? "configured" : "none")")
         case .summarizeBottlenecks:
             let summary = result.bottleneckHistory
             Swift.print("bottlenecks=summarized")
@@ -234,13 +235,17 @@ struct CircuitStudioFlowRunner {
         if result.technologyPackageID != nil {
             return "technology-package"
         }
-        return "mock-command"
+        return "none"
+    }
+
+    private static func signoffApproved(result: DesignFlowCommandResult, options: RunnerOptions) -> Bool {
+        signoffSource(result: result, options: options) != "none" && options.approveSignoff
     }
 
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--variable-limit SPEC] [--edit-script PATH --output-design-spec PATH]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--variable-limit SPEC] [--oscillation-limit SPEC] [--edit-script PATH --output-design-spec PATH]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
@@ -309,6 +314,8 @@ struct CircuitStudioFlowRunner {
                            Fail the post-layout comparison gate when the maximum relative delta exceeds VALUE
           --variable-limit SPEC
                            Add a variable-specific post-layout comparison gate. Format: VARIABLE:abs=VALUE,rel=VALUE
+          --oscillation-limit SPEC
+                           Add an oscillator metric gate. Format: VARIABLE:minTransitions=COUNT,minAmplitude=VALUE,freqRel=VALUE,periodRel=VALUE,duty=VALUE,threshold=VALUE
           --help           Show this help
         """
     }
@@ -388,6 +395,7 @@ private struct RunnerOptions {
     var maxAbsoluteDelta: Double?
     var maxRelativeDelta: Double?
     var variableComparisonLimits: [PostLayoutVariableComparisonLimit] = []
+    var oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = []
     var technologyPackageURL: URL?
     var approveSignoff = false
     var showHelp = false
@@ -474,6 +482,10 @@ private struct RunnerOptions {
             case "--variable-limit":
                 variableComparisonLimits.append(
                     try Self.variableLimit(after: argument, in: arguments, index: &index)
+                )
+            case "--oscillation-limit":
+                oscillationMetricLimits.append(
+                    try Self.oscillationLimit(after: argument, in: arguments, index: &index)
                 )
             case "--approve-signoff":
                 approveSignoff = true
@@ -577,12 +589,91 @@ private struct RunnerOptions {
         return limit
     }
 
+    private static func oscillationLimit(
+        after option: String,
+        in arguments: [String],
+        index: inout Int
+    ) throws -> PostLayoutOscillationMetricLimit {
+        let rawValue = try value(after: option, in: arguments, index: &index)
+        let parts = rawValue.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2, !parts[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw RunnerError.invalidOscillationLimit(rawValue)
+        }
+
+        var threshold: Double?
+        var minTransitionCount: Int?
+        var minAmplitude: Double?
+        var maxFrequencyRelativeDelta: Double?
+        var maxPeriodRelativeDelta: Double?
+        var maxDutyCycleDelta: Double?
+
+        for assignment in parts[1].split(separator: ",").map(String.init) {
+            let assignmentParts = assignment.split(separator: "=", maxSplits: 1).map(String.init)
+            guard assignmentParts.count == 2 else {
+                throw RunnerError.invalidOscillationLimit(rawValue)
+            }
+            let key = assignmentParts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let valueText = assignmentParts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            switch key {
+            case "threshold":
+                threshold = try finiteDouble(valueText, rawValue: rawValue)
+            case "minTransitions":
+                guard let value = Int(valueText), value >= 0 else {
+                    throw RunnerError.invalidOscillationLimit(rawValue)
+                }
+                minTransitionCount = value
+            case "minAmplitude":
+                minAmplitude = try nonNegativeDouble(valueText, rawValue: rawValue)
+            case "freqRel":
+                maxFrequencyRelativeDelta = try nonNegativeDouble(valueText, rawValue: rawValue)
+            case "periodRel":
+                maxPeriodRelativeDelta = try nonNegativeDouble(valueText, rawValue: rawValue)
+            case "duty":
+                maxDutyCycleDelta = try nonNegativeDouble(valueText, rawValue: rawValue)
+            default:
+                throw RunnerError.invalidOscillationLimit(rawValue)
+            }
+        }
+
+        let limit = PostLayoutOscillationMetricLimit(
+            variableName: parts[0],
+            threshold: threshold,
+            minTransitionCount: minTransitionCount,
+            minAmplitude: minAmplitude,
+            maxFrequencyRelativeDelta: maxFrequencyRelativeDelta,
+            maxPeriodRelativeDelta: maxPeriodRelativeDelta,
+            maxDutyCycleDelta: maxDutyCycleDelta
+        )
+        guard limit.validationDiagnostics().isEmpty else {
+            throw RunnerError.invalidOscillationLimit(rawValue)
+        }
+        return limit
+    }
+
+    private static func finiteDouble(_ text: String, rawValue: String) throws -> Double {
+        guard let value = Double(text), value.isFinite else {
+            throw RunnerError.invalidOscillationLimit(rawValue)
+        }
+        return value
+    }
+
+    private static func nonNegativeDouble(_ text: String, rawValue: String) throws -> Double {
+        let value = try finiteDouble(text, rawValue: rawValue)
+        guard value >= 0 else {
+            throw RunnerError.invalidOscillationLimit(rawValue)
+        }
+        return value
+    }
+
     var usesImportedSignoff: Bool {
         signoffDRCLogURL != nil || signoffLVSLogURL != nil
     }
 
     var usesComparisonLimits: Bool {
-        maxAbsoluteDelta != nil || maxRelativeDelta != nil || !variableComparisonLimits.isEmpty
+        maxAbsoluteDelta != nil
+            || maxRelativeDelta != nil
+            || !variableComparisonLimits.isEmpty
+            || !oscillationMetricLimits.isEmpty
     }
 
     var commandKind: DesignFlowCommand.Kind {
@@ -595,6 +686,7 @@ private enum RunnerError: Error, LocalizedError {
     case missingValue(String)
     case invalidNumericValue(String, String)
     case invalidVariableLimit(String)
+    case invalidOscillationLimit(String)
     case invalidGateID(String)
     case invalidApprovalDecision(String)
     case conflictingModes
@@ -609,6 +701,8 @@ private enum RunnerError: Error, LocalizedError {
             return "Invalid numeric value for \(option): \(value)"
         case .invalidVariableLimit(let value):
             return "Invalid variable comparison limit: \(value)"
+        case .invalidOscillationLimit(let value):
+            return "Invalid oscillation metric limit: \(value)"
         case .invalidGateID(let value):
             return "Invalid approval gate ID: \(value)"
         case .invalidApprovalDecision(let value):

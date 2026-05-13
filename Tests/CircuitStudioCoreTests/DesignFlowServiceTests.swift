@@ -112,7 +112,8 @@ struct DesignFlowServiceTests {
         let root = try makeTemporaryRoot("design-spec-round-trip")
         defer { removeTemporaryRoot(root) }
         let specURL = root.appending(path: "agent-resistor-divider.json")
-        try writeDesignSpec(agentResistorDividerSpec(), to: specURL)
+        let embeddedLimits = PostLayoutComparisonLimits(maxAbsoluteDelta: 1.0e-3, maxRelativeDelta: 2.0)
+        try writeDesignSpec(agentResistorDividerSpec(postLayoutComparisonLimits: embeddedLimits), to: specURL)
 
         let service = DesignFlowService()
         let netlist = try await service.execute(DesignFlowCommand(
@@ -135,20 +136,25 @@ struct DesignFlowServiceTests {
             designSpecPath: specURL.path(percentEncoded: false),
             projectRootPath: root.path(percentEncoded: false),
             runID: "agent-resistor-divider-run",
-            approveSignoff: true,
-            maxAbsoluteDelta: 1.0e-3,
-            maxRelativeDelta: 2.0
+            approveSignoff: true
         ))
         #expect(roundTrip.designName == "agent-resistor-divider")
         #expect(roundTrip.runID == "agent-resistor-divider-run")
         #expect(roundTrip.readyForPEX == true)
+        #expect(roundTrip.comparisonLimitsConfigured == true)
         #expect(roundTrip.manifestPath?.hasSuffix("round-trip-manifest.json") == true)
         let manifest = try #require(roundTrip.manifestPath).loadManifest()
+        #expect(!manifest.artifacts.contains { $0.kind == "external-signoff-log" })
+        #expect(!manifest.stages.contains { $0.name == "external-signoff" })
         #expect(manifest.artifacts.contains {
             $0.kind == "design-spec"
                 && $0.path.contains("/input-artifacts/design/")
                 && $0.sourcePath == specURL.path(percentEncoded: false)
         })
+        let comparisonPath = try #require(manifest.artifacts.first { $0.kind == "post-layout-comparison" }?.path)
+        let comparisonData = try Data(contentsOf: URL(filePath: comparisonPath))
+        let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
+        #expect(comparison.comparisonLimits == embeddedLimits)
 
         let encoded = try JSONEncoder().encode(roundTrip)
         let decoded = try JSONDecoder().decode(DesignFlowCommandResult.self, from: encoded)
@@ -1468,7 +1474,9 @@ struct DesignFlowServiceTests {
         try Data(json.utf8).write(to: url, options: .atomic)
     }
 
-    private func agentResistorDividerSpec() -> DesignFlowDesignSpec {
+    private func agentResistorDividerSpec(
+        postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil
+    ) -> DesignFlowDesignSpec {
         DesignFlowDesignSpec(
             name: "agent-resistor-divider",
             title: "Agent resistor divider",
@@ -1520,6 +1528,7 @@ struct DesignFlowServiceTests {
             analyses: [
                 DesignFlowDesignSpec.Analysis(kind: .op),
             ],
+            postLayoutComparisonLimits: postLayoutComparisonLimits,
             pexIR: PEXParasiticIR(
                 version: "1.0",
                 cornerID: "tt_25c_1v0",

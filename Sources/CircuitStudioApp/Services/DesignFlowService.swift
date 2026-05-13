@@ -226,6 +226,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
     public let variableComparisonLimits: [PostLayoutVariableComparisonLimit]?
+    public let oscillationMetricLimits: [PostLayoutOscillationMetricLimit]?
     public let technologyPackagePath: String?
     public let pexConfigPath: String?
     public let pexExecutablePath: String?
@@ -257,6 +258,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         maxAbsoluteDelta: Double? = nil,
         maxRelativeDelta: Double? = nil,
         variableComparisonLimits: [PostLayoutVariableComparisonLimit] = [],
+        oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = [],
         technologyPackagePath: String? = nil,
         pexConfigPath: String? = nil,
         pexExecutablePath: String? = nil,
@@ -287,6 +289,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
         self.variableComparisonLimits = variableComparisonLimits.isEmpty ? nil : variableComparisonLimits
+        self.oscillationMetricLimits = oscillationMetricLimits.isEmpty ? nil : oscillationMetricLimits
         self.technologyPackagePath = technologyPackagePath
         self.pexConfigPath = pexConfigPath
         self.pexExecutablePath = pexExecutablePath
@@ -323,6 +326,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let readyForPEX: Bool?
     public let pexCornerID: String?
     public let pexElementCount: Int?
+    public let comparisonLimitsConfigured: Bool?
     public let pexManifestPath: String?
     public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
     public let bottleneckHistory: RoundTripBottleneckHistoryService.Summary?
@@ -354,6 +358,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         readyForPEX: Bool? = nil,
         pexCornerID: String? = nil,
         pexElementCount: Int? = nil,
+        comparisonLimitsConfigured: Bool? = nil,
         pexManifestPath: String? = nil,
         bottleneckSummary: HeadlessRoundTripService.BottleneckSummary? = nil,
         bottleneckHistory: RoundTripBottleneckHistoryService.Summary? = nil,
@@ -384,6 +389,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.readyForPEX = readyForPEX
         self.pexCornerID = pexCornerID
         self.pexElementCount = pexElementCount
+        self.comparisonLimitsConfigured = comparisonLimitsConfigured
         self.pexManifestPath = pexManifestPath
         self.bottleneckSummary = bottleneckSummary
         self.bottleneckHistory = bottleneckHistory
@@ -1014,7 +1020,7 @@ public struct DesignFlowService: Sendable {
         let runID = command.runID ?? "\(design.name)-\(Self.timestamp())"
         try HeadlessRoundTripService.validateRunID(runID)
         try validateSignoffLogPair(in: command)
-        let limits = try comparisonLimits(from: command)
+        let limits = try comparisonLimits(from: command) ?? design.postLayoutComparisonLimits
         let package = try technologyPackage(for: command)
 
         let pexInput: DesignFlowPEXInput
@@ -1038,9 +1044,6 @@ public struct DesignFlowService: Sendable {
         let projectRoot = URL(filePath: command.projectRootPath ?? defaultCommandProjectRoot(fixtureName: design.name))
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
 
-        let signoffCommands = externalSignoffReview == nil
-            ? try makeMockSignoffCommands(in: projectRoot)
-            : []
         let configuration = HeadlessRoundTripService.Configuration(
             projectRoot: projectRoot,
             runID: runID,
@@ -1051,7 +1054,7 @@ public struct DesignFlowService: Sendable {
             designArtifactPaths: designArtifactPaths(designSpecPath: designSpecPath, technologyPackage: package),
             pexArtifactPaths: pexInput.artifactPaths,
             postLayoutComparisonLimits: limits,
-            externalSignoffCommands: signoffCommands,
+            externalSignoffCommands: [],
             externalSignoffReview: externalSignoffReview,
             approvedBy: command.approveSignoff ? "design-flow-command" : nil,
             approvedAt: command.approveSignoff ? Date() : nil,
@@ -1073,6 +1076,7 @@ public struct DesignFlowService: Sendable {
             readyForPEX: result.manifest.isReadyForPEX,
             pexCornerID: pexInput.ir.cornerID,
             pexElementCount: pexInput.ir.elements.count,
+            comparisonLimitsConfigured: limits != nil,
             bottleneckSummary: result.manifest.bottleneckSummary,
             technologyPackageID: package?.manifest.packageID,
             technologyPackagePath: package?.manifestURL.path(percentEncoded: false)
@@ -1107,9 +1111,6 @@ public struct DesignFlowService: Sendable {
         let projectRoot = URL(filePath: command.projectRootPath ?? defaultCommandProjectRoot(fixtureName: fixture.name))
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
 
-        let signoffCommands = externalSignoffReview == nil
-            ? try makeMockSignoffCommands(in: projectRoot)
-            : []
         let configuration = HeadlessRoundTripService.Configuration(
             projectRoot: projectRoot,
             runID: runID,
@@ -1120,7 +1121,7 @@ public struct DesignFlowService: Sendable {
             designArtifactPaths: designArtifactPaths(designSpecPath: nil, technologyPackage: package),
             pexArtifactPaths: pexInput.artifactPaths,
             postLayoutComparisonLimits: limits,
-            externalSignoffCommands: signoffCommands,
+            externalSignoffCommands: [],
             externalSignoffReview: externalSignoffReview,
             approvedBy: command.approveSignoff ? "design-flow-command" : nil,
             approvedAt: command.approveSignoff ? Date() : nil,
@@ -1142,6 +1143,7 @@ public struct DesignFlowService: Sendable {
             readyForPEX: result.manifest.isReadyForPEX,
             pexCornerID: pexInput.ir.cornerID,
             pexElementCount: pexInput.ir.elements.count,
+            comparisonLimitsConfigured: limits != nil,
             bottleneckSummary: result.manifest.bottleneckSummary,
             technologyPackageID: package?.manifest.packageID,
             technologyPackagePath: package?.manifestURL.path(percentEncoded: false)
@@ -1208,13 +1210,18 @@ public struct DesignFlowService: Sendable {
 
     private func comparisonLimits(from command: DesignFlowCommand) throws -> PostLayoutComparisonLimits? {
         let variableLimits = command.variableComparisonLimits ?? []
-        guard command.maxAbsoluteDelta != nil || command.maxRelativeDelta != nil || !variableLimits.isEmpty else {
+        let oscillationMetricLimits = command.oscillationMetricLimits ?? []
+        guard command.maxAbsoluteDelta != nil
+            || command.maxRelativeDelta != nil
+            || !variableLimits.isEmpty
+            || !oscillationMetricLimits.isEmpty else {
             return nil
         }
         let limits = PostLayoutComparisonLimits(
             maxAbsoluteDelta: command.maxAbsoluteDelta,
             maxRelativeDelta: command.maxRelativeDelta,
-            variableLimits: variableLimits
+            variableLimits: variableLimits,
+            oscillationMetricLimits: oscillationMetricLimits
         )
         let diagnostics = limits.validationDiagnostics()
         guard diagnostics.isEmpty else {
@@ -1342,55 +1349,6 @@ public struct DesignFlowService: Sendable {
             deviceKindToCell: provided?.deviceKindToCell ?? [:],
             schematicHash: currentHash
         )
-    }
-
-    private func makeMockSignoffCommands(in projectRoot: URL) throws -> [ExternalSignoffCommand] {
-        let toolDirectory = projectRoot
-            .appending(path: ".xcircuite")
-            .appending(path: "tools")
-        try FileManager.default.createDirectory(at: toolDirectory, withIntermediateDirectories: true)
-
-        let drc = try writeExecutable(
-            named: "mock-drc",
-            in: toolDirectory,
-            contents: """
-            #!/bin/sh
-            printf '[INFO] rule=DRC_CLEAN message="clean drc"\\n'
-            exit 0
-            """
-        )
-        let lvs = try writeExecutable(
-            named: "mock-lvs",
-            in: toolDirectory,
-            contents: """
-            #!/bin/sh
-            printf '[INFO] rule=LVS_MATCH message="clean lvs"\\n'
-            exit 0
-            """
-        )
-
-        return [
-            ExternalSignoffCommand(
-                kind: .drc,
-                toolName: "mock-drc",
-                executablePath: drc.path(percentEncoded: false)
-            ),
-            ExternalSignoffCommand(
-                kind: .lvs,
-                toolName: lvs.lastPathComponent,
-                executablePath: lvs.path(percentEncoded: false)
-            ),
-        ]
-    }
-
-    private func writeExecutable(named name: String, in directory: URL, contents: String) throws -> URL {
-        let url = directory.appending(path: name)
-        try contents.write(to: url, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: NSNumber(value: Int16(0o755))],
-            ofItemAtPath: url.path(percentEncoded: false)
-        )
-        return url
     }
 
     private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

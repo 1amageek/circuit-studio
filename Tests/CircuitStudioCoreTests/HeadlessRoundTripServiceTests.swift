@@ -679,6 +679,28 @@ struct HeadlessRoundTripServiceTests {
                 && $0.sourcePath?.hasSuffix(".xcircuite/signoff/external-signoff-review.json") == true
                 && $0.path.contains("/input-artifacts/signoff/")
         })
+        #expect(manifest.artifacts.contains {
+            $0.kind == "pre-layout-simulation-report"
+                && $0.path.hasSuffix("pre-layout-simulation.json")
+        })
+        #expect(manifest.artifacts.contains {
+            $0.kind == "pre-layout-waveform"
+                && $0.path.hasSuffix("pre-layout-waveform.csv")
+        })
+        let layoutArtifact = try #require(manifest.artifacts.first { $0.kind == "layout-document" })
+        let designUnitArtifact = try #require(manifest.artifacts.first { $0.kind == "design-unit" })
+        let verificationArtifact = try #require(manifest.artifacts.first { $0.kind == "physical-verification-report" })
+        #expect(FileManager.default.fileExists(atPath: layoutArtifact.path))
+        #expect(FileManager.default.fileExists(atPath: designUnitArtifact.path))
+        #expect(FileManager.default.fileExists(atPath: verificationArtifact.path))
+
+        let verificationData = try Data(contentsOf: URL(filePath: verificationArtifact.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let verificationReport = try decoder.decode(DesignFlowVerificationReport.self, from: verificationData)
+        #expect(verificationReport.status == "failed")
+        #expect(!verificationReport.readyForPEX)
+        #expect(verificationReport.externalSignoff?.readyForPEX == false)
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -826,7 +848,11 @@ struct HeadlessRoundTripServiceTests {
 
         let artifactPaths = result.manifest.artifacts.map(\.path)
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout.cir") })
+        #expect(artifactPaths.contains { $0.hasSuffix("pre-layout-simulation.json") })
+        #expect(artifactPaths.contains { $0.hasSuffix("pre-layout-waveform.csv") })
         #expect(artifactPaths.contains { $0.hasSuffix("post-layout.cir") })
+        #expect(artifactPaths.contains { $0.hasSuffix("post-layout-simulation.json") })
+        #expect(artifactPaths.contains { $0.hasSuffix("post-layout-waveform.csv") })
         #expect(artifactPaths.contains { $0.hasSuffix("post-layout-comparison.json") })
         #expect(artifactPaths.contains { $0.hasSuffix("drc-mock-drc.log") })
         #expect(artifactPaths.contains { $0.hasSuffix("lvs-mock-lvs.log") })
