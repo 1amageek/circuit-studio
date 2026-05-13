@@ -185,6 +185,21 @@ public struct RoundTripReviewService: Sendable {
                         maxRelativeDelta: $0.maxRelativeDelta
                     )
                 },
+                oscillationMetrics: report.oscillationMetrics.map {
+                    RoundTripReviewOscillationMetricSummary(
+                        variableName: $0.variableName,
+                        preLayoutTransitionCount: $0.preLayout?.transitionCount,
+                        postLayoutTransitionCount: $0.postLayout?.transitionCount,
+                        preLayoutAmplitude: $0.preLayout?.amplitude,
+                        postLayoutAmplitude: $0.postLayout?.amplitude,
+                        preLayoutFrequency: $0.preLayout?.frequency,
+                        postLayoutFrequency: $0.postLayout?.frequency,
+                        frequencyRelativeDelta: $0.frequencyRelativeDelta,
+                        periodRelativeDelta: $0.periodRelativeDelta,
+                        dutyCycleDelta: $0.dutyCycleDelta,
+                        diagnostics: $0.diagnostics
+                    )
+                },
                 missingInPostLayout: report.missingInPostLayout,
                 addedInPostLayout: report.addedInPostLayout,
                 diagnostics: report.diagnostics,

@@ -526,6 +526,64 @@ struct DesignFlowServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
+    func commandAPIApprovesPhysicalVerificationReportGates() async throws {
+        let root = try makeTemporaryRoot("gate-approval-physical-verification")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "approval-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        let verificationURL = runDirectory.appending(path: "physical-verification.json")
+        try Data(#"{"status":"passed","readyForPEX":true}"#.utf8).write(to: verificationURL, options: .atomic)
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+            runID: "approval-run",
+            title: "Physical verification approval run",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_350),
+            isRoundTripComplete: true,
+            isReadyForPEX: true,
+            stages: [
+                HeadlessRoundTripService.Stage(name: "pre-pex-verification", status: .passed),
+            ],
+            artifacts: [
+                HeadlessRoundTripService.Artifact(
+                    kind: "physical-verification-report",
+                    path: verificationURL.path(percentEncoded: false)
+                ),
+            ]
+        ), to: manifestURL)
+
+        let prePEXResult = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .approveGate,
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "approval-run",
+            roundTripManifestPath: manifestURL.path(percentEncoded: false),
+            approvalGateID: .prePEXVerification,
+            approvalReviewer: "layout-reviewer"
+        ))
+        let physicalResult = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .approveGate,
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "approval-run",
+            roundTripManifestPath: manifestURL.path(percentEncoded: false),
+            approvalGateID: .physicalVerification,
+            approvalReviewer: "layout-reviewer"
+        ))
+
+        #expect(prePEXResult.approvalRecord?.targetArtifactPath == verificationURL.path(percentEncoded: false))
+        #expect(prePEXResult.approvalRecord?.gateID == .prePEXVerification)
+        #expect(physicalResult.approvalRecord?.targetArtifactPath == verificationURL.path(percentEncoded: false))
+        #expect(physicalResult.approvalRecord?.gateID == .physicalVerification)
+        let review = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+        #expect(review.approvals.map(\.gateID).sorted { $0.rawValue < $1.rawValue } == [
+            .physicalVerification,
+            .prePEXVerification,
+        ])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
     func commandAPIRejectsUnsafeDesignSpecNamesAndDuplicateTerminals() async throws {
         let root = try makeTemporaryRoot("invalid-design-spec")
         defer { removeTemporaryRoot(root) }

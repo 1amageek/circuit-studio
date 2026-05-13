@@ -259,9 +259,9 @@ public struct FlowRunGovernanceService: Sendable {
         case .postLayoutComparison:
             return ["post-layout-comparison"]
         case .physicalVerification:
-            return ["physical-verification"]
+            return ["physical-verification-report", "physical-verification"]
         case .prePEXVerification:
-            return ["pre-pex-verification", "physical-verification"]
+            return ["physical-verification-report", "pre-pex-verification", "physical-verification"]
         }
     }
 

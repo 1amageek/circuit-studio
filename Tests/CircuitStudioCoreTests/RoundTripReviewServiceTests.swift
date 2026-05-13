@@ -38,6 +38,9 @@ struct RoundTripReviewServiceTests {
         #expect(result.roundTripReview?.status == .passed)
         #expect(result.roundTripReview?.runID == "review-run")
         #expect(result.roundTripReview?.postLayoutComparison?.gateStatus == "passed")
+        #expect(result.roundTripReview?.postLayoutComparison?.oscillationMetrics.first?.variableName == "V(out)")
+        #expect(result.roundTripReview?.postLayoutComparison?.oscillationMetrics.first?.preLayoutTransitionCount == 4)
+        #expect(result.roundTripReview?.postLayoutComparison?.oscillationMetrics.first?.postLayoutFrequency == 0.9e9)
         #expect(result.roundTripReview?.externalSignoff?.readyForPEX == true)
         #expect(result.roundTripReview?.externalSignoff?.approvedBy == "reviewer")
         #expect(result.roundTripReview?.diagnostics.isEmpty == true)
@@ -127,6 +130,42 @@ struct RoundTripReviewServiceTests {
                     firstPostLayoutValue: 0.999,
                     lastPreLayoutValue: 1.0,
                     lastPostLayoutValue: 0.999
+                ),
+            ],
+            oscillationMetrics: [
+                PostLayoutOscillationMetricComparison(
+                    variableName: "V(out)",
+                    threshold: 0.5,
+                    preLayout: PostLayoutOscillationMetrics(
+                        transitionCount: 4,
+                        risingEdgeCount: 2,
+                        fallingEdgeCount: 2,
+                        minValue: 0,
+                        maxValue: 1,
+                        amplitude: 1,
+                        averagePeriod: 1.0e-9,
+                        frequency: 1.0e9,
+                        dutyCycle: 0.5,
+                        firstRisingEdgeTime: 0,
+                        lastRisingEdgeTime: 1.0e-9
+                    ),
+                    postLayout: PostLayoutOscillationMetrics(
+                        transitionCount: 4,
+                        risingEdgeCount: 2,
+                        fallingEdgeCount: 2,
+                        minValue: 0,
+                        maxValue: 0.95,
+                        amplitude: 0.95,
+                        averagePeriod: 1.1111111111111112e-9,
+                        frequency: 0.9e9,
+                        dutyCycle: 0.48,
+                        firstRisingEdgeTime: 0,
+                        lastRisingEdgeTime: 1.1111111111111112e-9
+                    ),
+                    frequencyRelativeDelta: 0.1,
+                    periodRelativeDelta: 0.1,
+                    dutyCycleDelta: 0.02,
+                    diagnostics: []
                 ),
             ],
             missingInPostLayout: [],

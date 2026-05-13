@@ -206,10 +206,33 @@ struct CircuitStudioFlowRunner {
             if let comparison = review?.postLayoutComparison {
                 Swift.print("comparison_status=\(comparison.status)")
                 Swift.print("comparison_gate=\(comparison.gateStatus)")
+                for metric in comparison.oscillationMetrics {
+                    Swift.print("oscillation_metric=\(metric.variableName)")
+                    if let preFrequency = metric.preLayoutFrequency {
+                        Swift.print("oscillation_pre_frequency=\(preFrequency)")
+                    }
+                    if let postFrequency = metric.postLayoutFrequency {
+                        Swift.print("oscillation_post_frequency=\(postFrequency)")
+                    }
+                    if let frequencyRelativeDelta = metric.frequencyRelativeDelta {
+                        Swift.print("oscillation_frequency_relative_delta=\(frequencyRelativeDelta)")
+                    }
+                    if let preAmplitude = metric.preLayoutAmplitude {
+                        Swift.print("oscillation_pre_amplitude=\(preAmplitude)")
+                    }
+                    if let postAmplitude = metric.postLayoutAmplitude {
+                        Swift.print("oscillation_post_amplitude=\(postAmplitude)")
+                    }
+                }
             }
             if let externalSignoff = review?.externalSignoff {
                 Swift.print("signoff_passed=\(externalSignoff.passed)")
                 Swift.print("signoff_approved=\(externalSignoff.approved)")
+            }
+            Swift.print("approval_count=\(review?.approvals.count ?? 0)")
+            for approval in review?.approvals ?? [] {
+                Swift.print("approval_gate=\(approval.gateID.rawValue)")
+                Swift.print("approval_decision=\(approval.decision.rawValue)")
             }
             for recommendation in review?.recommendations ?? [] {
                 Swift.print("recommendation=\(recommendation)")

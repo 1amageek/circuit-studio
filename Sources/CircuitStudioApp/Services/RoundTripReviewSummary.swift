@@ -164,6 +164,7 @@ public struct RoundTripReviewComparisonSummary: Sendable, Hashable, Codable {
     public let maxRelativeDelta: Double
     public let comparisonLimits: PostLayoutComparisonLimits?
     public let variableSummaries: [RoundTripReviewVariableComparisonSummary]
+    public let oscillationMetrics: [RoundTripReviewOscillationMetricSummary]
     public let missingInPostLayout: [String]
     public let addedInPostLayout: [String]
     public let diagnostics: [String]
@@ -177,6 +178,7 @@ public struct RoundTripReviewComparisonSummary: Sendable, Hashable, Codable {
         maxRelativeDelta: Double,
         comparisonLimits: PostLayoutComparisonLimits?,
         variableSummaries: [RoundTripReviewVariableComparisonSummary],
+        oscillationMetrics: [RoundTripReviewOscillationMetricSummary] = [],
         missingInPostLayout: [String],
         addedInPostLayout: [String],
         diagnostics: [String],
@@ -189,6 +191,7 @@ public struct RoundTripReviewComparisonSummary: Sendable, Hashable, Codable {
         self.maxRelativeDelta = maxRelativeDelta
         self.comparisonLimits = comparisonLimits
         self.variableSummaries = variableSummaries
+        self.oscillationMetrics = oscillationMetrics
         self.missingInPostLayout = missingInPostLayout
         self.addedInPostLayout = addedInPostLayout
         self.diagnostics = diagnostics
@@ -205,5 +208,45 @@ public struct RoundTripReviewVariableComparisonSummary: Sendable, Hashable, Coda
         self.variableName = variableName
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
+    }
+}
+
+public struct RoundTripReviewOscillationMetricSummary: Sendable, Hashable, Codable {
+    public let variableName: String
+    public let preLayoutTransitionCount: Int?
+    public let postLayoutTransitionCount: Int?
+    public let preLayoutAmplitude: Double?
+    public let postLayoutAmplitude: Double?
+    public let preLayoutFrequency: Double?
+    public let postLayoutFrequency: Double?
+    public let frequencyRelativeDelta: Double?
+    public let periodRelativeDelta: Double?
+    public let dutyCycleDelta: Double?
+    public let diagnostics: [String]
+
+    public init(
+        variableName: String,
+        preLayoutTransitionCount: Int?,
+        postLayoutTransitionCount: Int?,
+        preLayoutAmplitude: Double?,
+        postLayoutAmplitude: Double?,
+        preLayoutFrequency: Double?,
+        postLayoutFrequency: Double?,
+        frequencyRelativeDelta: Double?,
+        periodRelativeDelta: Double?,
+        dutyCycleDelta: Double?,
+        diagnostics: [String]
+    ) {
+        self.variableName = variableName
+        self.preLayoutTransitionCount = preLayoutTransitionCount
+        self.postLayoutTransitionCount = postLayoutTransitionCount
+        self.preLayoutAmplitude = preLayoutAmplitude
+        self.postLayoutAmplitude = postLayoutAmplitude
+        self.preLayoutFrequency = preLayoutFrequency
+        self.postLayoutFrequency = postLayoutFrequency
+        self.frequencyRelativeDelta = frequencyRelativeDelta
+        self.periodRelativeDelta = periodRelativeDelta
+        self.dutyCycleDelta = dutyCycleDelta
+        self.diagnostics = diagnostics
     }
 }
