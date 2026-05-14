@@ -35,21 +35,29 @@ public struct RoundTripReviewService: Sendable {
             from: manifestURL,
             context: "round-trip manifest"
         )
-        let runDirectory = manifestURL.deletingLastPathComponent()
+        let resolver = RoundTripArtifactResolver(manifestURL: manifestURL)
         var diagnostics: [String] = []
+        var warnings: [String] = []
         let artifactSummaries = manifest.artifacts.map { artifact in
-            summarize(artifact: artifact, runDirectory: runDirectory, diagnostics: &diagnostics)
+            summarize(
+                artifact: artifact,
+                resolver: resolver,
+                diagnostics: &diagnostics,
+                warnings: &warnings
+            )
         }
 
         let signoff = loadSignoffSummary(
             from: manifest.artifacts,
-            runDirectory: runDirectory,
-            diagnostics: &diagnostics
+            resolver: resolver,
+            diagnostics: &diagnostics,
+            warnings: &warnings
         )
         let comparison = loadComparisonSummary(
             from: manifest.artifacts,
-            runDirectory: runDirectory,
-            diagnostics: &diagnostics
+            resolver: resolver,
+            diagnostics: &diagnostics,
+            warnings: &warnings
         )
         let approvals = loadApprovalRecords(manifest: manifest, manifestURL: manifestURL, diagnostics: &diagnostics)
         let stageSummaries = manifest.stages.map {
@@ -76,11 +84,13 @@ public struct RoundTripReviewService: Sendable {
             approvals: approvals,
             bottleneckSummary: manifest.bottleneckSummary,
             diagnostics: diagnostics,
+            warnings: warnings,
             recommendations: recommendations(
                 manifest: manifest,
                 signoff: signoff,
                 comparison: comparison,
-                diagnostics: diagnostics
+                diagnostics: diagnostics,
+                warnings: warnings
             )
         )
     }
@@ -106,10 +116,24 @@ public struct RoundTripReviewService: Sendable {
 
     private func summarize(
         artifact: HeadlessRoundTripService.Artifact,
-        runDirectory: URL,
-        diagnostics: inout [String]
+        resolver: RoundTripArtifactResolver,
+        diagnostics: inout [String],
+        warnings: inout [String]
     ) -> RoundTripReviewArtifactSummary {
-        let url = resolvedArtifactURL(artifact, runDirectory: runDirectory)
+        guard let url = resolveArtifactURL(
+            artifact,
+            resolver: resolver,
+            diagnostics: &diagnostics,
+            warnings: &warnings
+        ) else {
+            return RoundTripReviewArtifactSummary(
+                kind: artifact.kind,
+                path: artifact.path,
+                sourcePath: artifact.sourcePath,
+                exists: false,
+                isCapturedCopy: artifact.sourcePath != nil
+            )
+        }
         let path = url.path(percentEncoded: false)
         let exists = FileManager.default.fileExists(atPath: path)
         if !exists {
@@ -126,13 +150,21 @@ public struct RoundTripReviewService: Sendable {
 
     private func loadSignoffSummary(
         from artifacts: [HeadlessRoundTripService.Artifact],
-        runDirectory: URL,
-        diagnostics: inout [String]
+        resolver: RoundTripArtifactResolver,
+        diagnostics: inout [String],
+        warnings: inout [String]
     ) -> RoundTripReviewSignoffSummary? {
         guard let artifact = artifacts.first(where: { $0.kind == "external-signoff-review" }) else {
             return nil
         }
-        let url = resolvedArtifactURL(artifact, runDirectory: runDirectory)
+        guard let url = resolveArtifactURL(
+            artifact,
+            resolver: resolver,
+            diagnostics: &diagnostics,
+            warnings: &warnings
+        ) else {
+            return nil
+        }
         let path = url.path(percentEncoded: false)
         guard FileManager.default.fileExists(atPath: path) else {
             diagnostics.append("External signoff review artifact is missing: \(path)")
@@ -168,13 +200,21 @@ public struct RoundTripReviewService: Sendable {
 
     private func loadComparisonSummary(
         from artifacts: [HeadlessRoundTripService.Artifact],
-        runDirectory: URL,
-        diagnostics: inout [String]
+        resolver: RoundTripArtifactResolver,
+        diagnostics: inout [String],
+        warnings: inout [String]
     ) -> RoundTripReviewComparisonSummary? {
         guard let artifact = artifacts.first(where: { $0.kind == "post-layout-comparison" }) else {
             return nil
         }
-        let url = resolvedArtifactURL(artifact, runDirectory: runDirectory)
+        guard let url = resolveArtifactURL(
+            artifact,
+            resolver: resolver,
+            diagnostics: &diagnostics,
+            warnings: &warnings
+        ) else {
+            return nil
+        }
         let path = url.path(percentEncoded: false)
         guard FileManager.default.fileExists(atPath: path) else {
             diagnostics.append("Post-layout comparison artifact is missing: \(path)")
@@ -251,7 +291,8 @@ public struct RoundTripReviewService: Sendable {
         manifest: HeadlessRoundTripService.Manifest,
         signoff: RoundTripReviewSignoffSummary?,
         comparison: RoundTripReviewComparisonSummary?,
-        diagnostics: [String]
+        diagnostics: [String],
+        warnings: [String]
     ) -> [String] {
         var recommendations: [String] = []
         for stage in manifest.stages where stage.status == .failed {
@@ -266,6 +307,9 @@ public struct RoundTripReviewService: Sendable {
         }
         if !diagnostics.isEmpty {
             recommendations.append("Resolve missing or unreadable review artifacts to make the run fully auditable.")
+        }
+        if !warnings.isEmpty {
+            recommendations.append("Regenerate the run to replace legacy absolute artifact paths with run-relative paths.")
         }
         return recommendations
     }
@@ -283,14 +327,28 @@ public struct RoundTripReviewService: Sendable {
         }
     }
 
-    private func resolvedArtifactURL(
+    private func resolveArtifactURL(
         _ artifact: HeadlessRoundTripService.Artifact,
-        runDirectory: URL
-    ) -> URL {
-        if artifact.path.hasPrefix("/") {
-            return URL(filePath: artifact.path)
+        resolver: RoundTripArtifactResolver,
+        diagnostics: inout [String],
+        warnings: inout [String]
+    ) -> URL? {
+        do {
+            let resolution = try resolver.resolve(artifact)
+            appendUnique(resolution.warnings, to: &warnings)
+            return resolution.url
+        } catch {
+            appendUnique([
+                "Artifact path is invalid: \(artifact.kind) at \(artifact.path): \(error.localizedDescription)",
+            ], to: &diagnostics)
+            return nil
         }
-        return runDirectory.appending(path: artifact.path)
+    }
+
+    private func appendUnique(_ newWarnings: [String], to warnings: inout [String]) {
+        for warning in newWarnings where !warnings.contains(warning) {
+            warnings.append(warning)
+        }
     }
 
     private func projectRoot(fromManifestURL url: URL) -> URL? {

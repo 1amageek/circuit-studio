@@ -194,6 +194,10 @@ struct CircuitStudioFlowRunner {
             Swift.print("run_id=\(result.approvalRecord?.runID ?? "")")
             Swift.print("approval_record=\(result.approvalRecordPath ?? "")")
             Swift.print("target_sha256=\(result.approvalRecord?.targetArtifactSHA256 ?? "")")
+            Swift.print("approval_warning_count=\(result.approvalRecord?.artifactResolutionWarnings.count ?? 0)")
+            for warning in result.approvalRecord?.artifactResolutionWarnings ?? [] {
+                Swift.print("approval_warning=\(warning)")
+            }
         case .reviewRoundTrip:
             let review = result.roundTripReview
             Swift.print("round_trip_review=\(review?.status.rawValue ?? "")")
@@ -203,6 +207,10 @@ struct CircuitStudioFlowRunner {
             Swift.print("stage_count=\(review?.stages.count ?? 0)")
             Swift.print("artifact_count=\(review?.artifacts.count ?? 0)")
             Swift.print("diagnostic_count=\(review?.diagnostics.count ?? 0)")
+            Swift.print("warning_count=\(review?.warnings.count ?? 0)")
+            for warning in review?.warnings ?? [] {
+                Swift.print("warning=\(warning)")
+            }
             if let comparison = review?.postLayoutComparison {
                 Swift.print("comparison_status=\(comparison.status)")
                 Swift.print("comparison_gate=\(comparison.gateStatus)")

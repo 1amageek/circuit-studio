@@ -440,6 +440,104 @@ struct DesignFlowServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
+    func commandAPIRejectsEscapingGateApprovalArtifactPath() async throws {
+        let root = try makeTemporaryRoot("gate-approval-escape")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "approval-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let outsideURL = runDirectory
+            .deletingLastPathComponent()
+            .appending(path: "outside-comparison.json")
+        try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: outsideURL, options: .atomic)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+            runID: "approval-run",
+            title: "Escaping approval run",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_150),
+            isRoundTripComplete: true,
+            isReadyForPEX: true,
+            stages: [
+                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
+            ],
+            artifacts: [
+                HeadlessRoundTripService.Artifact(
+                    kind: "post-layout-comparison",
+                    path: "../outside-comparison.json"
+                ),
+            ]
+        ), to: manifestURL)
+
+        do {
+            _ = try await DesignFlowService().execute(DesignFlowCommand(
+                kind: .approveGate,
+                projectRootPath: root.path(percentEncoded: false),
+                runID: "approval-run",
+                roundTripManifestPath: manifestURL.path(percentEncoded: false),
+                approvalGateID: .postLayoutComparison,
+                approvalReviewer: "layout-reviewer"
+            ))
+            Issue.record("Expected escaping artifact path to fail gate approval.")
+        } catch let error as FlowRunGovernanceError {
+            if case .invalidArtifactPath(let message) = error {
+                #expect(message.contains("escapes"))
+            } else {
+                Issue.record("Expected invalid artifact path error, got \(error).")
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIApprovesLegacyAbsoluteArtifactPathWithWarning() async throws {
+        let root = try makeTemporaryRoot("gate-approval-legacy-absolute")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "approval-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+            runID: "approval-run",
+            title: "Legacy absolute approval run",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_175),
+            isRoundTripComplete: true,
+            isReadyForPEX: true,
+            stages: [
+                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
+            ],
+            artifacts: [
+                HeadlessRoundTripService.Artifact(
+                    kind: "post-layout-comparison",
+                    path: comparisonURL.path(percentEncoded: false)
+                ),
+            ]
+        ), to: manifestURL)
+
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .approveGate,
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "approval-run",
+            roundTripManifestPath: manifestURL.path(percentEncoded: false),
+            approvalGateID: .postLayoutComparison,
+            approvalReviewer: "layout-reviewer"
+        ))
+
+        #expect(result.approvalRecord?.targetArtifactPath == comparisonURL.path(percentEncoded: false))
+        #expect(result.approvalRecord?.artifactResolutionWarnings.contains {
+            $0.contains("Legacy absolute artifact path")
+        } == true)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
     func commandAPIRejectsGateApprovalForInvalidManifestRunID() async throws {
         let root = try makeTemporaryRoot("gate-approval-invalid-run")
         defer { removeTemporaryRoot(root) }

@@ -49,6 +49,7 @@ public struct GateApprovalRecord: Sendable, Hashable, Codable {
     public let policy: String?
     public let waiverIDs: [String]
     public let note: String?
+    public let artifactResolutionWarnings: [String]
     public let lineage: FlowRunLineage?
 
     public init(
@@ -65,6 +66,7 @@ public struct GateApprovalRecord: Sendable, Hashable, Codable {
         policy: String?,
         waiverIDs: [String],
         note: String?,
+        artifactResolutionWarnings: [String] = [],
         lineage: FlowRunLineage?
     ) {
         self.id = id
@@ -80,7 +82,52 @@ public struct GateApprovalRecord: Sendable, Hashable, Codable {
         self.policy = policy
         self.waiverIDs = waiverIDs
         self.note = note
+        self.artifactResolutionWarnings = artifactResolutionWarnings
         self.lineage = lineage
+    }
+}
+
+extension GateApprovalRecord {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case gateID
+        case decision
+        case reviewer
+        case decidedAt
+        case runID
+        case manifestPath
+        case manifestSHA256
+        case targetArtifactPath
+        case targetArtifactSHA256
+        case policy
+        case waiverIDs
+        case note
+        case artifactResolutionWarnings
+        case lineage
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            gateID: try container.decode(FlowGateID.self, forKey: .gateID),
+            decision: try container.decode(GateApprovalDecision.self, forKey: .decision),
+            reviewer: try container.decode(String.self, forKey: .reviewer),
+            decidedAt: try container.decode(Date.self, forKey: .decidedAt),
+            runID: try container.decodeIfPresent(String.self, forKey: .runID),
+            manifestPath: try container.decodeIfPresent(String.self, forKey: .manifestPath),
+            manifestSHA256: try container.decodeIfPresent(String.self, forKey: .manifestSHA256),
+            targetArtifactPath: try container.decode(String.self, forKey: .targetArtifactPath),
+            targetArtifactSHA256: try container.decode(String.self, forKey: .targetArtifactSHA256),
+            policy: try container.decodeIfPresent(String.self, forKey: .policy),
+            waiverIDs: try container.decode([String].self, forKey: .waiverIDs),
+            note: try container.decodeIfPresent(String.self, forKey: .note),
+            artifactResolutionWarnings: try container.decodeIfPresent(
+                [String].self,
+                forKey: .artifactResolutionWarnings
+            ) ?? [],
+            lineage: try container.decodeIfPresent(FlowRunLineage.self, forKey: .lineage)
+        )
     }
 }
 
@@ -143,6 +190,7 @@ public enum FlowRunGovernanceError: Error, LocalizedError, Equatable {
     case missingArtifactForGate(FlowGateID)
     case missingArtifact(URL)
     case invalidRunID(String)
+    case invalidArtifactPath(String)
 
     public var errorDescription: String? {
         switch self {
@@ -156,6 +204,8 @@ public enum FlowRunGovernanceError: Error, LocalizedError, Equatable {
             return "Gate approval target artifact does not exist: \(url.path(percentEncoded: false))"
         case .invalidRunID(let runID):
             return "Invalid run ID for gate approval: \(runID)"
+        case .invalidArtifactPath(let message):
+            return "Invalid gate approval artifact path: \(message)"
         }
     }
 }
@@ -173,12 +223,13 @@ public struct FlowRunGovernanceService: Sendable {
         }
 
         let manifest = try request.manifestURL.map { try loadManifest($0) }
-        let targetURL = try approvalTargetURL(
+        let target = try approvalTarget(
             gateID: request.gateID,
             explicitTargetURL: request.targetArtifactURL,
             manifest: manifest,
             manifestURL: request.manifestURL
         )
+        let targetURL = target.url
         guard FileManager.default.fileExists(atPath: targetURL.path(percentEncoded: false)) else {
             throw FlowRunGovernanceError.missingArtifact(targetURL)
         }
@@ -202,6 +253,7 @@ public struct FlowRunGovernanceService: Sendable {
             policy: request.policy,
             waiverIDs: request.waiverIDs,
             note: request.note,
+            artifactResolutionWarnings: target.warnings,
             lineage: request.lineage ?? lineage(from: manifest, manifestURL: request.manifestURL)
         )
         let recordURL = approvalRecordURL(
@@ -235,23 +287,30 @@ public struct FlowRunGovernanceService: Sendable {
         return try urls.map { try readJSON(GateApprovalRecord.self, from: $0) }
     }
 
-    private func approvalTargetURL(
+    private func approvalTarget(
         gateID: FlowGateID,
         explicitTargetURL: URL?,
         manifest: HeadlessRoundTripService.Manifest?,
         manifestURL: URL?
-    ) throws -> URL {
+    ) throws -> RoundTripArtifactResolution {
         if let explicitTargetURL {
-            return explicitTargetURL
+            return RoundTripArtifactResolution(url: explicitTargetURL)
         }
         guard let manifest else {
+            throw FlowRunGovernanceError.missingApprovalTarget
+        }
+        guard let manifestURL else {
             throw FlowRunGovernanceError.missingApprovalTarget
         }
         let targetKinds = artifactKinds(for: gateID)
         guard let artifact = manifest.artifacts.first(where: { targetKinds.contains($0.kind) }) else {
             throw FlowRunGovernanceError.missingArtifactForGate(gateID)
         }
-        return resolvedArtifactURL(artifact, manifestURL: manifestURL)
+        do {
+            return try RoundTripArtifactResolver(manifestURL: manifestURL).resolve(artifact)
+        } catch {
+            throw FlowRunGovernanceError.invalidArtifactPath(error.localizedDescription)
+        }
     }
 
     private func artifactKinds(for gateID: FlowGateID) -> [String] {
@@ -295,19 +354,6 @@ public struct FlowRunGovernanceService: Sendable {
             return nil
         }
         return configDirectory.deletingLastPathComponent()
-    }
-
-    private func resolvedArtifactURL(
-        _ artifact: HeadlessRoundTripService.Artifact,
-        manifestURL: URL?
-    ) -> URL {
-        if artifact.path.hasPrefix("/") {
-            return URL(filePath: artifact.path)
-        }
-        guard let manifestURL else {
-            return URL(filePath: artifact.path)
-        }
-        return manifestURL.deletingLastPathComponent().appending(path: artifact.path)
     }
 
     private func lineage(

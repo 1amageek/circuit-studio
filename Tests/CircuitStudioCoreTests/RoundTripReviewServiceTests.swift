@@ -77,6 +77,212 @@ struct RoundTripReviewServiceTests {
         #expect(summary.recommendations.contains { $0.contains("auditable") })
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func artifactResolverRejectsExternalURLInsteadOfReturningAbsoluteFallback() throws {
+        let root = try makeTemporaryRoot("resolver-external-url")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let externalURL = root.appending(path: "external.txt")
+        try "external\n".write(to: externalURL, atomically: true, encoding: .utf8)
+
+        var didRejectExternalURL = false
+        do {
+            _ = try RoundTripArtifactResolver(
+                runDirectory: runDirectory,
+                allowLegacyAbsolutePaths: false
+            ).relativePath(for: externalURL)
+            Issue.record("Expected external artifact URL to fail relative path conversion.")
+        } catch let error as RoundTripArtifactResolverError {
+            if case .pathEscapesRunDirectory = error {
+                didRejectExternalURL = true
+            } else {
+                Issue.record("Expected path escape error, got \(error).")
+            }
+        }
+        #expect(didRejectExternalURL)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func escapingReviewArtifactIsDiagnosticAndIsNotRead() throws {
+        let root = try makeTemporaryRoot("review-escape-artifact")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let outsideComparisonURL = runDirectory
+            .deletingLastPathComponent()
+            .appending(path: "outside-comparison.json")
+        try writeJSON(makeComparisonReport(), to: outsideComparisonURL)
+
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        var manifest = makeManifest(comparisonURL: runDirectory.appending(path: "unused.json"), signoffURL: signoffURL)
+        manifest = HeadlessRoundTripService.Manifest(
+            runID: manifest.runID,
+            title: manifest.title,
+            createdAt: manifest.createdAt,
+            isRoundTripComplete: manifest.isRoundTripComplete,
+            isReadyForPEX: manifest.isReadyForPEX,
+            stages: manifest.stages,
+            artifacts: [
+                manifest.artifacts[0],
+                HeadlessRoundTripService.Artifact(
+                    kind: "post-layout-comparison",
+                    path: "../outside-comparison.json"
+                ),
+            ],
+            bottleneckSummary: manifest.bottleneckSummary
+        )
+        try writeJSON(manifest, to: manifestURL)
+
+        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+
+        #expect(summary.status == .incomplete)
+        #expect(summary.postLayoutComparison == nil)
+        #expect(summary.diagnostics.contains { $0.contains("escapes") })
+        #expect(summary.warnings.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func symlinkEscapingRunDirectoryIsDiagnosticAndIsNotRead() throws {
+        let root = try makeTemporaryRoot("review-symlink-escape")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let externalDirectory = root.appending(path: "external")
+        try FileManager.default.createDirectory(at: externalDirectory, withIntermediateDirectories: true)
+        let externalComparisonURL = externalDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: externalComparisonURL)
+
+        let linkedComparisonURL = runDirectory.appending(path: "linked-comparison.json")
+        try FileManager.default.createSymbolicLink(
+            at: linkedComparisonURL,
+            withDestinationURL: externalComparisonURL
+        )
+
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeJSON(makeManifest(
+            comparisonURL: linkedComparisonURL,
+            signoffURL: signoffURL
+        ), to: manifestURL)
+
+        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+
+        #expect(summary.status == .incomplete)
+        #expect(summary.postLayoutComparison == nil)
+        #expect(summary.diagnostics.contains { $0.contains("escapes") })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func legacyAbsoluteArtifactPathIsWarningNotDiagnostic() throws {
+        let root = try makeTemporaryRoot("review-legacy-absolute")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: comparisonURL)
+
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        var manifest = makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL)
+        manifest = HeadlessRoundTripService.Manifest(
+            runID: manifest.runID,
+            title: manifest.title,
+            createdAt: manifest.createdAt,
+            isRoundTripComplete: manifest.isRoundTripComplete,
+            isReadyForPEX: manifest.isReadyForPEX,
+            stages: manifest.stages,
+            artifacts: [
+                manifest.artifacts[0],
+                HeadlessRoundTripService.Artifact(
+                    kind: "post-layout-comparison",
+                    path: comparisonURL.path(percentEncoded: false)
+                ),
+            ],
+            bottleneckSummary: manifest.bottleneckSummary
+        )
+        try writeJSON(manifest, to: manifestURL)
+
+        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+
+        #expect(summary.status == .passed)
+        #expect(summary.diagnostics.isEmpty)
+        #expect(summary.warnings.contains { $0.contains("Legacy absolute artifact path") })
+        #expect(summary.postLayoutComparison?.gateStatus == "passed")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func relativeArtifactManifestRemainsPortableAfterRunDirectoryMove() throws {
+        let originalRoot = try makeTemporaryRoot("review-portable-original")
+        let movedRoot = try makeTemporaryRoot("review-portable-moved")
+        defer { removeTemporaryRoot(originalRoot) }
+        defer { removeTemporaryRoot(movedRoot) }
+
+        let originalRunDirectory = originalRoot
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: originalRunDirectory, withIntermediateDirectories: true)
+
+        let comparisonURL = originalRunDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: comparisonURL)
+
+        let signoffURL = originalRunDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+
+        let manifestURL = originalRunDirectory.appending(path: "round-trip-manifest.json")
+        try writeJSON(makeManifest(
+            comparisonURL: comparisonURL,
+            signoffURL: signoffURL
+        ), to: manifestURL)
+
+        let movedRunDirectory = movedRoot
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(
+            at: movedRunDirectory.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: originalRunDirectory, to: movedRunDirectory)
+
+        let summary = try RoundTripReviewService().loadReview(
+            manifestURL: movedRunDirectory.appending(path: "round-trip-manifest.json")
+        )
+
+        #expect(summary.status == .passed)
+        #expect(summary.diagnostics.isEmpty)
+        #expect(summary.warnings.isEmpty)
+        #expect(summary.postLayoutComparison?.gateStatus == "passed")
+    }
+
     private func makeManifest(
         comparisonURL: URL,
         signoffURL: URL

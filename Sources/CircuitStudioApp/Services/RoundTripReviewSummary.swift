@@ -22,6 +22,7 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
     public let approvals: [GateApprovalRecord]
     public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
     public let diagnostics: [String]
+    public let warnings: [String]
     public let recommendations: [String]
 
     public init(
@@ -39,6 +40,7 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
         approvals: [GateApprovalRecord] = [],
         bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?,
         diagnostics: [String],
+        warnings: [String] = [],
         recommendations: [String]
     ) {
         self.runID = runID
@@ -55,7 +57,60 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
         self.approvals = approvals
         self.bottleneckSummary = bottleneckSummary
         self.diagnostics = diagnostics
+        self.warnings = warnings
         self.recommendations = recommendations
+    }
+}
+
+extension RoundTripReviewSummary {
+    private enum CodingKeys: String, CodingKey {
+        case runID
+        case title
+        case createdAt
+        case manifestPath
+        case status
+        case isRoundTripComplete
+        case isReadyForPEX
+        case stages
+        case artifacts
+        case externalSignoff
+        case postLayoutComparison
+        case approvals
+        case bottleneckSummary
+        case diagnostics
+        case warnings
+        case recommendations
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            runID: try container.decode(String.self, forKey: .runID),
+            title: try container.decode(String.self, forKey: .title),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            manifestPath: try container.decode(String.self, forKey: .manifestPath),
+            status: try container.decode(Status.self, forKey: .status),
+            isRoundTripComplete: try container.decode(Bool.self, forKey: .isRoundTripComplete),
+            isReadyForPEX: try container.decode(Bool.self, forKey: .isReadyForPEX),
+            stages: try container.decode([RoundTripReviewStageSummary].self, forKey: .stages),
+            artifacts: try container.decode([RoundTripReviewArtifactSummary].self, forKey: .artifacts),
+            externalSignoff: try container.decodeIfPresent(
+                RoundTripReviewSignoffSummary.self,
+                forKey: .externalSignoff
+            ),
+            postLayoutComparison: try container.decodeIfPresent(
+                RoundTripReviewComparisonSummary.self,
+                forKey: .postLayoutComparison
+            ),
+            approvals: try container.decodeIfPresent([GateApprovalRecord].self, forKey: .approvals) ?? [],
+            bottleneckSummary: try container.decodeIfPresent(
+                HeadlessRoundTripService.BottleneckSummary.self,
+                forKey: .bottleneckSummary
+            ),
+            diagnostics: try container.decode([String].self, forKey: .diagnostics),
+            warnings: try container.decodeIfPresent([String].self, forKey: .warnings) ?? [],
+            recommendations: try container.decode([String].self, forKey: .recommendations)
+        )
     }
 }
 
