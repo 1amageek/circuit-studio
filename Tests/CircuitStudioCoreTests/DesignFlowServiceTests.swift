@@ -428,7 +428,9 @@ struct DesignFlowServiceTests {
         #expect(result.approvalRecord?.decision == .approved)
         #expect(result.approvalRecord?.reviewer == "layout-reviewer")
         #expect(result.approvalRecord?.waiverIDs == ["W-007"])
-        #expect(result.approvalRecord?.targetArtifactPath == comparisonURL.path(percentEncoded: false))
+        #expect(result.approvalRecord?.targetArtifactKind == "post-layout-comparison")
+        #expect(result.approvalRecord?.targetArtifactPathBase == .runDirectory)
+        #expect(result.approvalRecord?.targetArtifactPath == comparisonURL.lastPathComponent)
         #expect(result.approvalRecord?.targetArtifactSHA256.count == 64)
         #expect(result.approvalRecord?.manifestSHA256?.count == 64)
         #expect(result.approvalRecord?.lineage?.parentRunID == "approval-run")
@@ -530,7 +532,9 @@ struct DesignFlowServiceTests {
             approvalReviewer: "layout-reviewer"
         ))
 
-        #expect(result.approvalRecord?.targetArtifactPath == comparisonURL.path(percentEncoded: false))
+        #expect(result.approvalRecord?.targetArtifactKind == "post-layout-comparison")
+        #expect(result.approvalRecord?.targetArtifactPathBase == .runDirectory)
+        #expect(result.approvalRecord?.targetArtifactPath == comparisonURL.lastPathComponent)
         #expect(result.approvalRecord?.artifactResolutionWarnings.contains {
             $0.contains("Legacy absolute artifact path")
         } == true)
@@ -673,9 +677,11 @@ struct DesignFlowServiceTests {
             approvalReviewer: "layout-reviewer"
         ))
 
-        #expect(prePEXResult.approvalRecord?.targetArtifactPath == verificationURL.path(percentEncoded: false))
+        #expect(prePEXResult.approvalRecord?.targetArtifactPath == verificationURL.lastPathComponent)
+        #expect(prePEXResult.approvalRecord?.targetArtifactPathBase == .runDirectory)
         #expect(prePEXResult.approvalRecord?.gateID == .prePEXVerification)
-        #expect(physicalResult.approvalRecord?.targetArtifactPath == verificationURL.path(percentEncoded: false))
+        #expect(physicalResult.approvalRecord?.targetArtifactPath == verificationURL.lastPathComponent)
+        #expect(physicalResult.approvalRecord?.targetArtifactPathBase == .runDirectory)
         #expect(physicalResult.approvalRecord?.gateID == .physicalVerification)
         let review = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
         #expect(review.approvals.map(\.gateID).sorted { $0.rawValue < $1.rawValue } == [

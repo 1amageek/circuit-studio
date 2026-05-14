@@ -283,6 +283,120 @@ struct RoundTripReviewServiceTests {
         #expect(summary.postLayoutComparison?.gateStatus == "passed")
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func manifestBackedApprovalRemainsPortableAfterProjectMove() throws {
+        let originalRoot = try makeTemporaryRoot("review-approval-portable-original")
+        let movedParent = try makeTemporaryRoot("review-approval-portable-moved")
+        defer {
+            if FileManager.default.fileExists(atPath: originalRoot.path(percentEncoded: false)) {
+                removeTemporaryRoot(originalRoot)
+            }
+        }
+        defer { removeTemporaryRoot(movedParent) }
+
+        let runDirectory = originalRoot
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: comparisonURL)
+
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeJSON(makeManifest(
+            comparisonURL: comparisonURL,
+            signoffURL: signoffURL
+        ), to: manifestURL)
+
+        let approval = try FlowRunGovernanceService().approve(GateApprovalRequest(
+            gateID: .postLayoutComparison,
+            reviewer: "reviewer",
+            projectRoot: originalRoot,
+            runID: "review-run",
+            manifestURL: manifestURL
+        ))
+        #expect(approval.record.targetArtifactKind == "post-layout-comparison")
+        #expect(approval.record.targetArtifactPathBase == .runDirectory)
+        #expect(approval.record.targetArtifactPath == "post-layout-comparison.json")
+
+        let movedRoot = movedParent.appending(path: "moved-project")
+        try FileManager.default.copyItem(at: originalRoot, to: movedRoot)
+        try FileManager.default.removeItem(at: originalRoot)
+
+        let summary = try RoundTripReviewService().loadReview(
+            manifestURL: movedRoot
+                .appending(path: ".xcircuite")
+                .appending(path: "flow-runs")
+                .appending(path: "review-run")
+                .appending(path: "round-trip-manifest.json")
+        )
+
+        #expect(summary.status == .passed)
+        #expect(summary.diagnostics.isEmpty)
+        #expect(summary.warnings.isEmpty)
+        #expect(summary.approvals.count == 1)
+        #expect(summary.approvals.first?.targetArtifactPathBase == .runDirectory)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func legacyAbsoluteApprovalTargetIsAuditedAsNonPortable() throws {
+        let root = try makeTemporaryRoot("review-legacy-approval-target")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: comparisonURL)
+
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeJSON(makeManifest(
+            comparisonURL: comparisonURL,
+            signoffURL: signoffURL
+        ), to: manifestURL)
+
+        let approvalsDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "approvals")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: approvalsDirectory, withIntermediateDirectories: true)
+        let staleAbsolutePath = FileManager.default.temporaryDirectory
+            .appending(path: "missing-approval-target-\(UUID().uuidString).json")
+            .path(percentEncoded: false)
+        try writeJSON(GateApprovalRecord(
+            gateID: .postLayoutComparison,
+            decision: .approved,
+            reviewer: "reviewer",
+            decidedAt: Date(timeIntervalSince1970: 1_700_000_010),
+            runID: "review-run",
+            manifestPath: manifestURL.path(percentEncoded: false),
+            manifestSHA256: nil,
+            targetArtifactPath: staleAbsolutePath,
+            targetArtifactSHA256: String(repeating: "0", count: 64),
+            policy: nil,
+            waiverIDs: [],
+            note: nil,
+            lineage: nil
+        ), to: approvalsDirectory.appending(path: "legacy-approval.json"))
+
+        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+
+        #expect(summary.status == .incomplete)
+        #expect(summary.approvals.count == 1)
+        #expect(summary.warnings.contains { $0.contains("legacy absolute target artifact path") })
+        #expect(summary.diagnostics.contains { $0.contains("Gate approval target artifact is missing") })
+    }
+
     private func makeManifest(
         comparisonURL: URL,
         signoffURL: URL

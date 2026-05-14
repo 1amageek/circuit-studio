@@ -13,6 +13,11 @@ public enum GateApprovalDecision: String, Sendable, Hashable, Codable {
     case rejected
 }
 
+public enum GateApprovalTargetPathBase: String, Sendable, Hashable, Codable {
+    case runDirectory
+    case absolute
+}
+
 public struct FlowRunLineage: Sendable, Hashable, Codable {
     public let parentRunID: String?
     public let parentManifestPath: String?
@@ -44,6 +49,8 @@ public struct GateApprovalRecord: Sendable, Hashable, Codable {
     public let runID: String?
     public let manifestPath: String?
     public let manifestSHA256: String?
+    public let targetArtifactKind: String?
+    public let targetArtifactPathBase: GateApprovalTargetPathBase
     public let targetArtifactPath: String
     public let targetArtifactSHA256: String
     public let policy: String?
@@ -61,6 +68,8 @@ public struct GateApprovalRecord: Sendable, Hashable, Codable {
         runID: String?,
         manifestPath: String?,
         manifestSHA256: String?,
+        targetArtifactKind: String? = nil,
+        targetArtifactPathBase: GateApprovalTargetPathBase = .absolute,
         targetArtifactPath: String,
         targetArtifactSHA256: String,
         policy: String?,
@@ -77,6 +86,8 @@ public struct GateApprovalRecord: Sendable, Hashable, Codable {
         self.runID = runID
         self.manifestPath = manifestPath
         self.manifestSHA256 = manifestSHA256
+        self.targetArtifactKind = targetArtifactKind
+        self.targetArtifactPathBase = targetArtifactPathBase
         self.targetArtifactPath = targetArtifactPath
         self.targetArtifactSHA256 = targetArtifactSHA256
         self.policy = policy
@@ -97,6 +108,8 @@ extension GateApprovalRecord {
         case runID
         case manifestPath
         case manifestSHA256
+        case targetArtifactKind
+        case targetArtifactPathBase
         case targetArtifactPath
         case targetArtifactSHA256
         case policy
@@ -117,6 +130,11 @@ extension GateApprovalRecord {
             runID: try container.decodeIfPresent(String.self, forKey: .runID),
             manifestPath: try container.decodeIfPresent(String.self, forKey: .manifestPath),
             manifestSHA256: try container.decodeIfPresent(String.self, forKey: .manifestSHA256),
+            targetArtifactKind: try container.decodeIfPresent(String.self, forKey: .targetArtifactKind),
+            targetArtifactPathBase: try container.decodeIfPresent(
+                GateApprovalTargetPathBase.self,
+                forKey: .targetArtifactPathBase
+            ) ?? .absolute,
             targetArtifactPath: try container.decode(String.self, forKey: .targetArtifactPath),
             targetArtifactSHA256: try container.decode(String.self, forKey: .targetArtifactSHA256),
             policy: try container.decodeIfPresent(String.self, forKey: .policy),
@@ -139,6 +157,14 @@ public struct GateApprovalResult: Sendable, Hashable, Codable {
         self.record = record
         self.recordPath = recordPath
     }
+}
+
+private struct GateApprovalTarget: Sendable, Hashable {
+    let url: URL
+    let recordPath: String
+    let pathBase: GateApprovalTargetPathBase
+    let artifactKind: String?
+    let warnings: [String]
 }
 
 public struct GateApprovalRequest: Sendable, Hashable {
@@ -248,7 +274,9 @@ public struct FlowRunGovernanceService: Sendable {
             runID: resolvedRunID,
             manifestPath: request.manifestURL?.path(percentEncoded: false),
             manifestSHA256: manifestHash,
-            targetArtifactPath: targetURL.path(percentEncoded: false),
+            targetArtifactKind: target.artifactKind,
+            targetArtifactPathBase: target.pathBase,
+            targetArtifactPath: target.recordPath,
             targetArtifactSHA256: targetHash,
             policy: request.policy,
             waiverIDs: request.waiverIDs,
@@ -292,9 +320,15 @@ public struct FlowRunGovernanceService: Sendable {
         explicitTargetURL: URL?,
         manifest: HeadlessRoundTripService.Manifest?,
         manifestURL: URL?
-    ) throws -> RoundTripArtifactResolution {
+    ) throws -> GateApprovalTarget {
         if let explicitTargetURL {
-            return RoundTripArtifactResolution(url: explicitTargetURL)
+            return GateApprovalTarget(
+                url: explicitTargetURL,
+                recordPath: explicitTargetURL.path(percentEncoded: false),
+                pathBase: .absolute,
+                artifactKind: nil,
+                warnings: []
+            )
         }
         guard let manifest else {
             throw FlowRunGovernanceError.missingApprovalTarget
@@ -307,7 +341,15 @@ public struct FlowRunGovernanceService: Sendable {
             throw FlowRunGovernanceError.missingArtifactForGate(gateID)
         }
         do {
-            return try RoundTripArtifactResolver(manifestURL: manifestURL).resolve(artifact)
+            let resolver = RoundTripArtifactResolver(manifestURL: manifestURL)
+            let resolution = try resolver.resolve(artifact)
+            return GateApprovalTarget(
+                url: resolution.url,
+                recordPath: try resolver.relativePath(for: resolution.url),
+                pathBase: .runDirectory,
+                artifactKind: artifact.kind,
+                warnings: resolution.warnings
+            )
         } catch {
             throw FlowRunGovernanceError.invalidArtifactPath(error.localizedDescription)
         }

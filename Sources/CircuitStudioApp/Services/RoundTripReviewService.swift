@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import CircuitStudioCore
 
@@ -59,7 +60,13 @@ public struct RoundTripReviewService: Sendable {
             diagnostics: &diagnostics,
             warnings: &warnings
         )
-        let approvals = loadApprovalRecords(manifest: manifest, manifestURL: manifestURL, diagnostics: &diagnostics)
+        let approvals = loadApprovalRecords(
+            manifest: manifest,
+            manifestURL: manifestURL,
+            resolver: resolver,
+            diagnostics: &diagnostics,
+            warnings: &warnings
+        )
         let stageSummaries = manifest.stages.map {
             RoundTripReviewStageSummary(
                 name: $0.name,
@@ -98,19 +105,80 @@ public struct RoundTripReviewService: Sendable {
     private func loadApprovalRecords(
         manifest: HeadlessRoundTripService.Manifest,
         manifestURL: URL,
-        diagnostics: inout [String]
+        resolver: RoundTripArtifactResolver,
+        diagnostics: inout [String],
+        warnings: inout [String]
     ) -> [GateApprovalRecord] {
         guard let projectRoot = projectRoot(fromManifestURL: manifestURL) else {
             return []
         }
         do {
-            return try FlowRunGovernanceService().approvalRecords(
+            let records = try FlowRunGovernanceService().approvalRecords(
                 projectRoot: projectRoot,
                 runID: manifest.runID
             )
+            validateApprovalRecords(
+                records,
+                resolver: resolver,
+                diagnostics: &diagnostics,
+                warnings: &warnings
+            )
+            return records
         } catch {
             diagnostics.append("Failed to load gate approval records: \(error.localizedDescription)")
             return []
+        }
+    }
+
+    private func validateApprovalRecords(
+        _ records: [GateApprovalRecord],
+        resolver: RoundTripArtifactResolver,
+        diagnostics: inout [String],
+        warnings: inout [String]
+    ) {
+        for record in records {
+            do {
+                let url = try approvalTargetURL(record: record, resolver: resolver, warnings: &warnings)
+                let path = url.path(percentEncoded: false)
+                guard FileManager.default.fileExists(atPath: path) else {
+                    appendUnique([
+                        "Gate approval target artifact is missing: \(record.gateID.rawValue) at \(path)",
+                    ], to: &diagnostics)
+                    continue
+                }
+                let actualHash = try sha256(of: url)
+                guard actualHash == record.targetArtifactSHA256 else {
+                    appendUnique([
+                        "Gate approval target artifact hash mismatch: \(record.gateID.rawValue) at \(path)",
+                    ], to: &diagnostics)
+                    continue
+                }
+            } catch {
+                appendUnique([
+                    "Gate approval target artifact is invalid: \(record.gateID.rawValue): \(error.localizedDescription)",
+                ], to: &diagnostics)
+            }
+        }
+    }
+
+    private func approvalTargetURL(
+        record: GateApprovalRecord,
+        resolver: RoundTripArtifactResolver,
+        warnings: inout [String]
+    ) throws -> URL {
+        switch record.targetArtifactPathBase {
+        case .runDirectory:
+            let resolution = try resolver.resolve(
+                path: record.targetArtifactPath,
+                kind: record.targetArtifactKind ?? record.gateID.rawValue
+            )
+            appendUnique(resolution.warnings, to: &warnings)
+            return resolution.url
+        case .absolute:
+            appendUnique([
+                "Gate approval record uses a legacy absolute target artifact path: \(record.targetArtifactPath)",
+            ], to: &warnings)
+            return URL(filePath: record.targetArtifactPath)
         }
     }
 
@@ -325,6 +393,12 @@ public struct RoundTripReviewService: Sendable {
                 "Failed to load \(context) from \(url.path(percentEncoded: false)): \(error.localizedDescription)"
             )
         }
+    }
+
+    private func sha256(of url: URL) throws -> String {
+        let data = try Data(contentsOf: url)
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private func resolveArtifactURL(
