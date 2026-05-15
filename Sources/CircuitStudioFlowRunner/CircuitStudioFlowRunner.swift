@@ -5,20 +5,25 @@ import CircuitStudioCore
 @main
 struct CircuitStudioFlowRunner {
     static func main() async {
+        let options: RunnerOptions
         do {
-            let options = try RunnerOptions(arguments: Array(CommandLine.arguments.dropFirst()))
-            if options.showHelp {
-                Swift.print(Self.helpText)
-                return
-            }
+            options = try RunnerOptions(arguments: Array(CommandLine.arguments.dropFirst()))
+        } catch {
+            printUsageFailure(error)
+            exit(1)
+        }
 
+        if options.showHelp {
+            Swift.print(Self.helpText)
+            return
+        }
+
+        do {
             let designFlowService = DesignFlowService()
             let result = try await designFlowService.execute(command(from: options))
             print(result: result, options: options)
         } catch {
-            fputs("flow_command=failed\n", stderr)
-            fputs("error=\(error.localizedDescription)\n", stderr)
-            fputs("\n\(Self.helpText)\n", stderr)
+            printRuntimeFailure(error, options: options)
             exit(1)
         }
     }
@@ -247,6 +252,91 @@ struct CircuitStudioFlowRunner {
                 Swift.print("recommendation=\(recommendation)")
             }
         }
+    }
+
+    private static func printUsageFailure(_ error: Error) {
+        fputs("flow_command=failed\n", stderr)
+        fputs("error_kind=usage\n", stderr)
+        fputs("error_type=\(errorType(error))\n", stderr)
+        fputs("error=\(error.localizedDescription)\n", stderr)
+        fputs("help_hint=swift run circuit-studio-flow-runner --help\n", stderr)
+    }
+
+    private static func printRuntimeFailure(_ error: Error, options: RunnerOptions) {
+        let manifestURL = candidateManifestURL(from: options)
+        fputs("flow_command=failed\n", stderr)
+        fputs("error_kind=\(runtimeErrorKind(error))\n", stderr)
+        fputs("error_type=\(errorType(error))\n", stderr)
+        fputs("error=\(error.localizedDescription)\n", stderr)
+        if let runID = options.runID {
+            fputs("run_id=\(runID)\n", stderr)
+        }
+        if let projectRoot = projectRootPath(from: options) {
+            fputs("project_root=\(projectRoot)\n", stderr)
+        }
+        if let manifestURL {
+            fputs("manifest=\(manifestURL.path(percentEncoded: false))\n", stderr)
+            if let failedStage = failedStageName(from: manifestURL) {
+                fputs("stage=\(failedStage)\n", stderr)
+            }
+        }
+        fputs("recommendation=\(recommendation(for: error, manifestURL: manifestURL))\n", stderr)
+    }
+
+    private static func runtimeErrorKind(_ error: Error) -> String {
+        if error is DesignFlowCommandError {
+            return "command_validation"
+        }
+        return "runtime"
+    }
+
+    private static func errorType(_ error: Error) -> String {
+        String(describing: type(of: error))
+    }
+
+    private static func candidateManifestURL(from options: RunnerOptions) -> URL? {
+        if let reviewManifestURL = options.reviewManifestURL {
+            return reviewManifestURL
+        }
+        guard let runID = options.runID,
+              let projectRoot = projectRootPath(from: options) else {
+            return nil
+        }
+        let manifestURL = URL(filePath: projectRoot)
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: runID)
+            .appending(path: "round-trip-manifest.json")
+        guard FileManager.default.fileExists(atPath: manifestURL.path(percentEncoded: false)) else {
+            return nil
+        }
+        return manifestURL
+    }
+
+    private static func failedStageName(from manifestURL: URL) -> String? {
+        do {
+            let data = try Data(contentsOf: manifestURL)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let manifest = try decoder.decode(HeadlessRoundTripService.Manifest.self, from: data)
+            return manifest.stages.first { $0.status == .failed }?.name
+        } catch {
+            return nil
+        }
+    }
+
+    private static func recommendation(for error: Error, manifestURL: URL?) -> String {
+        let description = error.localizedDescription
+        if description.contains("Post-layout comparison exceeded configured limits") {
+            return "Inspect post-layout-comparison.json and adjust the design or comparison limits."
+        }
+        if error is DesignFlowCommandError {
+            return "Fix the command inputs and rerun. Use --help only when you need the option reference."
+        }
+        if manifestURL != nil {
+            return "Inspect the manifest and stage artifacts for the structured failure evidence."
+        }
+        return "Rerun with an explicit --output and --run-id to preserve inspectable run artifacts."
     }
 
     private static func printDesignOrFixture(result: DesignFlowCommandResult, options: RunnerOptions) {

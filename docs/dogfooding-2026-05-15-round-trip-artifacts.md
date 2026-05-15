@@ -51,7 +51,7 @@ swift run circuit-studio-flow-runner \
 | ID | Severity | Finding | Evidence | Recommended fix |
 |---|---:|---|---|---|
 | DF-2026-05-15-001 | P1 | Global relative-delta gates are unstable for CMOS transient comparisons near zero crossings. | `V(out)` max absolute delta was `0.0376818968899153`, but max relative delta was `1.6042159853749478`; `V(in)` and `I(1)` also exceeded `1.5` relative delta while their absolute errors were small. | Fixed in follow-up: comparison limits now support global `relativeDeltaDenominatorFloor` and variable-specific `floor=VALUE` so transient relative gates can be bounded by a meaningful signal floor. |
-| DF-2026-05-15-002 | P2 | CLI prints the full usage text for runtime flow failures and argument mistakes, obscuring the actionable error. | Both post-layout gate failure and unquoted `--approval-note` produced `flow_command=failed`, one-line error, and then the full help text. | Only print help for `--help` and parse/usage errors. Runtime flow failures should print structured fields: `error_kind`, `stage`, `run_id`, `manifest`, and `recommendation`. |
+| DF-2026-05-15-002 | P2 | CLI prints the full usage text for runtime flow failures and argument mistakes, obscuring the actionable error. | Both post-layout gate failure and unquoted `--approval-note` produced `flow_command=failed`, one-line error, and then the full help text. | Fixed in follow-up: `--help` is the only full-help path; usage and runtime failures now print structured fields with a concise recommendation. |
 | DF-2026-05-15-003 | P1 | Approval records still store absolute `targetArtifactPath`, so approval audit is not portable even when the round-trip manifest is relative-only. | After copying `/tmp/lsi-dogfood-cmos-inverter-pass` to `/tmp/lsi-dogfood-cmos-inverter-moved`, review still reported `approval_count=1`. The copied approval record target still pointed to the original absolute path. After hiding the original root, moved review still passed with `warning_count=0`. | Fixed in follow-up: manifest-backed approvals now store run-relative target paths, target artifact kind, and path base. Review validates approval target existence and hash through the artifact resolver. |
 
 ## Positive Results
@@ -101,11 +101,11 @@ swift run circuit-studio-flow-runner \
 ```mermaid
 flowchart LR
   Current["Manifest and approvals are portable"] --> Delta["Relative-delta gate policy fixed"]
-  Delta --> CLI["Structured CLI failures"]
+  Delta --> CLI["Structured CLI failures fixed"]
   CLI --> Dogfood["Repeat broader dogfood"]
 ```
 
-DF-2026-05-15-003 is closed by implementation and dogfood validation. DF-2026-05-15-001 is closed by the relative-delta denominator floor implementation and CMOS inverter dogfood validation. The next trust issue is DF-2026-05-15-002: runtime CLI failures should stop printing the full help text and should emit structured failure fields.
+DF-2026-05-15-003 is closed by implementation and dogfood validation. DF-2026-05-15-001 is closed by the relative-delta denominator floor implementation and CMOS inverter dogfood validation. DF-2026-05-15-002 is closed by structured CLI failure output and command-line dogfood validation.
 
 ## Follow-up Validation: Relative Delta Floor
 
@@ -139,3 +139,57 @@ flowchart LR
 | Comparison limits persisted | `maxAbsoluteDelta=0.05`, `maxRelativeDelta=0.5`, `relativeDeltaDenominatorFloor=0.1` |
 
 DF-2026-05-15-001 is closed for the global policy path. Variable-specific `floor=VALUE` is also supported by `--variable-limit` for mixed-unit designs where a single global floor is too blunt.
+
+## Follow-up Validation: Structured CLI Failures
+
+After fixing DF-2026-05-15-002, usage and runtime failures were repeated.
+
+```bash
+swift run circuit-studio-flow-runner --bad-option
+```
+
+```text
+flow_command=failed
+error_kind=usage
+error_type=RunnerError
+error=Invalid argument: --bad-option
+help_hint=swift run circuit-studio-flow-runner --help
+```
+
+```bash
+swift run circuit-studio-flow-runner \
+  --fixture cmos-inverter \
+  --output /tmp/lsi-dogfood-cli-failure-v1 \
+  --run-id dogfood-cli-failure-v1-20260516 \
+  --approve-signoff \
+  --max-abs-delta 0.05 \
+  --max-rel-delta 0.5
+```
+
+```text
+flow_command=failed
+error_kind=runtime
+error_type=StudioError
+error=Simulation error: Post-layout comparison exceeded configured limits.
+run_id=dogfood-cli-failure-v1-20260516
+project_root=/tmp/lsi-dogfood-cli-failure-v1
+manifest=/tmp/lsi-dogfood-cli-failure-v1/.xcircuite/flow-runs/dogfood-cli-failure-v1-20260516/round-trip-manifest.json
+stage=post-layout-comparison
+recommendation=Inspect post-layout-comparison.json and adjust the design or comparison limits.
+```
+
+```mermaid
+flowchart TD
+  Error["CLI error"] --> Usage["usage error"]
+  Error --> Runtime["runtime failure"]
+  Usage --> Hint["help_hint only"]
+  Runtime --> Evidence["run_id / project_root / manifest / stage"]
+```
+
+| Check | Result |
+|---|---|
+| Full help on invalid argument | Not printed |
+| Full help on runtime failure | Not printed |
+| Runtime manifest path | Printed |
+| Runtime failed stage | `post-layout-comparison` |
+| Runtime recommendation | Printed |
