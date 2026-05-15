@@ -225,6 +225,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let signoffLVSLogPath: String?
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
+    public let relativeDeltaDenominatorFloor: Double?
     public let variableComparisonLimits: [PostLayoutVariableComparisonLimit]?
     public let oscillationMetricLimits: [PostLayoutOscillationMetricLimit]?
     public let technologyPackagePath: String?
@@ -257,6 +258,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         signoffLVSLogPath: String? = nil,
         maxAbsoluteDelta: Double? = nil,
         maxRelativeDelta: Double? = nil,
+        relativeDeltaDenominatorFloor: Double? = nil,
         variableComparisonLimits: [PostLayoutVariableComparisonLimit] = [],
         oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = [],
         technologyPackagePath: String? = nil,
@@ -288,6 +290,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.signoffLVSLogPath = signoffLVSLogPath
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
+        self.relativeDeltaDenominatorFloor = relativeDeltaDenominatorFloor
         self.variableComparisonLimits = variableComparisonLimits.isEmpty ? nil : variableComparisonLimits
         self.oscillationMetricLimits = oscillationMetricLimits.isEmpty ? nil : oscillationMetricLimits
         self.technologyPackagePath = technologyPackagePath
@@ -1214,6 +1217,7 @@ public struct DesignFlowService: Sendable {
         let oscillationMetricLimits = command.oscillationMetricLimits ?? []
         guard command.maxAbsoluteDelta != nil
             || command.maxRelativeDelta != nil
+            || command.relativeDeltaDenominatorFloor != nil
             || !variableLimits.isEmpty
             || !oscillationMetricLimits.isEmpty else {
             return nil
@@ -1221,6 +1225,7 @@ public struct DesignFlowService: Sendable {
         let limits = PostLayoutComparisonLimits(
             maxAbsoluteDelta: command.maxAbsoluteDelta,
             maxRelativeDelta: command.maxRelativeDelta,
+            relativeDeltaDenominatorFloor: command.relativeDeltaDenominatorFloor,
             variableLimits: variableLimits,
             oscillationMetricLimits: oscillationMetricLimits
         )

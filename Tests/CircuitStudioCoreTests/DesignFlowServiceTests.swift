@@ -1100,13 +1100,22 @@ struct DesignFlowServiceTests {
             runID: "command-api-round-trip",
             approveSignoff: true,
             maxAbsoluteDelta: 1.0e-3,
-            maxRelativeDelta: 1.0e-3
+            maxRelativeDelta: 1.0e-3,
+            relativeDeltaDenominatorFloor: 0.1
         ))
 
         #expect(roundTrip.fixtureName == "resistor-divider")
         #expect(roundTrip.runID == "command-api-round-trip")
         #expect(roundTrip.readyForPEX == true)
         #expect(roundTrip.manifestPath?.hasSuffix("round-trip-manifest.json") == true)
+        let manifest = try #require(roundTrip.manifestPath).loadManifest()
+        let comparisonPath = try #require(manifest.artifacts.first { $0.kind == "post-layout-comparison" }?.path)
+        let comparisonData = try Data(contentsOf: artifactURL(
+            path: comparisonPath,
+            manifestPath: try #require(roundTrip.manifestPath)
+        ))
+        let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
+        #expect(comparison.comparisonLimits?.relativeDeltaDenominatorFloor == 0.1)
         #expect(roundTrip.pexElementCount == 2)
         #expect(roundTrip.bottleneckSummary?.totalMeasuredDurationSeconds ?? 0 >= 0)
         #expect(roundTrip.bottleneckSummary?.longestStageName != nil)

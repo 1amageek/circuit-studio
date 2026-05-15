@@ -160,17 +160,20 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
 public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
+    public let relativeDeltaDenominatorFloor: Double?
     public let variableLimits: [PostLayoutVariableComparisonLimit]
     public let oscillationMetricLimits: [PostLayoutOscillationMetricLimit]
 
     public init(
         maxAbsoluteDelta: Double? = nil,
         maxRelativeDelta: Double? = nil,
+        relativeDeltaDenominatorFloor: Double? = nil,
         variableLimits: [PostLayoutVariableComparisonLimit] = [],
         oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = []
     ) {
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
+        self.relativeDeltaDenominatorFloor = relativeDeltaDenominatorFloor
         self.variableLimits = variableLimits
         self.oscillationMetricLimits = oscillationMetricLimits
     }
@@ -178,6 +181,7 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
     private enum CodingKeys: String, CodingKey {
         case maxAbsoluteDelta
         case maxRelativeDelta
+        case relativeDeltaDenominatorFloor
         case variableLimits
         case oscillationMetricLimits
     }
@@ -186,6 +190,10 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.maxAbsoluteDelta = try container.decodeIfPresent(Double.self, forKey: .maxAbsoluteDelta)
         self.maxRelativeDelta = try container.decodeIfPresent(Double.self, forKey: .maxRelativeDelta)
+        self.relativeDeltaDenominatorFloor = try container.decodeIfPresent(
+            Double.self,
+            forKey: .relativeDeltaDenominatorFloor
+        )
         self.variableLimits = try container.decodeIfPresent(
             [PostLayoutVariableComparisonLimit].self,
             forKey: .variableLimits
@@ -203,6 +211,11 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
         }
         if let maxRelativeDelta, !Self.isValidLimit(maxRelativeDelta) {
             diagnostics.append("Invalid max relative delta limit: \(maxRelativeDelta).")
+        }
+        if let relativeDeltaDenominatorFloor, !Self.isValidLimit(relativeDeltaDenominatorFloor) {
+            diagnostics.append(
+                "Invalid relative delta denominator floor: \(relativeDeltaDenominatorFloor)."
+            )
         }
         var seenVariableNames = Set<String>()
         for variableLimit in variableLimits {
@@ -243,15 +256,18 @@ public struct PostLayoutVariableComparisonLimit: Sendable, Hashable, Codable {
     public let variableName: String
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
+    public let relativeDeltaDenominatorFloor: Double?
 
     public init(
         variableName: String,
         maxAbsoluteDelta: Double? = nil,
-        maxRelativeDelta: Double? = nil
+        maxRelativeDelta: Double? = nil,
+        relativeDeltaDenominatorFloor: Double? = nil
     ) {
         self.variableName = variableName
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
+        self.relativeDeltaDenominatorFloor = relativeDeltaDenominatorFloor
     }
 
     public func validationDiagnostics() -> [String] {
@@ -267,6 +283,11 @@ public struct PostLayoutVariableComparisonLimit: Sendable, Hashable, Codable {
         }
         if let maxRelativeDelta, !Self.isValidLimit(maxRelativeDelta) {
             diagnostics.append("Invalid max relative delta limit for \(variableName): \(maxRelativeDelta).")
+        }
+        if let relativeDeltaDenominatorFloor, !Self.isValidLimit(relativeDeltaDenominatorFloor) {
+            diagnostics.append(
+                "Invalid relative delta denominator floor for \(variableName): \(relativeDeltaDenominatorFloor)."
+            )
         }
         return diagnostics
     }
@@ -561,6 +582,8 @@ public struct PostLayoutMultiCornerComparisonReport: Sendable, Hashable, Codable
 }
 
 public struct PostLayoutComparisonService: Sendable {
+    private static let defaultRelativeDeltaDenominatorFloor = 1.0e-30
+
     private let sweepTolerance: Double
 
     public init(sweepTolerance: Double = 1.0e-12) {
@@ -571,6 +594,22 @@ public struct PostLayoutComparisonService: Sendable {
         preLayoutResult: SimulationResult,
         postLayoutResult: SimulationResult,
         oscillationMetricVariableNames: [String] = []
+    ) -> PostLayoutComparisonReport {
+        return compare(
+            preLayoutResult: preLayoutResult,
+            postLayoutResult: postLayoutResult,
+            oscillationMetricVariableNames: oscillationMetricVariableNames,
+            relativeDeltaDenominatorFloor: Self.defaultRelativeDeltaDenominatorFloor,
+            variableRelativeDeltaDenominatorFloors: [:]
+        )
+    }
+
+    private func compare(
+        preLayoutResult: SimulationResult,
+        postLayoutResult: SimulationResult,
+        oscillationMetricVariableNames: [String],
+        relativeDeltaDenominatorFloor: Double,
+        variableRelativeDeltaDenominatorFloors: [String: Double]
     ) -> PostLayoutComparisonReport {
         guard let preLayoutWaveform = preLayoutResult.waveform else {
             return missingWaveformReport(message: "Pre-layout waveform is missing.")
@@ -626,7 +665,9 @@ public struct PostLayoutComparisonService: Sendable {
                 named: variableName,
                 alignedPoints: alignment.points,
                 preLayoutWaveform: preLayoutWaveform,
-                postLayoutWaveform: postLayoutWaveform
+                postLayoutWaveform: postLayoutWaveform,
+                relativeDeltaDenominatorFloor: variableRelativeDeltaDenominatorFloors[variableName]
+                    ?? relativeDeltaDenominatorFloor
             )
         }
 
@@ -669,10 +710,22 @@ public struct PostLayoutComparisonService: Sendable {
         postLayoutResult: SimulationResult,
         limits: PostLayoutComparisonLimits?
     ) -> PostLayoutComparisonReport {
-        compare(
+        var variableFloors: [String: Double] = [:]
+        for limit in limits?.variableLimits ?? [] {
+            guard variableFloors[limit.variableName] == nil,
+                  let floor = limit.relativeDeltaDenominatorFloor else {
+                continue
+            }
+            variableFloors[limit.variableName] = Self.normalizedRelativeDeltaDenominatorFloor(floor)
+        }
+        return compare(
             preLayoutResult: preLayoutResult,
             postLayoutResult: postLayoutResult,
-            oscillationMetricVariableNames: limits?.requestedOscillationMetricVariableNames ?? []
+            oscillationMetricVariableNames: limits?.requestedOscillationMetricVariableNames ?? [],
+            relativeDeltaDenominatorFloor: Self.normalizedRelativeDeltaDenominatorFloor(
+                limits?.relativeDeltaDenominatorFloor
+            ),
+            variableRelativeDeltaDenominatorFloors: variableFloors
         ).applyingLimits(limits)
     }
 
@@ -847,7 +900,8 @@ public struct PostLayoutComparisonService: Sendable {
         named variableName: String,
         alignedPoints: [AlignedPoint],
         preLayoutWaveform: WaveformData,
-        postLayoutWaveform: WaveformData
+        postLayoutWaveform: WaveformData,
+        relativeDeltaDenominatorFloor: Double
     ) -> PostLayoutVariableComparison? {
         guard let preIndex = preLayoutWaveform.variableIndex(named: variableName),
               let postIndex = postLayoutWaveform.variableIndex(named: variableName),
@@ -883,7 +937,11 @@ public struct PostLayoutComparisonService: Sendable {
             lastPostLayoutValue = postValue
 
             let absoluteDelta = abs(postValue - preValue)
-            let relativeDelta = absoluteDelta / max(abs(preValue), abs(postValue), 1.0e-30)
+            let relativeDelta = absoluteDelta / max(
+                abs(preValue),
+                abs(postValue),
+                relativeDeltaDenominatorFloor
+            )
             maxAbsoluteDelta = max(maxAbsoluteDelta, absoluteDelta)
             maxRelativeDelta = max(maxRelativeDelta, relativeDelta)
         }
@@ -897,6 +955,13 @@ public struct PostLayoutComparisonService: Sendable {
             lastPreLayoutValue: lastPreLayoutValue,
             lastPostLayoutValue: lastPostLayoutValue
         )
+    }
+
+    private static func normalizedRelativeDeltaDenominatorFloor(_ value: Double?) -> Double {
+        guard let value, value.isFinite, value >= 0 else {
+            return defaultRelativeDeltaDenominatorFloor
+        }
+        return max(value, defaultRelativeDeltaDenominatorFloor)
     }
 
     private func alignedPostValue(

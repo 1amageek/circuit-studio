@@ -109,15 +109,20 @@ struct PostLayoutComparisonServiceTests {
         let limits = PostLayoutComparisonLimits(
             maxAbsoluteDelta: .nan,
             maxRelativeDelta: -.infinity,
+            relativeDeltaDenominatorFloor: .infinity,
             variableLimits: [
                 PostLayoutVariableComparisonLimit(variableName: "", maxAbsoluteDelta: 1),
                 PostLayoutVariableComparisonLimit(variableName: "V(out)"),
-                PostLayoutVariableComparisonLimit(variableName: "V(out)", maxRelativeDelta: .infinity),
+                PostLayoutVariableComparisonLimit(
+                    variableName: "V(out)",
+                    maxRelativeDelta: .infinity,
+                    relativeDeltaDenominatorFloor: .nan
+                ),
             ]
         )
 
         #expect(!limits.isValid)
-        #expect(limits.validationDiagnostics().count == 6)
+        #expect(limits.validationDiagnostics().count == 8)
 
         let report = PostLayoutComparisonReport(
             status: "compared",
@@ -133,8 +138,62 @@ struct PostLayoutComparisonServiceTests {
             diagnostics: []
         )
 
-        #expect(report.limitViolations(limits).count == 6)
+        #expect(report.limitViolations(limits).count == 8)
         #expect(report.applyingLimits(limits).gateStatus == "failed")
+    }
+
+    @Test func relativeDeltaDenominatorFloorStabilizesZeroCrossingGates() throws {
+        let preLayout = SimulationResult(
+            experimentID: UUID(),
+            status: .completed,
+            waveform: makeWaveform(
+                sweepValues: [0, 1],
+                values: [0.0, 1.0]
+            )
+        )
+        let postLayout = SimulationResult(
+            experimentID: UUID(),
+            status: .completed,
+            waveform: makeWaveform(
+                sweepValues: [0, 1],
+                values: [0.01, 1.0]
+            )
+        )
+        let service = PostLayoutComparisonService()
+
+        let rawReport = service.compare(
+            preLayoutResult: preLayout,
+            postLayoutResult: postLayout,
+            limits: PostLayoutComparisonLimits(maxRelativeDelta: 0.2)
+        )
+        let flooredReport = service.compare(
+            preLayoutResult: preLayout,
+            postLayoutResult: postLayout,
+            limits: PostLayoutComparisonLimits(
+                maxRelativeDelta: 0.2,
+                relativeDeltaDenominatorFloor: 0.1
+            )
+        )
+        let variableFlooredReport = service.compare(
+            preLayoutResult: preLayout,
+            postLayoutResult: postLayout,
+            limits: PostLayoutComparisonLimits(
+                variableLimits: [
+                    PostLayoutVariableComparisonLimit(
+                        variableName: "V(out)",
+                        maxRelativeDelta: 0.2,
+                        relativeDeltaDenominatorFloor: 0.1
+                    ),
+                ]
+            )
+        )
+
+        #expect(rawReport.gateStatus == "failed")
+        #expect(rawReport.maxRelativeDelta == 1.0)
+        #expect(flooredReport.gateStatus == "passed")
+        #expect(abs(flooredReport.maxRelativeDelta - 0.1) < 1.0e-12)
+        #expect(variableFlooredReport.gateStatus == "passed")
+        #expect(abs(variableFlooredReport.comparedVariables[0].maxRelativeDelta - 0.1) < 1.0e-12)
     }
 
     @Test func variableSpecificLimitsGateTargetedVariables() throws {

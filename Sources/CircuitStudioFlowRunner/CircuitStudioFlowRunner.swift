@@ -37,6 +37,7 @@ struct CircuitStudioFlowRunner {
             signoffLVSLogPath: options.signoffLVSLogURL?.path(percentEncoded: false),
             maxAbsoluteDelta: options.maxAbsoluteDelta,
             maxRelativeDelta: options.maxRelativeDelta,
+            relativeDeltaDenominatorFloor: options.relativeDeltaDenominatorFloor,
             variableComparisonLimits: options.variableComparisonLimits,
             oscillationMetricLimits: options.oscillationMetricLimits,
             technologyPackagePath: options.technologyPackageURL?.path(percentEncoded: false),
@@ -276,7 +277,7 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--variable-limit SPEC] [--oscillation-limit SPEC] [--edit-script PATH --output-design-spec PATH]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--relative-delta-floor VALUE] [--variable-limit SPEC] [--oscillation-limit SPEC] [--edit-script PATH --output-design-spec PATH]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
@@ -343,8 +344,10 @@ struct CircuitStudioFlowRunner {
                            Fail the post-layout comparison gate when the maximum absolute delta exceeds VALUE
           --max-rel-delta VALUE
                            Fail the post-layout comparison gate when the maximum relative delta exceeds VALUE
+          --relative-delta-floor VALUE
+                           Floor the relative-delta denominator for global post-layout comparison gates
           --variable-limit SPEC
-                           Add a variable-specific post-layout comparison gate. Format: VARIABLE:abs=VALUE,rel=VALUE
+                           Add a variable-specific post-layout comparison gate. Format: VARIABLE:abs=VALUE,rel=VALUE,floor=VALUE
           --oscillation-limit SPEC
                            Add an oscillator metric gate. Format: VARIABLE:minTransitions=COUNT,minAmplitude=VALUE,freqRel=VALUE,periodRel=VALUE,duty=VALUE,threshold=VALUE
           --help           Show this help
@@ -425,6 +428,7 @@ private struct RunnerOptions {
     var signoffLVSLogURL: URL?
     var maxAbsoluteDelta: Double?
     var maxRelativeDelta: Double?
+    var relativeDeltaDenominatorFloor: Double?
     var variableComparisonLimits: [PostLayoutVariableComparisonLimit] = []
     var oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = []
     var technologyPackageURL: URL?
@@ -510,6 +514,8 @@ private struct RunnerOptions {
                 maxAbsoluteDelta = try Self.doubleValue(after: argument, in: arguments, index: &index)
             case "--max-rel-delta":
                 maxRelativeDelta = try Self.doubleValue(after: argument, in: arguments, index: &index)
+            case "--relative-delta-floor":
+                relativeDeltaDenominatorFloor = try Self.doubleValue(after: argument, in: arguments, index: &index)
             case "--variable-limit":
                 variableComparisonLimits.append(
                     try Self.variableLimit(after: argument, in: arguments, index: &index)
@@ -589,6 +595,7 @@ private struct RunnerOptions {
 
         var maxAbsoluteDelta: Double?
         var maxRelativeDelta: Double?
+        var relativeDeltaDenominatorFloor: Double?
         for assignment in parts[1].split(separator: ",").map(String.init) {
             let assignmentParts = assignment.split(separator: "=", maxSplits: 1).map(String.init)
             guard assignmentParts.count == 2 else {
@@ -604,6 +611,8 @@ private struct RunnerOptions {
                 maxAbsoluteDelta = value
             case "rel":
                 maxRelativeDelta = value
+            case "floor":
+                relativeDeltaDenominatorFloor = value
             default:
                 throw RunnerError.invalidVariableLimit(rawValue)
             }
@@ -612,7 +621,8 @@ private struct RunnerOptions {
         let limit = PostLayoutVariableComparisonLimit(
             variableName: parts[0],
             maxAbsoluteDelta: maxAbsoluteDelta,
-            maxRelativeDelta: maxRelativeDelta
+            maxRelativeDelta: maxRelativeDelta,
+            relativeDeltaDenominatorFloor: relativeDeltaDenominatorFloor
         )
         guard limit.validationDiagnostics().isEmpty else {
             throw RunnerError.invalidVariableLimit(rawValue)
@@ -703,6 +713,7 @@ private struct RunnerOptions {
     var usesComparisonLimits: Bool {
         maxAbsoluteDelta != nil
             || maxRelativeDelta != nil
+            || relativeDeltaDenominatorFloor != nil
             || !variableComparisonLimits.isEmpty
             || !oscillationMetricLimits.isEmpty
     }
