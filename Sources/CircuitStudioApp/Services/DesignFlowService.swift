@@ -226,6 +226,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
     public let relativeDeltaDenominatorFloor: Double?
+    public let domainComparisonLimits: [PostLayoutSignalDomainComparisonLimit]?
     public let variableComparisonLimits: [PostLayoutVariableComparisonLimit]?
     public let oscillationMetricLimits: [PostLayoutOscillationMetricLimit]?
     public let technologyPackagePath: String?
@@ -259,6 +260,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         maxAbsoluteDelta: Double? = nil,
         maxRelativeDelta: Double? = nil,
         relativeDeltaDenominatorFloor: Double? = nil,
+        domainComparisonLimits: [PostLayoutSignalDomainComparisonLimit] = [],
         variableComparisonLimits: [PostLayoutVariableComparisonLimit] = [],
         oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = [],
         technologyPackagePath: String? = nil,
@@ -291,6 +293,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
         self.relativeDeltaDenominatorFloor = relativeDeltaDenominatorFloor
+        self.domainComparisonLimits = domainComparisonLimits.isEmpty ? nil : domainComparisonLimits
         self.variableComparisonLimits = variableComparisonLimits.isEmpty ? nil : variableComparisonLimits
         self.oscillationMetricLimits = oscillationMetricLimits.isEmpty ? nil : oscillationMetricLimits
         self.technologyPackagePath = technologyPackagePath
@@ -1213,11 +1216,13 @@ public struct DesignFlowService: Sendable {
     }
 
     private func comparisonLimits(from command: DesignFlowCommand) throws -> PostLayoutComparisonLimits? {
+        let domainLimits = command.domainComparisonLimits ?? []
         let variableLimits = command.variableComparisonLimits ?? []
         let oscillationMetricLimits = command.oscillationMetricLimits ?? []
         guard command.maxAbsoluteDelta != nil
             || command.maxRelativeDelta != nil
             || command.relativeDeltaDenominatorFloor != nil
+            || !domainLimits.isEmpty
             || !variableLimits.isEmpty
             || !oscillationMetricLimits.isEmpty else {
             return nil
@@ -1226,6 +1231,7 @@ public struct DesignFlowService: Sendable {
             maxAbsoluteDelta: command.maxAbsoluteDelta,
             maxRelativeDelta: command.maxRelativeDelta,
             relativeDeltaDenominatorFloor: command.relativeDeltaDenominatorFloor,
+            domainLimits: domainLimits,
             variableLimits: variableLimits,
             oscillationMetricLimits: oscillationMetricLimits
         )

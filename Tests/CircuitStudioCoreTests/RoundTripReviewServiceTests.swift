@@ -38,6 +38,8 @@ struct RoundTripReviewServiceTests {
         #expect(result.roundTripReview?.status == .passed)
         #expect(result.roundTripReview?.runID == "review-run")
         #expect(result.roundTripReview?.postLayoutComparison?.gateStatus == "passed")
+        #expect(result.roundTripReview?.postLayoutComparison?.variableSummaries.first?.signalDomain == .voltage)
+        #expect(result.roundTripReview?.postLayoutComparison?.variableSummaries.first?.unit == "V")
         #expect(result.roundTripReview?.postLayoutComparison?.oscillationMetrics.first?.variableName == "V(out)")
         #expect(result.roundTripReview?.postLayoutComparison?.oscillationMetrics.first?.preLayoutTransitionCount == 4)
         #expect(result.roundTripReview?.postLayoutComparison?.oscillationMetrics.first?.postLayoutFrequency == 0.9e9)
@@ -444,6 +446,8 @@ struct RoundTripReviewServiceTests {
             comparedVariables: [
                 PostLayoutVariableComparison(
                     variableName: "v(out)",
+                    signalDomain: .voltage,
+                    unit: "V",
                     maxAbsoluteDelta: 0.001,
                     maxRelativeDelta: 0.01,
                     firstPreLayoutValue: 1.0,

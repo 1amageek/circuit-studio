@@ -196,6 +196,67 @@ struct PostLayoutComparisonServiceTests {
         #expect(abs(variableFlooredReport.comparedVariables[0].maxRelativeDelta - 0.1) < 1.0e-12)
     }
 
+    @Test func domainSpecificLimitsGateVoltageAndCurrentSeparately() throws {
+        let variables = [
+            VariableDescriptor.voltage(node: "out", index: 0),
+            VariableDescriptor.current(device: "R1", index: 1),
+        ]
+        let preLayout = SimulationResult(
+            experimentID: UUID(),
+            status: .completed,
+            waveform: makeWaveform(
+                sweepValues: [0, 1],
+                variables: variables,
+                values: [
+                    [0.0, 0.0],
+                    [1.0, 0.001],
+                ]
+            )
+        )
+        let postLayout = SimulationResult(
+            experimentID: UUID(),
+            status: .completed,
+            waveform: makeWaveform(
+                sweepValues: [0, 1],
+                variables: variables,
+                values: [
+                    [0.02, 0.0002],
+                    [1.0, 0.001],
+                ]
+            )
+        )
+
+        let report = PostLayoutComparisonService().compare(
+            preLayoutResult: preLayout,
+            postLayoutResult: postLayout,
+            limits: PostLayoutComparisonLimits(
+                domainLimits: [
+                    PostLayoutSignalDomainComparisonLimit(
+                        domain: .voltage,
+                        maxRelativeDelta: 0.3,
+                        relativeDeltaDenominatorFloor: 0.1
+                    ),
+                    PostLayoutSignalDomainComparisonLimit(
+                        domain: .current,
+                        maxAbsoluteDelta: 0.0001,
+                        relativeDeltaDenominatorFloor: 0.001
+                    ),
+                ]
+            )
+        )
+        let voltage = try #require(report.comparedVariables.first { $0.variableName == "V(out)" })
+        let current = try #require(report.comparedVariables.first { $0.variableName == "I(R1)" })
+
+        #expect(voltage.signalDomain == .voltage)
+        #expect(voltage.unit == "V")
+        #expect(abs(voltage.maxRelativeDelta - 0.2) < 1.0e-12)
+        #expect(current.signalDomain == .current)
+        #expect(current.unit == "A")
+        #expect(report.gateStatus == "failed")
+        #expect(report.gateViolations.count == 1)
+        #expect(report.gateViolations[0].contains("domain current absolute delta"))
+    }
+
     @Test func variableSpecificLimitsGateTargetedVariables() throws {
         let preLayout = SimulationResult(
             experimentID: UUID(),
@@ -391,6 +452,20 @@ struct PostLayoutComparisonServiceTests {
         variables: [String],
         values: [[Double]]
     ) -> WaveformData {
+        makeWaveform(
+            sweepValues: sweepValues,
+            variables: variables.enumerated().map { index, variable in
+                .voltage(node: variable, index: index)
+            },
+            values: values
+        )
+    }
+
+    private func makeWaveform(
+        sweepValues: [Double],
+        variables: [VariableDescriptor],
+        values: [[Double]]
+    ) -> WaveformData {
         WaveformData(
             metadata: SimulationMetadata(
                 analysisType: .transient,
@@ -399,9 +474,7 @@ struct PostLayoutComparisonServiceTests {
             ),
             sweepVariable: .time(),
             sweepValues: sweepValues,
-            variables: variables.enumerated().map { index, variable in
-                .voltage(node: variable, index: index)
-            },
+            variables: variables,
             realData: values
         )
     }

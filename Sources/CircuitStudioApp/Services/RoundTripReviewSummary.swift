@@ -256,11 +256,21 @@ public struct RoundTripReviewComparisonSummary: Sendable, Hashable, Codable {
 
 public struct RoundTripReviewVariableComparisonSummary: Sendable, Hashable, Codable {
     public let variableName: String
+    public let signalDomain: PostLayoutSignalDomain?
+    public let unit: String?
     public let maxAbsoluteDelta: Double
     public let maxRelativeDelta: Double
 
-    public init(variableName: String, maxAbsoluteDelta: Double, maxRelativeDelta: Double) {
+    public init(
+        variableName: String,
+        signalDomain: PostLayoutSignalDomain? = nil,
+        unit: String? = nil,
+        maxAbsoluteDelta: Double,
+        maxRelativeDelta: Double
+    ) {
         self.variableName = variableName
+        self.signalDomain = signalDomain
+        self.unit = unit
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
     }

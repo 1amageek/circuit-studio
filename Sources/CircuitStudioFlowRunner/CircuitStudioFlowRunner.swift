@@ -43,6 +43,7 @@ struct CircuitStudioFlowRunner {
             maxAbsoluteDelta: options.maxAbsoluteDelta,
             maxRelativeDelta: options.maxRelativeDelta,
             relativeDeltaDenominatorFloor: options.relativeDeltaDenominatorFloor,
+            domainComparisonLimits: options.domainComparisonLimits,
             variableComparisonLimits: options.variableComparisonLimits,
             oscillationMetricLimits: options.oscillationMetricLimits,
             technologyPackagePath: options.technologyPackageURL?.path(percentEncoded: false),
@@ -367,7 +368,7 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--relative-delta-floor VALUE] [--variable-limit SPEC] [--oscillation-limit SPEC] [--edit-script PATH --output-design-spec PATH]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--relative-delta-floor VALUE] [--domain-limit SPEC] [--variable-limit SPEC] [--oscillation-limit SPEC] [--edit-script PATH --output-design-spec PATH]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
@@ -436,6 +437,9 @@ struct CircuitStudioFlowRunner {
                            Fail the post-layout comparison gate when the maximum relative delta exceeds VALUE
           --relative-delta-floor VALUE
                            Floor the relative-delta denominator for global post-layout comparison gates
+          --domain-limit SPEC
+                           Add a domain-specific post-layout comparison gate. Format: DOMAIN:abs=VALUE,rel=VALUE,floor=VALUE
+                           Domains: voltage,current,time,frequency,power,phase,magnitude,parameter,other
           --variable-limit SPEC
                            Add a variable-specific post-layout comparison gate. Format: VARIABLE:abs=VALUE,rel=VALUE,floor=VALUE
           --oscillation-limit SPEC
@@ -519,6 +523,7 @@ private struct RunnerOptions {
     var maxAbsoluteDelta: Double?
     var maxRelativeDelta: Double?
     var relativeDeltaDenominatorFloor: Double?
+    var domainComparisonLimits: [PostLayoutSignalDomainComparisonLimit] = []
     var variableComparisonLimits: [PostLayoutVariableComparisonLimit] = []
     var oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = []
     var technologyPackageURL: URL?
@@ -606,6 +611,10 @@ private struct RunnerOptions {
                 maxRelativeDelta = try Self.doubleValue(after: argument, in: arguments, index: &index)
             case "--relative-delta-floor":
                 relativeDeltaDenominatorFloor = try Self.doubleValue(after: argument, in: arguments, index: &index)
+            case "--domain-limit":
+                domainComparisonLimits.append(
+                    try Self.domainLimit(after: argument, in: arguments, index: &index)
+                )
             case "--variable-limit":
                 variableComparisonLimits.append(
                     try Self.variableLimit(after: argument, in: arguments, index: &index)
@@ -720,6 +729,55 @@ private struct RunnerOptions {
         return limit
     }
 
+    private static func domainLimit(
+        after option: String,
+        in arguments: [String],
+        index: inout Int
+    ) throws -> PostLayoutSignalDomainComparisonLimit {
+        let rawValue = try value(after: option, in: arguments, index: &index)
+        let parts = rawValue.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2,
+              let domain = PostLayoutSignalDomain(rawValue: parts[0].trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw RunnerError.invalidDomainLimit(rawValue)
+        }
+
+        var maxAbsoluteDelta: Double?
+        var maxRelativeDelta: Double?
+        var relativeDeltaDenominatorFloor: Double?
+        for assignment in parts[1].split(separator: ",").map(String.init) {
+            let assignmentParts = assignment.split(separator: "=", maxSplits: 1).map(String.init)
+            guard assignmentParts.count == 2 else {
+                throw RunnerError.invalidDomainLimit(rawValue)
+            }
+            let key = assignmentParts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let valueText = assignmentParts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let value = Double(valueText), value.isFinite, value >= 0 else {
+                throw RunnerError.invalidDomainLimit(rawValue)
+            }
+            switch key {
+            case "abs":
+                maxAbsoluteDelta = value
+            case "rel":
+                maxRelativeDelta = value
+            case "floor":
+                relativeDeltaDenominatorFloor = value
+            default:
+                throw RunnerError.invalidDomainLimit(rawValue)
+            }
+        }
+
+        let limit = PostLayoutSignalDomainComparisonLimit(
+            domain: domain,
+            maxAbsoluteDelta: maxAbsoluteDelta,
+            maxRelativeDelta: maxRelativeDelta,
+            relativeDeltaDenominatorFloor: relativeDeltaDenominatorFloor
+        )
+        guard limit.validationDiagnostics().isEmpty else {
+            throw RunnerError.invalidDomainLimit(rawValue)
+        }
+        return limit
+    }
+
     private static func oscillationLimit(
         after option: String,
         in arguments: [String],
@@ -804,6 +862,7 @@ private struct RunnerOptions {
         maxAbsoluteDelta != nil
             || maxRelativeDelta != nil
             || relativeDeltaDenominatorFloor != nil
+            || !domainComparisonLimits.isEmpty
             || !variableComparisonLimits.isEmpty
             || !oscillationMetricLimits.isEmpty
     }
@@ -817,6 +876,7 @@ private enum RunnerError: Error, LocalizedError {
     case invalidArgument(String)
     case missingValue(String)
     case invalidNumericValue(String, String)
+    case invalidDomainLimit(String)
     case invalidVariableLimit(String)
     case invalidOscillationLimit(String)
     case invalidGateID(String)
@@ -831,6 +891,8 @@ private enum RunnerError: Error, LocalizedError {
             return "Missing value for \(option)"
         case .invalidNumericValue(let option, let value):
             return "Invalid numeric value for \(option): \(value)"
+        case .invalidDomainLimit(let value):
+            return "Invalid domain comparison limit: \(value)"
         case .invalidVariableLimit(let value):
             return "Invalid variable comparison limit: \(value)"
         case .invalidOscillationLimit(let value):

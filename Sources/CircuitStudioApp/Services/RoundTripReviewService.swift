@@ -305,6 +305,8 @@ public struct RoundTripReviewService: Sendable {
                 variableSummaries: report.comparedVariables.map {
                     RoundTripReviewVariableComparisonSummary(
                         variableName: $0.variableName,
+                        signalDomain: $0.signalDomain,
+                        unit: $0.unit,
                         maxAbsoluteDelta: $0.maxAbsoluteDelta,
                         maxRelativeDelta: $0.maxRelativeDelta
                     )

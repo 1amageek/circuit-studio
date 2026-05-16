@@ -79,6 +79,29 @@ public struct PostLayoutComparisonReport: Sendable, Hashable, Codable {
         for comparison in comparedVariables where comparisonsByName[comparison.variableName] == nil {
             comparisonsByName[comparison.variableName] = comparison
         }
+        for domainLimit in limits.domainLimits {
+            let domainComparisons = comparedVariables.filter { $0.signalDomain == domainLimit.domain }
+            guard !domainComparisons.isEmpty else {
+                violations.append(
+                    "Post-layout domain \(domainLimit.domain.rawValue) had no compared variables for a domain-specific limit."
+                )
+                continue
+            }
+            let maxAbsoluteDelta = domainComparisons.map(\.maxAbsoluteDelta).max() ?? 0
+            if let maxAbsoluteDeltaLimit = domainLimit.maxAbsoluteDelta,
+               maxAbsoluteDelta > maxAbsoluteDeltaLimit {
+                violations.append(
+                    "Post-layout domain \(domainLimit.domain.rawValue) absolute delta \(maxAbsoluteDelta) exceeds limit \(maxAbsoluteDeltaLimit)."
+                )
+            }
+            let maxRelativeDelta = domainComparisons.map(\.maxRelativeDelta).max() ?? 0
+            if let maxRelativeDeltaLimit = domainLimit.maxRelativeDelta,
+               maxRelativeDelta > maxRelativeDeltaLimit {
+                violations.append(
+                    "Post-layout domain \(domainLimit.domain.rawValue) relative delta \(maxRelativeDelta) exceeds limit \(maxRelativeDeltaLimit)."
+                )
+            }
+        }
         for variableLimit in limits.variableLimits {
             guard let comparison = comparisonsByName[variableLimit.variableName] else {
                 violations.append(
@@ -161,6 +184,7 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
     public let maxAbsoluteDelta: Double?
     public let maxRelativeDelta: Double?
     public let relativeDeltaDenominatorFloor: Double?
+    public let domainLimits: [PostLayoutSignalDomainComparisonLimit]
     public let variableLimits: [PostLayoutVariableComparisonLimit]
     public let oscillationMetricLimits: [PostLayoutOscillationMetricLimit]
 
@@ -168,12 +192,14 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
         maxAbsoluteDelta: Double? = nil,
         maxRelativeDelta: Double? = nil,
         relativeDeltaDenominatorFloor: Double? = nil,
+        domainLimits: [PostLayoutSignalDomainComparisonLimit] = [],
         variableLimits: [PostLayoutVariableComparisonLimit] = [],
         oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = []
     ) {
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
         self.relativeDeltaDenominatorFloor = relativeDeltaDenominatorFloor
+        self.domainLimits = domainLimits
         self.variableLimits = variableLimits
         self.oscillationMetricLimits = oscillationMetricLimits
     }
@@ -182,6 +208,7 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
         case maxAbsoluteDelta
         case maxRelativeDelta
         case relativeDeltaDenominatorFloor
+        case domainLimits
         case variableLimits
         case oscillationMetricLimits
     }
@@ -194,6 +221,10 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
             Double.self,
             forKey: .relativeDeltaDenominatorFloor
         )
+        self.domainLimits = try container.decodeIfPresent(
+            [PostLayoutSignalDomainComparisonLimit].self,
+            forKey: .domainLimits
+        ) ?? []
         self.variableLimits = try container.decodeIfPresent(
             [PostLayoutVariableComparisonLimit].self,
             forKey: .variableLimits
@@ -216,6 +247,13 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
             diagnostics.append(
                 "Invalid relative delta denominator floor: \(relativeDeltaDenominatorFloor)."
             )
+        }
+        var seenDomains = Set<PostLayoutSignalDomain>()
+        for domainLimit in domainLimits {
+            diagnostics.append(contentsOf: domainLimit.validationDiagnostics())
+            if !seenDomains.insert(domainLimit.domain).inserted {
+                diagnostics.append("Duplicate domain-specific comparison limit: \(domainLimit.domain.rawValue).")
+            }
         }
         var seenVariableNames = Set<String>()
         for variableLimit in variableLimits {
@@ -245,6 +283,60 @@ public struct PostLayoutComparisonLimits: Sendable, Hashable, Codable {
             names.append(metricLimit.variableName)
         }
         return names
+    }
+
+    private static func isValidLimit(_ value: Double) -> Bool {
+        value.isFinite && value >= 0
+    }
+}
+
+public enum PostLayoutSignalDomain: String, Sendable, Hashable, Codable, CaseIterable {
+    case voltage
+    case current
+    case time
+    case frequency
+    case power
+    case phase
+    case magnitude
+    case parameter
+    case other
+}
+
+public struct PostLayoutSignalDomainComparisonLimit: Sendable, Hashable, Codable {
+    public let domain: PostLayoutSignalDomain
+    public let maxAbsoluteDelta: Double?
+    public let maxRelativeDelta: Double?
+    public let relativeDeltaDenominatorFloor: Double?
+
+    public init(
+        domain: PostLayoutSignalDomain,
+        maxAbsoluteDelta: Double? = nil,
+        maxRelativeDelta: Double? = nil,
+        relativeDeltaDenominatorFloor: Double? = nil
+    ) {
+        self.domain = domain
+        self.maxAbsoluteDelta = maxAbsoluteDelta
+        self.maxRelativeDelta = maxRelativeDelta
+        self.relativeDeltaDenominatorFloor = relativeDeltaDenominatorFloor
+    }
+
+    public func validationDiagnostics() -> [String] {
+        var diagnostics: [String] = []
+        if maxAbsoluteDelta == nil && maxRelativeDelta == nil {
+            diagnostics.append("Domain-specific comparison limit for \(domain.rawValue) has no numeric limit.")
+        }
+        if let maxAbsoluteDelta, !Self.isValidLimit(maxAbsoluteDelta) {
+            diagnostics.append("Invalid max absolute delta limit for \(domain.rawValue): \(maxAbsoluteDelta).")
+        }
+        if let maxRelativeDelta, !Self.isValidLimit(maxRelativeDelta) {
+            diagnostics.append("Invalid max relative delta limit for \(domain.rawValue): \(maxRelativeDelta).")
+        }
+        if let relativeDeltaDenominatorFloor, !Self.isValidLimit(relativeDeltaDenominatorFloor) {
+            diagnostics.append(
+                "Invalid relative delta denominator floor for \(domain.rawValue): \(relativeDeltaDenominatorFloor)."
+            )
+        }
+        return diagnostics
     }
 
     private static func isValidLimit(_ value: Double) -> Bool {
@@ -364,6 +456,8 @@ public struct PostLayoutOscillationMetricLimit: Sendable, Hashable, Codable {
 
 public struct PostLayoutVariableComparison: Sendable, Hashable, Codable {
     public let variableName: String
+    public let signalDomain: PostLayoutSignalDomain?
+    public let unit: String?
     public let maxAbsoluteDelta: Double
     public let maxRelativeDelta: Double
     public let firstPreLayoutValue: Double?
@@ -373,6 +467,8 @@ public struct PostLayoutVariableComparison: Sendable, Hashable, Codable {
 
     public init(
         variableName: String,
+        signalDomain: PostLayoutSignalDomain? = nil,
+        unit: String? = nil,
         maxAbsoluteDelta: Double,
         maxRelativeDelta: Double,
         firstPreLayoutValue: Double?,
@@ -381,6 +477,8 @@ public struct PostLayoutVariableComparison: Sendable, Hashable, Codable {
         lastPostLayoutValue: Double?
     ) {
         self.variableName = variableName
+        self.signalDomain = signalDomain
+        self.unit = unit
         self.maxAbsoluteDelta = maxAbsoluteDelta
         self.maxRelativeDelta = maxRelativeDelta
         self.firstPreLayoutValue = firstPreLayoutValue
@@ -600,6 +698,7 @@ public struct PostLayoutComparisonService: Sendable {
             postLayoutResult: postLayoutResult,
             oscillationMetricVariableNames: oscillationMetricVariableNames,
             relativeDeltaDenominatorFloor: Self.defaultRelativeDeltaDenominatorFloor,
+            domainRelativeDeltaDenominatorFloors: [:],
             variableRelativeDeltaDenominatorFloors: [:]
         )
     }
@@ -609,6 +708,7 @@ public struct PostLayoutComparisonService: Sendable {
         postLayoutResult: SimulationResult,
         oscillationMetricVariableNames: [String],
         relativeDeltaDenominatorFloor: Double,
+        domainRelativeDeltaDenominatorFloors: [PostLayoutSignalDomain: Double],
         variableRelativeDeltaDenominatorFloors: [String: Double]
     ) -> PostLayoutComparisonReport {
         guard let preLayoutWaveform = preLayoutResult.waveform else {
@@ -661,12 +761,14 @@ public struct PostLayoutComparisonService: Sendable {
         }
         let comparedPointCount = alignment.points.count
         let comparisons = commonVariableNames.compactMap { variableName in
-            compareVariable(
+            let domain = signalDomain(for: variableDescriptor(named: variableName, in: preLayoutWaveform))
+            return compareVariable(
                 named: variableName,
                 alignedPoints: alignment.points,
                 preLayoutWaveform: preLayoutWaveform,
                 postLayoutWaveform: postLayoutWaveform,
                 relativeDeltaDenominatorFloor: variableRelativeDeltaDenominatorFloors[variableName]
+                    ?? domainRelativeDeltaDenominatorFloors[domain]
                     ?? relativeDeltaDenominatorFloor
             )
         }
@@ -710,6 +812,14 @@ public struct PostLayoutComparisonService: Sendable {
         postLayoutResult: SimulationResult,
         limits: PostLayoutComparisonLimits?
     ) -> PostLayoutComparisonReport {
+        var domainFloors: [PostLayoutSignalDomain: Double] = [:]
+        for limit in limits?.domainLimits ?? [] {
+            guard domainFloors[limit.domain] == nil,
+                  let floor = limit.relativeDeltaDenominatorFloor else {
+                continue
+            }
+            domainFloors[limit.domain] = Self.normalizedRelativeDeltaDenominatorFloor(floor)
+        }
         var variableFloors: [String: Double] = [:]
         for limit in limits?.variableLimits ?? [] {
             guard variableFloors[limit.variableName] == nil,
@@ -725,6 +835,7 @@ public struct PostLayoutComparisonService: Sendable {
             relativeDeltaDenominatorFloor: Self.normalizedRelativeDeltaDenominatorFloor(
                 limits?.relativeDeltaDenominatorFloor
             ),
+            domainRelativeDeltaDenominatorFloors: domainFloors,
             variableRelativeDeltaDenominatorFloors: variableFloors
         ).applyingLimits(limits)
     }
@@ -948,6 +1059,8 @@ public struct PostLayoutComparisonService: Sendable {
 
         return PostLayoutVariableComparison(
             variableName: variableName,
+            signalDomain: signalDomain(for: preLayoutWaveform.variables[preIndex]),
+            unit: preLayoutWaveform.variables[preIndex].unit.rawValue,
             maxAbsoluteDelta: maxAbsoluteDelta,
             maxRelativeDelta: maxRelativeDelta,
             firstPreLayoutValue: firstPreLayoutValue,
@@ -955,6 +1068,37 @@ public struct PostLayoutComparisonService: Sendable {
             lastPreLayoutValue: lastPreLayoutValue,
             lastPostLayoutValue: lastPostLayoutValue
         )
+    }
+
+    private func variableDescriptor(named variableName: String, in waveform: WaveformData) -> VariableDescriptor? {
+        guard let index = waveform.variableIndex(named: variableName) else {
+            return nil
+        }
+        return waveform.variables[index]
+    }
+
+    private func signalDomain(for descriptor: VariableDescriptor?) -> PostLayoutSignalDomain {
+        guard let descriptor else {
+            return .other
+        }
+        switch descriptor.type {
+        case .voltage, .sweepVoltage:
+            return .voltage
+        case .current, .sweepCurrent:
+            return .current
+        case .time:
+            return .time
+        case .frequency:
+            return .frequency
+        case .power:
+            return .power
+        case .phase:
+            return .phase
+        case .magnitude, .real, .imaginary, .noiseDensity:
+            return .magnitude
+        case .parameter, .temperature:
+            return .parameter
+        }
     }
 
     private static func normalizedRelativeDeltaDenominatorFloor(_ value: Double?) -> Double {

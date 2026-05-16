@@ -242,3 +242,40 @@ swift run circuit-studio-flow-runner \
 | `cmos-inverter` | passed | diagnostic `0`, warning `0` | diagnostic `0`, warning `0`, approval `1` | `10`, absolute `0` | `runDirectory:post-layout-comparison.json` |
 
 The broad sweep did not uncover a new artifact trust defect. The remaining dogfood frontier should move from artifact portability to higher-level design quality: richer comparison policies per signal class, structured design intent, and post-layout metric evaluation that distinguishes voltage, current, and timing domains.
+
+## Follow-up Validation: Domain-Specific Comparison Policy
+
+The next issue was that global comparison limits still treated voltage and current as the same physical quantity. The comparison report now records each variable's `signalDomain` and `unit`, and CLI limits can target signal domains directly.
+
+```mermaid
+flowchart LR
+  Waveform["Waveform descriptors"] --> Domain["signalDomain / unit"]
+  Domain --> Limits["domainLimits"]
+  Limits --> Gate["post-layout gate"]
+  Gate --> Review["round-trip review"]
+```
+
+The CMOS inverter was repeated with separate voltage and current limits:
+
+```bash
+swift run circuit-studio-flow-runner \
+  --fixture cmos-inverter \
+  --output /tmp/lsi-dogfood-domain-policy-v1 \
+  --run-id dogfood-domain-policy-v1-20260516 \
+  --approve-signoff \
+  --domain-limit voltage:abs=0.05,rel=0.5,floor=0.1 \
+  --domain-limit current:abs=0.001,rel=0.5,floor=0.001
+```
+
+| Check | Result |
+|---|---|
+| Round trip | `round_trip=passed` |
+| Review | `round_trip_review=passed` |
+| Review diagnostics / warnings | `0 / 0` |
+| Persisted domain limits | `voltage`, `current` |
+| Voltage variables | `signalDomain=voltage`, `unit=V` |
+| Current variables | `signalDomain=current`, `unit=A` |
+| Largest voltage absolute delta | `0.0376818968899153` |
+| Largest current absolute delta | `0.0002606651557556028` |
+
+This closes the first comparison-policy gap: mixed-unit designs no longer need a single global absolute or relative threshold.
