@@ -193,3 +193,52 @@ flowchart TD
 | Runtime manifest path | Printed |
 | Runtime failed stage | `post-layout-comparison` |
 | Runtime recommendation | Printed |
+
+## Broad Fixture Sweep
+
+After closing DF-2026-05-15-001, DF-2026-05-15-002, and DF-2026-05-15-003, the full built-in fixture set was run through the same trust path:
+
+```mermaid
+flowchart LR
+  Fixture["fixture"] --> Run["round trip"]
+  Run --> Review["review manifest"]
+  Review --> Approval["approve post-layout comparison"]
+  Approval --> Review2["review approved run"]
+  Review2 --> Inspect["inspect manifest and approval paths"]
+```
+
+All runs used:
+
+```bash
+swift run circuit-studio-flow-runner \
+  --fixture <fixture> \
+  --output /tmp/lsi-dogfood-broad-<fixture>-v1 \
+  --run-id dogfood-broad-<fixture>-v1-20260516 \
+  --approve-signoff \
+  --max-abs-delta 0.05 \
+  --max-rel-delta 0.5 \
+  --relative-delta-floor 0.1
+```
+
+Each passing run was then approved with:
+
+```bash
+swift run circuit-studio-flow-runner \
+  --approve-gate \
+  --output /tmp/lsi-dogfood-broad-<fixture>-v1 \
+  --run-id dogfood-broad-<fixture>-v1-20260516 \
+  --manifest /tmp/lsi-dogfood-broad-<fixture>-v1/.xcircuite/flow-runs/dogfood-broad-<fixture>-v1-20260516/round-trip-manifest.json \
+  --approval-gate post-layout-comparison \
+  --reviewer dogfood-agent \
+  --approval-policy broad-fixture-post-layout \
+  --approval-note broad-fixture-sweep
+```
+
+| Fixture | Round trip | Review before approval | Review after approval | Artifact paths | Approval target |
+|---|---|---|---|---|---|
+| `voltage-divider` | passed | diagnostic `0`, warning `0` | diagnostic `0`, warning `0`, approval `1` | `10`, absolute `0` | `runDirectory:post-layout-comparison.json` |
+| `resistor-divider` | passed | diagnostic `0`, warning `0` | diagnostic `0`, warning `0`, approval `1` | `10`, absolute `0` | `runDirectory:post-layout-comparison.json` |
+| `rc-low-pass` | passed | diagnostic `0`, warning `0` | diagnostic `0`, warning `0`, approval `1` | `10`, absolute `0` | `runDirectory:post-layout-comparison.json` |
+| `cmos-inverter` | passed | diagnostic `0`, warning `0` | diagnostic `0`, warning `0`, approval `1` | `10`, absolute `0` | `runDirectory:post-layout-comparison.json` |
+
+The broad sweep did not uncover a new artifact trust defect. The remaining dogfood frontier should move from artifact portability to higher-level design quality: richer comparison policies per signal class, structured design intent, and post-layout metric evaluation that distinguishes voltage, current, and timing domains.
