@@ -279,3 +279,49 @@ swift run circuit-studio-flow-runner \
 | Largest current absolute delta | `0.0002606651557556028` |
 
 This closes the first comparison-policy gap: mixed-unit designs no longer need a single global absolute or relative threshold.
+
+## Follow-up Validation: Artifact Digest Integrity
+
+The remaining artifact trust gap was content identity. Relative paths prove where an artifact is located, but they do not prove that the artifact still has the same bytes that were present when the manifest was written. Round-trip artifacts now carry `sha256` and `byteCount`, and review recomputes both before loading signoff or comparison payloads.
+
+```mermaid
+flowchart LR
+  Writer["Headless writer"] --> Manifest["path + sha256 + byteCount"]
+  Manifest --> Resolver["artifact resolver"]
+  Resolver --> Digest["recompute digest"]
+  Digest --> Review["review / load payload"]
+  Digest --> Diagnostic["tamper diagnostic"]
+```
+
+The CMOS inverter dogfood was repeated with domain limits and digest-backed artifacts:
+
+```bash
+swift run circuit-studio-flow-runner \
+  --fixture cmos-inverter \
+  --output /tmp/lsi-dogfood-artifact-digest-v1 \
+  --run-id dogfood-artifact-digest-v1-20260519 \
+  --approve-signoff \
+  --domain-limit voltage:abs=0.05,rel=0.5,floor=0.1 \
+  --domain-limit current:abs=0.001,rel=0.5,floor=0.001
+```
+
+| Check | Result |
+|---|---|
+| Round trip | `round_trip=passed` |
+| Review | `round_trip_review=passed` |
+| Artifact count | `10` |
+| Review diagnostics / warnings | `0 / 0` |
+| Manifest artifacts missing digest | `0` |
+| Manifest artifacts with invalid byte count | `0` |
+| Review payload loading | gated by digest verification |
+| Tamper regression | modified comparison artifact becomes `incomplete` with SHA-256 and byte-count diagnostics |
+
+Representative manifest entries:
+
+| Artifact | Byte count | SHA-256 |
+|---|---:|---|
+| `pre-layout.cir` | `301` | `0e27583150e300c710cf644e4c449c06fc5039d1c24746b4fb88da07bc44a582` |
+| `post-layout.cir` | `437` | `654bd0cf614333d8e2aa904f97df706ff4dbb199d58362c2df6838b6f04b3328` |
+| `post-layout-comparison.json` | `2926` | `ed9142e657507c0dd8e9916d9b9e01f6b000689e823866eed20bff93bc048d6a` |
+
+This closes the next trust boundary: review no longer treats a resolvable artifact path as sufficient evidence. The artifact must also match the manifest digest before typed payloads are consumed.

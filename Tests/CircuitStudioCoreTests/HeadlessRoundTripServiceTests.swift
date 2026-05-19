@@ -878,6 +878,8 @@ struct HeadlessRoundTripServiceTests {
 
         let artifactPaths = result.manifest.artifacts.map(\.path)
         #expect(artifactPaths.allSatisfy { !$0.hasPrefix("/") })
+        #expect(result.manifest.artifacts.allSatisfy { $0.sha256?.count == 64 })
+        #expect(result.manifest.artifacts.allSatisfy { ($0.byteCount ?? 0) > 0 })
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout.cir") })
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout-simulation.json") })
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout-waveform.csv") })
@@ -893,6 +895,12 @@ struct HeadlessRoundTripServiceTests {
                 && $0.sourcePath?.hasSuffix(".xcircuite/signoff/external-signoff-review.json") == true
                 && $0.path.contains("input-artifacts/signoff/")
         })
+        for artifact in result.manifest.artifacts {
+            let artifactURL = artifactURL(path: artifact.path, manifestURL: result.manifestURL)
+            let digest = try RoundTripArtifactDigest.compute(url: artifactURL)
+            #expect(artifact.sha256 == digest.sha256)
+            #expect(artifact.byteCount == digest.byteCount)
+        }
 
         let comparisonURL = try #require(result.manifest.artifacts.first {
             $0.kind == "post-layout-comparison"

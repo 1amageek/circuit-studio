@@ -139,19 +139,79 @@ public struct RoundTripReviewArtifactSummary: Sendable, Hashable, Codable {
     public let sourcePath: String?
     public let exists: Bool
     public let isCapturedCopy: Bool
+    public let manifestSHA256: String?
+    public let manifestByteCount: Int64?
+    public let actualSHA256: String?
+    public let actualByteCount: Int64?
+    public let integrityStatus: RoundTripArtifactIntegrityStatus
 
     public init(
         kind: String,
         path: String,
         sourcePath: String?,
         exists: Bool,
-        isCapturedCopy: Bool
+        isCapturedCopy: Bool,
+        manifestSHA256: String? = nil,
+        manifestByteCount: Int64? = nil,
+        actualSHA256: String? = nil,
+        actualByteCount: Int64? = nil,
+        integrityStatus: RoundTripArtifactIntegrityStatus = .legacyMissingDigest
     ) {
         self.kind = kind
         self.path = path
         self.sourcePath = sourcePath
         self.exists = exists
         self.isCapturedCopy = isCapturedCopy
+        self.manifestSHA256 = manifestSHA256
+        self.manifestByteCount = manifestByteCount
+        self.actualSHA256 = actualSHA256
+        self.actualByteCount = actualByteCount
+        self.integrityStatus = integrityStatus
+    }
+}
+
+public enum RoundTripArtifactIntegrityStatus: String, Sendable, Hashable, Codable {
+    case verified
+    case legacyMissingDigest
+    case missingArtifact
+    case unreadableArtifact
+    case sha256Mismatch
+    case byteCountMismatch
+    case unresolved
+}
+
+extension RoundTripReviewArtifactSummary {
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case path
+        case sourcePath
+        case exists
+        case isCapturedCopy
+        case manifestSHA256
+        case manifestByteCount
+        case actualSHA256
+        case actualByteCount
+        case integrityStatus
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let exists = try container.decode(Bool.self, forKey: .exists)
+        self.init(
+            kind: try container.decode(String.self, forKey: .kind),
+            path: try container.decode(String.self, forKey: .path),
+            sourcePath: try container.decodeIfPresent(String.self, forKey: .sourcePath),
+            exists: exists,
+            isCapturedCopy: try container.decode(Bool.self, forKey: .isCapturedCopy),
+            manifestSHA256: try container.decodeIfPresent(String.self, forKey: .manifestSHA256),
+            manifestByteCount: try container.decodeIfPresent(Int64.self, forKey: .manifestByteCount),
+            actualSHA256: try container.decodeIfPresent(String.self, forKey: .actualSHA256),
+            actualByteCount: try container.decodeIfPresent(Int64.self, forKey: .actualByteCount),
+            integrityStatus: try container.decodeIfPresent(
+                RoundTripArtifactIntegrityStatus.self,
+                forKey: .integrityStatus
+            ) ?? (exists ? .legacyMissingDigest : .missingArtifact)
+        )
     }
 }
 

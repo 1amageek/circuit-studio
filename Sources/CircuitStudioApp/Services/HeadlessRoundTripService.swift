@@ -189,11 +189,21 @@ public final class HeadlessRoundTripService {
         public let kind: String
         public let path: String
         public let sourcePath: String?
+        public let sha256: String?
+        public let byteCount: Int64?
 
-        public init(kind: String, path: String, sourcePath: String? = nil) {
+        public init(
+            kind: String,
+            path: String,
+            sourcePath: String? = nil,
+            sha256: String? = nil,
+            byteCount: Int64? = nil
+        ) {
             self.kind = kind
             self.path = path
             self.sourcePath = sourcePath
+            self.sha256 = sha256
+            self.byteCount = byteCount
         }
     }
 
@@ -975,13 +985,16 @@ public final class HeadlessRoundTripService {
         runDirectory: URL,
         sourcePath: String? = nil
     ) throws -> Artifact {
-        Artifact(
+        let digest = try RoundTripArtifactDigest.compute(url: url)
+        return Artifact(
             kind: kind,
             path: try RoundTripArtifactResolver(
                 runDirectory: runDirectory,
                 allowLegacyAbsolutePaths: false
             ).relativePath(for: url),
-            sourcePath: sourcePath
+            sourcePath: sourcePath,
+            sha256: digest.sha256,
+            byteCount: digest.byteCount
         )
     }
 

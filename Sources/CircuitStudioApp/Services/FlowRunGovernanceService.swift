@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 public enum FlowGateID: String, Sendable, Hashable, Codable {
@@ -442,9 +441,7 @@ public struct FlowRunGovernanceService: Sendable {
     }
 
     private func sha256(of url: URL) throws -> String {
-        let data = try Data(contentsOf: url)
-        let digest = SHA256.hash(data: data)
-        return digest.map { String(format: "%02x", $0) }.joined()
+        try RoundTripArtifactDigest.compute(url: url).sha256
     }
 
     private func validateRunID(_ runID: String) throws {

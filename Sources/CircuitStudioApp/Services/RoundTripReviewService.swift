@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import CircuitStudioCore
 
@@ -199,21 +198,94 @@ public struct RoundTripReviewService: Sendable {
                 path: artifact.path,
                 sourcePath: artifact.sourcePath,
                 exists: false,
-                isCapturedCopy: artifact.sourcePath != nil
+                isCapturedCopy: artifact.sourcePath != nil,
+                manifestSHA256: artifact.sha256,
+                manifestByteCount: artifact.byteCount,
+                integrityStatus: .unresolved
             )
         }
         let path = url.path(percentEncoded: false)
         let exists = FileManager.default.fileExists(atPath: path)
         if !exists {
             diagnostics.append("Artifact is missing: \(artifact.kind) at \(path)")
+            return RoundTripReviewArtifactSummary(
+                kind: artifact.kind,
+                path: path,
+                sourcePath: artifact.sourcePath,
+                exists: false,
+                isCapturedCopy: artifact.sourcePath != nil,
+                manifestSHA256: artifact.sha256,
+                manifestByteCount: artifact.byteCount,
+                integrityStatus: .missingArtifact
+            )
         }
+
+        let actualDigest: RoundTripArtifactDigest
+        do {
+            actualDigest = try RoundTripArtifactDigest.compute(url: url)
+        } catch {
+            diagnostics.append("Artifact is unreadable: \(artifact.kind) at \(path): \(error.localizedDescription)")
+            return RoundTripReviewArtifactSummary(
+                kind: artifact.kind,
+                path: path,
+                sourcePath: artifact.sourcePath,
+                exists: true,
+                isCapturedCopy: artifact.sourcePath != nil,
+                manifestSHA256: artifact.sha256,
+                manifestByteCount: artifact.byteCount,
+                integrityStatus: .unreadableArtifact
+            )
+        }
+
+        let integrityStatus = integrityStatus(
+            artifact: artifact,
+            actualDigest: actualDigest,
+            diagnostics: &diagnostics,
+            warnings: &warnings
+        )
+
         return RoundTripReviewArtifactSummary(
             kind: artifact.kind,
             path: path,
             sourcePath: artifact.sourcePath,
-            exists: exists,
-            isCapturedCopy: artifact.sourcePath != nil
+            exists: true,
+            isCapturedCopy: artifact.sourcePath != nil,
+            manifestSHA256: artifact.sha256,
+            manifestByteCount: artifact.byteCount,
+            actualSHA256: actualDigest.sha256,
+            actualByteCount: actualDigest.byteCount,
+            integrityStatus: integrityStatus
         )
+    }
+
+    private func integrityStatus(
+        artifact: HeadlessRoundTripService.Artifact,
+        actualDigest: RoundTripArtifactDigest,
+        diagnostics: inout [String],
+        warnings: inout [String]
+    ) -> RoundTripArtifactIntegrityStatus {
+        guard let manifestSHA256 = artifact.sha256,
+              let manifestByteCount = artifact.byteCount else {
+            appendUnique([
+                "Artifact has no manifest digest and cannot be integrity-checked: \(artifact.kind) at \(artifact.path)",
+            ], to: &warnings)
+            return .legacyMissingDigest
+        }
+
+        var status = RoundTripArtifactIntegrityStatus.verified
+        if manifestByteCount != actualDigest.byteCount {
+            appendUnique([
+                "Artifact byte count mismatch: \(artifact.kind) at \(artifact.path) expected \(manifestByteCount), got \(actualDigest.byteCount)",
+            ], to: &diagnostics)
+            status = .byteCountMismatch
+        }
+        if manifestSHA256 != actualDigest.sha256 {
+            appendUnique([
+                "Artifact SHA-256 mismatch: \(artifact.kind) at \(artifact.path) expected \(manifestSHA256), got \(actualDigest.sha256)",
+            ], to: &diagnostics)
+            status = .sha256Mismatch
+        }
+        return status
     }
 
     private func loadSignoffSummary(
@@ -225,17 +297,12 @@ public struct RoundTripReviewService: Sendable {
         guard let artifact = artifacts.first(where: { $0.kind == "external-signoff-review" }) else {
             return nil
         }
-        guard let url = resolveArtifactURL(
+        guard let url = resolveVerifiedArtifactURL(
             artifact,
             resolver: resolver,
             diagnostics: &diagnostics,
             warnings: &warnings
         ) else {
-            return nil
-        }
-        let path = url.path(percentEncoded: false)
-        guard FileManager.default.fileExists(atPath: path) else {
-            diagnostics.append("External signoff review artifact is missing: \(path)")
             return nil
         }
 
@@ -275,17 +342,12 @@ public struct RoundTripReviewService: Sendable {
         guard let artifact = artifacts.first(where: { $0.kind == "post-layout-comparison" }) else {
             return nil
         }
-        guard let url = resolveArtifactURL(
+        guard let url = resolveVerifiedArtifactURL(
             artifact,
             resolver: resolver,
             diagnostics: &diagnostics,
             warnings: &warnings
         ) else {
-            return nil
-        }
-        let path = url.path(percentEncoded: false)
-        guard FileManager.default.fileExists(atPath: path) else {
-            diagnostics.append("Post-layout comparison artifact is missing: \(path)")
             return nil
         }
 
@@ -398,9 +460,52 @@ public struct RoundTripReviewService: Sendable {
     }
 
     private func sha256(of url: URL) throws -> String {
-        let data = try Data(contentsOf: url)
-        let digest = SHA256.hash(data: data)
-        return digest.map { String(format: "%02x", $0) }.joined()
+        try RoundTripArtifactDigest.compute(url: url).sha256
+    }
+
+    private func resolveVerifiedArtifactURL(
+        _ artifact: HeadlessRoundTripService.Artifact,
+        resolver: RoundTripArtifactResolver,
+        diagnostics: inout [String],
+        warnings: inout [String]
+    ) -> URL? {
+        guard let url = resolveArtifactURL(
+            artifact,
+            resolver: resolver,
+            diagnostics: &diagnostics,
+            warnings: &warnings
+        ) else {
+            return nil
+        }
+
+        let path = url.path(percentEncoded: false)
+        guard FileManager.default.fileExists(atPath: path) else {
+            appendUnique(["Artifact is missing: \(artifact.kind) at \(path)"], to: &diagnostics)
+            return nil
+        }
+
+        let actualDigest: RoundTripArtifactDigest
+        do {
+            actualDigest = try RoundTripArtifactDigest.compute(url: url)
+        } catch {
+            appendUnique([
+                "Artifact is unreadable: \(artifact.kind) at \(path): \(error.localizedDescription)",
+            ], to: &diagnostics)
+            return nil
+        }
+
+        let status = integrityStatus(
+            artifact: artifact,
+            actualDigest: actualDigest,
+            diagnostics: &diagnostics,
+            warnings: &warnings
+        )
+        switch status {
+        case .verified, .legacyMissingDigest:
+            return url
+        case .missingArtifact, .unreadableArtifact, .sha256Mismatch, .byteCountMismatch, .unresolved:
+            return nil
+        }
     }
 
     private func resolveArtifactURL(

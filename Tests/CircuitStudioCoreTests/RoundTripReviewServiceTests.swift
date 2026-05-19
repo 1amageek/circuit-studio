@@ -47,6 +47,7 @@ struct RoundTripReviewServiceTests {
         #expect(result.roundTripReview?.externalSignoff?.approvedBy == "reviewer")
         #expect(result.roundTripReview?.diagnostics.isEmpty == true)
         #expect(result.roundTripReview?.artifacts.contains { $0.kind == "external-signoff-review" && $0.exists } == true)
+        #expect(result.roundTripReview?.artifacts.allSatisfy { $0.integrityStatus == .verified } == true)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -282,7 +283,44 @@ struct RoundTripReviewServiceTests {
         #expect(summary.status == .passed)
         #expect(summary.diagnostics.isEmpty)
         #expect(summary.warnings.isEmpty)
+        #expect(summary.artifacts.allSatisfy { $0.integrityStatus == .verified })
         #expect(summary.postLayoutComparison?.gateStatus == "passed")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func tamperedArtifactFailsReviewIntegrityCheck() throws {
+        let root = try makeTemporaryRoot("review-tampered-artifact")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: comparisonURL)
+
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeJSON(makeManifest(
+            comparisonURL: comparisonURL,
+            signoffURL: signoffURL
+        ), to: manifestURL)
+
+        try "tampered\n".write(to: comparisonURL, atomically: true, encoding: .utf8)
+
+        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+
+        #expect(summary.status == .incomplete)
+        #expect(summary.postLayoutComparison == nil)
+        #expect(summary.artifacts.contains {
+            $0.kind == "post-layout-comparison" && $0.integrityStatus == .sha256Mismatch
+        })
+        #expect(summary.diagnostics.contains { $0.contains("SHA-256 mismatch") })
+        #expect(summary.diagnostics.contains { $0.contains("byte count mismatch") })
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -414,14 +452,14 @@ struct RoundTripReviewServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed, message: "passed"),
             ],
             artifacts: [
-                HeadlessRoundTripService.Artifact(
+                makeArtifact(
                     kind: "external-signoff-review",
-                    path: signoffURL.lastPathComponent,
+                    url: signoffURL,
                     sourcePath: "/source/external-signoff-review.json"
                 ),
-                HeadlessRoundTripService.Artifact(
+                makeArtifact(
                     kind: "post-layout-comparison",
-                    path: comparisonURL.lastPathComponent
+                    url: comparisonURL
                 ),
             ],
             bottleneckSummary: HeadlessRoundTripService.BottleneckSummary(
@@ -431,6 +469,28 @@ struct RoundTripReviewServiceTests {
                 failedStageName: nil,
                 recommendations: []
             )
+        )
+    }
+
+    private func makeArtifact(
+        kind: String,
+        url: URL,
+        sourcePath: String? = nil
+    ) -> HeadlessRoundTripService.Artifact {
+        let digest: RoundTripArtifactDigest?
+        do {
+            digest = FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
+                ? try RoundTripArtifactDigest.compute(url: url)
+                : nil
+        } catch {
+            digest = nil
+        }
+        return HeadlessRoundTripService.Artifact(
+            kind: kind,
+            path: url.lastPathComponent,
+            sourcePath: sourcePath,
+            sha256: digest?.sha256,
+            byteCount: digest?.byteCount
         )
     }
 
