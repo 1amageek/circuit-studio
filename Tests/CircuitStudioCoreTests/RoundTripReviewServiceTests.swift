@@ -215,6 +215,7 @@ struct RoundTripReviewServiceTests {
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
         var manifest = makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL)
+        let comparisonDigest = try RoundTripArtifactDigest.compute(url: comparisonURL)
         manifest = HeadlessRoundTripService.Manifest(
             runID: manifest.runID,
             title: manifest.title,
@@ -226,7 +227,9 @@ struct RoundTripReviewServiceTests {
                 manifest.artifacts[0],
                 HeadlessRoundTripService.Artifact(
                     kind: "post-layout-comparison",
-                    path: comparisonURL.path(percentEncoded: false)
+                    path: comparisonURL.path(percentEncoded: false),
+                    sha256: comparisonDigest.sha256,
+                    byteCount: comparisonDigest.byteCount
                 ),
             ],
             bottleneckSummary: manifest.bottleneckSummary
@@ -239,6 +242,58 @@ struct RoundTripReviewServiceTests {
         #expect(summary.diagnostics.isEmpty)
         #expect(summary.warnings.contains { $0.contains("Legacy absolute artifact path") })
         #expect(summary.postLayoutComparison?.gateStatus == "passed")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func legacyMissingDigestDoesNotLoadTypedReviewPayload() throws {
+        let root = try makeTemporaryRoot("review-legacy-missing-digest")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: comparisonURL)
+
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        var manifest = makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL)
+        manifest = HeadlessRoundTripService.Manifest(
+            runID: manifest.runID,
+            title: manifest.title,
+            createdAt: manifest.createdAt,
+            isRoundTripComplete: manifest.isRoundTripComplete,
+            isReadyForPEX: manifest.isReadyForPEX,
+            stages: manifest.stages,
+            artifacts: [
+                HeadlessRoundTripService.Artifact(
+                    kind: "external-signoff-review",
+                    path: signoffURL.lastPathComponent,
+                    sourcePath: "/source/external-signoff-review.json"
+                ),
+                HeadlessRoundTripService.Artifact(
+                    kind: "post-layout-comparison",
+                    path: comparisonURL.lastPathComponent
+                ),
+            ],
+            bottleneckSummary: manifest.bottleneckSummary
+        )
+        try writeJSON(manifest, to: manifestURL)
+
+        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+
+        #expect(summary.status == .incomplete)
+        #expect(summary.externalSignoff == nil)
+        #expect(summary.postLayoutComparison == nil)
+        #expect(summary.artifacts.allSatisfy { $0.integrityStatus == .legacyMissingDigest })
+        #expect(summary.warnings.contains { $0.contains("no manifest digest") })
+        #expect(summary.diagnostics.contains { $0.contains("digest is required") })
+        #expect(summary.recommendations.contains { $0.contains("digest-backed artifacts") })
     }
 
     @Test(.timeLimit(.minutes(1)))

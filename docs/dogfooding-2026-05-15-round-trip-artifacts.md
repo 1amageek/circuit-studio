@@ -325,3 +325,35 @@ Representative manifest entries:
 | `post-layout-comparison.json` | `2926` | `ed9142e657507c0dd8e9916d9b9e01f6b000689e823866eed20bff93bc048d6a` |
 
 This closes the next trust boundary: review no longer treats a resolvable artifact path as sufficient evidence. The artifact must also match the manifest digest before typed payloads are consumed.
+
+### Strict Digest Payload Gate
+
+Review hardening was tightened after implementation review. Legacy artifacts without `sha256` / `byteCount` can still appear in the artifact summary as unverifiable evidence, but typed payloads such as signoff reviews and post-layout comparisons are no longer loaded unless their digest verifies.
+
+```mermaid
+flowchart LR
+  Artifact["artifact summary"] --> Legacy["missing digest warning"]
+  Artifact --> Verified["verified digest"]
+  Legacy --> Block["do not load typed payload"]
+  Verified --> Load["load comparison / signoff"]
+```
+
+The strict policy was validated with:
+
+```bash
+swift run circuit-studio-flow-runner \
+  --fixture cmos-inverter \
+  --output /tmp/lsi-dogfood-strict-digest-v1 \
+  --run-id dogfood-strict-digest-v1-20260519 \
+  --approve-signoff \
+  --domain-limit voltage:abs=0.05,rel=0.5,floor=0.1 \
+  --domain-limit current:abs=0.001,rel=0.5,floor=0.001
+```
+
+| Check | Result |
+|---|---|
+| Round trip | `round_trip=passed` |
+| Review | `round_trip_review=passed` |
+| Review diagnostics / warnings | `0 / 0` |
+| Strict legacy-missing-digest regression | payload blocked, review `incomplete` |
+| Digest implementation | streaming `FileHandle` chunks, not full-file `Data(contentsOf:)` |

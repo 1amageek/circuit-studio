@@ -267,7 +267,7 @@ public struct RoundTripReviewService: Sendable {
         guard let manifestSHA256 = artifact.sha256,
               let manifestByteCount = artifact.byteCount else {
             appendUnique([
-                "Artifact has no manifest digest and cannot be integrity-checked: \(artifact.kind) at \(artifact.path)",
+                "Artifact has no manifest digest and cannot be integrity-checked: \(artifact.kind) at \(artifact.path). Regenerate the run to capture sha256 and byteCount.",
             ], to: &warnings)
             return .legacyMissingDigest
         }
@@ -441,7 +441,7 @@ public struct RoundTripReviewService: Sendable {
             recommendations.append("Resolve missing or unreadable review artifacts to make the run fully auditable.")
         }
         if !warnings.isEmpty {
-            recommendations.append("Regenerate the run to replace legacy absolute artifact paths with run-relative paths.")
+            recommendations.append("Regenerate the run to replace legacy or unverifiable artifact references with run-relative, digest-backed artifacts.")
         }
         return recommendations
     }
@@ -501,8 +501,13 @@ public struct RoundTripReviewService: Sendable {
             warnings: &warnings
         )
         switch status {
-        case .verified, .legacyMissingDigest:
+        case .verified:
             return url
+        case .legacyMissingDigest:
+            appendUnique([
+                "Artifact digest is required before loading typed review payload: \(artifact.kind) at \(artifact.path)",
+            ], to: &diagnostics)
+            return nil
         case .missingArtifact, .unreadableArtifact, .sha256Mismatch, .byteCountMismatch, .unresolved:
             return nil
         }
