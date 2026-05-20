@@ -403,9 +403,9 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                HeadlessRoundTripService.Artifact(
+                try roundTripArtifact(
                     kind: "post-layout-comparison",
-                    path: comparisonURL.lastPathComponent
+                    url: comparisonURL
                 ),
             ]
         ), to: manifestURL)
@@ -467,8 +467,9 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                HeadlessRoundTripService.Artifact(
+                try roundTripArtifact(
                     kind: "post-layout-comparison",
+                    url: outsideURL,
                     path: "../outside-comparison.json"
                 ),
             ]
@@ -495,8 +496,8 @@ struct DesignFlowServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func commandAPIApprovesLegacyAbsoluteArtifactPathWithWarning() async throws {
-        let root = try makeTemporaryRoot("gate-approval-legacy-absolute")
+    func commandAPIRejectsAbsoluteManifestArtifactPath() async throws {
+        let root = try makeTemporaryRoot("gate-approval-absolute-artifact")
         defer { removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
@@ -508,7 +509,7 @@ struct DesignFlowServiceTests {
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
         try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "approval-run",
-            title: "Legacy absolute approval run",
+            title: "Absolute artifact approval run",
             createdAt: Date(timeIntervalSince1970: 1_700_000_175),
             isRoundTripComplete: true,
             isReadyForPEX: true,
@@ -516,28 +517,31 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                HeadlessRoundTripService.Artifact(
+                try roundTripArtifact(
                     kind: "post-layout-comparison",
+                    url: comparisonURL,
                     path: comparisonURL.path(percentEncoded: false)
                 ),
             ]
         ), to: manifestURL)
 
-        let result = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .approveGate,
-            projectRootPath: root.path(percentEncoded: false),
-            runID: "approval-run",
-            roundTripManifestPath: manifestURL.path(percentEncoded: false),
-            approvalGateID: .postLayoutComparison,
-            approvalReviewer: "layout-reviewer"
-        ))
-
-        #expect(result.approvalRecord?.targetArtifactKind == "post-layout-comparison")
-        #expect(result.approvalRecord?.targetArtifactPathBase == .runDirectory)
-        #expect(result.approvalRecord?.targetArtifactPath == comparisonURL.lastPathComponent)
-        #expect(result.approvalRecord?.artifactResolutionWarnings.contains {
-            $0.contains("Legacy absolute artifact path")
-        } == true)
+        do {
+            _ = try await DesignFlowService().execute(DesignFlowCommand(
+                kind: .approveGate,
+                projectRootPath: root.path(percentEncoded: false),
+                runID: "approval-run",
+                roundTripManifestPath: manifestURL.path(percentEncoded: false),
+                approvalGateID: .postLayoutComparison,
+                approvalReviewer: "layout-reviewer"
+            ))
+            Issue.record("Expected absolute manifest artifact path to fail gate approval.")
+        } catch let error as FlowRunGovernanceError {
+            if case .invalidArtifactPath(let message) = error {
+                #expect(message.contains("absolute"))
+            } else {
+                Issue.record("Expected invalid artifact path error, got \(error).")
+            }
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -563,9 +567,9 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                HeadlessRoundTripService.Artifact(
+                try roundTripArtifact(
                     kind: "post-layout-comparison",
-                    path: comparisonURL.path(percentEncoded: false)
+                    url: comparisonURL
                 ),
             ]
         ), to: manifestURL)
@@ -608,9 +612,9 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                HeadlessRoundTripService.Artifact(
+                try roundTripArtifact(
                     kind: "post-layout-comparison",
-                    path: comparisonURL.path(percentEncoded: false)
+                    url: comparisonURL
                 ),
             ]
         ), to: manifestURL)
@@ -653,9 +657,9 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "pre-pex-verification", status: .passed),
             ],
             artifacts: [
-                HeadlessRoundTripService.Artifact(
+                try roundTripArtifact(
                     kind: "physical-verification-report",
-                    path: verificationURL.lastPathComponent
+                    url: verificationURL
                 ),
             ]
         ), to: manifestURL)
@@ -1631,6 +1635,20 @@ struct DesignFlowServiceTests {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(manifest)
         try data.write(to: url, options: .atomic)
+    }
+
+    private func roundTripArtifact(
+        kind: String,
+        url: URL,
+        path: String? = nil
+    ) throws -> HeadlessRoundTripService.Artifact {
+        let digest = try RoundTripArtifactDigest.compute(url: url)
+        return HeadlessRoundTripService.Artifact(
+            kind: kind,
+            path: path ?? url.lastPathComponent,
+            sha256: digest.sha256,
+            byteCount: digest.byteCount
+        )
     }
 
     private func writeLayoutEditScript(_ script: DesignFlowLayoutEditScript, to url: URL) throws {

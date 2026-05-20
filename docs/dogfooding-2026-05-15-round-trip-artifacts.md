@@ -70,8 +70,8 @@ After fixing DF-2026-05-15-003, the dogfood flow was repeated with:
 ```bash
 swift run circuit-studio-flow-runner \
   --fixture cmos-inverter \
-  --output /tmp/lsi-dogfood-cmos-portable-v2 \
-  --run-id dogfood-cmos-portable-v2-20260515 \
+  --output /tmp/lsi-dogfood-cmos-portable-rerun \
+  --run-id dogfood-cmos-portable-rerun-20260515 \
   --approve-signoff \
   --max-abs-delta 0.05
 ```
@@ -79,9 +79,9 @@ swift run circuit-studio-flow-runner \
 ```bash
 swift run circuit-studio-flow-runner \
   --approve-gate \
-  --output /tmp/lsi-dogfood-cmos-portable-v2 \
-  --run-id dogfood-cmos-portable-v2-20260515 \
-  --manifest /tmp/lsi-dogfood-cmos-portable-v2/.xcircuite/flow-runs/dogfood-cmos-portable-v2-20260515/round-trip-manifest.json \
+  --output /tmp/lsi-dogfood-cmos-portable-rerun \
+  --run-id dogfood-cmos-portable-rerun-20260515 \
+  --manifest /tmp/lsi-dogfood-cmos-portable-rerun/.xcircuite/flow-runs/dogfood-cmos-portable-rerun-20260515/round-trip-manifest.json \
   --approval-gate post-layout-comparison \
   --reviewer dogfood-agent \
   --approval-policy dogfood-post-layout-absolute-delta \
@@ -326,25 +326,27 @@ Representative manifest entries:
 
 This closes the next trust boundary: review no longer treats a resolvable artifact path as sufficient evidence. The artifact must also match the manifest digest before typed payloads are consumed.
 
-### Strict Digest Payload Gate
+### Current Manifest Schema Tightening
 
-Review hardening was tightened after implementation review. Legacy artifacts without `sha256` / `byteCount` can still appear in the artifact summary as unverifiable evidence, but typed payloads such as signoff reviews and post-layout comparisons are no longer loaded unless their digest verifies.
+Review hardening was tightened after implementation review. The project is still under active development, so the current round-trip manifest contract was changed in place. Artifact records require `sha256` and `byteCount`, and absolute artifact paths are invalid input.
 
 ```mermaid
 flowchart LR
-  Artifact["artifact summary"] --> Legacy["missing digest warning"]
-  Artifact --> Verified["verified digest"]
-  Legacy --> Block["do not load typed payload"]
+  Manifest["manifest decode"] --> Required["required sha256 / byteCount"]
+  Required --> Verified["verified digest"]
+  Required --> Invalid["invalid manifest"]
+  Manifest --> Path["run-relative path only"]
+  Path --> Reject["absolute path rejected"]
   Verified --> Load["load comparison / signoff"]
 ```
 
-The strict policy was validated with:
+The current schema was validated with:
 
 ```bash
 swift run circuit-studio-flow-runner \
   --fixture cmos-inverter \
-  --output /tmp/lsi-dogfood-strict-digest-v1 \
-  --run-id dogfood-strict-digest-v1-20260519 \
+  --output /tmp/lsi-dogfood-current-schema \
+  --run-id dogfood-current-schema-20260520 \
   --approve-signoff \
   --domain-limit voltage:abs=0.05,rel=0.5,floor=0.1 \
   --domain-limit current:abs=0.001,rel=0.5,floor=0.001
@@ -355,5 +357,6 @@ swift run circuit-studio-flow-runner \
 | Round trip | `round_trip=passed` |
 | Review | `round_trip_review=passed` |
 | Review diagnostics / warnings | `0 / 0` |
-| Strict legacy-missing-digest regression | payload blocked, review `incomplete` |
+| Missing digest regression | manifest load rejected |
+| Absolute artifact path regression | review / approval rejected |
 | Digest implementation | streaming `FileHandle` chunks, not full-file `Data(contentsOf:)` |

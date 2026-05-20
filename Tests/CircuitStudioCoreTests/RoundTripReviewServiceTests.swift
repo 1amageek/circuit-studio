@@ -62,6 +62,7 @@ struct RoundTripReviewServiceTests {
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
         let missingComparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: missingComparisonURL)
         let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
@@ -70,6 +71,7 @@ struct RoundTripReviewServiceTests {
             comparisonURL: missingComparisonURL,
             signoffURL: signoffURL
         ), to: manifestURL)
+        try FileManager.default.removeItem(at: missingComparisonURL)
 
         let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
 
@@ -96,10 +98,7 @@ struct RoundTripReviewServiceTests {
 
         var didRejectExternalURL = false
         do {
-            _ = try RoundTripArtifactResolver(
-                runDirectory: runDirectory,
-                allowLegacyAbsolutePaths: false
-            ).relativePath(for: externalURL)
+            _ = try RoundTripArtifactResolver(runDirectory: runDirectory).relativePath(for: externalURL)
             Issue.record("Expected external artifact URL to fail relative path conversion.")
         } catch let error as RoundTripArtifactResolverError {
             if case .pathEscapesRunDirectory = error {
@@ -131,7 +130,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        var manifest = makeManifest(comparisonURL: runDirectory.appending(path: "unused.json"), signoffURL: signoffURL)
+        var manifest = makeManifest(comparisonURL: outsideComparisonURL, signoffURL: signoffURL)
         manifest = HeadlessRoundTripService.Manifest(
             runID: manifest.runID,
             title: manifest.title,
@@ -143,7 +142,9 @@ struct RoundTripReviewServiceTests {
                 manifest.artifacts[0],
                 HeadlessRoundTripService.Artifact(
                     kind: "post-layout-comparison",
-                    path: "../outside-comparison.json"
+                    path: "../outside-comparison.json",
+                    sha256: try RoundTripArtifactDigest.compute(url: outsideComparisonURL).sha256,
+                    byteCount: try RoundTripArtifactDigest.compute(url: outsideComparisonURL).byteCount
                 ),
             ],
             bottleneckSummary: manifest.bottleneckSummary
@@ -197,8 +198,8 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func legacyAbsoluteArtifactPathIsWarningNotDiagnostic() throws {
-        let root = try makeTemporaryRoot("review-legacy-absolute")
+    func absoluteArtifactPathIsDiagnosticAndIsNotRead() throws {
+        let root = try makeTemporaryRoot("review-absolute-artifact")
         defer { removeTemporaryRoot(root) }
 
         let runDirectory = root
@@ -238,15 +239,15 @@ struct RoundTripReviewServiceTests {
 
         let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
 
-        #expect(summary.status == .passed)
-        #expect(summary.diagnostics.isEmpty)
-        #expect(summary.warnings.contains { $0.contains("Legacy absolute artifact path") })
-        #expect(summary.postLayoutComparison?.gateStatus == "passed")
+        #expect(summary.status == .incomplete)
+        #expect(summary.postLayoutComparison == nil)
+        #expect(summary.diagnostics.contains { $0.contains("absolute") })
+        #expect(summary.warnings.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func legacyMissingDigestDoesNotLoadTypedReviewPayload() throws {
-        let root = try makeTemporaryRoot("review-legacy-missing-digest")
+    func manifestMissingDigestIsRejectedAtLoad() throws {
+        let root = try makeTemporaryRoot("review-missing-digest")
         defer { removeTemporaryRoot(root) }
 
         let runDirectory = root
@@ -262,38 +263,32 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        var manifest = makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL)
-        manifest = HeadlessRoundTripService.Manifest(
-            runID: manifest.runID,
-            title: manifest.title,
-            createdAt: manifest.createdAt,
-            isRoundTripComplete: manifest.isRoundTripComplete,
-            isReadyForPEX: manifest.isReadyForPEX,
-            stages: manifest.stages,
-            artifacts: [
-                HeadlessRoundTripService.Artifact(
-                    kind: "external-signoff-review",
-                    path: signoffURL.lastPathComponent,
-                    sourcePath: "/source/external-signoff-review.json"
-                ),
-                HeadlessRoundTripService.Artifact(
-                    kind: "post-layout-comparison",
-                    path: comparisonURL.lastPathComponent
-                ),
-            ],
-            bottleneckSummary: manifest.bottleneckSummary
-        )
-        try writeJSON(manifest, to: manifestURL)
+        let manifestJSON = """
+        {
+          "runID": "review-run",
+          "title": "Review run",
+          "createdAt": "2023-11-14T22:13:20Z",
+          "isRoundTripComplete": true,
+          "isReadyForPEX": true,
+          "stages": [
+            {"name": "external-signoff", "status": "passed"},
+            {"name": "post-layout-comparison", "status": "passed", "message": "passed"}
+          ],
+          "artifacts": [
+            {"kind": "external-signoff-review", "path": "external-signoff-review.json"},
+            {"kind": "post-layout-comparison", "path": "post-layout-comparison.json"}
+          ],
+          "bottleneckSummary": null
+        }
+        """
+        try manifestJSON.write(to: manifestURL, atomically: true, encoding: .utf8)
 
-        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
-
-        #expect(summary.status == .incomplete)
-        #expect(summary.externalSignoff == nil)
-        #expect(summary.postLayoutComparison == nil)
-        #expect(summary.artifacts.allSatisfy { $0.integrityStatus == .legacyMissingDigest })
-        #expect(summary.warnings.contains { $0.contains("no manifest digest") })
-        #expect(summary.diagnostics.contains { $0.contains("digest is required") })
-        #expect(summary.recommendations.contains { $0.contains("digest-backed artifacts") })
+        do {
+            _ = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+            Issue.record("Expected manifest without artifact digests to fail decoding.")
+        } catch {
+            #expect(error.localizedDescription.contains("round-trip manifest"))
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -438,8 +433,8 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func legacyAbsoluteApprovalTargetIsAuditedAsNonPortable() throws {
-        let root = try makeTemporaryRoot("review-legacy-approval-target")
+    func absoluteApprovalTargetRecordIsInvalid() throws {
+        let root = try makeTemporaryRoot("review-absolute-approval-target")
         defer { removeTemporaryRoot(root) }
 
         let runDirectory = root
@@ -482,14 +477,15 @@ struct RoundTripReviewServiceTests {
             waiverIDs: [],
             note: nil,
             lineage: nil
-        ), to: approvalsDirectory.appending(path: "legacy-approval.json"))
+        ), to: approvalsDirectory.appending(path: "absolute-approval.json"))
 
         let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
 
         #expect(summary.status == .incomplete)
         #expect(summary.approvals.count == 1)
-        #expect(summary.warnings.contains { $0.contains("legacy absolute target artifact path") })
-        #expect(summary.diagnostics.contains { $0.contains("Gate approval target artifact is missing") })
+        #expect(summary.warnings.isEmpty)
+        #expect(summary.diagnostics.contains { $0.contains("Gate approval target artifact is invalid") })
+        #expect(summary.diagnostics.contains { $0.contains("run-directory relative") })
     }
 
     private func makeManifest(
@@ -532,20 +528,13 @@ struct RoundTripReviewServiceTests {
         url: URL,
         sourcePath: String? = nil
     ) -> HeadlessRoundTripService.Artifact {
-        let digest: RoundTripArtifactDigest?
-        do {
-            digest = FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
-                ? try RoundTripArtifactDigest.compute(url: url)
-                : nil
-        } catch {
-            digest = nil
-        }
+        let digest = try! RoundTripArtifactDigest.compute(url: url)
         return HeadlessRoundTripService.Artifact(
             kind: kind,
             path: url.lastPathComponent,
             sourcePath: sourcePath,
-            sha256: digest?.sha256,
-            byteCount: digest?.byteCount
+            sha256: digest.sha256,
+            byteCount: digest.byteCount
         )
     }
 

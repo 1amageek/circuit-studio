@@ -174,10 +174,10 @@ public struct RoundTripReviewService: Sendable {
             appendUnique(resolution.warnings, to: &warnings)
             return resolution.url
         case .absolute:
-            appendUnique([
-                "Gate approval record uses a legacy absolute target artifact path: \(record.targetArtifactPath)",
-            ], to: &warnings)
-            return URL(filePath: record.targetArtifactPath)
+            throw RoundTripArtifactResolverError.invalidRelativePath(
+                record.targetArtifactPath,
+                "Gate approval target artifacts must be run-directory relative."
+            )
         }
     }
 
@@ -240,8 +240,7 @@ public struct RoundTripReviewService: Sendable {
         let integrityStatus = integrityStatus(
             artifact: artifact,
             actualDigest: actualDigest,
-            diagnostics: &diagnostics,
-            warnings: &warnings
+            diagnostics: &diagnostics
         )
 
         return RoundTripReviewArtifactSummary(
@@ -261,27 +260,18 @@ public struct RoundTripReviewService: Sendable {
     private func integrityStatus(
         artifact: HeadlessRoundTripService.Artifact,
         actualDigest: RoundTripArtifactDigest,
-        diagnostics: inout [String],
-        warnings: inout [String]
+        diagnostics: inout [String]
     ) -> RoundTripArtifactIntegrityStatus {
-        guard let manifestSHA256 = artifact.sha256,
-              let manifestByteCount = artifact.byteCount else {
-            appendUnique([
-                "Artifact has no manifest digest and cannot be integrity-checked: \(artifact.kind) at \(artifact.path). Regenerate the run to capture sha256 and byteCount.",
-            ], to: &warnings)
-            return .legacyMissingDigest
-        }
-
         var status = RoundTripArtifactIntegrityStatus.verified
-        if manifestByteCount != actualDigest.byteCount {
+        if artifact.byteCount != actualDigest.byteCount {
             appendUnique([
-                "Artifact byte count mismatch: \(artifact.kind) at \(artifact.path) expected \(manifestByteCount), got \(actualDigest.byteCount)",
+                "Artifact byte count mismatch: \(artifact.kind) at \(artifact.path) expected \(artifact.byteCount), got \(actualDigest.byteCount)",
             ], to: &diagnostics)
             status = .byteCountMismatch
         }
-        if manifestSHA256 != actualDigest.sha256 {
+        if artifact.sha256 != actualDigest.sha256 {
             appendUnique([
-                "Artifact SHA-256 mismatch: \(artifact.kind) at \(artifact.path) expected \(manifestSHA256), got \(actualDigest.sha256)",
+                "Artifact SHA-256 mismatch: \(artifact.kind) at \(artifact.path) expected \(artifact.sha256), got \(actualDigest.sha256)",
             ], to: &diagnostics)
             status = .sha256Mismatch
         }
@@ -441,7 +431,7 @@ public struct RoundTripReviewService: Sendable {
             recommendations.append("Resolve missing or unreadable review artifacts to make the run fully auditable.")
         }
         if !warnings.isEmpty {
-            recommendations.append("Regenerate the run to replace legacy or unverifiable artifact references with run-relative, digest-backed artifacts.")
+            recommendations.append("Regenerate the run to replace unverifiable artifact references with run-relative, digest-backed artifacts.")
         }
         return recommendations
     }
@@ -497,17 +487,11 @@ public struct RoundTripReviewService: Sendable {
         let status = integrityStatus(
             artifact: artifact,
             actualDigest: actualDigest,
-            diagnostics: &diagnostics,
-            warnings: &warnings
+            diagnostics: &diagnostics
         )
         switch status {
         case .verified:
             return url
-        case .legacyMissingDigest:
-            appendUnique([
-                "Artifact digest is required before loading typed review payload: \(artifact.kind) at \(artifact.path)",
-            ], to: &diagnostics)
-            return nil
         case .missingArtifact, .unreadableArtifact, .sha256Mismatch, .byteCountMismatch, .unresolved:
             return nil
         }

@@ -2,15 +2,12 @@ import Foundation
 
 public enum RoundTripArtifactResolverError: Error, LocalizedError, Equatable {
     case invalidRelativePath(String, String)
-    case legacyAbsolutePathDisallowed(String)
     case pathEscapesRunDirectory(path: String, runDirectory: String)
 
     public var errorDescription: String? {
         switch self {
         case .invalidRelativePath(let path, let reason):
             return "Invalid round-trip artifact path '\(path)': \(reason)"
-        case .legacyAbsolutePathDisallowed(let path):
-            return "Legacy absolute round-trip artifact path is not allowed: \(path)"
         case .pathEscapesRunDirectory(let path, let runDirectory):
             return "Round-trip artifact path escapes run directory: \(path) is outside \(runDirectory)"
         }
@@ -19,18 +16,13 @@ public enum RoundTripArtifactResolverError: Error, LocalizedError, Equatable {
 
 public struct RoundTripArtifactResolver: Sendable {
     public let runDirectory: URL
-    public let allowLegacyAbsolutePaths: Bool
 
-    public init(runDirectory: URL, allowLegacyAbsolutePaths: Bool = true) {
+    public init(runDirectory: URL) {
         self.runDirectory = runDirectory
-        self.allowLegacyAbsolutePaths = allowLegacyAbsolutePaths
     }
 
-    public init(manifestURL: URL, allowLegacyAbsolutePaths: Bool = true) {
-        self.init(
-            runDirectory: manifestURL.deletingLastPathComponent(),
-            allowLegacyAbsolutePaths: allowLegacyAbsolutePaths
-        )
+    public init(manifestURL: URL) {
+        self.init(runDirectory: manifestURL.deletingLastPathComponent())
     }
 
     public func resolve(_ artifact: HeadlessRoundTripService.Artifact) throws -> RoundTripArtifactResolution {
@@ -38,18 +30,6 @@ public struct RoundTripArtifactResolver: Sendable {
     }
 
     public func resolve(path rawPath: String, kind: String) throws -> RoundTripArtifactResolution {
-        if RoundTripArtifactPath.isAbsolutePath(rawPath) {
-            guard allowLegacyAbsolutePaths else {
-                throw RoundTripArtifactResolverError.legacyAbsolutePathDisallowed(rawPath)
-            }
-            let url = URL(filePath: rawPath)
-            try validateInsideRunDirectory(url)
-            return RoundTripArtifactResolution(
-                url: url,
-                warnings: ["Legacy absolute artifact path for \(kind): \(rawPath)"]
-            )
-        }
-
         let artifactPath = try RoundTripArtifactPath(rawPath)
         let url = runDirectory.appending(path: artifactPath.value)
         try validateInsideRunDirectory(url)

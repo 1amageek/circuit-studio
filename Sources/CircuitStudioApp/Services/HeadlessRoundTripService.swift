@@ -189,15 +189,15 @@ public final class HeadlessRoundTripService {
         public let kind: String
         public let path: String
         public let sourcePath: String?
-        public let sha256: String?
-        public let byteCount: Int64?
+        public let sha256: String
+        public let byteCount: Int64
 
         public init(
             kind: String,
             path: String,
             sourcePath: String? = nil,
-            sha256: String? = nil,
-            byteCount: Int64? = nil
+            sha256: String,
+            byteCount: Int64
         ) {
             self.kind = kind
             self.path = path
@@ -989,8 +989,7 @@ public final class HeadlessRoundTripService {
         return Artifact(
             kind: kind,
             path: try RoundTripArtifactResolver(
-                runDirectory: runDirectory,
-                allowLegacyAbsolutePaths: false
+                runDirectory: runDirectory
             ).relativePath(for: url),
             sourcePath: sourcePath,
             sha256: digest.sha256,
@@ -1022,8 +1021,7 @@ public final class HeadlessRoundTripService {
     private func isArtifactAlreadyInsideRunDirectory(sourceURL: URL, runDirectory: URL) -> Bool {
         do {
             _ = try RoundTripArtifactResolver(
-                runDirectory: runDirectory,
-                allowLegacyAbsolutePaths: false
+                runDirectory: runDirectory
             ).relativePath(for: sourceURL)
             return true
         } catch {

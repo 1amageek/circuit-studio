@@ -878,8 +878,8 @@ struct HeadlessRoundTripServiceTests {
 
         let artifactPaths = result.manifest.artifacts.map(\.path)
         #expect(artifactPaths.allSatisfy { !$0.hasPrefix("/") })
-        #expect(result.manifest.artifacts.allSatisfy { $0.sha256?.count == 64 })
-        #expect(result.manifest.artifacts.allSatisfy { ($0.byteCount ?? 0) > 0 })
+        #expect(result.manifest.artifacts.allSatisfy { $0.sha256.count == 64 })
+        #expect(result.manifest.artifacts.allSatisfy { $0.byteCount > 0 })
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout.cir") })
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout-simulation.json") })
         #expect(artifactPaths.contains { $0.hasSuffix("pre-layout-waveform.csv") })

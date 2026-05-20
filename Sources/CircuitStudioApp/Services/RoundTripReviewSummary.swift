@@ -155,7 +155,7 @@ public struct RoundTripReviewArtifactSummary: Sendable, Hashable, Codable {
         manifestByteCount: Int64? = nil,
         actualSHA256: String? = nil,
         actualByteCount: Int64? = nil,
-        integrityStatus: RoundTripArtifactIntegrityStatus = .legacyMissingDigest
+        integrityStatus: RoundTripArtifactIntegrityStatus = .unresolved
     ) {
         self.kind = kind
         self.path = path
@@ -172,7 +172,6 @@ public struct RoundTripReviewArtifactSummary: Sendable, Hashable, Codable {
 
 public enum RoundTripArtifactIntegrityStatus: String, Sendable, Hashable, Codable {
     case verified
-    case legacyMissingDigest
     case missingArtifact
     case unreadableArtifact
     case sha256Mismatch
@@ -210,7 +209,7 @@ extension RoundTripReviewArtifactSummary {
             integrityStatus: try container.decodeIfPresent(
                 RoundTripArtifactIntegrityStatus.self,
                 forKey: .integrityStatus
-            ) ?? (exists ? .legacyMissingDigest : .missingArtifact)
+            ) ?? (exists ? .unresolved : .missingArtifact)
         )
     }
 }
