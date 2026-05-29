@@ -11,6 +11,21 @@ LiveSignoffServiceTests, MagicDRCSignoffTests, NetgenLVSSignoffTests,
 RealSignoffPEXEndToEndTests   ← skipped unless Magic + Netgen + Sky130 are present
 ```
 
+## Scripted setup / CI
+
+`scripts/install-toolchain.sh` installs (or detects) the whole toolchain and
+exports `MAGIC_BIN` / `NETGEN_BIN` / `PDK_ROOT`:
+
+```sh
+source scripts/install-toolchain.sh   # build/detect + set env in your shell
+swift test                            # the gated real-tool tests now run
+```
+
+`.github/workflows/realtool.yml` runs it on `macos-15` (caching the built tools)
+and then `swift test`, so the gated real-tool tests execute on every push — not
+just locally. The gated tests honor `MAGIC_BIN`/`NETGEN_BIN`/`PDK_ROOT`, so CI
+points them at the installed tools.
+
 ## What you need
 
 | Tool | Used for | Discovery (override) |
