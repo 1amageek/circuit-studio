@@ -94,7 +94,7 @@ public struct MagicDRCSignoff: Sendable {
             ?? NSString(string: "~/.local/magic/bin/magic").expandingTildeInPath
         guard fileManager.isExecutableFile(atPath: magicPath) else { return nil }
 
-        guard let pdkRoot = resolvePDKRoot(environment: environment, fileManager: fileManager) else {
+        guard let pdkRoot = Sky130PDK.root(environment: environment, fileManager: fileManager) else {
             return nil
         }
         let rcFile = URL(filePath: pdkRoot)
@@ -109,25 +109,5 @@ public struct MagicDRCSignoff: Sendable {
             pdkRoot: pdkRoot,
             driverScriptURL: driver
         )
-    }
-
-    private static func resolvePDKRoot(
-        environment: [String: String],
-        fileManager: FileManager
-    ) -> String? {
-        if let root = environment["PDK_ROOT"],
-           fileManager.fileExists(atPath: root) {
-            return root
-        }
-        let versions = NSString(string: "~/.volare/volare/sky130/versions")
-            .expandingTildeInPath
-        guard let entries = try? fileManager.contentsOfDirectory(atPath: versions) else {
-            return nil
-        }
-        let builds = entries.filter { !$0.hasPrefix(".") }
-        // Only auto-select when there is exactly one installed build; ambiguity
-        // must be resolved explicitly via PDK_ROOT.
-        guard builds.count == 1 else { return nil }
-        return versions + "/" + builds[0]
     }
 }

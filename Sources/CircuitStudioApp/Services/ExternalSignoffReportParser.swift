@@ -10,6 +10,10 @@ public struct ExternalSignoffReportParser: Sendable {
         /// driver's `VIOLATION`/`ERROR rule=...` lines are diagnostics; Magic's
         /// own chatter (e.g. "No errors found.") is ignored.
         case magicDRC
+        /// Netgen LVS output normalized by the `lvs.tcl` driver. Only the
+        /// driver's `MISMATCH`/`ERROR rule=...` lines are diagnostics; Netgen's
+        /// own chatter (e.g. the "*** MISMATCH ***" count lines) is ignored.
+        case netgenLVS
     }
 
     public let style: Style
@@ -55,7 +59,7 @@ public struct ExternalSignoffReportParser: Sendable {
         // Styles that fully delegate to their style-specific handler must not
         // fall back to the permissive generic parse — it would misread incidental
         // tool chatter (e.g. Magic's "No errors found.") as a diagnostic.
-        if style == .magicDRC {
+        if style == .magicDRC || style == .netgenLVS {
             return nil
         }
         return ExternalSignoffDiagnostic(
@@ -106,16 +110,17 @@ public struct ExternalSignoffReportParser: Sendable {
             return magicNetgenDiagnostic(line: line, severity: severity, fields: fields)
         case .klayoutLike:
             return klayoutDiagnostic(line: line, severity: severity, fields: fields)
-        case .magicDRC:
-            return magicDRCDiagnostic(line: line, severity: severity, fields: fields)
+        case .magicDRC, .netgenLVS:
+            return normalizedDriverDiagnostic(line: line, severity: severity, fields: fields)
         }
     }
 
-    /// Parses a line emitted by the `drc.tcl` driver. The driver normalizes every
-    /// diagnostic to carry a `rule=` field (`VIOLATION rule=<code> ...` for DRC
-    /// violations, `ERROR rule=DRIVER ...` for driver failures), so a line without
-    /// a `rule` field is incidental Magic output and is not a diagnostic.
-    private func magicDRCDiagnostic(
+    /// Parses a line emitted by one of the normalizing tool drivers (`drc.tcl`,
+    /// `lvs.tcl`). Every diagnostic the drivers emit carries a `rule=` field
+    /// (`VIOLATION rule=<code> ...`, `MISMATCH rule=LVS_MISMATCH ...`, or
+    /// `ERROR rule=DRIVER ...`), so a line without a `rule` field is incidental
+    /// tool output and is not a diagnostic.
+    private func normalizedDriverDiagnostic(
         line: String,
         severity: ExternalSignoffDiagnostic.Severity,
         fields: [String: String]

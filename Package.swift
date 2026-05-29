@@ -48,6 +48,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/drc.tcl"),
+                .copy("Resources/lvs.tcl"),
             ]
         ),
         .executableTarget(
@@ -74,7 +75,8 @@ let package = Package(
                 .copy("Fixtures/signoff"),
                 .copy("Fixtures/layout"),
                 .copy("Fixtures/pex"),
-                .copy("Fixtures/magic")
+                .copy("Fixtures/magic"),
+                .copy("Fixtures/lvs")
             ]
         ),
     ]
