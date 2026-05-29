@@ -1,0 +1,4 @@
+* sky130_fd_sc_hd__inv_1 schematic with the pfet removed (deliberate LVS mismatch)
+.subckt sky130_fd_sc_hd__inv_1 A VGND VNB VPB VPWR Y
+X0 VGND A Y VNB sky130_fd_pr__nfet_01v8 w=650000u l=150000u
+.ends

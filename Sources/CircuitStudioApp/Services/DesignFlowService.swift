@@ -432,6 +432,7 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case missingRoundTripManifestPath
     case missingApprovalGateID
     case missingApprovalReviewer
+    case signoffToolchainUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -465,6 +466,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
             return "Design flow command requires an approval gate ID."
         case .missingApprovalReviewer:
             return "Design flow command requires an approval reviewer."
+        case .signoffToolchainUnavailable:
+            return "Live signoff was requested but the Magic + Netgen + Sky130 toolchain was not found (set MAGIC_BIN/NETGEN_BIN/PDK_ROOT or install the tools)."
         }
     }
 }
@@ -655,6 +658,26 @@ public struct DesignFlowService: Sendable {
         logs: [ExternalSignoffLogArtifact]
     ) throws -> ExternalSignoffReview {
         try ExternalSignoffArtifactService().load(logs: logs)
+    }
+
+    /// Produces a signoff review by running the REAL DRC + LVS tools on a layout
+    /// (instead of replaying golden logs). Throws `signoffToolchainUnavailable`
+    /// when the toolchain is absent — never silently falls back to mock/replay.
+    public func runLiveSignoff(
+        layoutGDS: URL,
+        topCell: String,
+        schematicNetlist: URL,
+        artifactDirectory: URL
+    ) throws -> ExternalSignoffReview {
+        guard let service = LiveSignoffService.locate() else {
+            throw DesignFlowCommandError.signoffToolchainUnavailable
+        }
+        return try service.run(
+            layoutGDS: layoutGDS,
+            topCell: topCell,
+            schematicNetlist: schematicNetlist,
+            artifactDirectory: artifactDirectory
+        )
     }
 
     public func summarizeBottlenecks(
