@@ -51,6 +51,7 @@ let package = Package(
                 .copy("Resources/drc.tcl"),
                 .copy("Resources/lvs.tcl"),
                 .copy("Resources/extract_lvs.tcl"),
+                .copy("Resources/materialize_cell.tcl"),
             ]
         ),
         .executableTarget(

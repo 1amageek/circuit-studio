@@ -35,6 +35,8 @@ struct SignoffRunner {
                 let signoffCode = try runDRCLVS(options)
                 guard signoffCode == 0 else { exit(signoffCode) }
                 exit(try await runPEX(options))
+            case "cell":
+                exit(try await runCell(options))
             case "-h", "--help", "help":
                 usage()
                 exit(0)
@@ -140,6 +142,24 @@ struct SignoffRunner {
         return 0
     }
 
+    /// Materializes a real PDK cell's layout to GDS by name (no hand-supplied GDS),
+    /// then runs the full DRC+LVS+PEX signoff on it — design-by-reference → signoff.
+    private static func runCell(_ options: Options) async throws -> Int32 {
+        let cell = try options.require("--cell")
+        let schematic = try options.fileURL("--schematic")
+        let artifacts = options.artifactsDirectory()
+        guard let layoutService = PDKCellLayoutService.locate() else {
+            throw CLIError(code: 2, message: "layout toolchain unavailable — run `signoff doctor`")
+        }
+        try FileManager.default.createDirectory(at: artifacts, withIntermediateDirectories: true)
+        let gds = try layoutService.materialize(cell: cell, into: artifacts.appending(path: "layout"))
+        print("Materialized \(cell) → \(gds.lastPathComponent)")
+
+        let signoffCode = try runDRCLVS(options.with(layout: gds.path(percentEncoded: false), topCell: cell))
+        guard signoffCode == 0 else { return signoffCode }
+        return try await runPEX(options.with(layout: gds.path(percentEncoded: false), topCell: cell))
+    }
+
     // MARK: - Helpers
 
     private static func usage() {
@@ -151,6 +171,7 @@ struct SignoffRunner {
           signoff drc-lvs --layout <gds> --top-cell <name> --schematic <spice> [--artifacts <dir>]
           signoff pex     --layout <gds> --top-cell <name> [--corner <id>] [--artifacts <dir>]
           signoff full    --layout <gds> --top-cell <name> --schematic <spice> [--artifacts <dir>]
+          signoff cell    --cell <name>  --schematic <spice> [--artifacts <dir>]   (materialize GDS by name, then full signoff)
 
         Exit codes: 0 ok · 1 usage/IO · 2 toolchain unavailable · 3 signoff failed
         """)
@@ -184,6 +205,14 @@ struct SignoffRunner {
         func artifactsDirectory() -> URL {
             if let dir = value("--artifacts") { return URL(filePath: dir) }
             return FileManager.default.temporaryDirectory.appending(path: "signoff-\(UUID().uuidString)")
+        }
+        /// Returns a copy with `--layout` and `--top-cell` set (used after
+        /// materializing a cell's GDS to feed the drc-lvs/pex subcommands).
+        func with(layout: String, topCell: String) -> Options {
+            var copy = self
+            copy.values["--layout"] = layout
+            copy.values["--top-cell"] = topCell
+            return copy
         }
     }
 }
