@@ -42,19 +42,19 @@ public struct NetgenLVSSignoff: Sendable {
         ExternalSignoffReportParser(style: .netgenLVS)
     }
 
-    /// Builds an LVS command comparing `layoutNetlistPath` against
-    /// `schematicNetlistPath` for `topCell`.
+    /// Builds an LVS command comparing `layoutNetlist` against
+    /// `schematicNetlist` for `topCell`.
     public func command(
-        layoutNetlistPath: String,
-        schematicNetlistPath: String,
+        layoutNetlist: URL,
+        schematicNetlist: URL,
         topCell: String,
         artifactDirectory: URL
     ) -> ExternalSignoffCommand {
         let reportURL = artifactDirectory.appending(path: "lvs-compare.out")
         let environment = [
             "PDK_ROOT": pdkRoot,
-            "LVS_LAYOUT": layoutNetlistPath,
-            "LVS_SCHEM": schematicNetlistPath,
+            "LVS_LAYOUT": layoutNetlist.path(percentEncoded: false),
+            "LVS_SCHEM": schematicNetlist.path(percentEncoded: false),
             "LVS_TOP": topCell,
             "LVS_SETUP": setupFileURL.path(percentEncoded: false),
             "LVS_OUT": reportURL.path(percentEncoded: false),

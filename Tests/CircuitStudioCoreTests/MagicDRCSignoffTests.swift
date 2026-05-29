@@ -61,7 +61,7 @@ struct MagicDRCSignoffTests {
 
         let command = tool.command(
             cell: "drc_broken",
-            gdsPath: gds.path(percentEncoded: false),
+            gds: gds,
             artifactDirectory: artifacts
         )
         let result = try ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(

@@ -13,12 +13,11 @@ struct NetgenLVSSignoffTests {
     static let toolchain = NetgenLVSSignoff.locate()
     private let topCell = "sky130_fd_sc_hd__inv_1"
 
-    private func fixture(_ name: String) throws -> String {
-        let url = try #require(
+    private func fixture(_ name: String) throws -> URL {
+        try #require(
             Bundle.module.url(forResource: name, withExtension: "spice", subdirectory: "lvs"),
             "missing fixture lvs/\(name).spice"
         )
-        return url.path(percentEncoded: false)
     }
 
     private func makeArtifactDirectory(_ name: String) throws -> URL {
@@ -39,8 +38,8 @@ struct NetgenLVSSignoffTests {
         defer { try? FileManager.default.removeItem(at: artifacts) }
 
         let command = tool.command(
-            layoutNetlistPath: try fixture("inv_layout"),
-            schematicNetlistPath: try fixture("inv_schematic"),
+            layoutNetlist: try fixture("inv_layout"),
+            schematicNetlist: try fixture("inv_schematic"),
             topCell: topCell,
             artifactDirectory: artifacts
         )
@@ -67,8 +66,8 @@ struct NetgenLVSSignoffTests {
         defer { try? FileManager.default.removeItem(at: artifacts) }
 
         let command = tool.command(
-            layoutNetlistPath: try fixture("inv_layout_broken"),
-            schematicNetlistPath: try fixture("inv_schematic"),
+            layoutNetlist: try fixture("inv_layout_broken"),
+            schematicNetlist: try fixture("inv_schematic"),
             topCell: topCell,
             artifactDirectory: artifacts
         )

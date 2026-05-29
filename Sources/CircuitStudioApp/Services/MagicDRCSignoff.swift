@@ -41,14 +41,14 @@ public struct MagicDRCSignoff: Sendable {
         ExternalSignoffReportParser(style: .magicDRC)
     }
 
-    /// Builds a DRC command for `cell`, optionally reading `gdsPath` first.
+    /// Builds a DRC command for `cell`, optionally reading `gds` first.
     ///
     /// `DRC_GDS` is only set when a GDS is supplied so the driver loads an
     /// already-resolved cell (e.g. a foundry standard cell via the PDK search
     /// path) when no layout file is given.
     public func command(
         cell: String,
-        gdsPath: String? = nil,
+        gds: URL? = nil,
         artifactDirectory: URL
     ) -> ExternalSignoffCommand {
         var environment = [
@@ -56,8 +56,8 @@ public struct MagicDRCSignoff: Sendable {
             "DRC_CELL": cell,
             "MAGTYPE": "mag",
         ]
-        if let gdsPath {
-            environment["DRC_GDS"] = gdsPath
+        if let gds {
+            environment["DRC_GDS"] = gds.path(percentEncoded: false)
         }
         return ExternalSignoffCommand(
             kind: .drc,
