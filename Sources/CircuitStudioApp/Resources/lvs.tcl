@@ -10,22 +10,32 @@
 #
 # Inputs via environment: LVS_LAYOUT, LVS_SCHEM, LVS_TOP, LVS_SETUP, LVS_OUT
 # Run as: netgen -batch source lvs.tcl
+#
+# Failure policy: a driver/tool error emits `ERROR rule=DRIVER` AND exits 1
+# (Netgen exits 0 on an uncaught Tcl error, so the catch below is what prevents an
+# aborted comparison from being misread as a clean pass). A completed comparison
+# exits 0; a non-matching result is reported via the MISMATCH diagnostic.
 
 foreach v {LVS_LAYOUT LVS_SCHEM LVS_TOP LVS_SETUP LVS_OUT} {
     if {![info exists env($v)]} {
         puts "ERROR rule=DRIVER message=\"$v not set\""
-        quit
+        exit 1
     }
 }
 foreach {v label} {LVS_LAYOUT "layout netlist" LVS_SCHEM "schematic netlist" LVS_SETUP "setup file"} {
     if {![file exists $env($v)]} {
         puts "ERROR rule=DRIVER message=\"$label not found: $env($v)\""
-        quit
+        exit 1
     }
 }
 
-lvs "$env(LVS_LAYOUT) $env(LVS_TOP)" "$env(LVS_SCHEM) $env(LVS_TOP)" \
-    $env(LVS_SETUP) $env(LVS_OUT)
+if {[catch {
+    lvs "$env(LVS_LAYOUT) $env(LVS_TOP)" "$env(LVS_SCHEM) $env(LVS_TOP)" \
+        $env(LVS_SETUP) $env(LVS_OUT)
+} err]} {
+    puts "ERROR rule=DRIVER message=\"lvs failed: $err\""
+    exit 1
+}
 
 set result "no final result in report"
 if {[file exists $env(LVS_OUT)]} {

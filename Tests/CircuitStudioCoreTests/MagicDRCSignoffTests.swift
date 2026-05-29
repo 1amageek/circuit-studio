@@ -78,6 +78,29 @@ struct MagicDRCSignoffTests {
         #expect(!result.report.passed)
     }
 
+    @Test(
+        "A missing cell fails loud (non-zero exit + DRIVER diagnostic), never a clean pass",
+        .enabled(if: MagicDRCSignoffTests.toolchain != nil),
+        .timeLimit(.minutes(2))
+    )
+    func missingCellFailsLoud() throws {
+        let tool = try #require(Self.toolchain)
+        let artifacts = try makeArtifactDirectory("missing")
+        defer { try? FileManager.default.removeItem(at: artifacts) }
+
+        let command = tool.command(cell: "no_such_cell_xyz", artifactDirectory: artifacts)
+        let result = try ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
+            command: command,
+            artifactDirectory: artifacts
+        )
+        // Magic exits 0 on an uncaught Tcl error; the driver's catch must turn a
+        // failed load into a non-zero exit AND a DRIVER diagnostic so the run is
+        // never reported as a clean pass.
+        #expect(result.exitCode != 0)
+        #expect(!result.report.passed)
+        #expect(result.report.diagnostics.contains { $0.severity == .error && $0.ruleID == "DRIVER" })
+    }
+
     private func makeArtifactDirectory(_ name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "MagicDRCSignoffTests-\(name)-\(UUID().uuidString)")
