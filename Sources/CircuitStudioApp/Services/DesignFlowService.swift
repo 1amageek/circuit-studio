@@ -680,6 +680,26 @@ public struct DesignFlowService: Sendable {
         )
     }
 
+    /// Runs the agent edit → signoff → iterate loop (G4) with real signoff:
+    /// `nextCandidate` is the agent's edit decision each round, and the loop
+    /// converges when a candidate passes real DRC+LVS. Throws
+    /// `signoffToolchainUnavailable` when the toolchain is absent (no silent
+    /// fallback).
+    public func runSignoffIterationLoop(
+        maxIterations: Int,
+        artifactDirectory: URL,
+        nextCandidate: (_ index: Int, _ lastReview: ExternalSignoffReview?) -> SignoffIterationLoop.Candidate?
+    ) throws -> SignoffIterationLoop.LoopResult {
+        guard let loop = SignoffIterationLoop.locate() else {
+            throw DesignFlowCommandError.signoffToolchainUnavailable
+        }
+        return try loop.run(
+            maxIterations: maxIterations,
+            artifactDirectory: artifactDirectory,
+            nextCandidate: nextCandidate
+        )
+    }
+
     public func summarizeBottlenecks(
         projectRoot: URL
     ) throws -> RoundTripBottleneckHistoryService.Summary {
