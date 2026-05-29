@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "WaveformViewer", targets: ["WaveformViewer"]),
         .library(name: "CircuitStudioApp", targets: ["CircuitStudioApp"]),
         .executable(name: "circuit-studio-flow-runner", targets: ["CircuitStudioFlowRunner"]),
+        .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
         .package(path: "../CoreSpice"),
@@ -58,6 +59,13 @@ let package = Package(
                 "CircuitStudioApp",
                 "CircuitStudioCore",
                 "SchematicEditor",
+            ]
+        ),
+        .executableTarget(
+            name: "SignoffRunner",
+            dependencies: [
+                "CircuitStudioApp",
+                .product(name: "PEXEngine", package: "PEXEngine"),
             ]
         ),
         .testTarget(
