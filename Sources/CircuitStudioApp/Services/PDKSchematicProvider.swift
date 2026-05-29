@@ -22,6 +22,22 @@ public struct PDKSchematicProvider: Sendable {
         Sky130PDK.root(environment: environment, fileManager: fileManager).map(PDKSchematicProvider.init(pdkRoot:))
     }
 
+    /// The standard-cell library used to probe PDK readiness (`signoff doctor`).
+    public static let representativeLibrary = "sky130_fd_sc_hd"
+
+    /// Whether the PDK actually ships the standard-cell SPICE deck a `check --cell`
+    /// run needs to derive a reference schematic. `locate()` only proves the PDK
+    /// root exists; this proves the deck a design-by-name needs is present, so
+    /// `doctor` does not report Ready while `check --cell` would fail at runtime.
+    public func hasLibraryDeck(
+        library: String = PDKSchematicProvider.representativeLibrary,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let deckURL = URL(filePath: pdkRoot)
+            .appending(path: "sky130A/libs.ref/\(library)/spice/\(library).spice")
+        return fileManager.fileExists(atPath: deckURL.path(percentEncoded: false))
+    }
+
     public enum SchematicError: Error, LocalizedError, Equatable {
         case unrecognizedCellName(String)
         case libraryDeckMissing(String)

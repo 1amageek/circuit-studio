@@ -53,6 +53,12 @@ public struct ExternalSignoffToolReport: Sendable, Hashable, Codable {
     public let kind: Kind
     public let toolName: String
     public let success: Bool
+    /// Positive proof the driver ran to a clean completion (its terminal marker was
+    /// present): `DRC_DONE` for Magic DRC, `LVS_RESULT status=match` for Netgen LVS.
+    /// A pass requires this — the absence of error diagnostics alone is not enough,
+    /// so a tool that exits 0 with empty/truncated output cannot be a false pass.
+    /// Styles without a marker protocol (mocks, external tools) report `true`.
+    public let completed: Bool
     public let logPath: String
     public let diagnostics: [ExternalSignoffDiagnostic]
 
@@ -60,18 +66,39 @@ public struct ExternalSignoffToolReport: Sendable, Hashable, Codable {
         kind: Kind,
         toolName: String,
         success: Bool,
+        completed: Bool = true,
         logPath: String,
         diagnostics: [ExternalSignoffDiagnostic] = []
     ) {
         self.kind = kind
         self.toolName = toolName
         self.success = success
+        self.completed = completed
         self.logPath = logPath
         self.diagnostics = diagnostics
     }
 
+    /// A report passes only when the tool exited cleanly, ran to a verified
+    /// completion, AND raised no error-severity diagnostic — all three, so a clean
+    /// exit code can never stand in for evidence the check actually finished.
     public var passed: Bool {
-        success && !diagnostics.contains { $0.severity == .error }
+        success && completed && !diagnostics.contains { $0.severity == .error }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, toolName, success, completed, logPath, diagnostics
+    }
+
+    // Backward-compatible decoding: artifacts written before `completed` existed
+    // default to `true` (they predate the positive-evidence gate).
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(Kind.self, forKey: .kind)
+        toolName = try container.decode(String.self, forKey: .toolName)
+        success = try container.decode(Bool.self, forKey: .success)
+        completed = try container.decodeIfPresent(Bool.self, forKey: .completed) ?? true
+        logPath = try container.decode(String.self, forKey: .logPath)
+        diagnostics = try container.decodeIfPresent([ExternalSignoffDiagnostic].self, forKey: .diagnostics) ?? []
     }
 }
 

@@ -75,6 +75,33 @@ struct ExternalSignoffReportParserTests {
         #expect(result.diagnostics.count == 2)
         #expect(Set(result.diagnostics.compactMap(\.ruleID)) == ["met1.2", "poly.2"])
     }
+
+    @Test("A truncated run (exit 0, no DRC_DONE) is not a false pass — completion is required")
+    func truncatedRunIsNotAPass() {
+        // Magic exited 0 but produced no completion marker (silent crash / lost tail).
+        // Absence of VIOLATION lines must NOT be read as a clean pass.
+        let raw = """
+        Magic 8.3 revision 652
+        Loading sky130A Device Generator Menu ...
+        """
+        let result = report(raw, success: true)
+        #expect(!result.completed)
+        #expect(!result.passed)
+    }
+
+    @Test("DRC_SUMMARY total>0 with no enumerated VIOLATION still fails (count gates the verdict)")
+    func authoritativeCountGatesTheVerdict() {
+        // The authoritative count says 5, but no VIOLATION line was enumerated; the
+        // verdict must follow the count, not the (empty) enumeration.
+        let raw = """
+        DRC_SUMMARY total=5 cell=block
+        DRC_DONE
+        """
+        let result = report(raw, success: true)
+        #expect(result.completed)
+        #expect(result.diagnostics.contains { $0.ruleID == "DRC_SUMMARY_MISMATCH" && $0.severity == .error })
+        #expect(!result.passed)
+    }
 }
 
 /// Pure parser tests for the `.netgenLVS` style — no Netgen installation needed.
@@ -131,6 +158,21 @@ struct NetgenLVSReportParserTests {
         let result = report(#"ERROR rule=DRIVER message="setup file not found: x""#)
         #expect(result.diagnostics.count == 1)
         #expect(result.diagnostics.first?.ruleID == "DRIVER")
+        #expect(!result.passed)
+    }
+
+    @Test("A run without the positive match marker (exit 0, truncated) is not a false pass")
+    func missingMatchMarkerIsNotAPass() {
+        // Netgen exited 0 and emitted no MISMATCH, but also never produced the
+        // positive `LVS_RESULT status=match` line — absence of a mismatch must NOT
+        // be read as a match.
+        let raw = """
+        Netgen 1.5.320
+        Contents of circuit 1: ...
+        LVS_DONE
+        """
+        let result = report(raw)
+        #expect(!result.completed)
         #expect(!result.passed)
     }
 }

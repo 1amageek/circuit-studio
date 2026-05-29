@@ -29,17 +29,69 @@ public struct ExternalSignoffReportParser: Sendable {
         rawOutput: String,
         success: Bool
     ) -> ExternalSignoffToolReport {
-        let diagnostics = rawOutput
+        var diagnostics = rawOutput
             .split(whereSeparator: \.isNewline)
             .compactMap { parseDiagnostic(line: String($0)) }
+
+        let completed = completionProof(in: rawOutput, diagnostics: &diagnostics)
 
         return ExternalSignoffToolReport(
             kind: kind,
             toolName: toolName,
             success: success,
+            completed: completed,
             logPath: logPath,
             diagnostics: diagnostics
         )
+    }
+
+    /// Positive completion proof for the normalizing driver styles. A driver prints
+    /// its terminal marker only after running to a clean end, so requiring it closes
+    /// the false-pass vector where a tool exits 0 with empty/truncated output.
+    ///
+    /// - `.magicDRC`: requires `DRC_DONE`. Additionally honors the authoritative
+    ///   count — if `DRC_SUMMARY total=N` reports N>0 but no `VIOLATION` line was
+    ///   enumerated, an error diagnostic is synthesized so the count (not the
+    ///   enumeration) gates the verdict.
+    /// - `.netgenLVS`: requires the positive `LVS_RESULT status=match` marker; a
+    ///   mismatch or a truncated run lacks it and cannot pass.
+    /// - styles without a marker protocol assume completion (mocks / external tools).
+    private func completionProof(
+        in rawOutput: String,
+        diagnostics: inout [ExternalSignoffDiagnostic]
+    ) -> Bool {
+        switch style {
+        case .magicDRC:
+            guard rawOutput.contains("DRC_DONE") else { return false }
+            if let total = drcSummaryTotal(in: rawOutput),
+               total > 0,
+               !diagnostics.contains(where: { $0.severity == .error }) {
+                diagnostics.append(ExternalSignoffDiagnostic(
+                    severity: .error,
+                    message: "DRC_SUMMARY reported total=\(total) violations but none were enumerated",
+                    ruleID: "DRC_SUMMARY_MISMATCH",
+                    rawLine: "DRC_SUMMARY total=\(total)"
+                ))
+            }
+            return true
+        case .netgenLVS:
+            return rawOutput.contains("LVS_RESULT status=match")
+        case .generic, .calibreLike, .magicNetgenLike, .klayoutLike:
+            return true
+        }
+    }
+
+    /// The authoritative violation count from the driver's `DRC_SUMMARY total=<n>`
+    /// line, or nil when absent.
+    private func drcSummaryTotal(in rawOutput: String) -> Int? {
+        for line in rawOutput.split(whereSeparator: \.isNewline) {
+            let text = String(line)
+            guard text.contains("DRC_SUMMARY") else { continue }
+            if let total = keyValueFields(in: text)["total"], let n = Int(total) {
+                return n
+            }
+        }
+        return nil
     }
 
     private func parseDiagnostic(line: String) -> ExternalSignoffDiagnostic? {

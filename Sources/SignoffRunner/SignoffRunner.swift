@@ -42,6 +42,16 @@ struct SignoffRunner {
         } catch let error as CLIError {
             FileHandle.standardError.write(Data("error: \(error.message)\n".utf8))
             exit(error.code)
+        } catch let error as PDKCellLayoutService.LayoutError {
+            // Materializing the cell failed (bad cell name / Magic error): a setup
+            // problem, not a design that failed its checks — exit 2, never 3.
+            FileHandle.standardError.write(Data("error: \(error.localizedDescription)\n".utf8))
+            exit(2)
+        } catch let error as MagicLayoutExtractor.ExtractionError {
+            // The LVS-netlist extraction failed: again a tooling/setup problem, not
+            // a DRC/LVS verdict — exit 2.
+            FileHandle.standardError.write(Data("error: \(error.localizedDescription)\n".utf8))
+            exit(2)
         } catch {
             FileHandle.standardError.write(Data("error: \(error.localizedDescription)\n".utf8))
             exit(3)
@@ -54,17 +64,22 @@ struct SignoffRunner {
         let drc = MagicDRCSignoff.locate()
         let lvs = NetgenLVSSignoff.locate()
         let pex = MagicToolchain.locate()
-        let ok = drc != nil && lvs != nil && pex != nil
+        // `check --cell` also needs the PDK standard-cell SPICE deck to derive a
+        // reference schematic; verify it here so Ready is not an over-promise.
+        let schematics = PDKSchematicProvider.locate()?.hasLibraryDeck() ?? false
+        let ok = drc != nil && lvs != nil && pex != nil && schematics
         if options.flag("--json") {
             try emitJSON([
-                "magicDRC": drc != nil, "netgenLVS": lvs != nil, "magicPEX": pex != nil, "ready": ok,
+                "magicDRC": drc != nil, "netgenLVS": lvs != nil, "magicPEX": pex != nil,
+                "pdkSchematics": schematics, "ready": ok,
             ])
         } else {
             print("Signoff toolchain:")
-            print("  Magic DRC  : \(drc != nil ? "found" : "MISSING")")
-            print("  Netgen LVS : \(lvs != nil ? "found" : "MISSING")")
-            print("  Magic PEX  : \(pex != nil ? "found" : "MISSING")")
-            if let drc { print("  PDK_ROOT   : \(drc.pdkRoot)") }
+            print("  Magic DRC      : \(drc != nil ? "found" : "MISSING")")
+            print("  Netgen LVS     : \(lvs != nil ? "found" : "MISSING")")
+            print("  Magic PEX      : \(pex != nil ? "found" : "MISSING")")
+            print("  PDK schematics : \(schematics ? "found" : "MISSING")")
+            if let drc { print("  PDK_ROOT       : \(drc.pdkRoot)") }
             print(ok ? "Ready." : "Toolchain incomplete (see docs/TOOLCHAIN.md).")
         }
         return ok ? 0 : 2
@@ -90,7 +105,7 @@ struct SignoffRunner {
     }
 
     /// Runs DRC + LVS + PEX (+ back-annotation) on one design and returns whether
-    /// DRC and LVS both passed.
+    /// the signoff review passed (the single source of truth — `review.passed`).
     private static func evaluate(_ options: Options) async throws -> Bool {
         let design = try resolveDesign(options)
         let rc = options.flag("--rc")
@@ -105,12 +120,29 @@ struct SignoffRunner {
         } catch DesignFlowCommandError.signoffToolchainUnavailable {
             throw CLIError(code: 2, message: "signoff toolchain unavailable — run `signoff doctor`")
         }
-        let pex = try await extractPEX(design: design, rc: rc, corner: corner)
 
-        let drcPassed = review.reports.first { $0.kind == .drc }?.passed ?? false
-        let lvsPassed = review.reports.first { $0.kind == .lvs }?.passed ?? false
-        report(design: design, review: review, pex: pex, rc: rc, corner: corner, json: options.flag("--json"))
-        return drcPassed && lvsPassed
+        // PEX runs AFTER the DRC/LVS verdict so a parasitic-extraction hiccup (a
+        // tooling problem) never suppresses or masquerades as the physical-
+        // verification verdict. A failed extraction is reported, then surfaced as
+        // exit 2 — but only when the design otherwise passed; a real DRC/LVS
+        // failure (exit 3) always takes precedence.
+        var pex: PEXSummary?
+        var pexError: String?
+        do {
+            pex = try await extractPEX(design: design, rc: rc, corner: corner)
+        } catch let error as CLIError {
+            pexError = error.message
+        } catch {
+            pexError = "PEX extraction failed (\(error.localizedDescription))"
+        }
+
+        report(design: design, review: review, pex: pex, pexError: pexError,
+               rc: rc, corner: corner, json: options.flag("--json"))
+
+        if let pexError, review.passed {
+            throw CLIError(code: 2, message: pexError)
+        }
+        return review.passed
     }
 
     // MARK: - iterate (G4: agent edit -> signoff -> iterate)
@@ -186,7 +218,18 @@ struct SignoffRunner {
                 guard let provider = PDKSchematicProvider.locate() else {
                     throw CLIError(code: 2, message: "PDK not found to derive a schematic — pass --schematic")
                 }
-                schematic = try provider.schematic(forCell: cell, into: artifacts.appending(path: "schematic"))
+                do {
+                    schematic = try provider.schematic(forCell: cell, into: artifacts.appending(path: "schematic"))
+                } catch let error as PDKSchematicProvider.SchematicError {
+                    // Map a derivation failure to the honest exit code instead of
+                    // collapsing every case to the generic exit 3.
+                    switch error {
+                    case .unrecognizedCellName:
+                        throw CLIError(code: 1, message: error.localizedDescription)   // usage
+                    case .libraryDeckMissing, .subcircuitNotFound:
+                        throw CLIError(code: 2, message: error.localizedDescription)   // PDK/setup
+                    }
+                }
             }
             return Design(topCell: cell, layoutGDS: gds, schematic: schematic,
                           artifacts: artifacts, materializedByName: true)
@@ -239,12 +282,22 @@ struct SignoffRunner {
         )
         let result = try await DefaultPEXEngine.withDefaults().run(request)
         guard result.status == .success, let ir = result.cornerResults.first?.ir else {
-            throw CLIError(code: 3, message: "PEX extraction failed (status \(result.status.rawValue))")
+            // An extraction failure is a tooling/setup condition (exit 2), not a
+            // design defect (exit 3).
+            throw CLIError(code: 2, message: "PEX extraction failed (status \(result.status.rawValue))")
         }
         // Back-annotate the extracted capacitance into a CoreSpice RC step and
         // verify the time constant — proving the parasitics simulate correctly.
-        // Informational (does not gate DRC/LVS), so a sim hiccup is reported, not fatal.
-        let backAnnotation = try? await ParasiticBackAnnotationService().backAnnotate(ir: ir)
+        // Informational (does not gate DRC/LVS): a sim hiccup is reported on stderr
+        // instead of being silently ignored, and is not fatal.
+        let backAnnotation: ParasiticBackAnnotationService.Result?
+        do {
+            backAnnotation = try await ParasiticBackAnnotationService().backAnnotate(ir: ir)
+        } catch {
+            FileHandle.standardError.write(
+                Data("warning: back-annotation skipped (\(error.localizedDescription))\n".utf8))
+            backAnnotation = nil
+        }
         return PEXSummary(
             elementCount: ir.elements.count,
             netCount: ir.nets.count,
@@ -258,26 +311,38 @@ struct SignoffRunner {
 
     // MARK: - report
 
-    private static func report(design: Design, review: ExternalSignoffReview, pex: PEXSummary,
-                               rc: Bool, corner: String, json: Bool) {
+    private static func report(design: Design, review: ExternalSignoffReview, pex: PEXSummary?,
+                               pexError: String?, rc: Bool, corner: String, json: Bool) {
         let drc = review.reports.first { $0.kind == .drc }?.passed ?? false
         let lvs = review.reports.first { $0.kind == .lvs }?.passed ?? false
+        let overall = review.passed
         if json {
-            var pexObj: [String: Any] = [
-                "corner": corner, "mode": rc ? "RC" : "C",
-                "elements": pex.elementCount, "nets": pex.netCount,
-                "groundCapFF": pex.groundCapF * 1e15, "couplingCapFF": pex.couplingCapF * 1e15,
+            var obj: [String: Any] = [
+                "cell": design.topCell, "drc": drc, "lvs": lvs, "passed": overall,
             ]
-            if rc { pexObj["resistors"] = pex.resistorCount; pexObj["totalResistanceOhm"] = pex.totalResistanceOhm }
-            if let ba = pex.backAnnotation {
-                pexObj["backAnnotation"] = [
-                    "expectedTauS": ba.expectedTauS, "measuredTauS": ba.measuredTauS,
-                    "relativeError": ba.relativeError, "consistent": ba.consistent,
+            if let pex {
+                var pexObj: [String: Any] = [
+                    "corner": corner, "mode": rc ? "RC" : "C",
+                    "elements": pex.elementCount, "nets": pex.netCount,
+                    "groundCapFF": pex.groundCapF * 1e15, "couplingCapFF": pex.couplingCapF * 1e15,
                 ]
+                if rc { pexObj["resistors"] = pex.resistorCount; pexObj["totalResistanceOhm"] = pex.totalResistanceOhm }
+                if let ba = pex.backAnnotation {
+                    pexObj["backAnnotation"] = [
+                        "expectedTauS": ba.expectedTauS, "measuredTauS": ba.measuredTauS,
+                        "relativeError": ba.relativeError, "consistent": ba.consistent,
+                    ]
+                }
+                obj["pex"] = pexObj
+            } else {
+                obj["pex"] = ["error": pexError ?? "extraction failed"]
             }
-            try? emitJSON([
-                "cell": design.topCell, "drc": drc, "lvs": lvs, "pex": pexObj, "passed": drc && lvs,
-            ])
+            do {
+                try emitJSON(obj)
+            } catch {
+                FileHandle.standardError.write(
+                    Data("error: failed to emit JSON (\(error.localizedDescription))\n".utf8))
+            }
             return
         }
         print("check \(design.topCell)\(design.materializedByName ? " (materialized + PDK schematic)" : "")")
@@ -289,15 +354,19 @@ struct SignoffRunner {
         for d in review.reports.first(where: { $0.kind == .lvs })?.diagnostics.filter({ $0.severity == .error }) ?? [] {
             print("       - \(d.ruleID ?? "?"): \(d.message)")
         }
-        var pexLine = String(format: "  PEX  %d elements, %d nets, ground %.3f fF, coupling %.3f fF",
-                             pex.elementCount, pex.netCount, pex.groundCapF * 1e15, pex.couplingCapF * 1e15)
-        if rc { pexLine += String(format: ", %d resistors (Σ %.1f Ω)", pex.resistorCount, pex.totalResistanceOhm) }
-        print(pexLine)
-        if let ba = pex.backAnnotation {
-            print(String(format: "  RC   back-annotated τ: R·C %.3f ns vs sim %.3f ns [%@]",
-                         ba.expectedTauS * 1e9, ba.measuredTauS * 1e9, ba.consistent ? "consistent" : "INCONSISTENT"))
+        if let pex {
+            var pexLine = String(format: "  PEX  %d elements, %d nets, ground %.3f fF, coupling %.3f fF",
+                                 pex.elementCount, pex.netCount, pex.groundCapF * 1e15, pex.couplingCapF * 1e15)
+            if rc { pexLine += String(format: ", %d resistors (Σ %.1f Ω)", pex.resistorCount, pex.totalResistanceOhm) }
+            print(pexLine)
+            if let ba = pex.backAnnotation {
+                print(String(format: "  RC   back-annotated τ: R·C %.3f ns vs sim %.3f ns [%@]",
+                             ba.expectedTauS * 1e9, ba.measuredTauS * 1e9, ba.consistent ? "consistent" : "INCONSISTENT"))
+            }
+        } else {
+            print("  PEX  FAILED: \(pexError ?? "extraction failed")")
         }
-        print("Result: \(drc && lvs ? "PASS" : "FAIL")")
+        print("Result: \(overall ? "PASS" : "FAIL")")
     }
 
     // MARK: - helpers
