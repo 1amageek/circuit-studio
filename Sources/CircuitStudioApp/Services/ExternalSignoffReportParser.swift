@@ -6,6 +6,10 @@ public struct ExternalSignoffReportParser: Sendable {
         case calibreLike
         case magicNetgenLike
         case klayoutLike
+        /// Magic DRC output normalized by the `drc.tcl` driver. Only the
+        /// driver's `VIOLATION`/`ERROR rule=...` lines are diagnostics; Magic's
+        /// own chatter (e.g. "No errors found.") is ignored.
+        case magicDRC
     }
 
     public let style: Style
@@ -47,6 +51,12 @@ public struct ExternalSignoffReportParser: Sendable {
             fields: fields
         ) {
             return diagnostic
+        }
+        // Styles that fully delegate to their style-specific handler must not
+        // fall back to the permissive generic parse — it would misread incidental
+        // tool chatter (e.g. Magic's "No errors found.") as a diagnostic.
+        if style == .magicDRC {
+            return nil
         }
         return ExternalSignoffDiagnostic(
             severity: severity,
@@ -96,7 +106,29 @@ public struct ExternalSignoffReportParser: Sendable {
             return magicNetgenDiagnostic(line: line, severity: severity, fields: fields)
         case .klayoutLike:
             return klayoutDiagnostic(line: line, severity: severity, fields: fields)
+        case .magicDRC:
+            return magicDRCDiagnostic(line: line, severity: severity, fields: fields)
         }
+    }
+
+    /// Parses a line emitted by the `drc.tcl` driver. The driver normalizes every
+    /// diagnostic to carry a `rule=` field (`VIOLATION rule=<code> ...` for DRC
+    /// violations, `ERROR rule=DRIVER ...` for driver failures), so a line without
+    /// a `rule` field is incidental Magic output and is not a diagnostic.
+    private func magicDRCDiagnostic(
+        line: String,
+        severity: ExternalSignoffDiagnostic.Severity,
+        fields: [String: String]
+    ) -> ExternalSignoffDiagnostic? {
+        guard let ruleID = fields["rule"] else { return nil }
+        return ExternalSignoffDiagnostic(
+            severity: severity,
+            message: fields["message"] ?? strippedMessage(from: line),
+            ruleID: ruleID,
+            componentName: fields["component"] ?? fields["instance"],
+            netName: fields["net"],
+            rawLine: line
+        )
     }
 
     private func calibreDiagnostic(

@@ -45,6 +45,9 @@ let package = Package(
                 .product(name: "LayoutTech", package: "semiconductor-layout"),
                 .product(name: "LayoutIO", package: "semiconductor-layout"),
                 .product(name: "LayoutVerify", package: "semiconductor-layout"),
+            ],
+            resources: [
+                .copy("Resources/drc.tcl"),
             ]
         ),
         .executableTarget(
@@ -70,7 +73,8 @@ let package = Package(
                 .copy("Fixtures/pdk"),
                 .copy("Fixtures/signoff"),
                 .copy("Fixtures/layout"),
-                .copy("Fixtures/pex")
+                .copy("Fixtures/pex"),
+                .copy("Fixtures/magic")
             ]
         ),
     ]
