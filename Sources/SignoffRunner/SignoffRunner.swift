@@ -71,6 +71,25 @@ struct SignoffRunner {
     // MARK: - check (DRC + LVS + PEX)
 
     private static func runCheck(_ options: Options) async throws -> Int32 {
+        // Batch: --cells a,b,c evaluates each cell consistently and aggregates.
+        if let list = options.value("--cells") {
+            let cells = list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard !cells.isEmpty else { throw CLIError(code: 1, message: "--cells is empty") }
+            var allPassed = true
+            for (index, cell) in cells.enumerated() {
+                if index > 0 { print("") }
+                let passed = try await evaluate(options.with(key: "--cell", value: cell))
+                allPassed = allPassed && passed
+            }
+            print("\nOverall: \(allPassed ? "PASS" : "FAIL") across \(cells.count) cells")
+            return allPassed ? 0 : 3
+        }
+        return try await evaluate(options) ? 0 : 3
+    }
+
+    /// Runs DRC + LVS + PEX (+ back-annotation) on one design and returns whether
+    /// DRC and LVS both passed.
+    private static func evaluate(_ options: Options) async throws -> Bool {
         let design = try resolveDesign(options)
         let rc = options.flag("--rc")
         let corner = options.value("--corner") ?? "tt"
@@ -89,7 +108,7 @@ struct SignoffRunner {
         let drcPassed = review.reports.first { $0.kind == .drc }?.passed ?? false
         let lvsPassed = review.reports.first { $0.kind == .lvs }?.passed ?? false
         report(design: design, review: review, pex: pex, rc: rc, corner: corner, json: options.flag("--json"))
-        return (drcPassed && lvsPassed) ? 0 : 3
+        return drcPassed && lvsPassed
     }
 
     // MARK: - resolution
@@ -246,6 +265,7 @@ struct SignoffRunner {
         Usage:
           signoff doctor [--json]
           signoff check  --cell <name> [--rc] [--corner <id>] [--artifacts <dir>] [--json]
+          signoff check  --cells <a,b,c> [--rc] [...]     (batch: evaluate each cell)
           signoff check  --layout <gds> --top-cell <name> --schematic <spice> [--rc] [...]
 
         --cell derives the layout (materialized) and the reference schematic from the PDK.
@@ -284,6 +304,11 @@ struct SignoffRunner {
         func artifactsDirectory() -> URL {
             if let dir = value("--artifacts") { return URL(filePath: dir) }
             return FileManager.default.temporaryDirectory.appending(path: "signoff-\(UUID().uuidString)")
+        }
+        func with(key: String, value: String) -> Options {
+            var copy = self
+            copy.values[key] = value
+            return copy
         }
     }
 }
