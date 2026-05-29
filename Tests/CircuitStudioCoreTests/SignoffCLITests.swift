@@ -88,6 +88,17 @@ struct SignoffCLITests {
         #expect(output.contains("Overall: PASS across 2 cells"))
     }
 
+    @Test("iterate converges on a passing candidate (exit 0)",
+          .enabled(if: SignoffCLITests.available), .timeLimit(.minutes(5)))
+    func iterateConverges() throws {
+        let (status, output) = try run(try signoffBinary().path, [
+            "iterate", "--cells", "sky130_fd_sc_hd__inv_1,sky130_fd_sc_hd__dfxtp_1",
+        ])
+        #expect(status == 0, "\(output)")
+        #expect(output.contains("Converged"))
+        #expect(output.contains("iter 0"))
+    }
+
     @Test("check fails loud on a DRC-violating layout (exit 3)",
           .enabled(if: SignoffCLITests.available), .timeLimit(.minutes(5)))
     func checkViolation() throws {

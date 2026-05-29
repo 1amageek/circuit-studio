@@ -29,6 +29,8 @@ struct SignoffRunner {
                 exit(try runDoctor(options))
             case "check":
                 exit(try await runCheck(options))
+            case "iterate":
+                exit(try runIterate(options))
             case "-h", "--help", "help", .none:
                 usage()
                 exit(args.first == nil ? 1 : 0)
@@ -109,6 +111,53 @@ struct SignoffRunner {
         let lvsPassed = review.reports.first { $0.kind == .lvs }?.passed ?? false
         report(design: design, review: review, pex: pex, rc: rc, corner: corner, json: options.flag("--json"))
         return drcPassed && lvsPassed
+    }
+
+    // MARK: - iterate (G4: agent edit -> signoff -> iterate)
+
+    /// Runs the agent edit -> signoff -> iterate loop over a sequence of candidate
+    /// cells: each is materialized + given its PDK schematic, then run through real
+    /// DRC+LVS; the loop converges on the first candidate that passes. The candidate
+    /// list is the agent's proposed fixes (in order).
+    private static func runIterate(_ options: Options) throws -> Int32 {
+        guard let list = options.value("--cells") else {
+            throw CLIError(code: 1, message: "iterate requires --cells <a,b,c> (the candidate sequence)")
+        }
+        let cells = list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !cells.isEmpty else { throw CLIError(code: 1, message: "--cells is empty") }
+        let maxIterations = options.value("--max-iterations").flatMap(Int.init) ?? cells.count
+
+        guard let loop = SignoffIterationLoop.locate(),
+              let layoutService = PDKCellLayoutService.locate(),
+              let provider = PDKSchematicProvider.locate() else {
+            throw CLIError(code: 2, message: "signoff toolchain unavailable — run `signoff doctor`")
+        }
+        let artifacts = options.artifactsDirectory()
+        try FileManager.default.createDirectory(at: artifacts, withIntermediateDirectories: true)
+
+        // Pre-materialize each candidate (the agent's sequence is already decided).
+        var candidates: [SignoffIterationLoop.Candidate] = []
+        for cell in cells {
+            let base = artifacts.appending(path: cell)
+            let gds = try layoutService.materialize(cell: cell, into: base.appending(path: "layout"))
+            let schematic = try provider.schematic(forCell: cell, into: base.appending(path: "schematic"))
+            candidates.append(SignoffIterationLoop.Candidate(layoutGDS: gds, topCell: cell, schematicNetlist: schematic))
+        }
+
+        let result = try loop.run(maxIterations: maxIterations, artifactDirectory: artifacts.appending(path: "iterate")) { index, _ in
+            index < candidates.count ? candidates[index] : nil
+        }
+
+        print("iterate (\(cells.count) candidates, max \(maxIterations) iterations)")
+        for outcome in result.iterations {
+            print("  iter \(outcome.index): \(outcome.candidate.topCell) [\(outcome.passed ? "PASS" : "FAIL")]")
+        }
+        if result.converged, let last = result.iterations.last {
+            print("Converged: \(last.candidate.topCell) passed at iteration \(last.index)")
+            return 0
+        }
+        print("Did not converge within \(maxIterations) iterations")
+        return 3
     }
 
     // MARK: - resolution
@@ -267,9 +316,12 @@ struct SignoffRunner {
           signoff check  --cell <name> [--rc] [--corner <id>] [--artifacts <dir>] [--json]
           signoff check  --cells <a,b,c> [--rc] [...]     (batch: evaluate each cell)
           signoff check  --layout <gds> --top-cell <name> --schematic <spice> [--rc] [...]
+          signoff iterate --cells <a,b,c> [--max-iterations N] [--artifacts <dir>]
 
         --cell derives the layout (materialized) and the reference schematic from the PDK.
         check always runs DRC + LVS + PEX.  --rc extracts resistance too.
+        iterate runs the candidate cells through DRC+LVS in order and converges on
+        the first that passes (the agent edit -> signoff -> iterate loop).
 
         Exit codes: 0 pass · 1 usage/IO · 2 toolchain unavailable · 3 checks failed
         """)
