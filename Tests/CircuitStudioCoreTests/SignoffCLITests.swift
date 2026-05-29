@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import CircuitStudioApp
 
-/// Smoke tests for the `signoff` CLI harness, exercising the actual built binary
-/// end-to-end (doctor / drc-lvs / failing case → exit codes). Gated on the
-/// toolchain; builds the executable on demand (like CoreSpice's trust-gate test).
+/// Smoke tests for the `signoff` CLI (doctor + check), exercising the built binary
+/// end-to-end with explicit exit codes. Gated on the toolchain; builds the
+/// executable on demand.
 @Suite("signoff CLI (gated)")
 struct SignoffCLITests {
 
@@ -43,32 +43,46 @@ struct SignoffCLITests {
         packageRoot().appendingPathComponent("Tests/CircuitStudioCoreTests/Fixtures/\(rel)").path
     }
 
-    @Test("doctor reports the toolchain present (exit 0)",
+    @Test("doctor reports the toolchain ready (exit 0)",
           .enabled(if: SignoffCLITests.available), .timeLimit(.minutes(5)))
     func doctor() throws {
         let (status, output) = try run(try signoffBinary().path, ["doctor"])
         #expect(status == 0)
-        #expect(output.contains("All tools available"))
+        #expect(output.contains("Ready."))
     }
 
-    @Test("drc-lvs passes on the clean inverter (exit 0)",
+    @Test("check by cell name runs the whole flow and passes (exit 0)",
           .enabled(if: SignoffCLITests.available), .timeLimit(.minutes(5)))
-    func drcLvsClean() throws {
+    func checkByCellName() throws {
+        // Design-by-reference: only a cell name — layout + schematic are derived.
         let (status, output) = try run(try signoffBinary().path, [
-            "drc-lvs",
-            "--layout", fixture("lvs/inv1.gds"),
-            "--top-cell", "sky130_fd_sc_hd__inv_1",
-            "--schematic", fixture("lvs/inv_schematic.spice"),
+            "check", "--cell", "sky130_fd_sc_hd__inv_1", "--rc",
         ])
         #expect(status == 0, "\(output)")
+        #expect(output.contains("DRC  [PASS]"))
+        #expect(output.contains("LVS  [PASS]"))
+        #expect(output.contains("resistors"))   // --rc honored
         #expect(output.contains("Result: PASS"))
     }
 
-    @Test("drc-lvs fails loud on a DRC-violating layout (exit 3)",
+    @Test("check emits valid JSON",
           .enabled(if: SignoffCLITests.available), .timeLimit(.minutes(5)))
-    func drcLvsViolation() throws {
+    func checkJSON() throws {
         let (status, output) = try run(try signoffBinary().path, [
-            "drc-lvs",
+            "check", "--cell", "sky130_fd_sc_hd__inv_1", "--json",
+        ])
+        #expect(status == 0)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["passed"] as? Bool == true)
+        #expect((json["pex"] as? [String: Any])?["elements"] != nil)
+    }
+
+    @Test("check fails loud on a DRC-violating layout (exit 3)",
+          .enabled(if: SignoffCLITests.available), .timeLimit(.minutes(5)))
+    func checkViolation() throws {
+        let (status, output) = try run(try signoffBinary().path, [
+            "check",
             "--layout", fixture("magic/met1_spacing_violation.gds"),
             "--top-cell", "drc_broken",
             "--schematic", fixture("lvs/inv_schematic.spice"),
