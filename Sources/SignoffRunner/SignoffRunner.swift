@@ -141,6 +141,7 @@ struct SignoffRunner {
         let couplingCapF: Double
         let resistorCount: Int
         let totalResistanceOhm: Double
+        let backAnnotation: ParasiticBackAnnotationService.Result?
     }
 
     private static func extractPEX(design: Design, rc: Bool, corner: String) async throws -> PEXSummary {
@@ -172,13 +173,18 @@ struct SignoffRunner {
         guard result.status == .success, let ir = result.cornerResults.first?.ir else {
             throw CLIError(code: 3, message: "PEX extraction failed (status \(result.status.rawValue))")
         }
+        // Back-annotate the extracted capacitance into a CoreSpice RC step and
+        // verify the time constant — proving the parasitics simulate correctly.
+        // Informational (does not gate DRC/LVS), so a sim hiccup is reported, not fatal.
+        let backAnnotation = try? await ParasiticBackAnnotationService().backAnnotate(ir: ir)
         return PEXSummary(
             elementCount: ir.elements.count,
             netCount: ir.nets.count,
             groundCapF: ir.nets.map(\.totalGroundCapF).reduce(0, +),
             couplingCapF: ir.nets.map(\.totalCouplingCapF).reduce(0, +),
             resistorCount: ir.elements.filter { $0.kind == .resistor }.count,
-            totalResistanceOhm: ir.nets.map(\.totalResistanceOhm).reduce(0, +)
+            totalResistanceOhm: ir.nets.map(\.totalResistanceOhm).reduce(0, +),
+            backAnnotation: backAnnotation
         )
     }
 
@@ -195,6 +201,12 @@ struct SignoffRunner {
                 "groundCapFF": pex.groundCapF * 1e15, "couplingCapFF": pex.couplingCapF * 1e15,
             ]
             if rc { pexObj["resistors"] = pex.resistorCount; pexObj["totalResistanceOhm"] = pex.totalResistanceOhm }
+            if let ba = pex.backAnnotation {
+                pexObj["backAnnotation"] = [
+                    "expectedTauS": ba.expectedTauS, "measuredTauS": ba.measuredTauS,
+                    "relativeError": ba.relativeError, "consistent": ba.consistent,
+                ]
+            }
             try? emitJSON([
                 "cell": design.topCell, "drc": drc, "lvs": lvs, "pex": pexObj, "passed": drc && lvs,
             ])
@@ -213,6 +225,10 @@ struct SignoffRunner {
                              pex.elementCount, pex.netCount, pex.groundCapF * 1e15, pex.couplingCapF * 1e15)
         if rc { pexLine += String(format: ", %d resistors (Σ %.1f Ω)", pex.resistorCount, pex.totalResistanceOhm) }
         print(pexLine)
+        if let ba = pex.backAnnotation {
+            print(String(format: "  RC   back-annotated τ: R·C %.3f ns vs sim %.3f ns [%@]",
+                         ba.expectedTauS * 1e9, ba.measuredTauS * 1e9, ba.consistent ? "consistent" : "INCONSISTENT"))
+        }
         print("Result: \(drc && lvs ? "PASS" : "FAIL")")
     }
 
