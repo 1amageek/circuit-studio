@@ -62,6 +62,29 @@ struct GateLevelLogicSimulatorTests {
         #expect(run(addend: 3, cycles: 7) == [0, 3, 6, 9, 12, 15, 2])   // mod 16
     }
 
+    @Test("M3 functional: the 4-bit ALU matches its truth table for ADD/SUB/AND/OR")
+    func aluTruthTable() throws {
+        let seq = Sky130ALUGenerator(bits: 4).combinationalModel()
+        for av in 0..<16 {
+            for bv in 0..<16 {
+                for op in 0..<4 {
+                    var vec: [String: Bool] = ["op0": op & 1 == 1, "op1": (op >> 1) & 1 == 1]
+                    for i in 0..<4 { vec["a\(i)"] = (av >> i) & 1 == 1; vec["b\(i)"] = (bv >> i) & 1 == 1 }
+                    let t = try sim.simulate(seq, cycles: [vec])[0]
+                    let r = (0..<4).reduce(0) { $0 | ((t["r\($1)"] ?? false) ? (1 << $1) : 0) }
+                    let want: Int
+                    switch op {
+                    case 0: want = (av + bv) & 15        // ADD
+                    case 1: want = (av - bv) & 15        // SUB (two's complement)
+                    case 2: want = av & bv               // AND
+                    default: want = av | bv              // OR
+                    }
+                    #expect(r == want, "op=\(op) a=\(av) b=\(bv): got \(r), want \(want)")
+                }
+            }
+        }
+    }
+
     @Test("A toggle flip-flop (q fed back through an inverter) alternates each cycle")
     func toggleFlipFlop() throws {
         let seq = SequentialNetlist(

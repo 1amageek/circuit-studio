@@ -175,6 +175,19 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("M3: the 4-bit ALU is auto placed & routed DRC + LVS clean",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(6)))
+    func aluSignsOff() async throws {
+        // The combinational ALU (ADD/SUB/AND/OR + per-bit function-select MUX), ~100 cells,
+        // placed & routed automatically. Its function is checked by the truth-table sim.
+        let netlist = Sky130ALUGenerator(bits: 4).gateLevelNetlist(name: "alu4")
+        let review = try await signoffCircuit(netlist)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "alu DRC: \(drc.diagnostics.prefix(6).map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "alu LVS: \(lvs.diagnostics.prefix(6).map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("M2: a 4-bit clocked accumulator is auto placed & routed DRC + LVS clean",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func accumulatorSignsOff() async throws {
