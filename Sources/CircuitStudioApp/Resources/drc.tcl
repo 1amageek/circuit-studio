@@ -35,6 +35,12 @@ if {[catch {
         gds read $env(DRC_GDS)
     }
     load $cell
+
+    # Enable continuous checking so `drc listall why` actually enumerates every
+    # violation that `drc list count` totals (without this the default flow can
+    # count a violation but produce no why-text, leaving an unnamed count).
+    drc euclidean on
+    drc on
     select top cell
 
     # Fail loudly if the cell did not actually load. A missing cell (absent from
