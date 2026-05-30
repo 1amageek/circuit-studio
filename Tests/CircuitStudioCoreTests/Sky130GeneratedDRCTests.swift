@@ -72,6 +72,28 @@ struct Sky130GeneratedDRCTests {
                 "expected a named met1 rule; got \(report.diagnostics.map { $0.ruleID ?? "?" })")
     }
 
+    /// A poly contact (gate-input tap): a widened poly pad with a licon1 to li1, the
+    /// nitride-poly-cut (npc) enclosing the contact. This is the primitive that lets a
+    /// wire DRIVE a gate — the enabling piece for connecting one cell's output to the
+    /// next cell's input. Sky130: poly encloses licon by >=0.05, npc encloses licon by
+    /// >=0.10, li1 encloses licon by 0.08.
+    private func polyContact(cell: String) -> LayoutDocument {
+        document(cell: cell, shapes: [
+            rect("poly", 0.40, 0.40, 0.33, 0.33),     // poly pad (>= 0.17 + 2*0.05)
+            rect("licon1", 0.48, 0.48, 0.17, 0.17),   // contact, poly enclosure 0.08
+            rect("npc", 0.38, 0.38, 0.37, 0.37),      // npc enclosing licon by 0.10
+            rect("li1", 0.40, 0.40, 0.33, 0.33),      // li1 enclosing licon by 0.08
+        ])
+    }
+
+    @Test("A generated poly contact (npc + poly licon) passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func polyContactClean() async throws {
+        let report = try await runDRC(cell: "gen_poly_contact", document: polyContact(cell: "gen_poly_contact"))
+        #expect(report.passed,
+                "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     /// A minimal NMOS: an n+ active strip with a poly gate across it (endcaps beyond
     /// diff), nsdm implant enclosing the active, and licon1+li1 contacts on the
     /// source/drain. Dimensions follow Sky130 minimums (poly.8 endcap 0.13, licon1
