@@ -72,6 +72,28 @@ struct Sky130GeneratedDRCTests {
                 "expected a named met1 rule; got \(report.diagnostics.map { $0.ruleID ?? "?" })")
     }
 
+    /// A full via stack li1 -> mcon -> met1 -> via -> met2: the vertical transition the
+    /// 2-layer channel router uses to lift a signal from in-cell li1 up to a met2 track.
+    private func viaStack(cell: String) -> LayoutDocument {
+        document(cell: cell, shapes: [
+            // li1 -> mcon -> met1 (left), then a met1 wire across to via -> met2 (right),
+            // so the two vias are not stacked (each cut generously enclosed by 0.09).
+            rect("li1", 0.00, 0.00, 0.34, 0.34),
+            rect("mcon", 0.085, 0.085, 0.17, 0.17),
+            rect("met1", 0.00, 0.00, 0.90, 0.34),
+            rect("via", 0.60, 0.095, 0.15, 0.15),
+            rect("met2", 0.51, 0.005, 0.33, 0.33),
+        ])
+    }
+
+    @Test("A generated li1-mcon-met1-via-met2 stack passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func viaStackMet2Clean() async throws {
+        let report = try await runDRC(cell: "gen_via_stack2", document: viaStack(cell: "gen_via_stack2"))
+        #expect(report.passed,
+                "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     /// A poly contact (gate-input tap): a widened poly pad with a licon1 to li1, the
     /// nitride-poly-cut (npc) enclosing the contact. This is the primitive that lets a
     /// wire DRIVE a gate — the enabling piece for connecting one cell's output to the

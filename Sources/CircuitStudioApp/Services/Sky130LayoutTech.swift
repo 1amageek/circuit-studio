@@ -46,6 +46,8 @@ public enum Sky130LayoutTech {
             def("li1", "Local Interconnect", 67, 20, rgb: (0.7, 0.4, 0.7)),
             def("mcon", "li-met1 Via", 67, 44, rgb: (0.8, 0.8, 0.2), fill: .crosshatch),
             def("met1", "Metal1", 68, 20, rgb: (0.3, 0.5, 0.9)),
+            def("via", "met1-met2 Via", 68, 44, rgb: (0.8, 0.6, 0.2), fill: .crosshatch),
+            def("met2", "Metal2", 69, 20, rgb: (0.2, 0.7, 0.7)),
         ]
 
         // Sky130 minimum width / spacing (µm) for the layers an inverter uses.
@@ -61,6 +63,8 @@ public enum Sky130LayoutTech {
             rules("li1", width: 0.17, spacing: 0.17, area: 0.0561),
             rules("mcon", width: 0.17, spacing: 0.19),
             rules("met1", width: 0.14, spacing: 0.14),
+            rules("via", width: 0.15, spacing: 0.17),
+            rules("met2", width: 0.14, spacing: 0.14),
         ]
 
         // licon1: diff/poly -> li1; mcon: li1 -> met1.
@@ -74,6 +78,12 @@ public enum Sky130LayoutTech {
                 id: "mcon", cutLayer: layer("mcon"), topLayer: layer("met1"), bottomLayer: layer("li1"),
                 cutSize: LayoutSize(width: 0.17, height: 0.17),
                 enclosure: LayoutViaEnclosure(top: 0.06, bottom: 0.0), cutSpacing: 0.19
+            ),
+            // via: met1 -> met2 (the second routing layer for channel routing).
+            LayoutViaDefinition(
+                id: "via", cutLayer: layer("via"), topLayer: layer("met2"), bottomLayer: layer("met1"),
+                cutSize: LayoutSize(width: 0.15, height: 0.15),
+                enclosure: LayoutViaEnclosure(top: 0.055, bottom: 0.055), cutSpacing: 0.17
             ),
         ]
 
