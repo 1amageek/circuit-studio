@@ -175,6 +175,51 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("A circuit LOADED from a structural Verilog file is synthesized DRC + LVS clean",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func verilogFileSignsOff() async throws {
+        // The circuit is DATA on disk, not hardcoded in Swift: write a Verilog netlist to
+        // a file, load + parse it, then place & route + sign it off.
+        let verilog = """
+        // AND2 = NAND2 -> INV
+        module and2gate (a, b, y);
+          input a, b;
+          output y;
+          nand2 g0 ( .A(a), .B(b), .Y(n) );
+          inv   g1 ( .A(n), .Y(y) );
+        endmodule
+        """
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-verilog-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let vURL = dir.appending(path: "and2gate.v")
+        try verilog.write(to: vURL, atomically: true, encoding: .utf8)
+
+        let loaded = try String(contentsOf: vURL, encoding: .utf8)
+        let netlist = try VerilogStructuralParser().parse(loaded)
+        #expect(netlist.name == "and2gate")
+        #expect(netlist.inputs.sorted() == ["a", "b"])
+        #expect(netlist.instances.count == 2)
+
+        let review = try await signoffCircuit(netlist)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "DRC: \(drc.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
+    @Test("A Boolean expression LOADED from text is parsed, mapped, and synthesized DRC + LVS clean",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func booleanExpressionFromTextSignsOff() async throws {
+        // Logic intent is a string (loadable from a file), not a Swift AST literal.
+        let netlist = try BooleanExpressionParser().netlist("y = (a & b) | c", name: "circ_expr", output: "y")
+        #expect(netlist.inputs.sorted() == ["a", "b", "c"])
+        let review = try await signoffCircuit(netlist)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "DRC: \(drc.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("Logic intent -> GDS: a Boolean expression is mapped, placed, routed, DRC + LVS clean",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func booleanExpressionSignsOff() async throws {
