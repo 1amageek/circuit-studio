@@ -228,6 +228,33 @@ struct Sky130GeneratedDRCTests {
                 "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("The Sky130InverterGenerator output passes real DRC + Netgen LVS end-to-end",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func generatorOutputSignsOff() async throws {
+        // Drive the whole flow from the production generator (not test-embedded
+        // geometry): generate -> GDS -> real DRC + LVS.
+        let generator = Sky130InverterGenerator()
+        let cell = "sky130_inverter"
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-gen-cell-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let gds = dir.appending(path: "\(cell).gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech())
+            .exportDocument(generator.generate(name: cell), to: gds, format: .gds)
+        let schematicURL = dir.appending(path: "\(cell).spice")
+        try generator.schematic(name: cell).write(to: schematicURL, atomically: true, encoding: .utf8)
+
+        let signoff = try #require(LiveSignoffService.locate())
+        let review = try await signoff.run(
+            layoutGDS: gds, topCell: cell, schematicNetlist: schematicURL, artifactDirectory: dir
+        )
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "DRC: \(drc.diagnostics.map { $0.ruleID ?? "?" })")
+        #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { $0.ruleID ?? "?" })")
+        #expect(review.passed, "the generated cell must be DRC + LVS clean")
+    }
+
     @Test("The generated inverter matches its schematic under real Netgen LVS",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func inverterMatchesSchematicLVS() async throws {
