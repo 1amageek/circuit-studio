@@ -77,13 +77,14 @@ public struct Sky130InverterGenerator: Sendable {
         return LayoutDocument(name: name, cells: [cell], topCellID: cell.id)
     }
 
-    /// The reference schematic the generated layout matches under LVS (port-less, so
-    /// it compares against the extracted cell's labeled nets directly).
+    /// The reference schematic the generated layout matches under LVS. Its ports (A, Y,
+    /// VPWR, VGND) match the layout's labeled-net ports by name (the extractor promotes
+    /// labels to ports), so Netgen matches ports by name.
     public func schematic(name: String = "inverter", width: Double = 0.42) -> String {
         let w = String(format: "%g", max(Self.minWidth, width))
         return """
         * generated Sky130 inverter reference
-        .subckt \(name)
+        .subckt \(name) A Y VPWR VGND
         X0 Y A VPWR VPWR sky130_fd_pr__pfet_01v8 w=\(w) l=0.16
         X1 Y A VGND VGND sky130_fd_pr__nfet_01v8 w=\(w) l=0.16
         .ends

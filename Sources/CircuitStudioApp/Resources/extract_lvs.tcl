@@ -26,9 +26,17 @@ if {[catch {
     if {[expr {($urx - $llx) * ($ury - $lly)}] <= 1} {
         error "cell not found or empty: $env(EXT_CELL)"
     }
+    # Promote the cell's net labels to ports so the extracted top cell carries an
+    # explicit, named port list. Without this the top .subckt is port-less and Netgen
+    # infers ports from net order; that inference diverges between the extracted and the
+    # reference netlist for any cell with an internal node (e.g. a series stack), so a
+    # topologically-correct cell still fails "Top level cell failed pin matching". With
+    # named ports on both sides Netgen matches ports by name instead.
+    port makeall
     extract do local
     extract all
     ext2spice lvs
+    ext2spice subcircuit top on
     ext2spice -o $env(EXT_OUT)
 } err]} {
     puts "EXT_ERROR $err"

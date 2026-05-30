@@ -167,6 +167,95 @@ struct Sky130GeneratedDRCTests {
         ])
     }
 
+    /// A full CMOS NAND2 cell: series NMOS pull-down + parallel PMOS pull-up sharing two
+    /// vertical poly gates (A, B), the output Y routed (li1 L-jog) from the PMOS shared
+    /// drain to the NMOS top node, with p+/n+ taps to the rails. Y = NOT(A AND B).
+    private func nand2Cell(cell: String) -> LayoutDocument {
+        var c = LayoutCell(name: cell, shapes: [
+            // --- NMOS series pull-down (bottom) ---
+            rect("diff", 0.00, 0.00, 1.58, 0.42),
+            rect("nsdm", -0.125, -0.125, 1.83, 0.67),
+            rect("licon1", 0.10, 0.125, 0.17, 0.17),   // GND (left)
+            rect("licon1", 1.31, 0.125, 0.17, 0.17),   // Y   (right); middle n1 = no contact
+            // --- PMOS parallel pull-up (top) ---
+            rect("diff", 0.00, 1.40, 1.58, 0.42),
+            rect("psdm", -0.125, 1.275, 1.83, 0.67),
+            rect("licon1", 0.10, 1.525, 0.17, 0.17),   // VDD (left)
+            rect("licon1", 0.65, 1.525, 0.17, 0.17),   // Y   (middle, shared drain)
+            rect("licon1", 1.31, 1.525, 0.17, 0.17),   // VDD (right)
+            // --- shared vertical poly gates ---
+            rect("poly", 0.42, -0.13, 0.16, 2.08),     // gate A
+            rect("poly", 1.00, -0.13, 0.16, 2.08),     // gate B
+            // --- n-well around the PMOS + n-well tap ---
+            rect("nwell", -0.21, 1.19, 2.00, 1.60),
+            // --- p+ substrate tap (-> VGND), below the NMOS left ---
+            rect("diff", 0.02, -0.785, 0.41, 0.41),
+            rect("psdm", -0.105, -0.91, 0.66, 0.66),
+            rect("licon1", 0.14, -0.665, 0.17, 0.17),
+            rect("li1", 0.02, -0.81, 0.38, 1.185),     // VGND: NMOS GND + substrate tap
+            // --- n+ n-well tap (-> VPWR), top middle ---
+            rect("diff", 0.585, 2.20, 0.41, 0.41),
+            rect("nsdm", 0.46, 2.075, 0.66, 0.66),
+            rect("licon1", 0.705, 2.32, 0.17, 0.17),
+            // --- VPWR: both PMOS sources + n-well tap joined by a top rail ---
+            rect("li1", 0.02, 1.445, 0.33, 1.105),     // VDD-left up to rail
+            rect("li1", 1.23, 1.445, 0.33, 1.105),     // VDD-right up to rail
+            rect("li1", 0.02, 2.10, 1.54, 0.45),       // VPWR rail (over the Y, clears it)
+            // --- output Y: L-jog from PMOS shared drain down to the NMOS top node ---
+            rect("li1", 0.57, 0.045, 0.33, 1.73),      // vertical: PMOS Y down into the field
+            rect("li1", 0.57, 0.045, 0.99, 0.33),      // horizontal: across to the NMOS Y
+        ])
+        c.labels = [
+            label("A", "poly", 0.50, 0.95),
+            label("B", "poly", 1.08, 0.95),
+            label("Y", "li1", 0.73, 0.20),
+            label("VPWR", "li1", 0.78, 2.30),
+            label("VGND", "li1", 0.18, 0.20),
+        ]
+        return LayoutDocument(name: cell, cells: [c], topCellID: c.id)
+    }
+
+    @Test("A generated CMOS NAND2 cell passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func nand2CellClean() async throws {
+        let report = try await runDRC(cell: "gen_nand2", document: nand2Cell(cell: "gen_nand2"))
+        #expect(report.passed,
+                "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
+    @Test("The generated NAND2 matches its schematic under real Netgen LVS (internal node, no label)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func nand2MatchesSchematicLVS() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-nand2-lvs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gds = dir.appending(path: "gen_nand2.gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech())
+            .exportDocument(nand2Cell(cell: "gen_nand2"), to: gds, format: .gds)
+
+        // Y = NOT(A AND B): two parallel PMOS (VPWR<->Y, gates A/B) and two series NMOS
+        // (Y<->n1<->VGND, gates B/A). `n1` is the un-labeled shared-diffusion node in the
+        // layout; Netgen matches it by topology. Port-less, as the extracted cell is.
+        let schematic = """
+        * generated NAND2 reference
+        .subckt gen_nand2 A B Y VPWR VGND
+        X0 Y A VPWR VPWR sky130_fd_pr__pfet_01v8 w=0.42 l=0.16
+        X1 Y B VPWR VPWR sky130_fd_pr__pfet_01v8 w=0.42 l=0.16
+        X2 Y B n1 VGND sky130_fd_pr__nfet_01v8 w=0.42 l=0.16
+        X3 n1 A VGND VGND sky130_fd_pr__nfet_01v8 w=0.42 l=0.16
+        .ends
+        """
+        let schematicURL = dir.appending(path: "gen_nand2.spice")
+        try schematic.write(to: schematicURL, atomically: true, encoding: .utf8)
+
+        let signoff = try #require(LiveSignoffService.locate())
+        let review = try await signoff.run(
+            layoutGDS: gds, topCell: "gen_nand2",
+            schematicNetlist: schematicURL, artifactDirectory: dir
+        )
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) }); netlist at \(dir.path)")
+    }
+
     @Test("A generated parallel-PMOS pair (two gates on one p-diff in n-well) passes real Magic Sky130 DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func pmosParallelPairClean() async throws {
@@ -525,7 +614,7 @@ struct Sky130GeneratedDRCTests {
         // named nets directly instead of failing on port declarations.
         let schematic = """
         * generated inverter reference
-        .subckt gen_inv_tapped
+        .subckt gen_inv_tapped A Y VPWR VGND
         X0 Y A VPWR VPWR sky130_fd_pr__pfet_01v8 w=0.42 l=0.16
         X1 Y A VGND VGND sky130_fd_pr__nfet_01v8 w=0.42 l=0.16
         .ends
