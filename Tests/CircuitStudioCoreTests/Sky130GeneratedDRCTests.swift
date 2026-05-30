@@ -673,6 +673,81 @@ struct Sky130GeneratedDRCTests {
         return LayoutDocument(name: cell, cells: [c], topCellID: c.id)
     }
 
+    /// A transmission gate: an NMOS (gate EN) and a PMOS (gate ENB) in PARALLEL, passing
+    /// A<->B when EN=1 / ENB=0. Unlike an inverter the two gates are SEPARATE nets and the
+    /// source/drain are the signal A (left) and B (right); the bulks tie to the rails via
+    /// taps. This is the novel primitive a flip-flop is built from.
+    private func transmissionGate(cell: String) -> LayoutDocument {
+        var c = LayoutCell(name: cell, shapes: [
+            // NMOS + PMOS active + implants + n-well
+            rect("diff", 0.00, 0.00, 1.00, 0.42),
+            rect("nsdm", -0.125, -0.125, 1.25, 0.67),
+            rect("diff", 0.00, 1.40, 1.00, 0.42),
+            rect("psdm", -0.125, 1.275, 1.25, 0.67),
+            rect("nwell", -0.21, 1.19, 1.42, 1.57),
+            // SEPARATE gates: EN over the NMOS only, ENB over the PMOS only
+            rect("poly", 0.42, -0.13, 0.16, 0.68),     // EN  (NMOS gate, endcaps)
+            rect("poly", 0.42, 1.27, 0.16, 0.68),      // ENB (PMOS gate)
+            // A/B source-drain contacts on both rows
+            rect("licon1", 0.10, 0.125, 0.17, 0.17),
+            rect("licon1", 0.73, 0.125, 0.17, 0.17),
+            rect("licon1", 0.10, 1.525, 0.17, 0.17),
+            rect("licon1", 0.73, 1.525, 0.17, 0.17),
+            rect("li1", 0.02, 0.045, 0.33, 1.81),       // A: left diffusions joined
+            rect("li1", 0.65, 0.045, 0.33, 1.81),       // B: right diffusions joined
+            // p+ substrate tap (-> VGND, NMOS bulk)
+            rect("diff", 0.045, -0.785, 0.41, 0.41),
+            rect("psdm", -0.08, -0.91, 0.66, 0.66),
+            rect("licon1", 0.165, -0.665, 0.17, 0.17),
+            rect("li1", 0.02, -0.81, 0.41, 0.40),
+            // n+ n-well tap (-> VPWR, PMOS bulk)
+            rect("diff", 0.045, 2.17, 0.41, 0.41),
+            rect("nsdm", -0.08, 2.045, 0.66, 0.66),
+            rect("licon1", 0.165, 2.29, 0.17, 0.17),
+            rect("li1", 0.02, 2.13, 0.41, 0.40),
+        ])
+        c.labels = [
+            label("A", "li1", 0.18, 0.90),
+            label("B", "li1", 0.81, 0.90),
+            label("EN", "poly", 0.50, 0.20),
+            label("ENB", "poly", 0.50, 1.60),
+            label("VPWR", "li1", 0.18, 2.30),
+            label("VGND", "li1", 0.18, -0.65),
+        ]
+        return LayoutDocument(name: cell, cells: [c], topCellID: c.id)
+    }
+
+    @Test("A generated transmission gate passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func transmissionGateClean() async throws {
+        let report = try await runDRC(cell: "gen_tg", document: transmissionGate(cell: "gen_tg"))
+        #expect(report.passed, "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
+    @Test("The generated transmission gate matches its schematic under real Netgen LVS",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func transmissionGateLVS() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-tg-lvs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gds = dir.appending(path: "gen_tg.gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech())
+            .exportDocument(transmissionGate(cell: "gen_tg"), to: gds, format: .gds)
+        let schematic = """
+        * transmission gate
+        .subckt gen_tg A B EN ENB VPWR VGND
+        X0 A EN B VGND sky130_fd_pr__nfet_01v8 w=0.42 l=0.16
+        X1 A ENB B VPWR sky130_fd_pr__pfet_01v8 w=0.42 l=0.16
+        .ends
+        """
+        let schematicURL = dir.appending(path: "gen_tg.spice")
+        try schematic.write(to: schematicURL, atomically: true, encoding: .utf8)
+        let signoff = try #require(LiveSignoffService.locate())
+        let review = try await signoff.run(layoutGDS: gds, topCell: "gen_tg",
+                                           schematicNetlist: schematicURL, artifactDirectory: dir)
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("A generated inverter with well/substrate taps passes real Magic Sky130 DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func tappedInverterClean() async throws {
