@@ -354,7 +354,10 @@ public struct ExternalSpicePreprocessor: Sendable {
             lines.append("pre_osdi \"\(library.path)\"")
         }
         lines.append("run")
-        lines.append("write \"\(rawURL.path)\"")
+        // ngspice's `write` does NOT strip surrounding quotes, so a quoted path is
+        // taken literally (leading `"`) and the write fails with "No such file or
+        // directory". The run-scoped temp path has no spaces, so write it unquoted.
+        lines.append("write \(rawURL.path)")
         lines.append("quit")
         lines.append(".endc")
         return lines

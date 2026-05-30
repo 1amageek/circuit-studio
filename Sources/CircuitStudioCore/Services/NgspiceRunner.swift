@@ -11,10 +11,10 @@ public struct NgspiceRunner: Sendable {
         workingDirectory: URL,
         cancellation: CancellationToken
     ) async throws -> URL {
-        let ngspicePath = ProcessInfo.processInfo.environment["NGSPICE_BIN"] ?? "ngspice"
+        let configured = ProcessInfo.processInfo.environment["NGSPICE_BIN"] ?? "ngspice"
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: ngspicePath)
+        process.executableURL = try Self.resolveExecutable(configured)
         process.currentDirectoryURL = workingDirectory
         process.arguments = ["-b", netlistURL.path]
 
@@ -24,6 +24,12 @@ public struct NgspiceRunner: Sendable {
         process.standardError = stderr
 
         try process.run()
+
+        // Drain both pipes concurrently while the process runs: never read after
+        // waitUntilExit, which deadlocks when ngspice fills a pipe buffer (verbose
+        // batch logs on a large circuit) before exiting.
+        let outTask = Task.detached { stdout.fileHandleForReading.readDataToEndOfFile() }
+        let errTask = Task.detached { stderr.fileHandleForReading.readDataToEndOfFile() }
 
         let monitor = Task {
             while !Task.isCancelled {
@@ -42,12 +48,13 @@ public struct NgspiceRunner: Sendable {
         await waitForTermination(process)
         monitor.cancel()
 
+        let output = await outTask.value
+        let errorOutput = await errTask.value
+
         if cancellation.isCancelled {
             throw StudioError.cancelled
         }
 
-        let output = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errorOutput = stderr.fileHandleForReading.readDataToEndOfFile()
         let combined = (String(data: output, encoding: .utf8) ?? "")
             + (String(data: errorOutput, encoding: .utf8) ?? "")
 
@@ -66,5 +73,25 @@ public struct NgspiceRunner: Sendable {
         await Task.detached {
             process.waitUntilExit()
         }.value
+    }
+
+    /// Resolves the ngspice executable. An absolute/relative path (containing `/`)
+    /// is used as-is; a bare name is looked up on `PATH` — `Process` does not search
+    /// `PATH` for a bare `executableURL`, so a bare name would otherwise never launch.
+    private static func resolveExecutable(_ configured: String) throws -> URL {
+        let fileManager = FileManager.default
+        if configured.contains("/") {
+            guard fileManager.isExecutableFile(atPath: configured) else {
+                throw StudioError.simulationFailure("ngspice is not executable at \(configured)")
+            }
+            return URL(fileURLWithPath: configured)
+        }
+        for directory in (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":") {
+            let candidate = "\(directory)/\(configured)"
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return URL(fileURLWithPath: candidate)
+            }
+        }
+        throw StudioError.simulationFailure("ngspice not found on PATH (set NGSPICE_BIN to its path)")
     }
 }
