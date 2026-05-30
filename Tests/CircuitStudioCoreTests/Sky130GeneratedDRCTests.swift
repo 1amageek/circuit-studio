@@ -121,6 +121,38 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    /// Auto place & route a gate-level netlist, export, and sign off (DRC + LVS).
+    private func signoffCircuit(_ netlist: GateLevelNetlist) async throws -> ExternalSignoffReview {
+        let synth = Sky130CircuitSynthesizer()
+        let doc = try synth.synthesize(netlist)
+        let spice = synth.referenceSPICE(netlist)
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-circuit-\(netlist.name)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gds = dir.appending(path: "\(netlist.name).gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(doc, to: gds, format: .gds)
+        let spiceURL = dir.appending(path: "\(netlist.name).spice")
+        try spice.write(to: spiceURL, atomically: true, encoding: .utf8)
+        let signoff = try #require(LiveSignoffService.locate())
+        return try await signoff.run(layoutGDS: gds, topCell: netlist.name,
+                                     schematicNetlist: spiceURL, artifactDirectory: dir)
+    }
+
+    @Test("Auto place & route: a gate-level netlist becomes a DRC + LVS clean circuit",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)),
+          arguments: [
+            GateLevelNetlist.and2(name: "circ_and2"),
+            GateLevelNetlist.or2(name: "circ_or2"),
+            GateLevelNetlist.inverterChain(name: "circ_invchain3", stages: 3),
+          ])
+    func circuitPlaceAndRouteSignsOff(netlist: GateLevelNetlist) async throws {
+        // Multiple cells placed in a row + inter-cell li1 routing, done by the SYSTEM.
+        let review = try await signoffCircuit(netlist)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "\(netlist.name) DRC: \(drc.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("A generated poly contact (npc + poly licon) passes real Magic Sky130 DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func polyContactClean() async throws {

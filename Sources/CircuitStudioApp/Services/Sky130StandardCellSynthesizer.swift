@@ -30,6 +30,19 @@ public struct Sky130StandardCellSynthesizer: Sendable {
 
     public init() {}
 
+    /// A synthesized cell's geometry plus the pin metadata a circuit-level placer needs:
+    /// where each gate (input) poly is and where the output li1 trunk is accessible.
+    public struct CellLayout: Sendable {
+        public let shapes: [LayoutShape]
+        public let labels: [LayoutLabel]
+        public let width: Double                 // active diffusion width (cell core)
+        public let gateNetX: [String: Double]     // gate net -> poly column centre x
+        public let outputNet: String
+        public let outputLeftX: Double            // output li1 trunk extent (field, y ~0.90)
+        public let outputRightX: Double
+        public static let fieldY = 0.90           // y of the in-field output trunk / input pins
+    }
+
     // MARK: - placement
 
     private struct RowPlan {
@@ -83,7 +96,9 @@ public struct Sky130StandardCellSynthesizer: Sendable {
     private static let gate0X = 0.42, gatePitch = 0.58, gateLen = 0.16
     private static let nmosY = 0.0, pmosBot = 1.40, deviceW = 0.42
     private func gateX(_ i: Int) -> Double { Self.gate0X + Double(i) * Self.gatePitch }
-    private func diffWidth(_ k: Int) -> Double { 1.0 + Double(k - 1) * Self.gatePitch }
+    // Extra drain-side room (1.3 vs the minimal 1.0) so a routed input poly contact on a
+    // gate clears the output li1 trunk when the cell is a sink in a circuit.
+    private func diffWidth(_ k: Int) -> Double { 1.3 + Double(k - 1) * Self.gatePitch }
 
     /// Contact x for diffusion region `j` of `k` gates.
     private func contactX(_ j: Int, _ k: Int, _ diffW: Double) -> Double {
@@ -104,8 +119,16 @@ public struct Sky130StandardCellSynthesizer: Sendable {
 
     // MARK: - synthesis
 
-    /// Place + route the netlist into a Sky130 layout.
+    /// Place + route the netlist into a Sky130 layout document.
     public func synthesize(_ netlist: CMOSGateNetlist) throws -> LayoutDocument {
+        let cl = try layout(netlist)
+        var cell = LayoutCell(name: netlist.name, shapes: cl.shapes)
+        cell.labels = cl.labels
+        return LayoutDocument(name: netlist.name, cells: [cell], topCellID: cell.id)
+    }
+
+    /// Place + route the netlist into cell geometry + pin metadata.
+    public func layout(_ netlist: CMOSGateNetlist) throws -> CellLayout {
         let nmos = netlist.nmos, pmos = netlist.pmos
         guard !nmos.isEmpty else { throw SynthError.emptyNetwork(.nmos) }
         guard !pmos.isEmpty else { throw SynthError.emptyNetwork(.pmos) }
@@ -142,9 +165,11 @@ public struct Sky130StandardCellSynthesizer: Sendable {
         shapes.append(rect("psdm", -0.125, Self.pmosBot - 0.125, diffW + 0.25, Self.deviceW + 0.25))
 
         // Shared vertical poly gates (labelled with their net).
+        var gateNetX: [String: Double] = [:]
         for i in 0..<k {
             shapes.append(rect("poly", gateX(i), -0.13, Self.gateLen, 2.08))
             labels.append(label(master[i], "poly", gateX(i) + 0.08, 1.10))
+            gateNetX[master[i]] = gateX(i)
         }
 
         // Source/drain contacts for both rows.
@@ -194,9 +219,10 @@ public struct Sky130StandardCellSynthesizer: Sendable {
         // n-well enclosing the PMOS diffusion and the n-well tap.
         shapes.append(rect("nwell", -0.21, Self.pmosBot - 0.21, diffW + 0.42, (2.61 + 0.18) - (Self.pmosBot - 0.21)))
 
-        var cell = LayoutCell(name: netlist.name, shapes: shapes)
-        cell.labels = labels
-        return LayoutDocument(name: netlist.name, cells: [cell], topCellID: cell.id)
+        return CellLayout(
+            shapes: shapes, labels: labels, width: diffW, gateNetX: gateNetX,
+            outputNet: netlist.output, outputLeftX: trunkLeft, outputRightX: trunkRight
+        )
     }
 
     /// The reference schematic for `netlist`, ports matching the layout's labelled nets.
