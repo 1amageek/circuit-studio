@@ -5,7 +5,7 @@ import Testing
 @Suite("ExternalSignoffCommandService Tests")
 struct ExternalSignoffCommandServiceTests {
 
-    @Test func runCapturesLogArtifactAndParsesDiagnostics() throws {
+    @Test func runCapturesLogArtifactAndParsesDiagnostics() async throws {
         let root = try makeTemporaryRoot("capture")
         defer { removeTemporaryRoot(root) }
 
@@ -29,7 +29,7 @@ struct ExternalSignoffCommandServiceTests {
             workingDirectory: root
         )
 
-        let result = try ExternalSignoffCommandService().run(
+        let result = try await ExternalSignoffCommandService().run(
             command: command,
             artifactDirectory: artifactDirectory
         )
@@ -56,7 +56,7 @@ struct ExternalSignoffCommandServiceTests {
         #expect(log.contains("[stderr]"))
     }
 
-    @Test func nonZeroExitCreatesFailingReportWithoutDroppingArtifacts() throws {
+    @Test func nonZeroExitCreatesFailingReportWithoutDroppingArtifacts() async throws {
         let root = try makeTemporaryRoot("failure")
         defer { removeTemporaryRoot(root) }
 
@@ -77,7 +77,7 @@ struct ExternalSignoffCommandServiceTests {
             logFileName: "lvs-run.log"
         )
 
-        let result = try ExternalSignoffCommandService().run(
+        let result = try await ExternalSignoffCommandService().run(
             command: command,
             artifactDirectory: artifactDirectory
         )
@@ -99,7 +99,7 @@ struct ExternalSignoffCommandServiceTests {
         ])
     }
 
-    @Test func runCommandsBuildsUnapprovedReview() throws {
+    @Test func runCommandsBuildsUnapprovedReview() async throws {
         let root = try makeTemporaryRoot("aggregate")
         defer { removeTemporaryRoot(root) }
 
@@ -125,7 +125,7 @@ struct ExternalSignoffCommandServiceTests {
             ),
         ]
 
-        let review = try ExternalSignoffCommandService().run(
+        let review = try await ExternalSignoffCommandService().run(
             commands: commands,
             artifactDirectory: root.appending(path: "artifacts")
         )

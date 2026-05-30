@@ -17,7 +17,7 @@ struct MagicDRCSignoffTests {
         .enabled(if: MagicDRCSignoffTests.toolchain != nil),
         .timeLimit(.minutes(2))
     )
-    func cleanCellPasses() throws {
+    func cleanCellPasses() async throws {
         let tool = try #require(Self.toolchain)
         let artifacts = try makeArtifactDirectory("clean")
         defer { try? FileManager.default.removeItem(at: artifacts) }
@@ -28,7 +28,7 @@ struct MagicDRCSignoffTests {
             cell: "sky130_fd_sc_hd__inv_1",
             artifactDirectory: artifacts
         )
-        let result = try ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
+        let result = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
             command: command,
             artifactDirectory: artifacts
         )
@@ -46,7 +46,7 @@ struct MagicDRCSignoffTests {
         .enabled(if: MagicDRCSignoffTests.toolchain != nil),
         .timeLimit(.minutes(2))
     )
-    func violationDetected() throws {
+    func violationDetected() async throws {
         let tool = try #require(Self.toolchain)
         let gds = try #require(
             Bundle.module.url(
@@ -64,7 +64,7 @@ struct MagicDRCSignoffTests {
             gds: gds,
             artifactDirectory: artifacts
         )
-        let result = try ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
+        let result = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
             command: command,
             artifactDirectory: artifacts
         )
@@ -83,13 +83,13 @@ struct MagicDRCSignoffTests {
         .enabled(if: MagicDRCSignoffTests.toolchain != nil),
         .timeLimit(.minutes(2))
     )
-    func missingCellFailsLoud() throws {
+    func missingCellFailsLoud() async throws {
         let tool = try #require(Self.toolchain)
         let artifacts = try makeArtifactDirectory("missing")
         defer { try? FileManager.default.removeItem(at: artifacts) }
 
         let command = tool.command(cell: "no_such_cell_xyz", artifactDirectory: artifacts)
-        let result = try ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
+        let result = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
             command: command,
             artifactDirectory: artifacts
         )

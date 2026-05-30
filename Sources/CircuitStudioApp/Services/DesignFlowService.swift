@@ -668,11 +668,11 @@ public struct DesignFlowService: Sendable {
         topCell: String,
         schematicNetlist: URL,
         artifactDirectory: URL
-    ) throws -> ExternalSignoffReview {
+    ) async throws -> ExternalSignoffReview {
         guard let service = LiveSignoffService.locate() else {
             throw DesignFlowCommandError.signoffToolchainUnavailable
         }
-        return try service.run(
+        return try await service.run(
             layoutGDS: layoutGDS,
             topCell: topCell,
             schematicNetlist: schematicNetlist,
@@ -688,12 +688,12 @@ public struct DesignFlowService: Sendable {
     public func runSignoffIterationLoop(
         maxIterations: Int,
         artifactDirectory: URL,
-        nextCandidate: (_ index: Int, _ lastReview: ExternalSignoffReview?) -> SignoffIterationLoop.Candidate?
-    ) throws -> SignoffIterationLoop.LoopResult {
+        nextCandidate: (_ index: Int, _ lastReview: ExternalSignoffReview?) throws -> SignoffIterationLoop.Candidate?
+    ) async throws -> SignoffIterationLoop.LoopResult {
         guard let loop = SignoffIterationLoop.locate() else {
             throw DesignFlowCommandError.signoffToolchainUnavailable
         }
-        return try loop.run(
+        return try await loop.run(
             maxIterations: maxIterations,
             artifactDirectory: artifactDirectory,
             nextCandidate: nextCandidate
@@ -865,7 +865,7 @@ public struct DesignFlowService: Sendable {
         case .applyLayoutEdit:
             return try applyLayoutEdit(command)
         case .runVerification:
-            return try runVerification(command)
+            return try await runVerification(command)
         case .approveGate:
             return try approveGate(command)
         case .reviewRoundTrip:
@@ -903,7 +903,7 @@ public struct DesignFlowService: Sendable {
     }
 
     @MainActor
-    private func runVerification(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+    private func runVerification(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
         guard let layoutDocumentPath = command.layoutDocumentPath else {
             throw DesignFlowCommandError.missingLayoutDocumentPath
         }
@@ -917,7 +917,7 @@ public struct DesignFlowService: Sendable {
             schematic: verificationInput.schematic,
             layout: layout
         )
-        let rawExternalSignoff = try loadExternalSignoffReview(from: command, package: package)
+        let rawExternalSignoff = try await loadExternalSignoffReview(from: command, package: package)
         let externalSignoff = command.approveSignoff
             ? rawExternalSignoff?.approving(by: "design-flow-command", at: Date())
             : rawExternalSignoff
@@ -1090,7 +1090,7 @@ public struct DesignFlowService: Sendable {
             throw DesignFlowDesignSpecError.missingPEXInput
         }
 
-        let externalSignoffReview = try loadExternalSignoffReview(from: command, package: package)
+        let externalSignoffReview = try await loadExternalSignoffReview(from: command, package: package)
         let projectRoot = URL(filePath: command.projectRootPath ?? defaultCommandProjectRoot(fixtureName: design.name))
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
 
@@ -1157,7 +1157,7 @@ public struct DesignFlowService: Sendable {
             pexInput = DesignFlowPEXInput(ir: fixture.pexIR, artifactPaths: [])
         }
 
-        let externalSignoffReview = try loadExternalSignoffReview(from: command, package: package)
+        let externalSignoffReview = try await loadExternalSignoffReview(from: command, package: package)
         let projectRoot = URL(filePath: command.projectRootPath ?? defaultCommandProjectRoot(fixtureName: fixture.name))
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
 
@@ -1288,7 +1288,7 @@ public struct DesignFlowService: Sendable {
     private func loadExternalSignoffReview(
         from command: DesignFlowCommand,
         package: TechnologyPackage? = nil
-    ) throws -> ExternalSignoffReview? {
+    ) async throws -> ExternalSignoffReview? {
         switch (command.signoffDRCLogPath, command.signoffLVSLogPath) {
         case (nil, nil):
             guard let package, let signoff = package.manifest.signoff else {
@@ -1300,7 +1300,7 @@ public struct DesignFlowService: Sendable {
                 return nil
             }
             let adapter = try SignoffAdapterFactory().replayAdapter(adapterID: signoff.adapterID)
-            return try adapter.run(request: SignoffAdapterRequest(
+            return try await adapter.run(request: SignoffAdapterRequest(
                 replayLogs: [
                 ExternalSignoffLogArtifact(
                     kind: .drc,

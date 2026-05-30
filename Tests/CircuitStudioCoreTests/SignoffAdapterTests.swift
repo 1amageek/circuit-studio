@@ -4,7 +4,7 @@ import Testing
 
 @Suite("SignoffAdapter Tests")
 struct SignoffAdapterTests {
-    @Test func commandAdapterRunsExternalCommands() throws {
+    @Test func commandAdapterRunsExternalCommands() async throws {
         let root = try makeTemporaryRoot("command")
         defer { removeTemporaryRoot(root) }
         let executable = try writeExecutable(
@@ -18,7 +18,7 @@ struct SignoffAdapterTests {
         )
         let adapter = try SignoffAdapterFactory().commandAdapter()
 
-        let review = try adapter.run(request: SignoffAdapterRequest(
+        let review = try await adapter.run(request: SignoffAdapterRequest(
             commands: [
                 ExternalSignoffCommand(
                     kind: .drc,
@@ -35,7 +35,7 @@ struct SignoffAdapterTests {
         #expect(review.reports[0].diagnostics.first?.ruleID == "DRC_CLEAN")
     }
 
-    @Test func replayAdapterLoadsGoldenLogs() throws {
+    @Test func replayAdapterLoadsGoldenLogs() async throws {
         let root = try makeTemporaryRoot("replay")
         defer { removeTemporaryRoot(root) }
         let logURL = root.appending(path: "calibre-lvs.log")
@@ -45,7 +45,7 @@ struct SignoffAdapterTests {
         """.write(to: logURL, atomically: true, encoding: .utf8)
         let adapter = try SignoffAdapterFactory().replayAdapter(adapterID: "calibre-like")
 
-        let review = try adapter.run(request: SignoffAdapterRequest(
+        let review = try await adapter.run(request: SignoffAdapterRequest(
             replayLogs: [
                 ExternalSignoffLogArtifact(
                     kind: .lvs,

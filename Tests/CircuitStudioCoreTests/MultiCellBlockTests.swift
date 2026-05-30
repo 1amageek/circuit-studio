@@ -34,12 +34,12 @@ struct MultiCellBlockTests {
         .enabled(if: MultiCellBlockTests.available),
         .timeLimit(.minutes(3))
     )
-    func blockDRCClean() throws {
+    func blockDRCClean() async throws {
         let drc = try #require(MagicDRCSignoff.locate())
         let work = try makeDir("drc")
         defer { try? FileManager.default.removeItem(at: work) }
 
-        let result = try ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
+        let result = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
             command: drc.command(cell: topCell, gds: try blockGDS(), artifactDirectory: work),
             artifactDirectory: work
         )

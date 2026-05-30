@@ -45,7 +45,7 @@ struct PDKSchematicProviderTests {
         .enabled(if: PDKSchematicProvider.locate() != nil && PDKCellLayoutService.locate() != nil),
         .timeLimit(.minutes(3))
     )
-    func deriveAndSignoff() throws {
+    func deriveAndSignoff() async throws {
         let provider = try #require(PDKSchematicProvider.locate())
         let layout = try #require(PDKCellLayoutService.locate())
         let work = FileManager.default.temporaryDirectory.appending(path: "PDKSchem-\(UUID().uuidString)")
@@ -58,7 +58,7 @@ struct PDKSchematicProviderTests {
         #expect(contents.contains(".subckt \(cell)"))
 
         let gds = try layout.materialize(cell: cell, into: work.appending(path: "layout"))
-        let review = try DesignFlowService().runLiveSignoff(
+        let review = try await DesignFlowService().runLiveSignoff(
             layoutGDS: gds, topCell: cell, schematicNetlist: schematic,
             artifactDirectory: work.appending(path: "signoff")
         )

@@ -26,7 +26,7 @@ struct SignoffIterationLoopTests {
         .enabled(if: SignoffIterationLoopTests.loop != nil),
         .timeLimit(.minutes(4))
     )
-    func convergesAfterFix() throws {
+    func convergesAfterFix() async throws {
         let loop = try #require(Self.loop)
         let work = try makeDir("converge")
         defer { try? FileManager.default.removeItem(at: work) }
@@ -44,7 +44,7 @@ struct SignoffIterationLoopTests {
             schematicNetlist: try fixture("inv_schematic", "spice", "lvs")
         )
 
-        let result = try loop.run(maxIterations: 5, artifactDirectory: work) { index, lastReview in
+        let result = try await loop.run(maxIterations: 5, artifactDirectory: work) { index, lastReview in
             switch index {
             case 0:
                 #expect(lastReview == nil)
@@ -68,7 +68,7 @@ struct SignoffIterationLoopTests {
         .enabled(if: SignoffIterationLoopTests.loop != nil),
         .timeLimit(.minutes(3))
     )
-    func nonConvergenceAndBudgetGuard() throws {
+    func nonConvergenceAndBudgetGuard() async throws {
         let loop = try #require(Self.loop)
         let work = try makeDir("nonconverge")
         defer { try? FileManager.default.removeItem(at: work) }
@@ -80,13 +80,13 @@ struct SignoffIterationLoopTests {
         )
 
         // Always proposes the failing candidate → never converges within the budget.
-        let result = try loop.run(maxIterations: 2, artifactDirectory: work) { _, _ in broken }
+        let result = try await loop.run(maxIterations: 2, artifactDirectory: work) { _, _ in broken }
         #expect(!result.converged)
         #expect(result.iterations.count == 2)
         #expect(result.iterations.allSatisfy { !$0.passed })
 
-        #expect(throws: SignoffIterationLoop.LoopError.nonPositiveIterationBudget) {
-            _ = try loop.run(maxIterations: 0, artifactDirectory: work) { _, _ in broken }
+        await #expect(throws: SignoffIterationLoop.LoopError.nonPositiveIterationBudget) {
+            _ = try await loop.run(maxIterations: 0, artifactDirectory: work) { _, _ in broken }
         }
     }
 }

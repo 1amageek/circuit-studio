@@ -32,7 +32,7 @@ struct NetgenLVSSignoffTests {
         .enabled(if: NetgenLVSSignoffTests.toolchain != nil),
         .timeLimit(.minutes(2))
     )
-    func matchingNetlistsPass() throws {
+    func matchingNetlistsPass() async throws {
         let tool = try #require(Self.toolchain)
         let artifacts = try makeArtifactDirectory("match")
         defer { try? FileManager.default.removeItem(at: artifacts) }
@@ -43,7 +43,7 @@ struct NetgenLVSSignoffTests {
             topCell: topCell,
             artifactDirectory: artifacts
         )
-        let result = try ExternalSignoffCommandService(parser: NetgenLVSSignoff.reportParser).run(
+        let result = try await ExternalSignoffCommandService(parser: NetgenLVSSignoff.reportParser).run(
             command: command,
             artifactDirectory: artifacts
         )
@@ -60,7 +60,7 @@ struct NetgenLVSSignoffTests {
         .enabled(if: NetgenLVSSignoffTests.toolchain != nil),
         .timeLimit(.minutes(2))
     )
-    func mismatchedNetlistsFail() throws {
+    func mismatchedNetlistsFail() async throws {
         let tool = try #require(Self.toolchain)
         let artifacts = try makeArtifactDirectory("mismatch")
         defer { try? FileManager.default.removeItem(at: artifacts) }
@@ -71,7 +71,7 @@ struct NetgenLVSSignoffTests {
             topCell: topCell,
             artifactDirectory: artifacts
         )
-        let result = try ExternalSignoffCommandService(parser: NetgenLVSSignoff.reportParser).run(
+        let result = try await ExternalSignoffCommandService(parser: NetgenLVSSignoff.reportParser).run(
             command: command,
             artifactDirectory: artifacts
         )

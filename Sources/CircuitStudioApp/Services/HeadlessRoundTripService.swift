@@ -393,7 +393,7 @@ public final class HeadlessRoundTripService {
         let externalSignoff: ExternalSignoffReview?
         let externalSignoffStartedAt = Date()
         do {
-            externalSignoff = try runExternalSignoffIfNeeded(
+            externalSignoff = try await runExternalSignoffIfNeeded(
                 configuration: configuration,
                 runDirectory: runDirectory
             )
@@ -847,7 +847,7 @@ public final class HeadlessRoundTripService {
     private func runExternalSignoffIfNeeded(
         configuration: Configuration,
         runDirectory: URL
-    ) throws -> ExternalSignoffReview? {
+    ) async throws -> ExternalSignoffReview? {
         let store = ExternalSignoffReviewStore()
         if var review = configuration.externalSignoffReview {
             try store.save(review, projectRoot: configuration.projectRoot)
@@ -869,7 +869,7 @@ public final class HeadlessRoundTripService {
 
         let artifactDirectory = runDirectory.appending(path: "external-signoff")
         let adapter = try SignoffAdapterFactory().commandAdapter()
-        var review = try adapter.run(request: SignoffAdapterRequest(
+        var review = try await adapter.run(request: SignoffAdapterRequest(
             commands: configuration.externalSignoffCommands,
             artifactDirectory: artifactDirectory
         ))

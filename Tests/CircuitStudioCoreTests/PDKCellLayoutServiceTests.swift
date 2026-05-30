@@ -26,7 +26,7 @@ struct PDKCellLayoutServiceTests {
         .enabled(if: PDKCellLayoutServiceTests.layout != nil),
         .timeLimit(.minutes(3))
     )
-    func materializeAndSignoff() throws {
+    func materializeAndSignoff() async throws {
         let layout = try #require(Self.layout)
         let work = try makeDir("materialize")
         defer { try? FileManager.default.removeItem(at: work) }
@@ -35,7 +35,7 @@ struct PDKCellLayoutServiceTests {
         let gds = try layout.materialize(cell: cell, into: work.appending(path: "layout"))
         #expect(FileManager.default.fileExists(atPath: gds.path(percentEncoded: false)))
 
-        let review = try DesignFlowService().runLiveSignoff(
+        let review = try await DesignFlowService().runLiveSignoff(
             layoutGDS: gds,
             topCell: cell,
             schematicNetlist: try fixture("inv_schematic", "spice"),

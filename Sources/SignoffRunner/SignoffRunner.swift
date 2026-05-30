@@ -30,7 +30,7 @@ struct SignoffRunner {
             case "check":
                 exit(try await runCheck(options))
             case "iterate":
-                exit(try runIterate(options))
+                exit(try await runIterate(options))
             case "-h", "--help", "help", .none:
                 usage()
                 exit(args.first == nil ? 1 : 0)
@@ -95,7 +95,17 @@ struct SignoffRunner {
             var allPassed = true
             for (index, cell) in cells.enumerated() {
                 if index > 0 { print("") }
-                let passed = try await evaluate(options.with(key: "--cell", value: cell))
+                var cellOptions = options.with(key: "--cell", value: cell)
+                // Isolate each cell's artifacts under <dir>/<cell>/ so the per-cell
+                // logs don't overwrite each other (without --artifacts each cell
+                // already gets its own temp dir).
+                if let base = options.value("--artifacts") {
+                    cellOptions = cellOptions.with(
+                        key: "--artifacts",
+                        value: URL(filePath: base).appending(path: cell).path(percentEncoded: false)
+                    )
+                }
+                let passed = try await evaluate(cellOptions)
                 allPassed = allPassed && passed
             }
             print("\nOverall: \(allPassed ? "PASS" : "FAIL") across \(cells.count) cells")
@@ -113,7 +123,7 @@ struct SignoffRunner {
 
         let review: ExternalSignoffReview
         do {
-            review = try DesignFlowService().runLiveSignoff(
+            review = try await DesignFlowService().runLiveSignoff(
                 layoutGDS: design.layoutGDS, topCell: design.topCell,
                 schematicNetlist: design.schematic, artifactDirectory: design.artifacts.appending(path: "signoff")
             )
@@ -151,7 +161,7 @@ struct SignoffRunner {
     /// cells: each is materialized + given its PDK schematic, then run through real
     /// DRC+LVS; the loop converges on the first candidate that passes. The candidate
     /// list is the agent's proposed fixes (in order).
-    private static func runIterate(_ options: Options) throws -> Int32 {
+    private static func runIterate(_ options: Options) async throws -> Int32 {
         guard let list = options.value("--cells") else {
             throw CLIError(code: 1, message: "iterate requires --cells <a,b,c> (the candidate sequence)")
         }
@@ -167,17 +177,19 @@ struct SignoffRunner {
         let artifacts = options.artifactsDirectory()
         try FileManager.default.createDirectory(at: artifacts, withIntermediateDirectories: true)
 
-        // Pre-materialize each candidate (the agent's sequence is already decided).
-        var candidates: [SignoffIterationLoop.Candidate] = []
-        for cell in cells {
+        // Materialize each candidate lazily — only when the loop actually reaches it.
+        // Converging on candidate 0 never builds the rest, and a later candidate that
+        // fails to materialize cannot abort the earlier ones before they are tried.
+        let result = try await loop.run(
+            maxIterations: maxIterations,
+            artifactDirectory: artifacts.appending(path: "iterate")
+        ) { index, _ in
+            guard index < cells.count else { return nil }
+            let cell = cells[index]
             let base = artifacts.appending(path: cell)
             let gds = try layoutService.materialize(cell: cell, into: base.appending(path: "layout"))
             let schematic = try provider.schematic(forCell: cell, into: base.appending(path: "schematic"))
-            candidates.append(SignoffIterationLoop.Candidate(layoutGDS: gds, topCell: cell, schematicNetlist: schematic))
-        }
-
-        let result = try loop.run(maxIterations: maxIterations, artifactDirectory: artifacts.appending(path: "iterate")) { index, _ in
-            index < candidates.count ? candidates[index] : nil
+            return SignoffIterationLoop.Candidate(layoutGDS: gds, topCell: cell, schematicNetlist: schematic)
         }
 
         print("iterate (\(cells.count) candidates, max \(maxIterations) iterations)")

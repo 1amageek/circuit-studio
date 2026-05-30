@@ -18,7 +18,7 @@ public struct SignoffAdapterRequest: Sendable, Hashable {
 
 public protocol SignoffAdapter: Sendable {
     var adapterID: String { get }
-    func run(request: SignoffAdapterRequest) throws -> ExternalSignoffReview
+    func run(request: SignoffAdapterRequest) async throws -> ExternalSignoffReview
 }
 
 public enum SignoffAdapterError: Error, LocalizedError, Equatable {
@@ -50,11 +50,11 @@ public struct ExternalCommandSignoffAdapter: SignoffAdapter {
         self.service = ExternalSignoffCommandService(parser: parser)
     }
 
-    public func run(request: SignoffAdapterRequest) throws -> ExternalSignoffReview {
+    public func run(request: SignoffAdapterRequest) async throws -> ExternalSignoffReview {
         guard !request.commands.isEmpty else {
             throw SignoffAdapterError.emptyCommandSet
         }
-        return try service.run(
+        return try await service.run(
             commands: request.commands,
             artifactDirectory: request.artifactDirectory
         )
@@ -73,7 +73,7 @@ public struct GoldenLogReplaySignoffAdapter: SignoffAdapter {
         self.service = ExternalSignoffArtifactService(parser: parser)
     }
 
-    public func run(request: SignoffAdapterRequest) throws -> ExternalSignoffReview {
+    public func run(request: SignoffAdapterRequest) async throws -> ExternalSignoffReview {
         guard !request.replayLogs.isEmpty else {
             throw SignoffAdapterError.emptyReplayLogSet
         }

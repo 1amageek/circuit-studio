@@ -31,12 +31,12 @@ struct LiveSignoffServiceTests {
         .enabled(if: LiveSignoffServiceTests.service != nil),
         .timeLimit(.minutes(3))
     )
-    func cleanLayoutPasses() throws {
+    func cleanLayoutPasses() async throws {
         let service = try #require(Self.service)
         let artifacts = try makeArtifactDirectory("clean")
         defer { try? FileManager.default.removeItem(at: artifacts) }
 
-        let review = try service.run(
+        let review = try await service.run(
             layoutGDS: try fixture("inv1", "gds"),
             topCell: topCell,
             schematicNetlist: try fixture("inv_schematic", "spice"),
@@ -54,12 +54,12 @@ struct LiveSignoffServiceTests {
         .enabled(if: LiveSignoffServiceTests.service != nil),
         .timeLimit(.minutes(3))
     )
-    func wrongSchematicFailsLVS() throws {
+    func wrongSchematicFailsLVS() async throws {
         let service = try #require(Self.service)
         let artifacts = try makeArtifactDirectory("lvs-mismatch")
         defer { try? FileManager.default.removeItem(at: artifacts) }
 
-        let review = try service.run(
+        let review = try await service.run(
             layoutGDS: try fixture("inv1", "gds"),
             topCell: topCell,
             schematicNetlist: try fixture("inv_schematic_wrong", "spice"),
@@ -79,7 +79,7 @@ struct LiveSignoffServiceTests {
         .enabled(if: LiveSignoffServiceTests.service != nil),
         .timeLimit(.minutes(3))
     )
-    func drcViolationFailsDRC() throws {
+    func drcViolationFailsDRC() async throws {
         let service = try #require(Self.service)
         let artifacts = try makeArtifactDirectory("drc-violation")
         defer { try? FileManager.default.removeItem(at: artifacts) }
@@ -88,7 +88,7 @@ struct LiveSignoffServiceTests {
         let brokenGDS = try #require(
             Bundle.module.url(forResource: "met1_spacing_violation", withExtension: "gds", subdirectory: "magic")
         )
-        let review = try service.run(
+        let review = try await service.run(
             layoutGDS: brokenGDS,
             topCell: "drc_broken",
             schematicNetlist: try fixture("inv_schematic", "spice"),

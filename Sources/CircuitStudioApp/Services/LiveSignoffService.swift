@@ -47,10 +47,10 @@ public struct LiveSignoffService: Sendable {
         topCell: String,
         schematicNetlist: URL,
         artifactDirectory: URL
-    ) throws -> ExternalSignoffReview {
+    ) async throws -> ExternalSignoffReview {
         try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
 
-        let drcResult = try ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
+        let drcResult = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
             command: drc.command(cell: topCell, gds: layoutGDS, artifactDirectory: artifactDirectory),
             artifactDirectory: artifactDirectory
         )
@@ -59,7 +59,7 @@ public struct LiveSignoffService: Sendable {
             gds: layoutGDS, cell: topCell, into: artifactDirectory
         )
 
-        let lvsResult = try ExternalSignoffCommandService(parser: NetgenLVSSignoff.reportParser).run(
+        let lvsResult = try await ExternalSignoffCommandService(parser: NetgenLVSSignoff.reportParser).run(
             command: lvs.command(
                 layoutNetlist: layoutNetlist,
                 schematicNetlist: schematicNetlist,

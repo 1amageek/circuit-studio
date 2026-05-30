@@ -31,7 +31,7 @@ struct RealSignoffPEXEndToEndTests {
         let gds = try lvsFixture("inv1", "gds")
 
         // 1) Real DRC + LVS through the flow's live-signoff entry point.
-        let review = try DesignFlowService().runLiveSignoff(
+        let review = try await DesignFlowService().runLiveSignoff(
             layoutGDS: gds,
             topCell: topCell,
             schematicNetlist: try lvsFixture("inv_schematic", "spice"),

@@ -29,7 +29,7 @@ struct PDKBlockSignoffTests {
         let gds = try fixture("dff", "gds")
 
         // Real DRC + LVS on the flip-flop layout vs its schematic.
-        let review = try DesignFlowService().runLiveSignoff(
+        let review = try await DesignFlowService().runLiveSignoff(
             layoutGDS: gds,
             topCell: topCell,
             schematicNetlist: try fixture("dff_schematic", "spice"),
