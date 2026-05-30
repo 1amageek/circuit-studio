@@ -72,6 +72,35 @@ struct Sky130GeneratedDRCTests {
                 "expected a named met1 rule; got \(report.diagnostics.map { $0.ruleID ?? "?" })")
     }
 
+    /// A minimal NMOS: an n+ active strip with a poly gate across it (endcaps beyond
+    /// diff), nsdm implant enclosing the active, and licon1+li1 contacts on the
+    /// source/drain. Dimensions follow Sky130 minimums (poly.8 endcap 0.13, licon1
+    /// diff enclosure 0.06, li1 enclosure 0.08, licon1-poly spacing 0.055).
+    private func nmosTransistor(cell: String) -> LayoutDocument {
+        document(cell: cell, shapes: [
+            // n+ active (difftap = 65/20), 1.0 x 0.42
+            rect("diff", 0.00, 0.00, 1.00, 0.42),
+            // poly gate, length 0.16, extends 0.13 beyond diff top/bottom
+            rect("poly", 0.42, -0.13, 0.16, 0.68),
+            // nsdm implant enclosing the active by 0.125
+            rect("nsdm", -0.125, -0.125, 1.25, 0.67),
+            // source / drain licon1 contacts (0.17), >= 0.06 from poly, in diff
+            rect("licon1", 0.10, 0.125, 0.17, 0.17),
+            rect("licon1", 0.73, 0.125, 0.17, 0.17),
+            // li1 over each contact, enclosing it by 0.08
+            rect("li1", 0.02, 0.045, 0.33, 0.33),
+            rect("li1", 0.65, 0.045, 0.33, 0.33),
+        ])
+    }
+
+    @Test("A generated minimal NMOS passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func nmosTransistorClean() async throws {
+        let report = try await runDRC(cell: "gen_nmos", document: nmosTransistor(cell: "gen_nmos"))
+        #expect(report.passed,
+                "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("A generated li1-mcon-met1 via stack passes real Magic DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func viaStackClean() async throws {

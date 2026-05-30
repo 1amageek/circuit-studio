@@ -38,7 +38,7 @@ public enum Sky130LayoutTech {
             def("nwell", "N-Well", 64, 20, rgb: (0.4, 0.2, 0.2)),
             def("diff", "Diffusion", 65, 20, rgb: (0.2, 0.6, 0.2)),
             def("tap", "Tap", 65, 44, rgb: (0.3, 0.5, 0.3)),
-            def("nsdm", "N+ Implant", 93, 20, rgb: (0.5, 0.5, 0.2)),
+            def("nsdm", "N+ Implant", 93, 44, rgb: (0.5, 0.5, 0.2)),
             def("psdm", "P+ Implant", 94, 20, rgb: (0.5, 0.2, 0.5)),
             def("poly", "Poly", 66, 20, rgb: (0.8, 0.1, 0.1)),
             def("npc", "Nitride Poly Cut", 95, 20, rgb: (0.6, 0.3, 0.3)),
