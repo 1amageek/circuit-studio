@@ -90,6 +90,18 @@ public struct Sky130CircuitSynthesizer: Sendable {
         ]
     }
 
+    /// Tap a driver cell's MET2 output bus (at the cell's output-bus y) up to a met2
+    /// routing track, on met1 so it does not collide with other nets' met2 tracks.
+    private func driverTap(_ x: Double, trackY: Double) -> [LayoutShape] {
+        let busY = Sky130StandardCellSynthesizer.outputBusY
+        return [
+            rect("met1", x - 0.165, busY - 0.165, 0.33, 0.33),                       // met1 pad under the bus
+            rect("via", x - 0.075, busY - 0.075, 0.15, 0.15),                        // met2 bus <-> met1
+            rect("met1", x - 0.165, busY - 0.165, 0.33, (trackY + 0.165) - (busY - 0.165)),  // met1 riser
+            rect("via", x - 0.075, trackY - 0.075, 0.15, 0.15),                      // met1 -> met2 track
+        ]
+    }
+
     /// A poly input contact (pad + npc + licon + li1) on a gate at column-left `gx`, field y.
     private func polyContact(_ gx: Double) -> [LayoutShape] {
         let cx = gx + 0.08   // gate poly centre
@@ -160,11 +172,15 @@ public struct Sky130CircuitSynthesizer: Sendable {
         }
         for (index, net) in sinkTapsByNet.keys.sorted().enumerated() {
             guard let drv = driver[net] else { throw RouteError.noDriver(net: net) }
-            let driverTapX = drv.offsetX + (drv.cell.outputLeftX + drv.cell.outputRightX) / 2
-            let taps = [driverTapX] + (sinkTapsByNet[net] ?? [])
-            let trackY = 3.0 + Double(index) * 0.50   // 0.33 track + 0.17 > met2 spacing 0.14
-            for x in taps { shapes.append(contentsOf: viaUp(x, trackY: trackY)) }
-            let minX = taps.min() ?? 0, maxX = taps.max() ?? 0
+            // Driver taps its met2 output bus; sinks tap their li1 gate contacts; both rise
+            // (on met1) to this net's met2 track. Tracks sit above the cells' output buses.
+            let driverTapX = drv.offsetX + drv.cell.outputRightX - 0.165   // rightmost output, clear of left gates
+            let sinks = sinkTapsByNet[net] ?? []
+            let trackY = 3.6 + Double(index) * 0.50
+            shapes.append(contentsOf: driverTap(driverTapX, trackY: trackY))
+            for x in sinks { shapes.append(contentsOf: viaUp(x, trackY: trackY)) }
+            let xs = [driverTapX] + sinks
+            let minX = xs.min() ?? 0, maxX = xs.max() ?? 0
             shapes.append(rect("met2", minX - 0.165, trackY - 0.165, (maxX - minX) + 0.33, 0.33))
         }
 

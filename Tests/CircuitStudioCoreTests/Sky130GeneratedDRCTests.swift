@@ -175,6 +175,29 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("The router handles multi-fanout and feedback (DRC + LVS clean)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func routerHandlesFanoutAndFeedback() async throws {
+        let fanout = GateLevelNetlist(name: "circ_fanout", instances: [
+            .init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "a", "Y": "m"]),
+            .init(name: "g1", cell: .inverter(name: "inv"), netMap: ["A": "m", "Y": "p"]),
+            .init(name: "g2", cell: .inverter(name: "inv"), netMap: ["A": "m", "Y": "q"]),
+            .init(name: "g3", cell: .nand(name: "nand2", inputs: ["A", "B"]), netMap: ["A": "p", "B": "q", "Y": "r"]),
+            .init(name: "g4", cell: .inverter(name: "inv"), netMap: ["A": "r", "Y": "y"]),
+        ], inputs: ["a"], output: "y")
+        let srLatch = GateLevelNetlist(name: "circ_srlatch", instances: [
+            .init(name: "g0", cell: .nor(name: "nor2", inputs: ["A", "B"]), netMap: ["A": "s", "B": "qn", "Y": "q"]),
+            .init(name: "g1", cell: .nor(name: "nor2", inputs: ["A", "B"]), netMap: ["A": "r", "B": "q", "Y": "qn"]),
+        ], inputs: ["s", "r"], output: "q")
+        for netlist in [fanout, srLatch] {
+            let review = try await signoffCircuit(netlist)
+            let drc = try #require(review.reports.first { $0.kind == .drc })
+            let lvs = try #require(review.reports.first { $0.kind == .lvs })
+            #expect(drc.passed, "\(netlist.name) DRC: \(drc.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+            #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+        }
+    }
+
     @Test("A circuit LOADED from a structural Verilog file is synthesized DRC + LVS clean",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func verilogFileSignsOff() async throws {

@@ -96,7 +96,9 @@ public struct Sky130StandardCellSynthesizer: Sendable {
     // Gate pitch is wide enough (1.05) that a routed input poly contact on a gate clears
     // the cell's own output li1 trunk (which sits between gates for a parallel network),
     // so a cell can be a sink in a circuit without shorting its input to its output.
-    private static let gate0X = 0.42, gatePitch = 1.05, gateLen = 0.16
+    private static let gate0X = 0.42, gatePitch = 1.15, gateLen = 0.16
+    /// y of the met1 output bus above the cell (clear of the n-well top 2.79 / VPWR 2.55).
+    static let outputBusY = 2.90
     private static let nmosY = 0.0, pmosBot = 1.40, deviceW = 0.42
     private func gateX(_ i: Int) -> Double { Self.gate0X + Double(i) * Self.gatePitch }
     // Extra drain-side room (1.3 vs the minimal 1.0) so a routed input poly contact on a
@@ -185,17 +187,25 @@ public struct Sky130StandardCellSynthesizer: Sendable {
         contacts(nmosPlan, nmosCY)
         contacts(pmosPlan, pmosCY)
 
-        // Output routing: an li1 trunk in the field joining every output diffusion
-        // contact (both rows), with a vertical stub from each contact to the trunk.
+        // Output routing on MET1: a met1 bus above the cell joins every output diffusion
+        // contact (via li1 pad -> mcon -> met1 riser). Keeping the output off the li1 field
+        // frees the field for input-gate contacts when this cell is a circuit SINK — they
+        // are li1 and the output is met1, so they cannot short even at the same x.
         let nmosOutX = (0...k).filter { nmosPlan.regionNets[$0] == netlist.output }.map { contactX($0, k, diffW) }
         let pmosOutX = (0...k).filter { pmosPlan.regionNets[$0] == netlist.output }.map { contactX($0, k, diffW) }
         let allOutX = nmosOutX + pmosOutX
-        let trunkLeft = (allOutX.min() ?? 0) - 0.08
-        let trunkRight = (allOutX.max() ?? 0) + 0.25
-        shapes.append(rect("li1", trunkLeft, 0.82, trunkRight - trunkLeft, 0.17))   // trunk
-        for x in nmosOutX { shapes.append(rect("li1", x - 0.08, 0.045, 0.33, 0.945)) }   // up to trunk
-        for x in pmosOutX { shapes.append(rect("li1", x - 0.08, 0.82, 0.33, 0.955)) }     // down to trunk
-        labels.append(label(netlist.output, "li1", (allOutX.first ?? midX) + 0.08, 0.90))
+        let busY = Self.outputBusY
+        func outputRiser(_ x: Double, fromY cy: Double) {
+            shapes.append(rect("li1", x - 0.08, cy - 0.08, 0.33, 0.33))            // pad over the licon
+            shapes.append(rect("mcon", x - 0.085, cy, 0.17, 0.17))                 // li1 -> met1
+            shapes.append(rect("met1", x - 0.165, cy - 0.08, 0.33, (busY + 0.165) - (cy - 0.08)))  // met1 riser
+            shapes.append(rect("via", x - 0.075, busY - 0.075, 0.15, 0.15))        // met1 -> met2 (at the bus)
+        }
+        for x in nmosOutX { outputRiser(x, fromY: 0.125) }
+        for x in pmosOutX { outputRiser(x, fromY: 1.525) }
+        let busL = (allOutX.min() ?? 0) - 0.165, busR = (allOutX.max() ?? 0) + 0.165
+        shapes.append(rect("met2", busL, busY - 0.165, busR - busL, 0.33))    // met2 output bus
+        labels.append(label(netlist.output, "met2", (allOutX.first ?? midX), busY))
 
         // VGND rail (bottom) + stubs from every VGND contact + p+ substrate tap.
         let vgndX = (0...k).filter { nmosPlan.regionNets[$0] == netlist.vgnd }.map { contactX($0, k, diffW) }
@@ -224,7 +234,7 @@ public struct Sky130StandardCellSynthesizer: Sendable {
 
         return CellLayout(
             shapes: shapes, labels: labels, width: diffW, gateNetX: gateNetX,
-            outputNet: netlist.output, outputLeftX: trunkLeft, outputRightX: trunkRight
+            outputNet: netlist.output, outputLeftX: busL, outputRightX: busR
         )
     }
 
