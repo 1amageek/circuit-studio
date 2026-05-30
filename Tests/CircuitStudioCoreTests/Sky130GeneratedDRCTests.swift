@@ -27,11 +27,15 @@ struct Sky130GeneratedDRCTests {
         return result.report
     }
 
-    private func met1Rect(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> LayoutShape {
+    private func rect(_ layer: String, _ x: Double, _ y: Double, _ w: Double, _ h: Double) -> LayoutShape {
         LayoutShape(
-            layer: Sky130LayoutTech.layer("met1"),
+            layer: Sky130LayoutTech.layer(layer),
             geometry: .rect(LayoutRect(origin: LayoutPoint(x: x, y: y), size: LayoutSize(width: w, height: h)))
         )
+    }
+
+    private func met1Rect(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> LayoutShape {
+        rect("met1", x, y, w, h)
     }
 
     private func document(cell: String, shapes: [LayoutShape]) -> LayoutDocument {
@@ -66,5 +70,20 @@ struct Sky130GeneratedDRCTests {
         // Named (met1.2), not just counted — the physical loop needs the rule code.
         #expect(report.diagnostics.contains { ($0.ruleID ?? "").lowercased().contains("met1") },
                 "expected a named met1 rule; got \(report.diagnostics.map { $0.ruleID ?? "?" })")
+    }
+
+    @Test("A generated li1-mcon-met1 via stack passes real Magic DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func viaStackClean() async throws {
+        // li1 and met1 plates (0.40 µm) generously enclosing a single 0.17 µm mcon
+        // cut centred between them — the building block that connects layers.
+        let doc = document(cell: "gen_via_stack", shapes: [
+            rect("li1", 0, 0, 0.40, 0.40),
+            rect("mcon", 0.115, 0.115, 0.17, 0.17),
+            rect("met1", 0, 0, 0.40, 0.40),
+        ])
+        let report = try await runDRC(cell: "gen_via_stack", document: doc)
+        #expect(report.passed,
+                "expected clean; diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 }
