@@ -748,6 +748,78 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    /// A tristate (clocked) inverter: OUT = ~IN when EN=1 / ENB=0, else hi-Z. NMOS series
+    /// (gates EN, IN) pull OUT to VGND; PMOS series (gates ENB, IN) pull OUT to VPWR. The
+    /// IN gate spans both rows (shared); the EN/ENB gates are split. The other DFF
+    /// primitive (the storage/feedback element).
+    private func tristateInverter(cell: String) -> LayoutDocument {
+        var c = LayoutCell(name: cell, shapes: [
+            // NMOS series (VGND - IN - n1 - EN - OUT) and PMOS series (VPWR - IN - p1 - ENB - OUT)
+            rect("diff", 0.00, 0.00, 1.58, 0.42),
+            rect("nsdm", -0.125, -0.125, 1.83, 0.67),
+            rect("diff", 0.00, 1.40, 1.58, 0.42),
+            rect("psdm", -0.125, 1.275, 1.83, 0.67),
+            rect("nwell", -0.21, 1.19, 2.00, 1.57),
+            // gates: IN shared (full height), EN over NMOS only, ENB over PMOS only
+            rect("poly", 0.42, -0.13, 0.16, 2.08),     // IN
+            rect("poly", 1.00, -0.13, 0.16, 0.68),     // EN  (NMOS)
+            rect("poly", 1.00, 1.27, 0.16, 0.68),      // ENB (PMOS)
+            // contacts: VGND/VPWR (left), OUT (right); middle nodes n1/p1 contact-less
+            rect("licon1", 0.10, 0.125, 0.17, 0.17),
+            rect("licon1", 1.31, 0.125, 0.17, 0.17),
+            rect("licon1", 0.10, 1.525, 0.17, 0.17),
+            rect("licon1", 1.31, 1.525, 0.17, 0.17),
+            rect("li1", 1.23, 0.045, 0.33, 1.81),       // OUT: drains joined (right)
+            // p+ substrate tap (-> VGND) + VGND strap over NMOS source
+            rect("diff", 0.045, -0.785, 0.41, 0.41),
+            rect("psdm", -0.08, -0.91, 0.66, 0.66),
+            rect("licon1", 0.165, -0.665, 0.17, 0.17),
+            rect("li1", 0.02, -0.81, 0.41, 1.185),       // VGND: NMOS source + substrate tap
+            // n+ n-well tap (-> VPWR) + VPWR strap over PMOS source
+            rect("diff", 0.045, 2.17, 0.41, 0.41),
+            rect("nsdm", -0.08, 2.045, 0.66, 0.66),
+            rect("licon1", 0.165, 2.29, 0.17, 0.17),
+            rect("li1", 0.02, 1.445, 0.41, 1.105),       // VPWR: PMOS source + n-well tap
+        ])
+        c.labels = [
+            label("IN", "poly", 0.50, 0.90),
+            label("EN", "poly", 1.08, 0.20),
+            label("ENB", "poly", 1.08, 1.60),
+            label("OUT", "li1", 1.39, 0.95),
+            label("VPWR", "li1", 0.18, 2.00),
+            label("VGND", "li1", 0.18, 0.20),
+        ]
+        return LayoutDocument(name: cell, cells: [c], topCellID: c.id)
+    }
+
+    @Test("A generated tristate inverter passes real Magic Sky130 DRC + Netgen LVS",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func tristateInverterSignsOff() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-tinv-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gds = dir.appending(path: "gen_tinv.gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech())
+            .exportDocument(tristateInverter(cell: "gen_tinv"), to: gds, format: .gds)
+        let schematic = """
+        * tristate inverter
+        .subckt gen_tinv IN OUT EN ENB VPWR VGND
+        X0 OUT EN n1 VGND sky130_fd_pr__nfet_01v8 w=0.42 l=0.16
+        X1 n1 IN VGND VGND sky130_fd_pr__nfet_01v8 w=0.42 l=0.16
+        X2 OUT ENB p1 VPWR sky130_fd_pr__pfet_01v8 w=0.42 l=0.16
+        X3 p1 IN VPWR VPWR sky130_fd_pr__pfet_01v8 w=0.42 l=0.16
+        .ends
+        """
+        let schematicURL = dir.appending(path: "gen_tinv.spice")
+        try schematic.write(to: schematicURL, atomically: true, encoding: .utf8)
+        let signoff = try #require(LiveSignoffService.locate())
+        let review = try await signoff.run(layoutGDS: gds, topCell: "gen_tinv",
+                                           schematicNetlist: schematicURL, artifactDirectory: dir)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "DRC: \(drc.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("A generated inverter with well/substrate taps passes real Magic Sky130 DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func tappedInverterClean() async throws {
