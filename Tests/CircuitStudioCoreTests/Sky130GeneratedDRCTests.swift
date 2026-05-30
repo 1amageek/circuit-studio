@@ -175,6 +175,20 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("M4: the ACC-4 CPU core is auto placed & routed DRC + LVS clean",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(10)))
+    func cpuCoreSignsOff() async throws {
+        // The whole single-cycle CPU core (decode + ALU + ACC/PC registers + jump logic),
+        // ~240 cells, place & routed automatically from its structural netlist. Its function
+        // (running Fibonacci) is checked by ACC4CPUTests against the reference interpreter.
+        let netlist = ACC4CPUGenerator().gateLevelNetlist(name: "acc4cpu")
+        let review = try await signoffCircuit(netlist)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "cpu DRC: \(drc.diagnostics.prefix(8).map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "cpu LVS: \(lvs.diagnostics.prefix(8).map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("M3: the 4-bit ALU is auto placed & routed DRC + LVS clean",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(6)))
     func aluSignsOff() async throws {

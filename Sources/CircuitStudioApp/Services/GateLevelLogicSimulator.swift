@@ -37,28 +37,39 @@ public struct GateLevelLogicSimulator: Sendable {
         return root(cell.output) != root(cell.vgnd)
     }
 
+    /// One clock cycle from an explicit DFF state (`dff.name -> q`): inject the primary
+    /// inputs and the present state, settle the combinational logic, and return BOTH the
+    /// settled net values (read any output here) and the next state (`q <- d` at the edge).
+    /// This is the low-level primitive a CPU testbench drives — it can read the present PC
+    /// from the state, fetch the instruction, model external memory, then advance.
+    public func step(_ netlist: SequentialNetlist, state: [String: Bool],
+                     inputs: [String: Bool]) throws -> (nets: [String: Bool], next: [String: Bool]) {
+        var net: [String: Bool] = [netlist.vpwr: true, netlist.vgnd: false]
+        for (k, v) in inputs { net[k] = v }
+        for dff in netlist.dffs { net[dff.q] = state[dff.name] ?? false }   // present state
+
+        try settle(netlist.combinational, into: &net)
+
+        var next = state
+        for dff in netlist.dffs { next[dff.name] = net[dff.d] ?? false }    // q <- d on the edge
+        return (net, next)
+    }
+
+    /// The all-zero initial DFF state for `netlist` (every register reset to 0).
+    public func initialState(_ netlist: SequentialNetlist) -> [String: Bool] {
+        Dictionary(uniqueKeysWithValues: netlist.dffs.map { ($0.name, false) })
+    }
+
     /// Simulate `netlist` over the given per-cycle primary-input vectors. DFF outputs hold
     /// state across cycles; each cycle settles the combinational logic with the current
     /// state, samples the outputs, then clocks (q <- d). Returns the output net values
     /// per cycle.
     public func simulate(_ netlist: SequentialNetlist, cycles: [[String: Bool]]) throws -> [[String: Bool]] {
-        var state: [String: Bool] = [:]                 // dff name -> stored q
-        for dff in netlist.dffs { state[dff.name] = false }
-
+        var state = initialState(netlist)
         var trace: [[String: Bool]] = []
         for inputVector in cycles {
-            var net: [String: Bool] = [netlist.vpwr: true, netlist.vgnd: false]
-            for (k, v) in inputVector { net[k] = v }
-            for dff in netlist.dffs { net[dff.q] = state[dff.name] }   // present state
-
-            try settle(netlist.combinational, into: &net)
-
-            var out: [String: Bool] = [:]
-            for o in netlist.outputs { out[o] = net[o] ?? false }
-            trace.append(out)
-
-            var next = state
-            for dff in netlist.dffs { next[dff.name] = net[dff.d] ?? false }   // q <- d on the edge
+            let (net, next) = try step(netlist, state: state, inputs: inputVector)
+            trace.append(Dictionary(uniqueKeysWithValues: netlist.outputs.map { ($0, net[$0] ?? false) }))
             state = next
         }
         return trace
