@@ -256,6 +256,86 @@ struct Sky130GeneratedDRCTests {
         #expect(output.passed, "width \(width) not clean: \(rules)")
     }
 
+    /// A CMOS inverter spec for the electrical sizing loop (20 fF load), `width` in metres.
+    private func inverterSpec(width: Double) -> DesignFlowDesignSpec {
+        DesignFlowDesignSpec(
+            name: "inverter", title: "CMOS inverter delay loop",
+            components: [
+                DesignFlowDesignSpec.Component(name: "VDD", deviceKindID: "vsource", parameters: ["dc": 1.8]),
+                DesignFlowDesignSpec.Component(name: "VIN", deviceKindID: "vsource", parameters: [
+                    "pulse_v1": 0, "pulse_v2": 1.8, "pulse_td": 2e-9,
+                    "pulse_tr": 0.5e-9, "pulse_tf": 0.5e-9, "pulse_pw": 20e-9, "pulse_per": 40e-9,
+                ]),
+                DesignFlowDesignSpec.Component(name: "MN", deviceKindID: "nmos_l1",
+                    parameters: ["w": width, "l": 0.15e-6], modelPresetID: "generic_nmos"),
+                DesignFlowDesignSpec.Component(name: "MP", deviceKindID: "pmos_l1",
+                    parameters: ["w": width, "l": 0.15e-6], modelPresetID: "generic_pmos"),
+                DesignFlowDesignSpec.Component(name: "CL", deviceKindID: "capacitor", parameters: ["c": 20e-15]),
+                DesignFlowDesignSpec.Component(name: "GND1", deviceKindID: "ground"),
+            ],
+            nets: [
+                DesignFlowDesignSpec.Net(name: "vdd", terminals: [
+                    DesignFlowDesignSpec.Terminal(component: "VDD", port: "pos"),
+                    DesignFlowDesignSpec.Terminal(component: "MP", port: "source"),
+                    DesignFlowDesignSpec.Terminal(component: "MP", port: "bulk"),
+                ]),
+                DesignFlowDesignSpec.Net(name: "in", terminals: [
+                    DesignFlowDesignSpec.Terminal(component: "VIN", port: "pos"),
+                    DesignFlowDesignSpec.Terminal(component: "MN", port: "gate"),
+                    DesignFlowDesignSpec.Terminal(component: "MP", port: "gate"),
+                ]),
+                DesignFlowDesignSpec.Net(name: "out", terminals: [
+                    DesignFlowDesignSpec.Terminal(component: "MN", port: "drain"),
+                    DesignFlowDesignSpec.Terminal(component: "MP", port: "drain"),
+                    DesignFlowDesignSpec.Terminal(component: "CL", port: "pos"),
+                ]),
+                DesignFlowDesignSpec.Net(name: "0", terminals: [
+                    DesignFlowDesignSpec.Terminal(component: "VDD", port: "neg"),
+                    DesignFlowDesignSpec.Terminal(component: "VIN", port: "neg"),
+                    DesignFlowDesignSpec.Terminal(component: "MN", port: "source"),
+                    DesignFlowDesignSpec.Terminal(component: "MN", port: "bulk"),
+                    DesignFlowDesignSpec.Terminal(component: "CL", port: "neg"),
+                    DesignFlowDesignSpec.Terminal(component: "GND1", port: "gnd"),
+                ]),
+            ],
+            analyses: [DesignFlowDesignSpec.Analysis(kind: .tran, stopTime: 30e-9, stepTime: 0.02e-9)],
+            pexIR: nil
+        )
+    }
+
+    @Test("Spec -> GDS: size the inverter electrically, then synthesize + sign off the sized cell",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func specDrivenCellFlowEmitsSignedOffGDS() async throws {
+        // The whole chain: a narrow inverter misses a delay target, the loop widens the
+        // FETs (failure-driven) to meet it, and the SIZED width is realized as a Sky130
+        // cell that passes real DRC + LVS and is emitted as GDS.
+        let flow = try #require(SpecDrivenCellFlow.locate())
+        let spec = PerformanceSpec(metric: .propagationDelaySeconds, comparison: .atMost, target: 0.2e-9)
+        let tunable = SpecDrivenDesignLoop.Tunable(
+            componentNames: ["MN", "MP"], parameter: "w", effect: .largerReducesMetric,
+            stepFactor: 1.7, minValue: 0.1e-6, maxValue: 1.5e-6
+        )
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-spec2gds-\(UUID().uuidString)")
+
+        let output = try await flow.run(
+            initial: inverterSpec(width: 0.3e-6), tunable: tunable, spec: spec,
+            maxIterations: 8, into: dir
+        ) { waveform in
+            try SpecDrivenDesignLoop.propagationDelay(in: waveform, from: "in", to: "out", thresholdV: 0.9)
+        }
+
+        // Electrical: it converged by widening (failure-driven), and the layout width
+        // tracks the sized device on the manufacturing grid.
+        #expect(output.converged)
+        #expect(output.layoutWidthMicrons >= output.sizedWidthMicrons - 1e-9,
+                "the realized cell must be at least as wide as the sized device")
+        // Physical: the sized cell is DRC + LVS clean and a GDS was emitted.
+        let rules = output.physical.review.reports.flatMap { $0.diagnostics }.map { $0.ruleID ?? "?" }
+        #expect(output.passed, "sized cell (W=\(output.layoutWidthMicrons)µm) not clean: \(rules)")
+        #expect(FileManager.default.fileExists(atPath: output.physical.gdsURL.path(percentEncoded: false)),
+                "the GDS artifact must be emitted for the sized cell")
+    }
+
     @Test("The Sky130InverterGenerator output passes real DRC + Netgen LVS end-to-end",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func generatorOutputSignsOff() async throws {
