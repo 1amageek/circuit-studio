@@ -38,6 +38,10 @@ public final class HeadlessRoundTripService {
         public let processConfiguration: ProcessConfiguration?
         public let layoutTech: LayoutTechDatabase?
         public let continueAfterFailedPrePEXGate: Bool
+        /// Probe nodes to cross-check post-layout against the ngspice oracle. `nil`
+        /// (default) disables the cross-check; when set and ngspice is available, the
+        /// post-layout deck is also run in ngspice and the agreement is recorded.
+        public let oracleProbes: [String]?
 
         public init(
             projectRoot: URL,
@@ -58,7 +62,8 @@ public final class HeadlessRoundTripService {
             catalog: DeviceCatalog = .standard(),
             processConfiguration: ProcessConfiguration? = nil,
             layoutTech: LayoutTechDatabase? = nil,
-            continueAfterFailedPrePEXGate: Bool = false
+            continueAfterFailedPrePEXGate: Bool = false,
+            oracleProbes: [String]? = nil
         ) {
             self.projectRoot = projectRoot
             self.runID = runID
@@ -79,6 +84,7 @@ public final class HeadlessRoundTripService {
             self.processConfiguration = processConfiguration
             self.layoutTech = layoutTech
             self.continueAfterFailedPrePEXGate = continueAfterFailedPrePEXGate
+            self.oracleProbes = oracleProbes
         }
     }
 
@@ -579,6 +585,38 @@ public final class HeadlessRoundTripService {
             message: postLayoutResult.status.rawValue,
             durationSeconds: duration(since: postLayoutSimulationStartedAt)
         ))
+
+        // Optional independent-oracle cross-check: run the SAME post-layout deck in
+        // ngspice and record how far CoreSpice diverges. Opt-in (oracleProbes) and
+        // only when ngspice is reachable — evidence when available, no silent
+        // fallback when it is not.
+        if let probes = configuration.oracleProbes, !probes.isEmpty,
+           PostLayoutOracleService.ngspiceAvailable() {
+            let oracleStartedAt = Date()
+            do {
+                let agreement = try await PostLayoutOracleService().crossCheck(
+                    deck: postLayoutNetlist,
+                    command: configuration.postLayoutCommand,
+                    probes: probes
+                )
+                stages.append(Stage(
+                    name: "post-layout-oracle",
+                    status: agreement.consistent ? .passed : .failed,
+                    message: String(
+                        format: "CoreSpice vs ngspice max ΔV = %.4f V (tol %.3f)",
+                        agreement.maxDivergenceV, agreement.toleranceV
+                    ),
+                    durationSeconds: duration(since: oracleStartedAt)
+                ))
+            } catch {
+                stages.append(Stage(
+                    name: "post-layout-oracle",
+                    status: .failed,
+                    message: "oracle cross-check error: \(error.localizedDescription)",
+                    durationSeconds: duration(since: oracleStartedAt)
+                ))
+            }
+        }
         do {
             try await persistSimulationArtifacts(
                 postLayoutResult,

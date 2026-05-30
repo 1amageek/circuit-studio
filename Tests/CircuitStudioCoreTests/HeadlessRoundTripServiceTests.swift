@@ -38,6 +38,43 @@ struct HeadlessRoundTripServiceTests {
         try assertCompletedRoundTrip(roundTrip)
     }
 
+    @Test(.enabled(if: PostLayoutOracleService.ngspiceAvailable()), .timeLimit(.minutes(2)))
+    @MainActor
+    func cmosInverterRoundTripCrossChecksAgainstNgspiceOracle() async throws {
+        let testbench = Testbench(
+            name: "Transient",
+            analysisCommands: [.tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9))]
+        )
+        // Heavier output load so the post-layout edges are RC-smoothed and the raw
+        // max|ΔV| cross-tool comparison is robust (sharp logic edges otherwise put a
+        // large instantaneous ΔV at the transition for sub-ps cross-tool skew).
+        let pexIR = PEXParasiticIR(
+            version: "1.0",
+            cornerID: "tt_25c_1v0",
+            elements: [
+                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
+                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 50e-15),
+            ]
+        )
+        let roundTrip = try await runRoundTrip(
+            rootName: "cmos-oracle",
+            runID: "cmos-inverter-oracle",
+            title: "CMOS inverter round trip with ngspice oracle",
+            schematic: SchematicPreview.cmosInverterViewModel().document,
+            testbench: testbench,
+            postLayoutCommand: .tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9)),
+            pexIR: pexIR,
+            oracleProbes: ["out"]
+        )
+        defer { removeTemporaryRoot(roundTrip.projectRoot) }
+
+        let stage = try #require(
+            roundTrip.result.manifest.stages.first { $0.name == "post-layout-oracle" },
+            "the oracle stage must run when ngspice is available"
+        )
+        #expect(stage.status == .passed, "CoreSpice vs ngspice — \(stage.message)")
+    }
+
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func voltageDividerCompletesHeadlessRoundTripWithArtifacts() async throws {
@@ -818,7 +855,8 @@ struct HeadlessRoundTripServiceTests {
         schematic: SchematicDocument,
         testbench: Testbench,
         postLayoutCommand: AnalysisCommand,
-        pexIR: PEXParasiticIR
+        pexIR: PEXParasiticIR,
+        oracleProbes: [String]? = nil
     ) async throws -> RoundTripOutput {
         let root = try makeTemporaryRoot(rootName)
         let configuration = makeConfiguration(
@@ -828,7 +866,8 @@ struct HeadlessRoundTripServiceTests {
             testbench: testbench,
             postLayoutCommand: postLayoutCommand,
             pexIR: pexIR,
-            externalSignoffCommands: try makeSignoffCommands(in: root)
+            externalSignoffCommands: try makeSignoffCommands(in: root),
+            oracleProbes: oracleProbes
         )
 
         do {
@@ -966,7 +1005,8 @@ struct HeadlessRoundTripServiceTests {
         pexArtifactPaths: [String] = [],
         postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
         externalSignoffCommands: [ExternalSignoffCommand] = [],
-        externalSignoffReview: ExternalSignoffReview? = nil
+        externalSignoffReview: ExternalSignoffReview? = nil,
+        oracleProbes: [String]? = nil
     ) -> HeadlessRoundTripService.Configuration {
         HeadlessRoundTripService.Configuration(
             projectRoot: projectRoot,
@@ -981,7 +1021,8 @@ struct HeadlessRoundTripServiceTests {
             externalSignoffReview: externalSignoffReview,
             approvedBy: "layout-reviewer",
             approvedAt: Date(timeIntervalSince1970: 2_000),
-            createdAt: Date(timeIntervalSince1970: 1_000)
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            oracleProbes: oracleProbes
         )
     }
 
