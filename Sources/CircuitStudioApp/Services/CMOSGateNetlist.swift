@@ -1,0 +1,97 @@
+import Foundation
+
+/// A transistor-level netlist for a static CMOS complementary gate — the INTENT the
+/// agent supplies. The synthesizer turns it into a placed-and-routed Sky130 layout (and
+/// the matching reference schematic), so the SYSTEM produces the geometry, not a human.
+///
+/// Restricted to the static-CMOS series/parallel class (inverter, NANDk, NORk): the NMOS
+/// pull-down and PMOS pull-up are duals, one a series chain and the other a parallel set
+/// (the inverter is the degenerate single-device case).
+public struct CMOSGateNetlist: Sendable, Hashable, Codable, Identifiable {
+
+    public var id: String { name }
+
+    public enum DeviceKind: String, Sendable, Hashable, Codable { case nmos, pmos }
+
+    public struct Device: Sendable, Hashable, Codable {
+        public let name: String
+        public let kind: DeviceKind
+        public let gate: String
+        public let source: String
+        public let drain: String
+        public let width: Double
+        public let length: Double
+
+        public init(name: String, kind: DeviceKind, gate: String, source: String, drain: String,
+                    width: Double = 0.42, length: Double = 0.16) {
+            self.name = name
+            self.kind = kind
+            self.gate = gate
+            self.source = source
+            self.drain = drain
+            self.width = width
+            self.length = length
+        }
+    }
+
+    public let name: String
+    public let devices: [Device]
+    public let vpwr: String
+    public let vgnd: String
+    public let output: String
+
+    public init(name: String, devices: [Device], vpwr: String = "VPWR", vgnd: String = "VGND", output: String) {
+        self.name = name
+        self.devices = devices
+        self.vpwr = vpwr
+        self.vgnd = vgnd
+        self.output = output
+    }
+
+    public var nmos: [Device] { devices.filter { $0.kind == .nmos } }
+    public var pmos: [Device] { devices.filter { $0.kind == .pmos } }
+
+    // MARK: - Standard library cells
+
+    /// A CMOS inverter: Y = NOT(A).
+    public static func inverter(name: String = "inverter", input: String = "A", output: String = "Y") -> CMOSGateNetlist {
+        CMOSGateNetlist(name: name, devices: [
+            Device(name: "MP0", kind: .pmos, gate: input, source: "VPWR", drain: output),
+            Device(name: "MN0", kind: .nmos, gate: input, source: "VGND", drain: output),
+        ], output: output)
+    }
+
+    /// A CMOS NAND with `inputs.count` inputs: series NMOS pull-down, parallel PMOS
+    /// pull-up. Y = NOT(A and B and ...).
+    public static func nand(name: String, inputs: [String], output: String = "Y") -> CMOSGateNetlist {
+        var devices: [Device] = []
+        // Parallel PMOS: each input's PMOS ties VPWR -> output.
+        for (i, g) in inputs.enumerated() {
+            devices.append(Device(name: "MP\(i)", kind: .pmos, gate: g, source: "VPWR", drain: output))
+        }
+        // Series NMOS chain: output - g0 - n1 - g1 - n2 - ... - VGND.
+        for (i, g) in inputs.enumerated() {
+            let s = i == 0 ? output : "n\(i)"
+            let d = i == inputs.count - 1 ? "VGND" : "n\(i + 1)"
+            devices.append(Device(name: "MN\(i)", kind: .nmos, gate: g, source: s, drain: d))
+        }
+        return CMOSGateNetlist(name: name, devices: devices, output: output)
+    }
+
+    /// A CMOS NOR with `inputs.count` inputs: parallel NMOS pull-down, series PMOS
+    /// pull-up. Y = NOT(A or B or ...).
+    public static func nor(name: String, inputs: [String], output: String = "Y") -> CMOSGateNetlist {
+        var devices: [Device] = []
+        // Parallel NMOS: each input's NMOS ties output -> VGND.
+        for (i, g) in inputs.enumerated() {
+            devices.append(Device(name: "MN\(i)", kind: .nmos, gate: g, source: "VGND", drain: output))
+        }
+        // Series PMOS chain: VPWR - g0 - p1 - g1 - p2 - ... - output.
+        for (i, g) in inputs.enumerated() {
+            let s = i == 0 ? "VPWR" : "p\(i)"
+            let d = i == inputs.count - 1 ? output : "p\(i + 1)"
+            devices.append(Device(name: "MP\(i)", kind: .pmos, gate: g, source: s, drain: d))
+        }
+        return CMOSGateNetlist(name: name, devices: devices, output: output)
+    }
+}

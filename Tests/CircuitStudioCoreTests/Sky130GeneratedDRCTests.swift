@@ -86,6 +86,41 @@ struct Sky130GeneratedDRCTests {
         ])
     }
 
+    /// Synthesize a netlist into a layout + schematic, export, and sign off (DRC + LVS).
+    private func signoffSynthesized(_ netlist: CMOSGateNetlist) async throws -> ExternalSignoffReview {
+        let synth = Sky130StandardCellSynthesizer()
+        let doc = try synth.synthesize(netlist)
+        let schematic = synth.schematic(netlist)
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-synth-\(netlist.name)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gds = dir.appending(path: "\(netlist.name).gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(doc, to: gds, format: .gds)
+        let schematicURL = dir.appending(path: "\(netlist.name).spice")
+        try schematic.write(to: schematicURL, atomically: true, encoding: .utf8)
+        let signoff = try #require(LiveSignoffService.locate())
+        return try await signoff.run(layoutGDS: gds, topCell: netlist.name,
+                                     schematicNetlist: schematicURL, artifactDirectory: dir)
+    }
+
+    @Test("The standard-cell synthesizer auto-lays-out a netlist DRC + LVS clean",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)),
+          arguments: [
+            CMOSGateNetlist.inverter(name: "synth_inv"),
+            CMOSGateNetlist.nand(name: "synth_nand2", inputs: ["A", "B"]),
+            CMOSGateNetlist.nor(name: "synth_nor2", inputs: ["A", "B"]),
+            CMOSGateNetlist.nand(name: "synth_nand3", inputs: ["A", "B", "C"]),
+            CMOSGateNetlist.nor(name: "synth_nor3", inputs: ["A", "B", "C"]),
+          ])
+    func synthesizerSignsOff(netlist: CMOSGateNetlist) async throws {
+        // Place + route is done by the SYSTEM from the netlist topology — nand3/nor3 were
+        // never hand-laid, proving automatic layout synthesis (not a golden fixture).
+        let review = try await signoffSynthesized(netlist)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "\(netlist.name) DRC: \(drc.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("A generated poly contact (npc + poly licon) passes real Magic Sky130 DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func polyContactClean() async throws {
