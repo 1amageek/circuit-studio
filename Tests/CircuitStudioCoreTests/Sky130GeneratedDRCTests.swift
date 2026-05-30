@@ -117,6 +117,64 @@ struct Sky130GeneratedDRCTests {
         ])
     }
 
+    /// A series NMOS pair on ONE diff strip: two poly gates (A, B) cross a single n+
+    /// active, with contacts only at the two ENDS (GND, Y); the middle node between the
+    /// gates is shared diffusion (no contact) — the NAND2 pull-down stack. This is the
+    /// new pattern a multi-input cell needs: more than one gate over one diffusion.
+    private func nmosSeriesStack(cell: String) -> LayoutDocument {
+        document(cell: cell, shapes: [
+            // single n+ active spanning both gates + both end contacts
+            rect("diff", 0.00, 0.00, 1.58, 0.42),
+            rect("nsdm", -0.125, -0.125, 1.83, 0.67),
+            // two poly gates, 0.42 µm apart (gap 0.42 >= poly.2 0.21)
+            rect("poly", 0.42, -0.13, 0.16, 0.68),
+            rect("poly", 1.00, -0.13, 0.16, 0.68),
+            // end contacts only (the middle node is contact-less shared diffusion)
+            rect("licon1", 0.10, 0.125, 0.17, 0.17),
+            rect("licon1", 1.31, 0.125, 0.17, 0.17),
+            rect("li1", 0.02, 0.045, 0.33, 0.33),
+            rect("li1", 1.23, 0.045, 0.33, 0.33),
+        ])
+    }
+
+    @Test("A generated series-NMOS pair (two gates on one diff) passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func nmosSeriesStackClean() async throws {
+        let report = try await runDRC(cell: "gen_nmos_series", document: nmosSeriesStack(cell: "gen_nmos_series"))
+        #expect(report.passed,
+                "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
+    /// A parallel PMOS pair on ONE p-diff strip in n-well: two poly gates (A, B) cross a
+    /// single p+ active, with VDD contacts at the two ENDS and a shared Y contact in the
+    /// MIDDLE — the NAND2 pull-up. Both drains tie to the middle (Y), both sources to
+    /// the ends (VDD): the two devices are in parallel.
+    private func pmosParallelPair(cell: String) -> LayoutDocument {
+        document(cell: cell, shapes: [
+            rect("diff", 0.00, 0.00, 1.58, 0.42),
+            rect("psdm", -0.125, -0.125, 1.83, 0.67),
+            // n-well enclosing the p-diff by 0.21 (>= 0.18), >= 0.84 tall (nwell.1)
+            rect("nwell", -0.21, -0.21, 2.00, 0.84),
+            rect("poly", 0.42, -0.13, 0.16, 0.68),
+            rect("poly", 1.00, -0.13, 0.16, 0.68),
+            // VDD (left, right) + shared Y (middle)
+            rect("licon1", 0.10, 0.125, 0.17, 0.17),
+            rect("licon1", 0.65, 0.125, 0.17, 0.17),
+            rect("licon1", 1.31, 0.125, 0.17, 0.17),
+            rect("li1", 0.02, 0.045, 0.33, 0.33),
+            rect("li1", 0.57, 0.045, 0.33, 0.33),
+            rect("li1", 1.23, 0.045, 0.33, 0.33),
+        ])
+    }
+
+    @Test("A generated parallel-PMOS pair (two gates on one p-diff in n-well) passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func pmosParallelPairClean() async throws {
+        let report = try await runDRC(cell: "gen_pmos_parallel", document: pmosParallelPair(cell: "gen_pmos_parallel"))
+        #expect(report.passed,
+                "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("A generated minimal PMOS (p-diff in n-well) passes real Magic Sky130 DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func pmosTransistorClean() async throws {
