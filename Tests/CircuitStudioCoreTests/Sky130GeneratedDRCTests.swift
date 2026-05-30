@@ -175,6 +175,19 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("M1: the D flip-flop netlist is auto placed & routed DRC + LVS clean",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func dffSignsOff() async throws {
+        // A gate-level DFF (master/slave NAND latches + clock inverter) — the system
+        // places & routes its latch feedback and clock fanout automatically.
+        let dff = Sky130DFFGenerator().netlist(name: "dff")
+        let review = try await signoffCircuit(dff)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "DFF DRC: \(drc.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "DFF LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("The router handles multi-fanout and feedback (DRC + LVS clean)",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func routerHandlesFanoutAndFeedback() async throws {

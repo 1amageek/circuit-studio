@@ -129,18 +129,12 @@ public struct Sky130CircuitSynthesizer: Sendable {
         for inst in order {
             let cl = try cellSynth.layout(inst.cell)
             for s in cl.shapes { shapes.append(try shifted(s, dx: offsetX)) }
-            // Keep only top-level port labels. An internal net (a gate driven by another
-            // cell, or an output that is not the circuit output) is connected by physical
-            // routing and stays UNLABELLED, so it is not promoted to a port and is matched
-            // by topology — labelling it would falsely make it a port (pin mismatch) and
-            // could also mask a missing wire.
-            for lbl in cl.labels {
-                let circuitNet = inst.net(lbl.text)
-                let isGate = inst.cell.devices.contains { $0.gate == lbl.text }
-                let isOutput = lbl.text == inst.cell.output
-                if isGate && !primaries.contains(circuitNet) { continue }
-                if isOutput && circuitNet != netlist.output { continue }
-                labels.append(label(circuitNet, layerName(of: lbl.layer),
+            // Keep only the per-cell power-rail labels. Every signal net (primary inputs,
+            // internal nets, the output) is physically ROUTED and labelled ONCE on its
+            // met2 track below — same-name poly labels on separate cells do NOT merge in
+            // Magic, so a multi-fanout primary input would otherwise extract as open nets.
+            for lbl in cl.labels where lbl.text == inst.cell.vpwr || lbl.text == inst.cell.vgnd {
+                labels.append(label(inst.net(lbl.text), layerName(of: lbl.layer),
                                     lbl.position.x + offsetX, lbl.position.y))
             }
             placed.append(Placed(inst: inst, cell: cl, offsetX: offsetX))
@@ -163,25 +157,35 @@ public struct Sky130CircuitSynthesizer: Sendable {
         for p in placed {
             for g in Set(p.inst.cell.devices.map(\.gate)) {
                 let net = p.inst.net(g)
-                guard !primaries.contains(net), net != netlist.vpwr, net != netlist.vgnd else { continue }
+                guard net != netlist.vpwr, net != netlist.vgnd else { continue }
                 guard let gateLocalX = p.cell.gateNetX[g] else { continue }
-                let sinkX = p.offsetX + gateLocalX + 0.08   // poly-contact centre
                 shapes.append(contentsOf: polyContact(p.offsetX + gateLocalX))
-                sinkTapsByNet[net, default: []].append(sinkX)
+                sinkTapsByNet[net, default: []].append(p.offsetX + gateLocalX + 0.08)
             }
         }
-        for (index, net) in sinkTapsByNet.keys.sorted().enumerated() {
-            guard let drv = driver[net] else { throw RouteError.noDriver(net: net) }
-            // Driver taps its met2 output bus; sinks tap their li1 gate contacts; both rise
-            // (on met1) to this net's met2 track. Tracks sit above the cells' output buses.
-            let driverTapX = drv.offsetX + drv.cell.outputRightX - 0.165   // rightmost output, clear of left gates
+        // Route EVERY signal net (including primary inputs, which fan out to several gates)
+        // on its own met2 track: the driver (if any) taps its met2 output bus, each sink
+        // taps its li1 gate contact, all rising on met1. Primary inputs and the output get
+        // one met2 label (the port); internal nets are matched by topology.
+        let allNets = Set(sinkTapsByNet.keys).union(driver.keys)
+            .subtracting([netlist.vpwr, netlist.vgnd])
+        for (index, net) in allNets.sorted().enumerated() {
             let sinks = sinkTapsByNet[net] ?? []
             let trackY = 3.6 + Double(index) * 0.50
-            shapes.append(contentsOf: driverTap(driverTapX, trackY: trackY))
+            var xs = sinks
+            if let drv = driver[net] {
+                let driverTapX = drv.offsetX + drv.cell.outputRightX - 0.165
+                shapes.append(contentsOf: driverTap(driverTapX, trackY: trackY))
+                xs.append(driverTapX)
+            } else if sinks.isEmpty {
+                continue
+            }
             for x in sinks { shapes.append(contentsOf: viaUp(x, trackY: trackY)) }
-            let xs = [driverTapX] + sinks
             let minX = xs.min() ?? 0, maxX = xs.max() ?? 0
-            shapes.append(rect("met2", minX - 0.165, trackY - 0.165, (maxX - minX) + 0.33, 0.33))
+            shapes.append(rect("met2", minX - 0.165, trackY - 0.165, max(maxX - minX, 0) + 0.33, 0.33))
+            if primaries.contains(net) || net == netlist.output {
+                labels.append(label(net, "met2", (xs.first ?? minX), trackY))
+            }
         }
 
         var cell = LayoutCell(name: netlist.name, shapes: shapes)
