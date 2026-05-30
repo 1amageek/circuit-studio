@@ -272,6 +272,22 @@ struct Sky130GeneratedDRCTests {
         #expect(output.review.reports.contains { $0.kind == .lvs && $0.passed })
     }
 
+    @Test("Sky130CellSignoffService synthesizes the NOR2 generator, signs it off, and emits GDS",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func synthesizeNOR2SignsOff() async throws {
+        // The dual of the NAND2 (parallel NMOS / series PMOS) through the same flow.
+        let service = try #require(Sky130CellSignoffService.locate())
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-nor2-flow-\(UUID().uuidString)")
+        let output = try await service.synthesize(Sky130NOR2Generator(), name: "sky130_nor2", into: dir)
+
+        let rules = output.review.reports.flatMap { $0.diagnostics }.map { $0.ruleID ?? "?" }
+        #expect(output.passed, "synthesized NOR2 must be DRC + LVS clean: \(rules)")
+        #expect(FileManager.default.fileExists(atPath: output.gdsURL.path(percentEncoded: false)),
+                "the GDS artifact must be emitted")
+        #expect(output.review.reports.contains { $0.kind == .drc && $0.passed })
+        #expect(output.review.reports.contains { $0.kind == .lvs && $0.passed })
+    }
+
     @Test("A generated parallel-PMOS pair (two gates on one p-diff in n-well) passes real Magic Sky130 DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func pmosParallelPairClean() async throws {
