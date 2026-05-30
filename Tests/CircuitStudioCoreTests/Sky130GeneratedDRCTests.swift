@@ -175,6 +175,19 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("M2: a 4-bit clocked accumulator is auto placed & routed DRC + LVS clean",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func accumulatorSignsOff() async throws {
+        // The first sequential DATAPATH: a ripple adder + 4 DFFs (~80 cells), placed &
+        // routed automatically. Its function is checked separately by the logic simulator.
+        let netlist = Sky130AccumulatorGenerator(bits: 4).gateLevelNetlist(name: "acc4")
+        let review = try await signoffCircuit(netlist)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "acc DRC: \(drc.diagnostics.prefix(6).map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "acc LVS: \(lvs.diagnostics.prefix(6).map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("M1: the D flip-flop netlist is auto placed & routed DRC + LVS clean",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func dffSignsOff() async throws {

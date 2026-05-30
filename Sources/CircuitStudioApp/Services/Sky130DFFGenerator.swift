@@ -27,14 +27,22 @@ public struct Sky130DFFGenerator: Sendable {
         return out
     }
 
-    /// The gate-level DFF netlist (inputs D, clk; output Q).
+    /// The gate-level DFF as a standalone netlist (inputs D, clk; output Q).
     public func netlist(name: String = "dff", d: String = "D", clk: String = "CLK",
                         q: String = "Q") -> GateLevelNetlist {
+        GateLevelNetlist(name: name, instances: instances(prefix: name, d: d, clk: clk, q: q),
+                         inputs: [d, clk], output: q)
+    }
+
+    /// The DFF's cell instances with all internal nets/instances uniquified by `prefix`,
+    /// so several flip-flops (a register) compose without net collisions.
+    public func instances(prefix: String, d: String, clk: String, q: String) -> [GateLevelNetlist.Instance] {
+        let clkb = "\(prefix)_clkb", m = "\(prefix)_m"
         var insts: [GateLevelNetlist.Instance] = [
-            .init(name: "clkinv", cell: .inverter(name: "inv"), netMap: ["A": clk, "Y": "clkb"]),
+            .init(name: "\(prefix)_clkinv", cell: .inverter(name: "inv"), netMap: ["A": clk, "Y": clkb]),
         ]
-        insts += latch(prefix: "m", d: d, en: "clkb", q: "m")   // master, transparent clk=0
-        insts += latch(prefix: "s", d: "m", en: clk, q: q)      // slave, transparent clk=1
-        return GateLevelNetlist(name: name, instances: insts, inputs: [d, clk], output: q)
+        insts += latch(prefix: "\(prefix)_m", d: d, en: clkb, q: m)   // master, transparent clk=0
+        insts += latch(prefix: "\(prefix)_s", d: m, en: clk, q: q)    // slave, transparent clk=1
+        return insts
     }
 }

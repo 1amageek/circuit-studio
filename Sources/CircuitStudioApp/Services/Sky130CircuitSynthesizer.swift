@@ -114,6 +114,22 @@ public struct Sky130CircuitSynthesizer: Sendable {
         ]
     }
 
+    /// Tie a gate's field li1 contact (centre `cx`) straight to a power rail with one li1
+    /// strap — down into the VGND rail (below the cell) or up into the VPWR rail (above).
+    /// Used when a gate INPUT is a constant rail (e.g. a ripple adder's carry-in = VGND, or
+    /// a two's-complement subtractor's carry-in = VPWR): the gate is a constant, not a
+    /// routed signal, so it never gets a track — it bonds to the rail in place. Running at
+    /// the gate column (between source/drain contacts) keeps >= 0.17 li1 spacing.
+    private func railStrap(_ cx: Double, toVGND: Bool) -> [LayoutShape] {
+        let fieldY = Sky130StandardCellSynthesizer.CellLayout.fieldY
+        if toVGND {
+            // VGND rail spans y -1.08 ... -0.46; the field pad bottom is fieldY - 0.165.
+            return [rect("li1", cx - 0.165, -0.60, 0.33, (fieldY) - (-0.60))]
+        }
+        // VPWR rail spans y 2.10 ... 2.55; bridge from the field pad up into it.
+        return [rect("li1", cx - 0.165, fieldY, 0.33, 2.30 - fieldY)]
+    }
+
     // MARK: - synthesis
 
     public func synthesize(_ netlist: GateLevelNetlist) throws -> LayoutDocument {
@@ -157,10 +173,18 @@ public struct Sky130CircuitSynthesizer: Sendable {
         for p in placed {
             for g in Set(p.inst.cell.devices.map(\.gate)) {
                 let net = p.inst.net(g)
-                guard net != netlist.vpwr, net != netlist.vgnd else { continue }
                 guard let gateLocalX = p.cell.gateNetX[g] else { continue }
+                let cx = p.offsetX + gateLocalX + 0.08
                 shapes.append(contentsOf: polyContact(p.offsetX + gateLocalX))
-                sinkTapsByNet[net, default: []].append(p.offsetX + gateLocalX + 0.08)
+                // A gate tied to a rail is a constant: bond it to the rail in place. A gate
+                // on a signal net taps up to that net's met2 track (routed below).
+                if net == netlist.vgnd {
+                    shapes.append(contentsOf: railStrap(cx, toVGND: true))
+                } else if net == netlist.vpwr {
+                    shapes.append(contentsOf: railStrap(cx, toVGND: false))
+                } else {
+                    sinkTapsByNet[net, default: []].append(cx)
+                }
             }
         }
         // Route EVERY signal net (including primary inputs, which fan out to several gates)
@@ -183,7 +207,7 @@ public struct Sky130CircuitSynthesizer: Sendable {
             for x in sinks { shapes.append(contentsOf: viaUp(x, trackY: trackY)) }
             let minX = xs.min() ?? 0, maxX = xs.max() ?? 0
             shapes.append(rect("met2", minX - 0.165, trackY - 0.165, max(maxX - minX, 0) + 0.33, 0.33))
-            if primaries.contains(net) || net == netlist.output {
+            if primaries.contains(net) || netlist.outputs.contains(net) {
                 labels.append(label(net, "met2", (xs.first ?? minX), trackY))
             }
         }
@@ -207,7 +231,7 @@ public struct Sky130CircuitSynthesizer: Sendable {
             if let mapped = inst.netMap[local] { return mapped }
             return "\(inst.name)_\(local)"   // internal node, uniquified
         }
-        let ports = (netlist.inputs + [netlist.output, netlist.vpwr, netlist.vgnd]).joined(separator: " ")
+        let ports = (netlist.inputs + netlist.outputs + [netlist.vpwr, netlist.vgnd]).joined(separator: " ")
         var lines = ["* synthesized circuit \(netlist.name)", ".subckt \(netlist.name) \(ports)"]
         for inst in netlist.instances {
             for (i, d) in inst.cell.devices.enumerated() {

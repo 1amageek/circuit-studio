@@ -50,6 +50,18 @@ struct GateLevelLogicSimulatorTests {
         #expect(q == [false, true, false, true, true])
     }
 
+    @Test("M2 functional: a 4-bit clocked accumulator adds its input every cycle")
+    func accumulatorAccumulates() throws {
+        let seq = Sky130AccumulatorGenerator(bits: 4).sequentialNetlist(name: "acc")
+        func run(addend: Int, cycles n: Int) -> [Int] {
+            let vec = (0..<4).reduce(into: [String: Bool]()) { $0["in\($1)"] = (addend >> $1) & 1 == 1 }
+            let trace = try! sim.simulate(seq, cycles: Array(repeating: vec, count: n))
+            return trace.map { t in (0..<4).reduce(0) { $0 | ((t["acc\($1)"] ?? false) ? (1 << $1) : 0) } }
+        }
+        #expect(run(addend: 1, cycles: 6) == [0, 1, 2, 3, 4, 5])
+        #expect(run(addend: 3, cycles: 7) == [0, 3, 6, 9, 12, 15, 2])   // mod 16
+    }
+
     @Test("A toggle flip-flop (q fed back through an inverter) alternates each cycle")
     func toggleFlipFlop() throws {
         let seq = SequentialNetlist(

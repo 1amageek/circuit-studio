@@ -27,16 +27,24 @@ public struct GateLevelNetlist: Sendable, Hashable, Codable, Identifiable {
     public let name: String
     public let instances: [Instance]
     public let inputs: [String]
-    public let output: String
+    public let outputs: [String]
     public let vpwr: String
     public let vgnd: String
 
+    /// The first (or only) output net.
+    public var output: String { outputs.first ?? "" }
+
     public init(name: String, instances: [Instance], inputs: [String], output: String,
+                vpwr: String = "VPWR", vgnd: String = "VGND") {
+        self.init(name: name, instances: instances, inputs: inputs, outputs: [output], vpwr: vpwr, vgnd: vgnd)
+    }
+
+    public init(name: String, instances: [Instance], inputs: [String], outputs: [String],
                 vpwr: String = "VPWR", vgnd: String = "VGND") {
         self.name = name
         self.instances = instances
         self.inputs = inputs
-        self.output = output
+        self.outputs = outputs
         self.vpwr = vpwr
         self.vgnd = vgnd
     }
