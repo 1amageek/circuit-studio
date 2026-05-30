@@ -101,6 +101,30 @@ struct Sky130GeneratedDRCTests {
                 "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    /// A minimal PMOS: like the NMOS but the active is p+ (psdm) inside an n-well that
+    /// encloses the p-diff by >= 0.18 (diff/tap.8) and is itself >= 0.84 wide (nwell.1).
+    private func pmosTransistor(cell: String) -> LayoutDocument {
+        document(cell: cell, shapes: [
+            rect("diff", 0.00, 0.00, 1.00, 0.42),
+            rect("poly", 0.42, -0.13, 0.16, 0.68),
+            rect("psdm", -0.125, -0.125, 1.25, 0.67),
+            // n-well enclosing the p-diff by 0.21 (>= 0.18) and 0.84 tall (>= nwell.1).
+            rect("nwell", -0.21, -0.21, 1.42, 0.84),
+            rect("licon1", 0.10, 0.125, 0.17, 0.17),
+            rect("licon1", 0.73, 0.125, 0.17, 0.17),
+            rect("li1", 0.02, 0.045, 0.33, 0.33),
+            rect("li1", 0.65, 0.045, 0.33, 0.33),
+        ])
+    }
+
+    @Test("A generated minimal PMOS (p-diff in n-well) passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func pmosTransistorClean() async throws {
+        let report = try await runDRC(cell: "gen_pmos", document: pmosTransistor(cell: "gen_pmos"))
+        #expect(report.passed,
+                "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("A generated li1-mcon-met1 via stack passes real Magic DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func viaStackClean() async throws {
