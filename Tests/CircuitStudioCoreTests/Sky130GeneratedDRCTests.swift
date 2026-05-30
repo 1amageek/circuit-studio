@@ -336,6 +336,95 @@ struct Sky130GeneratedDRCTests {
                 "the GDS artifact must be emitted for the sized cell")
     }
 
+    @Test("Physical loop: two too-close met1 wires are spaced apart to DRC-clean, driven by the named violation",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func physicalLoopSpacesTooCloseWires() async throws {
+        // The physical analog of the spec loop: start below met1 minimum spacing, let
+        // DRC name the violation (met1.2), route the report through the Explain stage,
+        // and let the loop grow the gap (Decide -> Edit) until it is clean —
+        // failure-driven, not a fixed script.
+        let drc = try #require(Sky130LayoutDRC.locate())
+        let loop = PhysicalDesignLoop(drc: drc)
+        let cell = "gen_met1_pair"
+        let tunable = PhysicalDesignLoop.Tunable(
+            parameter: "met1_gap", fixesReason: "min_spacing_violation", onLayer: "met1",
+            stepFactor: 1.3, minValue: 0.10, maxValue: 0.30
+        )
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-physloop-\(UUID().uuidString)")
+
+        let outcome = try await loop.run(
+            initial: 0.10, tunable: tunable, cellName: cell, into: dir, maxIterations: 6
+        ) { gap in
+            // Two legal-width (0.20) met1 wires `gap` µm apart on the y axis.
+            let lower = LayoutShape(layer: Sky130LayoutTech.layer("met1"),
+                geometry: .rect(LayoutRect(origin: LayoutPoint(x: 0, y: 0), size: LayoutSize(width: 2.0, height: 0.20))))
+            let upper = LayoutShape(layer: Sky130LayoutTech.layer("met1"),
+                geometry: .rect(LayoutRect(origin: LayoutPoint(x: 0, y: 0.20 + gap), size: LayoutSize(width: 2.0, height: 0.20))))
+            let cellIR = LayoutCell(name: cell, shapes: [lower, upper])
+            return LayoutDocument(name: cell, cells: [cellIR], topCellID: cellIR.id)
+        }
+
+        #expect(outcome.converged,
+                "iters: \(outcome.iterations.map { ($0.parameterValue, $0.passed, $0.blockingRules) })")
+        let first = try #require(outcome.iterations.first)
+        #expect(first.passed == false, "a 0.10µm gap must violate met1 min spacing (0.14)")
+        #expect(first.blockingRules.contains { $0.lowercased().contains("met1") },
+                "the violation must be named met1.x: \(first.blockingRules)")
+        #expect(outcome.finalParameter >= 0.14 - 1e-9, "must space to >= met1 minimum spacing")
+        #expect(outcome.finalReport.passed, "the final geometry must be DRC-clean")
+    }
+
+    /// A DRC stub that is never expected to run — for the budget guard, which throws
+    /// before any check.
+    private struct UnusedDRC: LayoutDRCChecking {
+        func check(_ document: LayoutDocument, cell: String, in directory: URL) async throws -> ExternalSignoffToolReport {
+            throw CancellationError()
+        }
+    }
+
+    @Test("Physical loop rejects a non-positive budget (no silent pass)")
+    func physicalLoopRejectsNonPositiveBudget() async {
+        let loop = PhysicalDesignLoop(drc: UnusedDRC())
+        let tunable = PhysicalDesignLoop.Tunable(
+            parameter: "met1_gap", fixesReason: "min_spacing_violation", onLayer: "met1",
+            stepFactor: 1.3, minValue: 0.10, maxValue: 0.30
+        )
+        await #expect(throws: PhysicalDesignLoop.LoopError.nonPositiveBudget) {
+            _ = try await loop.run(
+                initial: 0.10, tunable: tunable, cellName: "x",
+                into: FileManager.default.temporaryDirectory, maxIterations: 0
+            ) { _ in LayoutDocument(name: "x", cells: [LayoutCell(name: "x", shapes: [])], topCellID: LayoutCell(name: "x", shapes: []).id) }
+        }
+    }
+
+    @Test("Physical loop refuses to 'fix' a violation its tunable does not address",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func physicalLoopRefusesUnaddressableViolation() async throws {
+        // Same too-close-wires geometry (a SPACING violation), but the tunable claims to
+        // fix a WIDTH violation — the loop must throw, not blindly grow or silently pass.
+        let drc = try #require(Sky130LayoutDRC.locate())
+        let loop = PhysicalDesignLoop(drc: drc)
+        let cell = "gen_met1_pair_unfixable"
+        let tunable = PhysicalDesignLoop.Tunable(
+            parameter: "met1_width", fixesReason: "min_width_violation", onLayer: "met1",
+            stepFactor: 1.3, minValue: 0.10, maxValue: 0.30
+        )
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-physloop-unfix-\(UUID().uuidString)")
+
+        await #expect(throws: PhysicalDesignLoop.LoopError.self) {
+            _ = try await loop.run(
+                initial: 0.10, tunable: tunable, cellName: cell, into: dir, maxIterations: 4
+            ) { gap in
+                let lower = LayoutShape(layer: Sky130LayoutTech.layer("met1"),
+                    geometry: .rect(LayoutRect(origin: LayoutPoint(x: 0, y: 0), size: LayoutSize(width: 2.0, height: 0.20))))
+                let upper = LayoutShape(layer: Sky130LayoutTech.layer("met1"),
+                    geometry: .rect(LayoutRect(origin: LayoutPoint(x: 0, y: 0.20 + gap), size: LayoutSize(width: 2.0, height: 0.20))))
+                let cellIR = LayoutCell(name: cell, shapes: [lower, upper])
+                return LayoutDocument(name: cell, cells: [cellIR], topCellID: cellIR.id)
+            }
+        }
+    }
+
     @Test("The Sky130InverterGenerator output passes real DRC + Netgen LVS end-to-end",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func generatorOutputSignsOff() async throws {
