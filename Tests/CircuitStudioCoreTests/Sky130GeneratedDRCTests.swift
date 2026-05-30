@@ -243,6 +243,19 @@ struct Sky130GeneratedDRCTests {
         #expect(output.review.reports.contains { $0.kind == .lvs && $0.passed })
     }
 
+    @Test("The generator signs off clean across transistor widths (DRC + LVS)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)),
+          arguments: [0.42, 0.65, 1.00, 1.50])
+    func widthParameterizedSignsOff(width: Double) async throws {
+        // The parametric floorplan must hold across the supported width range — this is
+        // the link from electrical sizing (W) to a signed-off physical cell.
+        let service = try #require(Sky130CellSignoffService.locate())
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-w-\(UUID().uuidString)")
+        let output = try await service.synthesizeInverter(name: "sky130_inverter", width: width, into: dir)
+        let rules = output.review.reports.flatMap { $0.diagnostics }.map { $0.ruleID ?? "?" }
+        #expect(output.passed, "width \(width) not clean: \(rules)")
+    }
+
     @Test("The Sky130InverterGenerator output passes real DRC + Netgen LVS end-to-end",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func generatorOutputSignsOff() async throws {

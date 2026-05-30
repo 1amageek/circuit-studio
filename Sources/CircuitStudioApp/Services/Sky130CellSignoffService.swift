@@ -38,6 +38,7 @@ public struct Sky130CellSignoffService: Sendable {
     /// `directory`, runs real DRC + LVS, and returns the artifacts and review.
     public func synthesizeInverter(
         name: String = "sky130_inverter",
+        width: Double = 0.42,
         into directory: URL,
         generator: Sky130InverterGenerator = Sky130InverterGenerator()
     ) async throws -> Output {
@@ -45,10 +46,10 @@ public struct Sky130CellSignoffService: Sendable {
 
         let gdsURL = directory.appending(path: "\(name).gds")
         try MaskDataFormatConverter(tech: Sky130LayoutTech.tech())
-            .exportDocument(generator.generate(name: name), to: gdsURL, format: .gds)
+            .exportDocument(generator.generate(name: name, width: width), to: gdsURL, format: .gds)
 
         let schematicURL = directory.appending(path: "\(name).spice")
-        try generator.schematic(name: name).write(to: schematicURL, atomically: true, encoding: .utf8)
+        try generator.schematic(name: name, width: width).write(to: schematicURL, atomically: true, encoding: .utf8)
 
         let review = try await signoff.run(
             layoutGDS: gdsURL, topCell: name,
