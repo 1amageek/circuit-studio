@@ -160,6 +160,49 @@ struct Sky130GeneratedDRCTests {
                 "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    private func label(_ text: String, _ layer: String, _ x: Double, _ y: Double) -> LayoutLabel {
+        LayoutLabel(text: text, position: LayoutPoint(x: x, y: y), layer: Sky130LayoutTech.layer(layer))
+    }
+
+    /// The inverter core with port net labels (A on the poly gate, Y on the output
+    /// strip, VPWR/VGND on the source landings) so the extracted netlist names match.
+    private func labeledInverter(cell: String) -> LayoutDocument {
+        var doc = inverterCore(cell: cell)
+        var c = doc.cells[0]
+        c.labels = [
+            label("A", "poly", 0.50, 0.90),
+            label("Y", "li1", 0.81, 0.95),
+            label("VPWR", "li1", 0.18, 1.60),
+            label("VGND", "li1", 0.18, 0.20),
+        ]
+        doc.cells[0] = c
+        return doc
+    }
+
+    @Test("The generated inverter extracts as two FETs (an nfet and a pfet)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func inverterExtractsTwoFETs() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-ext-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gds = dir.appending(path: "gen_inverter.gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech())
+            .exportDocument(labeledInverter(cell: "gen_inverter"), to: gds, format: .gds)
+
+        let drc = try #require(MagicDRCSignoff.locate())
+        let extractor = MagicLayoutExtractor(
+            magicExecutableURL: drc.magicExecutableURL, rcFileURL: drc.rcFileURL,
+            pdkRoot: drc.pdkRoot, driverScriptURL: try #require(MagicLayoutExtractor.bundledDriverScriptURL)
+        )
+        let netlistURL = try extractor.extractLayoutNetlist(gds: gds, cell: "gen_inverter", into: dir)
+        let netlist = try String(contentsOf: netlistURL, encoding: .utf8)
+
+        let devices = netlist.split(whereSeparator: \.isNewline).filter { $0.first == "X" || $0.first == "M" }
+        let nfets = netlist.lowercased().components(separatedBy: "nfet").count - 1
+        let pfets = netlist.lowercased().components(separatedBy: "pfet").count - 1
+        #expect(devices.count == 2, "expected 2 devices; netlist:\n\(netlist)")
+        #expect(nfets >= 1 && pfets >= 1, "expected an nfet and a pfet; netlist:\n\(netlist)")
+    }
+
     @Test("A generated li1-mcon-met1 via stack passes real Magic DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func viaStackClean() async throws {
