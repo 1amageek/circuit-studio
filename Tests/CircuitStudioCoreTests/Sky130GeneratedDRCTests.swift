@@ -125,6 +125,41 @@ struct Sky130GeneratedDRCTests {
                 "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    /// A CMOS inverter core: NMOS (bottom, n+) and PMOS (top, p+ in n-well) sharing a
+    /// vertical poly gate (input), with the two drains joined by a li1 strip (output)
+    /// and separate li1 source landings. Built from the proven transistor blocks.
+    private func inverterCore(cell: String) -> LayoutDocument {
+        document(cell: cell, shapes: [
+            // NMOS active + n+ implant (bottom)
+            rect("diff", 0.00, 0.00, 1.00, 0.42),
+            rect("nsdm", -0.125, -0.125, 1.25, 0.67),
+            // PMOS active + p+ implant + n-well (top)
+            rect("diff", 0.00, 1.40, 1.00, 0.42),
+            rect("psdm", -0.125, 1.275, 1.25, 0.67),
+            rect("nwell", -0.21, 1.19, 1.42, 0.84),
+            // shared poly gate (input), endcaps 0.13 beyond both actives
+            rect("poly", 0.42, -0.13, 0.16, 2.08),
+            // source/drain contacts (NMOS y~0.125, PMOS y~1.525), sources left, drains right
+            rect("licon1", 0.10, 0.125, 0.17, 0.17),
+            rect("licon1", 0.73, 0.125, 0.17, 0.17),
+            rect("licon1", 0.10, 1.525, 0.17, 0.17),
+            rect("licon1", 0.73, 1.525, 0.17, 0.17),
+            // li1: separate source landings (left) + a tall output strip joining both
+            // drains (right) = node Y
+            rect("li1", 0.02, 0.045, 0.33, 0.33),
+            rect("li1", 0.02, 1.445, 0.33, 0.33),
+            rect("li1", 0.65, 0.045, 0.33, 1.81),
+        ])
+    }
+
+    @Test("A generated CMOS inverter core passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func inverterCoreClean() async throws {
+        let report = try await runDRC(cell: "gen_inverter", document: inverterCore(cell: "gen_inverter"))
+        #expect(report.passed,
+                "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("A generated li1-mcon-met1 via stack passes real Magic DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func viaStackClean() async throws {
