@@ -228,6 +228,21 @@ struct Sky130GeneratedDRCTests {
                 "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("Sky130CellSignoffService synthesizes an inverter, signs it off, and emits GDS",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func synthesizeSignoffEmitGDS() async throws {
+        // The whole agent-callable physical flow in one call.
+        let service = try #require(Sky130CellSignoffService.locate())
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-flow-\(UUID().uuidString)")
+        let output = try await service.synthesizeInverter(name: "sky130_inverter", into: dir)
+
+        #expect(output.passed, "synthesized cell must be DRC + LVS clean")
+        #expect(FileManager.default.fileExists(atPath: output.gdsURL.path(percentEncoded: false)),
+                "the GDS artifact must be emitted")
+        #expect(output.review.reports.contains { $0.kind == .drc && $0.passed })
+        #expect(output.review.reports.contains { $0.kind == .lvs && $0.passed })
+    }
+
     @Test("The Sky130InverterGenerator output passes real DRC + Netgen LVS end-to-end",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func generatorOutputSignsOff() async throws {
