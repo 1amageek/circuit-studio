@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import CoreSpiceEvent
 
 /// Executes ngspice in batch mode and returns the generated RAW output.
@@ -69,10 +70,28 @@ public struct NgspiceRunner: Sendable {
         return rawURL
     }
 
+    /// Await the child's termination via its `terminationHandler` (the process-monitoring
+    /// dispatch source) rather than `waitUntilExit()`. On a detached task with no run loop,
+    /// `waitUntilExit()` can hang indefinitely even after the child has already been
+    /// reaped — its internal wait misses the termination signal. The handler fires reliably;
+    /// an `isRunning` check covers the race where the child exited before it was installed,
+    /// and a resume-once latch guarantees the continuation resumes exactly one time.
     private func waitForTermination(_ process: Process) async {
-        await Task.detached {
-            process.waitUntilExit()
-        }.value
+        let hasResumed = Mutex(false)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeOnce: @Sendable () -> Void = {
+                let shouldResume = hasResumed.withLock { resumed -> Bool in
+                    if resumed { return false }
+                    resumed = true
+                    return true
+                }
+                if shouldResume { continuation.resume() }
+            }
+            process.terminationHandler = { _ in resumeOnce() }
+            // terminationHandler only fires on the running -> terminated transition; if the
+            // child already exited, fire it ourselves.
+            if !process.isRunning { resumeOnce() }
+        }
     }
 
     /// Resolves the ngspice executable. An absolute/relative path (containing `/`)
