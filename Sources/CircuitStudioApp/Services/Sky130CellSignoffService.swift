@@ -34,6 +34,31 @@ public struct Sky130CellSignoffService: Sendable {
             .map(Sky130CellSignoffService.init(signoff:))
     }
 
+    /// Synthesizes ANY `Sky130CellGenerator` cell: writes its GDS + reference schematic
+    /// under `directory`, runs real DRC + LVS, and returns the artifacts and review.
+    /// This is the cell-agnostic agent entry point — a new cell type needs only a new
+    /// generator, no change here.
+    public func synthesize(
+        _ generator: some Sky130CellGenerator,
+        name: String,
+        into directory: URL
+    ) async throws -> Output {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let gdsURL = directory.appending(path: "\(name).gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech())
+            .exportDocument(generator.generate(name: name), to: gdsURL, format: .gds)
+
+        let schematicURL = directory.appending(path: "\(name).spice")
+        try generator.schematic(name: name).write(to: schematicURL, atomically: true, encoding: .utf8)
+
+        let review = try await signoff.run(
+            layoutGDS: gdsURL, topCell: name,
+            schematicNetlist: schematicURL, artifactDirectory: directory
+        )
+        return Output(cellName: name, gdsURL: gdsURL, schematicURL: schematicURL, review: review)
+    }
+
     /// Synthesizes the inverter, writes its GDS + reference schematic under
     /// `directory`, runs real DRC + LVS, and returns the artifacts and review.
     public func synthesizeInverter(

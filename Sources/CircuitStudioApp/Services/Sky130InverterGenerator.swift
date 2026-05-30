@@ -10,9 +10,15 @@ import LayoutTech
 ///
 /// The cell carries port net labels (A, Y, VPWR, VGND); the NMOS/PMOS bulks are tied
 /// to their rails by p+/n+ substrate/well taps.
-public struct Sky130InverterGenerator: Sendable {
+public struct Sky130InverterGenerator: Sky130CellGenerator {
 
     public init() {}
+
+    /// Cell layout at the default device width (`Sky130CellGenerator` entry point).
+    public func generate(name: String) -> LayoutDocument { generate(name: name, width: 0.42) }
+
+    /// Reference schematic at the default device width (`Sky130CellGenerator` entry point).
+    public func schematic(name: String) -> String { schematic(name: name, width: 0.42) }
 
     private func rect(_ layer: String, _ x: Double, _ y: Double, _ w: Double, _ h: Double) -> LayoutShape {
         LayoutShape(
@@ -34,7 +40,7 @@ public struct Sky130InverterGenerator: Sendable {
     /// derived from the active height so the floorplan scales while keeping every
     /// Sky130 minimum (poly endcap 0.13, contact enclosures, tap-contact enclosure
     /// 0.12, n-well enclosure 0.18). Verified DRC + LVS clean across the supported range.
-    public func generate(name: String = "inverter", width: Double = 0.42) -> LayoutDocument {
+    public func generate(name: String, width: Double) -> LayoutDocument {
         let w = max(Self.minWidth, width)
         let pmosBot = w + 0.98                 // PMOS active bottom (field gap 0.98)
         let pmosTop = pmosBot + w              // PMOS active top
@@ -80,7 +86,7 @@ public struct Sky130InverterGenerator: Sendable {
     /// The reference schematic the generated layout matches under LVS. Its ports (A, Y,
     /// VPWR, VGND) match the layout's labeled-net ports by name (the extractor promotes
     /// labels to ports), so Netgen matches ports by name.
-    public func schematic(name: String = "inverter", width: Double = 0.42) -> String {
+    public func schematic(name: String, width: Double) -> String {
         let w = String(format: "%g", max(Self.minWidth, width))
         return """
         * generated Sky130 inverter reference
