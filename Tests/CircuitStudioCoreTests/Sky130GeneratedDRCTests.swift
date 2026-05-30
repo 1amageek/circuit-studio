@@ -179,6 +179,87 @@ struct Sky130GeneratedDRCTests {
         return doc
     }
 
+    /// The inverter with well/substrate taps so both FET bulks become named rails:
+    /// an n+ tap in the n-well tied to VPWR, a p+ tap in the substrate tied to VGND.
+    private func tappedInverter(cell: String) -> LayoutDocument {
+        let shapes: [LayoutShape] = [
+            // NMOS active + n+ implant
+            rect("diff", 0.00, 0.00, 1.00, 0.42),
+            rect("nsdm", -0.125, -0.125, 1.25, 0.67),
+            // PMOS active + p+ implant + n-well (extended up to hold the n-well tap)
+            rect("diff", 0.00, 1.40, 1.00, 0.42),
+            rect("psdm", -0.125, 1.275, 1.25, 0.67),
+            rect("nwell", -0.21, 1.19, 1.42, 1.57),    // extended up to enclose the n-well tap by 0.18
+            // shared poly gate
+            rect("poly", 0.42, -0.13, 0.16, 2.08),
+            // source/drain contacts
+            rect("licon1", 0.10, 0.125, 0.17, 0.17),
+            rect("licon1", 0.73, 0.125, 0.17, 0.17),
+            rect("licon1", 0.10, 1.525, 0.17, 0.17),
+            rect("licon1", 0.73, 1.525, 0.17, 0.17),
+            // output li1 joining the two drains (Y)
+            rect("li1", 0.65, 0.045, 0.33, 1.81),
+            // p+ substrate tap (-> VGND): tap encloses its licon1 by 0.12 (licon.7)
+            rect("diff", 0.045, -0.785, 0.41, 0.41),
+            rect("psdm", -0.08, -0.91, 0.66, 0.66),
+            rect("licon1", 0.165, -0.665, 0.17, 0.17),
+            rect("li1", 0.02, -0.81, 0.41, 1.185),      // VGND: NMOS source + substrate tap (enclose by 0.08)
+            // n+ n-well tap (-> VPWR): tap encloses its licon1 by 0.12, n-well by 0.18
+            rect("diff", 0.045, 2.17, 0.41, 0.41),
+            rect("nsdm", -0.08, 2.045, 0.66, 0.66),
+            rect("licon1", 0.165, 2.29, 0.17, 0.17),
+            rect("li1", 0.02, 1.445, 0.41, 1.105),      // VPWR: PMOS source + n-well tap
+        ]
+        var c = LayoutCell(name: cell, shapes: shapes)
+        c.labels = [
+            label("A", "poly", 0.50, 0.90),
+            label("Y", "li1", 0.81, 0.95),
+            label("VPWR", "li1", 0.18, 2.00),
+            label("VGND", "li1", 0.18, 0.20),
+        ]
+        return LayoutDocument(name: cell, cells: [c], topCellID: c.id)
+    }
+
+    @Test("A generated inverter with well/substrate taps passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func tappedInverterClean() async throws {
+        let report = try await runDRC(cell: "gen_inv_tapped", document: tappedInverter(cell: "gen_inv_tapped"))
+        #expect(report.passed,
+                "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
+    @Test("The generated inverter matches its schematic under real Netgen LVS",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func inverterMatchesSchematicLVS() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-lvs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gds = dir.appending(path: "gen_inv_tapped.gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech())
+            .exportDocument(tappedInverter(cell: "gen_inv_tapped"), to: gds, format: .gds)
+
+        // The matching schematic: NMOS (VGND<->Y) and PMOS (VPWR<->Y), shared gate A,
+        // bulks tied to their rails (as the taps do in the layout). No port list — the
+        // extracted layout cell has none (its labels are nets), so Netgen matches the
+        // named nets directly instead of failing on port declarations.
+        let schematic = """
+        * generated inverter reference
+        .subckt gen_inv_tapped
+        X0 Y A VPWR VPWR sky130_fd_pr__pfet_01v8 w=0.42 l=0.16
+        X1 Y A VGND VGND sky130_fd_pr__nfet_01v8 w=0.42 l=0.16
+        .ends
+        """
+        let schematicURL = dir.appending(path: "gen_inv_tapped.spice")
+        try schematic.write(to: schematicURL, atomically: true, encoding: .utf8)
+
+        let signoff = try #require(LiveSignoffService.locate())
+        let review = try await signoff.run(
+            layoutGDS: gds, topCell: "gen_inv_tapped",
+            schematicNetlist: schematicURL, artifactDirectory: dir
+        )
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) }); netlist at \(dir.path)")
+    }
+
     @Test("The generated inverter extracts as two FETs (an nfet and a pfet)",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func inverterExtractsTwoFETs() async throws {
