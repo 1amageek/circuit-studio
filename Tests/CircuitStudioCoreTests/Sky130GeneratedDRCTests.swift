@@ -153,6 +153,19 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "\(netlist.name) LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("Logic intent -> GDS: a Boolean expression is mapped, placed, routed, DRC + LVS clean",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func booleanExpressionSignsOff() async throws {
+        // Y = (A AND B) OR C — intent only; the system maps it to gates and lays it out.
+        let expr = BooleanGateMapper.Expr.or(.and(.input("A"), .input("B")), .input("C"))
+        let netlist = BooleanGateMapper().map(expr, name: "circ_aoi", output: "y")
+        let review = try await signoffCircuit(netlist)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "DRC: \(drc.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("A generated poly contact (npc + poly licon) passes real Magic Sky130 DRC",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func polyContactClean() async throws {

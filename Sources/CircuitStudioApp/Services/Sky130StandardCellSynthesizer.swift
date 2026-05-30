@@ -93,7 +93,10 @@ public struct Sky130StandardCellSynthesizer: Sendable {
 
     // MARK: - geometry constants
 
-    private static let gate0X = 0.42, gatePitch = 0.58, gateLen = 0.16
+    // Gate pitch is wide enough (1.05) that a routed input poly contact on a gate clears
+    // the cell's own output li1 trunk (which sits between gates for a parallel network),
+    // so a cell can be a sink in a circuit without shorting its input to its output.
+    private static let gate0X = 0.42, gatePitch = 1.05, gateLen = 0.16
     private static let nmosY = 0.0, pmosBot = 1.40, deviceW = 0.42
     private func gateX(_ i: Int) -> Double { Self.gate0X + Double(i) * Self.gatePitch }
     // Extra drain-side room (1.3 vs the minimal 1.0) so a routed input poly contact on a
