@@ -48,6 +48,7 @@ public struct PostLayoutOracleService: Sendable {
 
     public enum OracleError: Error, LocalizedError, Equatable {
         case noProbes
+        case deckRequiresExternalModels
         case coreSpiceProducedNoWaveform
         case probeNotFound(probe: String, tool: String)
 
@@ -55,6 +56,8 @@ public struct PostLayoutOracleService: Sendable {
             switch self {
             case .noProbes:
                 return "The oracle cross-check needs at least one probe node."
+            case .deckRequiresExternalModels:
+                return "The deck needs models outside CoreSpice's envelope (e.g. BSIM), so CoreSpice cannot simulate it — the cross-check would compare ngspice against itself. Render the design within CoreSpice's level-1/2/3 + RLC envelope first."
             case .coreSpiceProducedNoWaveform:
                 return "CoreSpice produced no waveform for the oracle deck."
             case .probeNotFound(let probe, let tool):
@@ -102,6 +105,13 @@ public struct PostLayoutOracleService: Sendable {
         toleranceV: Double = 0.1
     ) async throws -> Agreement {
         guard !probes.isEmpty else { throw OracleError.noProbes }
+
+        // If the deck needs external models, CoreSpice's own runAnalysis would itself
+        // route to ngspice — the cross-check would silently compare ngspice against
+        // ngspice and always "agree". Refuse loudly instead of reporting false trust.
+        if external.requiresExternalSimulation(source: deck, fileName: "oracle.cir", processConfiguration: nil) {
+            throw OracleError.deckRequiresExternalModels
+        }
 
         let csResult = try await simulation.runAnalysis(
             source: deck, fileName: "oracle.cir", processConfiguration: nil, command: command

@@ -76,8 +76,27 @@ public struct SignoffEvaluationService: Sendable {
         )
     }
 
+    /// DRC rule codes whose meaning we have verified, mapped to a failure mode and
+    /// concrete next actions. Only these are classified confidently; the numeric
+    /// suffix is NOT a reliable dimension-class encoding across all Sky130 rules, so
+    /// an unknown code is reported generically rather than guessed (a wrong `reason`
+    /// would be an unverified claim presented as fact).
+    private static let knownDRCRules: [String: (reason: String, actions: [String])] = [
+        "met1.1": ("min_width_violation", ["widen_met1_shape"]),
+        "met1.2": ("min_spacing_violation", ["increase_spacing_between_met1_shapes", "reroute_to_widen_the_channel"]),
+        "met2.1": ("min_width_violation", ["widen_met2_shape"]),
+        "met2.2": ("min_spacing_violation", ["increase_spacing_between_met2_shapes", "reroute_to_widen_the_channel"]),
+        "poly.1": ("min_width_violation", ["widen_poly_shape"]),
+        "poly.2": ("min_spacing_violation", ["increase_spacing_between_poly_shapes"]),
+        "li1.1": ("min_width_violation", ["widen_li1_shape"]),
+        "li1.2": ("min_spacing_violation", ["increase_spacing_between_li1_shapes"]),
+        "difftap.2": ("min_spacing_violation", ["increase_spacing_between_diffusion_shapes"]),
+    ]
+
     /// Maps a tool rule to a failure mode and concrete next actions. The rule code is
     /// the source of truth; the actions are how an agent or human moves the design.
+    /// Unknown DRC codes are reported as a generic violation (with the code) rather
+    /// than classified by a heuristic that could mislabel them.
     private func classify(
         stage: ExternalSignoffToolReport.Kind,
         diagnostic: ExternalSignoffDiagnostic
@@ -100,31 +119,10 @@ public struct SignoffEvaluationService: Sendable {
             if rule == "driver" {
                 return ("drc_tool_error", ["inspect_drc_driver_log", "verify_cell_loaded"])
             }
-            // Sky130/Magic rule codes encode the dimension class in the suffix
-            // (e.g. met1.2 = metal1 spacing, *.1 = width, *.3 = enclosure/extension).
-            if rule.hasSuffix(".2") {
-                return ("min_spacing_violation", [
-                    "increase_spacing_between_shapes_on_\(layer(of: rule))",
-                    "reroute_to_widen_the_channel",
-                ])
+            if let known = Self.knownDRCRules[rule] {
+                return known
             }
-            if rule.hasSuffix(".1") {
-                return ("min_width_violation", ["widen_shape_on_\(layer(of: rule))"])
-            }
-            if rule.hasSuffix(".3") || rule.hasSuffix(".4") {
-                return ("enclosure_or_extension_violation", [
-                    "extend_enclosing_layer_around_\(layer(of: rule))",
-                ])
-            }
-            return ("drc_violation", ["inspect_rule_\(diagnostic.ruleID ?? "unknown")"])
+            return ("drc_violation", ["inspect_rule_\(diagnostic.ruleID ?? "unknown")_in_the_pdk_drc_manual"])
         }
-    }
-
-    /// The layer prefix of a rule code (e.g. "met1" from "met1.2").
-    private func layer(of rule: String) -> String {
-        if let dot = rule.firstIndex(of: ".") {
-            return String(rule[rule.startIndex..<dot])
-        }
-        return rule.isEmpty ? "unknown" : rule
     }
 }

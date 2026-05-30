@@ -49,6 +49,27 @@ struct SignoffEvaluationServiceTests {
         #expect(lvs?.suggestedActions.isEmpty == false)
     }
 
+    @Test("An unknown DRC rule is reported generically, not mislabeled by a suffix guess")
+    func unknownRuleIsReportedHonestly() {
+        // A ".2" suffix is NOT a reliable spacing marker across all rules; an unknown
+        // code must not be confidently labeled a spacing violation.
+        let review = ExternalSignoffReview(reports: [
+            ExternalSignoffToolReport(
+                kind: .drc, toolName: "magic", success: true, logPath: "/tmp/drc.log",
+                diagnostics: [
+                    ExternalSignoffDiagnostic(
+                        severity: .error, message: "some unusual rule",
+                        ruleID: "exotic.2", rawLine: "VIOLATION rule=exotic.2"
+                    ),
+                ]
+            ),
+        ])
+        let finding = try? #require(SignoffEvaluationService().evaluate(review).findings.first)
+        #expect(finding?.reason == "drc_violation")            // generic, not "min_spacing_violation"
+        #expect(finding?.ruleID == "exotic.2")                 // ground truth preserved
+        #expect(finding?.suggestedActions.contains { $0.contains("exotic.2") } == true)
+    }
+
     @Test("A clean review yields no findings and passes")
     func cleanReviewHasNoFindings() {
         let review = ExternalSignoffReview(reports: [

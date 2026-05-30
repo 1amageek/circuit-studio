@@ -52,4 +52,24 @@ struct PostLayoutOracleServiceTests {
             )
         }
     }
+
+    @Test("A deck outside CoreSpice's envelope is refused (no false ngspice-vs-ngspice agreement)")
+    func outOfEnvelopeDeckRefused() async throws {
+        // A BSIM-class device routes CoreSpice's own runAnalysis to ngspice; without
+        // the guard the cross-check would compare ngspice against itself and "agree".
+        let deck = """
+        * out-of-envelope deck
+        V1 in 0 dc 1
+        M1 out in 0 0 NCH w=1u l=0.15u
+        .model NCH nmos level=72
+        """
+        let oracle = PostLayoutOracleService()
+        await #expect(throws: PostLayoutOracleService.OracleError.deckRequiresExternalModels) {
+            _ = try await oracle.crossCheck(
+                deck: deck,
+                command: .tran(TranSpec(stopTime: 1e-9, stepTime: 1e-12)),
+                probes: ["out"]
+            )
+        }
+    }
 }
