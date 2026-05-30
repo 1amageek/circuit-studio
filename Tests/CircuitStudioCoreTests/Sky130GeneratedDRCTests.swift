@@ -94,6 +94,111 @@ struct Sky130GeneratedDRCTests {
                 "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    /// A two-stage CMOS buffer = two inverter slices in one cell (continuous n-well +
+    /// shared VPWR/VGND rails + p/n taps), with stage-1 output (mid) routed to stage-2
+    /// input via a poly contact. This is the first multi-cell COMPOSITION — a circuit,
+    /// not a single cell. Y = A.
+    private func bufferComposite(cell: String) -> LayoutDocument {
+        var c = LayoutCell(name: cell, shapes: [
+            // --- NMOS slice 1 (stage 1) / slice 2 (stage 2), 0.40 gap ---
+            rect("diff", 0.00, 0.00, 1.00, 0.42),
+            rect("licon1", 0.10, 0.125, 0.17, 0.17),    // VGND (stage1 source)
+            rect("licon1", 0.73, 0.125, 0.17, 0.17),    // mid  (stage1 NMOS drain)
+            rect("diff", 1.40, 0.00, 1.00, 0.42),
+            rect("licon1", 1.50, 0.125, 0.17, 0.17),    // VGND (stage2 source)
+            rect("licon1", 2.13, 0.125, 0.17, 0.17),    // Y    (stage2 NMOS drain)
+            rect("nsdm", -0.125, -0.125, 2.65, 0.67),
+            // --- PMOS slice 1 / slice 2 ---
+            rect("diff", 0.00, 1.40, 1.00, 0.42),
+            rect("licon1", 0.10, 1.525, 0.17, 0.17),    // VPWR (stage1 source)
+            rect("licon1", 0.73, 1.525, 0.17, 0.17),    // mid  (stage1 PMOS drain)
+            rect("diff", 1.40, 1.40, 1.00, 0.42),
+            rect("licon1", 1.50, 1.525, 0.17, 0.17),    // VPWR (stage2 source)
+            rect("licon1", 2.13, 1.525, 0.17, 0.17),    // Y    (stage2 PMOS drain)
+            rect("psdm", -0.125, 1.275, 2.65, 0.67),
+            rect("nwell", -0.21, 1.19, 2.82, 1.60),
+            // --- gates ---
+            rect("poly", 0.42, -0.13, 0.16, 2.08),      // A (stage1 gate)
+            rect("poly", 1.82, -0.13, 0.16, 2.08),      // mid (stage2 gate)
+            // --- drains joined into output li1 per stage ---
+            rect("li1", 0.65, 0.045, 0.33, 1.81),       // mid (stage1 output)
+            rect("li1", 2.05, 0.045, 0.33, 1.81),       // Y   (stage2 output)
+            // --- A: buffer input poly contact (left of gate A, in the field) ---
+            rect("poly", 0.09, 0.74, 0.43, 0.33),
+            rect("npc", 0.07, 0.72, 0.37, 0.37),
+            rect("licon1", 0.17, 0.82, 0.17, 0.17),
+            rect("li1", 0.09, 0.74, 0.33, 0.33),        // input pin A
+            // --- stage2 gate input poly contact + route from mid ---
+            rect("poly", 1.55, 0.74, 0.43, 0.33),
+            rect("npc", 1.53, 0.72, 0.37, 0.37),
+            rect("licon1", 1.63, 0.82, 0.17, 0.17),
+            rect("li1", 1.55, 0.74, 0.33, 0.33),
+            rect("li1", 0.65, 0.82, 0.90, 0.25),        // mid route: stage1 out -> stage2 in
+            // --- VPWR rail (top): both PMOS sources + n-well tap ---
+            rect("li1", 0.02, 1.445, 0.33, 1.105),      // VPWR stage1 up to rail
+            rect("li1", 1.42, 1.445, 0.33, 1.105),      // VPWR stage2 up to rail
+            rect("li1", 0.02, 2.10, 2.53, 0.45),        // VPWR rail
+            rect("diff", 1.10, 2.20, 0.41, 0.41),       // n+ n-well tap
+            rect("nsdm", 0.975, 2.075, 0.66, 0.66),
+            rect("licon1", 1.22, 2.32, 0.17, 0.17),
+            // --- VGND rail (bottom): both NMOS sources + p+ substrate tap ---
+            rect("li1", 0.02, -1.08, 0.33, 1.455),      // VGND stage1 down to rail
+            rect("li1", 1.42, -1.08, 0.33, 1.455),      // VGND stage2 down to rail
+            rect("li1", 0.02, -1.08, 2.53, 0.62),       // VGND rail
+            rect("diff", 1.10, -1.20, 0.41, 0.41),      // p+ substrate tap
+            rect("psdm", 0.975, -1.325, 0.66, 0.66),
+            rect("licon1", 1.22, -1.08, 0.17, 0.17),
+        ])
+        c.labels = [
+            label("A", "li1", 0.20, 0.90),
+            label("Y", "li1", 2.21, 0.95),
+            label("VPWR", "li1", 1.20, 2.30),
+            label("VGND", "li1", 1.20, -0.70),
+        ]
+        return LayoutDocument(name: cell, cells: [c], topCellID: c.id)
+    }
+
+    @Test("A generated two-stage buffer (two abutted inverters) passes real Magic Sky130 DRC",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func bufferCompositeClean() async throws {
+        let report = try await runDRC(cell: "gen_buffer", document: bufferComposite(cell: "gen_buffer"))
+        #expect(report.passed,
+                "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
+    @Test("The generated buffer matches its two-inverter schematic under real Netgen LVS",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func bufferMatchesSchematicLVS() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-buf-lvs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gds = dir.appending(path: "gen_buffer.gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech())
+            .exportDocument(bufferComposite(cell: "gen_buffer"), to: gds, format: .gds)
+
+        // Two cascaded inverters: stage 1 (A -> mid), stage 2 (mid -> Y). `mid` is the
+        // internal net (stage-1 output li1 + route + stage-2 gate contact), matched by
+        // topology. Ports A, Y, VPWR, VGND match the layout's labeled-net ports by name.
+        let schematic = """
+        * generated two-stage buffer reference
+        .subckt gen_buffer A Y VPWR VGND
+        X0 mid A VPWR VPWR sky130_fd_pr__pfet_01v8 w=0.42 l=0.16
+        X1 mid A VGND VGND sky130_fd_pr__nfet_01v8 w=0.42 l=0.16
+        X2 Y mid VPWR VPWR sky130_fd_pr__pfet_01v8 w=0.42 l=0.16
+        X3 Y mid VGND VGND sky130_fd_pr__nfet_01v8 w=0.42 l=0.16
+        .ends
+        """
+        let schematicURL = dir.appending(path: "gen_buffer.spice")
+        try schematic.write(to: schematicURL, atomically: true, encoding: .utf8)
+
+        let signoff = try #require(LiveSignoffService.locate())
+        let review = try await signoff.run(
+            layoutGDS: gds, topCell: "gen_buffer",
+            schematicNetlist: schematicURL, artifactDirectory: dir
+        )
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) }); netlist at \(dir.path)")
+    }
+
     /// A minimal NMOS: an n+ active strip with a poly gate across it (endcaps beyond
     /// diff), nsdm implant enclosing the active, and licon1+li1 contacts on the
     /// source/drain. Dimensions follow Sky130 minimums (poly.8 endcap 0.13, licon1
