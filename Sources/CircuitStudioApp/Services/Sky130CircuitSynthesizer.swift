@@ -48,7 +48,13 @@ public struct Sky130CircuitSynthesizer: Sendable {
                     return primaries.contains(net) || driverOf[net].map(placed.contains) == true
                 }
             }
-            guard !ready.isEmpty else { throw RouteError.combinationalCycle }
+            if ready.isEmpty {
+                // A feedback loop (e.g. a latch): no instance has all inputs driven yet.
+                // Place the remaining instances in order — the met2 channel router wires
+                // the back-edges regardless of left/right placement.
+                result.append(contentsOf: remaining)
+                break
+            }
             for inst in ready { result.append(inst); placed.insert(inst.name) }
             let readyNames = Set(ready.map(\.name))
             remaining.removeAll { readyNames.contains($0.name) }
@@ -69,6 +75,19 @@ public struct Sky130CircuitSynthesizer: Sendable {
     }
     private func label(_ t: String, _ layer: String, _ x: Double, _ y: Double) -> LayoutLabel {
         LayoutLabel(text: t, position: LayoutPoint(x: x, y: y), layer: Sky130LayoutTech.layer(layer))
+    }
+
+    /// Lift a li1 tap at field y up to a met2 track: an mcon (li1->met1), a continuous
+    /// 0.29-wide met1 riser, and a via (met1->met2) at the track. The li1 pad merges with
+    /// the underlying trunk/contact; mcon and via are at different y (not stacked).
+    private func viaUp(_ x: Double, trackY: Double) -> [LayoutShape] {
+        let y = Sky130StandardCellSynthesizer.CellLayout.fieldY
+        return [
+            rect("li1", x - 0.165, y - 0.165, 0.33, 0.33),                       // covers the mcon
+            rect("mcon", x - 0.085, y - 0.085, 0.17, 0.17),
+            rect("met1", x - 0.165, y - 0.165, 0.33, (trackY + 0.165) - (y - 0.165)),  // riser (encl 0.09)
+            rect("via", x - 0.075, trackY - 0.075, 0.15, 0.15),
+        ]
     }
 
     /// A poly input contact (pad + npc + licon + li1) on a gate at column-left `gx`, field y.
@@ -123,22 +142,30 @@ public struct Sky130CircuitSynthesizer: Sendable {
         shapes.append(rect("li1", -0.10, -1.08, rightEdge + 0.20, 0.62))  // VGND rail
 
         // 3) Route every internal (driven, non-primary-output... including output) net to its sinks.
+        // 3) Route each internal net on its own met2 track (2-layer channel routing:
+        //    met1 vertical risers from li1 taps, met2 horizontal tracks above the row).
+        //    Layer separation (met1 up / met2 across) avoids same-layer crossings, so
+        //    arbitrary connectivity works: multi-fanout, non-adjacent, and feedback.
         let driver = Dictionary(uniqueKeysWithValues: placed.map { (netlist.driverNet(of: $0.inst), $0) })
+        var sinkTapsByNet: [String: [Double]] = [:]
         for p in placed {
             for g in Set(p.inst.cell.devices.map(\.gate)) {
                 let net = p.inst.net(g)
                 guard !primaries.contains(net), net != netlist.vpwr, net != netlist.vgnd else { continue }
-                guard let drv = driver[net] else { throw RouteError.noDriver(net: net) }
                 guard let gateLocalX = p.cell.gateNetX[g] else { continue }
-                let sinkX = p.offsetX + gateLocalX
-                shapes.append(contentsOf: polyContact(sinkX))
-                // li1 run from the driver output trunk to the sink poly contact.
-                let dLeft = drv.offsetX + drv.cell.outputLeftX
-                let sCx = sinkX + 0.08
-                let routeLeft = min(dLeft, sCx - 0.165)
-                let routeRight = max(drv.offsetX + drv.cell.outputRightX, sCx + 0.165)
-                shapes.append(rect("li1", routeLeft, 0.82, routeRight - routeLeft, 0.17))
+                let sinkX = p.offsetX + gateLocalX + 0.08   // poly-contact centre
+                shapes.append(contentsOf: polyContact(p.offsetX + gateLocalX))
+                sinkTapsByNet[net, default: []].append(sinkX)
             }
+        }
+        for (index, net) in sinkTapsByNet.keys.sorted().enumerated() {
+            guard let drv = driver[net] else { throw RouteError.noDriver(net: net) }
+            let driverTapX = drv.offsetX + (drv.cell.outputLeftX + drv.cell.outputRightX) / 2
+            let taps = [driverTapX] + (sinkTapsByNet[net] ?? [])
+            let trackY = 3.0 + Double(index) * 0.50   // 0.33 track + 0.17 > met2 spacing 0.14
+            for x in taps { shapes.append(contentsOf: viaUp(x, trackY: trackY)) }
+            let minX = taps.min() ?? 0, maxX = taps.max() ?? 0
+            shapes.append(rect("met2", minX - 0.165, trackY - 0.165, (maxX - minX) + 0.33, 0.33))
         }
 
         var cell = LayoutCell(name: netlist.name, shapes: shapes)
