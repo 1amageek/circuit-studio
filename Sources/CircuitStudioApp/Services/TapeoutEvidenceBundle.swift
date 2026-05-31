@@ -13,6 +13,11 @@ public struct TapeoutEvidenceBundle: Sendable, Codable, Hashable {
         case timing       // STA setup/hold closure (and STA⇔SPICE agreement)
         case drc          // Magic design-rule check
         case lvs          // Netgen layout-vs-schematic
+        case erc          // electrical-rule check (floating/multiply-driven/undriven nets)
+        case antenna      // Magic antennacheck (gate-oxide plasma-charge protection)
+        case density      // Magic metal-density window (CMP)
+        case ir           // power-grid IR drop (CoreSpice DC, ngspice-validated)
+        case em           // electromigration current-density limit
     }
 
     public struct Claim: Sendable, Codable, Hashable {

@@ -142,29 +142,24 @@ public struct SpecToSiliconFlow: Sendable {
                                              timingBuild.sequentialReport.timing.holdTime * 1e12),
                             artifact: sequentialURL.path))
 
-        // 3) PHYSICAL — synthesize the core and sign it off with the real toolchain (gated).
-        var gdsURL: URL? = nil
-        if signoffAvailable, let signoff = LiveSignoffService.locate() {
-            let netlist = generator.gateLevelNetlist(name: intent.designName)
-            let synth = Sky130CircuitSynthesizer()
-            let doc = try synth.synthesize(netlist)
-            let gds = artifactDirectory.appending(path: "\(intent.designName).gds")
-            try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(doc, to: gds, format: .gds)
-            let spiceURL = artifactDirectory.appending(path: "\(intent.designName).spice")
-            try synth.referenceSPICE(netlist).write(to: spiceURL, atomically: true, encoding: .utf8)
-            let review = try await signoff.run(layoutGDS: gds, topCell: intent.designName,
-                                               schematicNetlist: spiceURL, artifactDirectory: artifactDirectory)
-            gdsURL = gds
-            if let drc = review.reports.first(where: { $0.kind == .drc }) {
-                claims.append(.init(axis: .drc, statement: "Magic Sky130 DRC clean", passed: drc.passed,
-                                    measured: drc.passed ? "0 violations" : "\(drc.diagnostics.count) violations",
-                                    artifact: drc.logPath))
-            }
-            if let lvs = review.reports.first(where: { $0.kind == .lvs }) {
-                claims.append(.init(axis: .lvs, statement: "Netgen LVS matches the schematic", passed: lvs.passed,
-                                    measured: lvs.passed ? "match" : "mismatch", artifact: lvs.logPath))
-            }
-        }
+        // 3) PHYSICAL — synthesize the core and run the FULL physical deck. ERC, IR drop and EM
+        //    always run (in-process); DRC, LVS, antenna and density run on the real toolchain
+        //    when present and are honestly omitted otherwise. Every axis the flow runs is
+        //    reported truthfully — a failing axis fails the bundle, never a curated green.
+        let netlist = generator.gateLevelNetlist(name: intent.designName)
+        let synth = Sky130CircuitSynthesizer()
+        let doc = try synth.synthesize(netlist)
+        let gds = artifactDirectory.appending(path: "\(intent.designName).gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(doc, to: gds, format: .gds)
+        let spiceURL = artifactDirectory.appending(path: "\(intent.designName).spice")
+        try synth.referenceSPICE(netlist).write(to: spiceURL, atomically: true, encoding: .utf8)
+
+        let runGated = signoffAvailable && LiveSignoffService.locate() != nil
+        let deck = try await PhysicalSignoffDeck(runGatedTools: runGated).run(
+            netlist: netlist, gds: gds, topCell: intent.designName,
+            schematicNetlist: spiceURL, artifactDirectory: artifactDirectory)
+        claims.append(contentsOf: deck.claims)
+        let gdsURL: URL? = runGated ? gds : nil
 
         let bundle = TapeoutEvidenceBundle(designName: intent.designName,
                                            targetClockPeriod: intent.targetClockPeriod,

@@ -10,6 +10,11 @@ public struct ConstraintVerdict: Sendable, Hashable, Codable {
         case timing       // STA setup/hold closure
         case drc          // Magic design-rule check
         case lvs          // Netgen layout-vs-schematic
+        case erc          // electrical-rule check (floating/multiply-driven/undriven nets)
+        case antenna      // Magic antennacheck (gate-oxide plasma-charge protection)
+        case density      // Magic metal-density window (CMP)
+        case ir           // power-grid IR drop (CoreSpice DC, ngspice-validated)
+        case em           // electromigration current-density limit
     }
 
     public let axis: Axis
@@ -93,5 +98,39 @@ public struct MultiConstraintSignoff: Sendable {
     public static func lvs(passed: Bool, evidence: String) -> ConstraintVerdict {
         ConstraintVerdict(axis: .lvs, passed: passed,
                           summary: passed ? "LVS matched" : "LVS mismatch", evidence: evidence)
+    }
+
+    public static func erc(_ report: ERCReport, evidence: String) -> ConstraintVerdict {
+        ConstraintVerdict(axis: .erc, passed: report.passed,
+                          summary: report.passed ? "ERC clean" : "\(report.errors.count) ERC errors",
+                          evidence: evidence)
+    }
+
+    public static func antenna(passed: Bool, violationCount: Int, evidence: String) -> ConstraintVerdict {
+        ConstraintVerdict(axis: .antenna, passed: passed,
+                          summary: passed ? "antenna clean" : "\(violationCount) antenna violations",
+                          evidence: evidence)
+    }
+
+    public static func density(_ report: DensityReport, evidence: String) -> ConstraintVerdict {
+        ConstraintVerdict(axis: .density, passed: report.passed, summary: report.summary, evidence: evidence)
+    }
+
+    public static func ir(_ result: IRDropResult, evidence: String) -> ConstraintVerdict {
+        ConstraintVerdict(
+            axis: .ir, passed: result.passed,
+            summary: String(format: "IR drop %@ (%.1f mV worst at %@, budget %.1f mV)",
+                            result.passed ? "within budget" : "EXCEEDS budget",
+                            result.maxIRDropVolts * 1e3, result.worstTapLabel, result.budgetVolts * 1e3),
+            evidence: evidence)
+    }
+
+    public static func em(_ result: ElectromigrationChecker.Result, evidence: String) -> ConstraintVerdict {
+        ConstraintVerdict(
+            axis: .em, passed: result.passed,
+            summary: String(format: "EM %@ (worst %.0f A/m at %@, limit %.0f A/m)",
+                            result.passed ? "within limit" : "EXCEEDS limit",
+                            result.worstDensity, result.worstSegment ?? "?", result.limitAmperesPerMeter),
+            evidence: evidence)
     }
 }
