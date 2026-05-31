@@ -103,6 +103,27 @@ struct Sky130GeneratedDRCTests {
         #expect(report.passed, "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("BC2: the maze-routed hierarchical flow is DRC + LVS clean (multi-block, 4 layers)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(8)))
+    func hierarchicalMazeSignsOff() async throws {
+        // A 6-inverter chain auto-partitioned into 3 blocks, tiled, and maze-routed over the
+        // cells on met3/met4 (via2/via3) — exercising the full hierarchical engine end to end.
+        var insts: [GateLevelNetlist.Instance] = []
+        for i in 0..<6 {
+            let inNet = i == 0 ? "a" : "n\(i)"
+            let outNet = i == 5 ? "y" : "n\(i + 1)"
+            insts.append(.init(name: "g\(i)", cell: .inverter(name: "inv"), netMap: ["A": inNet, "Y": outNet]))
+        }
+        let netlist = GateLevelNetlist(name: "mz_chain", instances: insts, inputs: ["a"], output: "y")
+        let doc = try HierarchicalSynthesizer(blocks: 3, columns: 3).synthesize(netlist)
+        let spice = Sky130CircuitSynthesizer().referenceSPICE(netlist)
+        let review = try await signoffDocument(doc, topCell: "mz_chain", referenceSPICE: spice)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "maze DRC: \(drc.diagnostics.prefix(8).map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "maze LVS: \(lvs.diagnostics.prefix(8).map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("BC2: a met4 wire + met3-via3-met4 stack pass real Magic Sky130 DRC (4th layer)",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func met4LayerClean() async throws {
