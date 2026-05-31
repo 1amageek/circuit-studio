@@ -53,6 +53,7 @@ let package = Package(
                 .copy("Resources/extract_lvs.tcl"),
                 .copy("Resources/materialize_cell.tcl"),
                 .copy("Resources/antenna.tcl"),
+                .copy("Resources/density.tcl"),
             ]
         ),
         .executableTarget(
