@@ -165,6 +165,46 @@ struct Sky130GeneratedDRCTests {
                                      schematicNetlist: schematicURL, artifactDirectory: dir)
     }
 
+    /// Sign off an already-built layout document against a given reference SPICE.
+    private func signoffDocument(_ doc: LayoutDocument, topCell: String, referenceSPICE spice: String) async throws -> ExternalSignoffReview {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-doc-\(topCell)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gds = dir.appending(path: "\(topCell).gds")
+        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(doc, to: gds, format: .gds)
+        let spiceURL = dir.appending(path: "\(topCell).spice")
+        try spice.write(to: spiceURL, atomically: true, encoding: .utf8)
+        let signoff = try #require(LiveSignoffService.locate())
+        return try await signoff.run(layoutGDS: gds, topCell: topCell, schematicNetlist: spiceURL, artifactDirectory: dir)
+    }
+
+    @Test("BC2: two blocks joined by met3 are one DRC + LVS clean circuit (multi-row routing)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(6)))
+    func twoBlockMet3Routed() async throws {
+        let synth = Sky130CircuitSynthesizer()
+        // Split a 4-inverter chain a->ca->c2->cb->y across two blocks; c2 is the boundary net.
+        let blkA = GateLevelNetlist(name: "twoblock_a", instances: [
+            .init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "a", "Y": "ca"]),
+            .init(name: "g1", cell: .inverter(name: "inv"), netMap: ["A": "ca", "Y": "c2"]),
+        ], inputs: ["a"], output: "c2")
+        let blkB = GateLevelNetlist(name: "twoblock_b", instances: [
+            .init(name: "g2", cell: .inverter(name: "inv"), netMap: ["A": "c2", "Y": "cb"]),
+            .init(name: "g3", cell: .inverter(name: "inv"), netMap: ["A": "cb", "Y": "y"]),
+        ], inputs: ["c2"], output: "y")
+
+        let docs = try [blkA, blkB].map { try synth.synthesize($0) }
+        let floor = try GridFloorplanner().tile(docs, columns: 2, name: "twoblock")
+        let routed = try InterBlockRouter().route(floor, boundaryNets: ["c2"])
+
+        // The flat reference: the same four inverters as one netlist.
+        let full = GateLevelNetlist(name: "twoblock", instances: blkA.instances + blkB.instances,
+                                    inputs: ["a"], output: "y")
+        let review = try await signoffDocument(routed, topCell: "twoblock", referenceSPICE: synth.referenceSPICE(full))
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "2-block DRC: \(drc.diagnostics.prefix(6).map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "2-block LVS: \(lvs.diagnostics.prefix(6).map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("The standard-cell synthesizer auto-lays-out a netlist DRC + LVS clean",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)),
           arguments: [
