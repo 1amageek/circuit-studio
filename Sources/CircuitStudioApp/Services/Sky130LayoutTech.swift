@@ -50,6 +50,8 @@ public enum Sky130LayoutTech {
             def("met2", "Metal2", 69, 20, rgb: (0.2, 0.7, 0.7)),
             def("via2", "met2-met3 Via", 69, 44, rgb: (0.7, 0.5, 0.3), fill: .crosshatch),
             def("met3", "Metal3", 70, 20, rgb: (0.5, 0.3, 0.7)),
+            def("via3", "met3-met4 Via", 70, 44, rgb: (0.6, 0.4, 0.4), fill: .crosshatch),
+            def("met4", "Metal4", 71, 20, rgb: (0.4, 0.4, 0.7)),
         ]
 
         // Sky130 minimum width / spacing (µm) for the layers an inverter uses.
@@ -69,6 +71,8 @@ public enum Sky130LayoutTech {
             rules("met2", width: 0.14, spacing: 0.14),
             rules("via2", width: 0.20, spacing: 0.20),
             rules("met3", width: 0.30, spacing: 0.30),
+            rules("via3", width: 0.20, spacing: 0.20),
+            rules("met4", width: 0.30, spacing: 0.30),
         ]
 
         // licon1: diff/poly -> li1; mcon: li1 -> met1.
@@ -95,6 +99,13 @@ public enum Sky130LayoutTech {
                 id: "via2", cutLayer: layer("via2"), topLayer: layer("met3"), bottomLayer: layer("met2"),
                 cutSize: LayoutSize(width: 0.20, height: 0.20),
                 enclosure: LayoutViaEnclosure(top: 0.065, bottom: 0.085), cutSpacing: 0.20
+            ),
+            // via3: met3 -> met4 (the fourth layer — gives the maze router a second
+            // over-the-cell direction, so many nets route Manhattan above the cells).
+            LayoutViaDefinition(
+                id: "via3", cutLayer: layer("via3"), topLayer: layer("met4"), bottomLayer: layer("met3"),
+                cutSize: LayoutSize(width: 0.20, height: 0.20),
+                enclosure: LayoutViaEnclosure(top: 0.065, bottom: 0.065), cutSpacing: 0.20
             ),
         ]
 

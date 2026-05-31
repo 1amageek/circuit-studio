@@ -103,6 +103,23 @@ struct Sky130GeneratedDRCTests {
         #expect(report.passed, "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("BC2: a met4 wire + met3-via3-met4 stack pass real Magic Sky130 DRC (4th layer)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func met4LayerClean() async throws {
+        let wire = document(cell: "gen_met4_wire", shapes: [rect("met4", 0, 0, 2.0, 0.30)])
+        let wireReport = try await runDRC(cell: "gen_met4_wire", document: wire)
+        #expect(wireReport.passed, "met4 wire: \(wireReport.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+
+        // met3 -> via3 -> met4 stack, all centred at (0.25, 0.25); met4 pad >= 0.24 µm² area.
+        let stack = document(cell: "gen_via3_stack", shapes: [
+            rect("met3", 0.00, 0.00, 0.50, 0.50),
+            rect("via3", 0.15, 0.15, 0.20, 0.20),
+            rect("met4", 0.00, 0.00, 0.50, 0.50),
+        ])
+        let stackReport = try await runDRC(cell: "gen_via3_stack", document: stack)
+        #expect(stackReport.passed, "via3 stack: \(stackReport.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("BC2: a 2x2 grid of synthesized blocks is DRC clean (multi-row floorplan)",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(6)))
     func gridFloorplanClean() async throws {
