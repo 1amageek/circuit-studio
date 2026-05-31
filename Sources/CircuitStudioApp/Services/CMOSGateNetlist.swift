@@ -51,6 +51,18 @@ public struct CMOSGateNetlist: Sendable, Hashable, Codable, Identifiable {
     public var nmos: [Device] { devices.filter { $0.kind == .nmos } }
     public var pmos: [Device] { devices.filter { $0.kind == .pmos } }
 
+    /// The same gate at a different drive strength: every transistor width is scaled by
+    /// `widthFactor` (length unchanged), giving lower output resistance (less delay per
+    /// load) at the cost of more input capacitance. `name` becomes the library key for the
+    /// sized variant (e.g. "inv_x2"). Used by the timing-driven sizing loop.
+    public func scaled(widthFactor: Double, name: String) -> CMOSGateNetlist {
+        let sized = devices.map {
+            Device(name: $0.name, kind: $0.kind, gate: $0.gate, source: $0.source,
+                   drain: $0.drain, width: $0.width * widthFactor, length: $0.length)
+        }
+        return CMOSGateNetlist(name: name, devices: sized, vpwr: vpwr, vgnd: vgnd, output: output)
+    }
+
     // MARK: - Standard library cells
 
     /// A CMOS inverter: Y = NOT(A).
