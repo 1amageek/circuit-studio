@@ -103,6 +103,24 @@ struct Sky130GeneratedDRCTests {
         #expect(report.passed, "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("BC2: a 2x2 grid of synthesized blocks is DRC clean (multi-row floorplan)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(6)))
+    func gridFloorplanClean() async throws {
+        // Four independently-synthesized blocks tiled into a 2x2 array — the spatial
+        // scale primitive that replaces one impossibly-wide row with a square-ish grid.
+        let synth = Sky130CircuitSynthesizer()
+        let blocks = try [
+            GateLevelNetlist.and2(name: "b_and2"),
+            GateLevelNetlist.or2(name: "b_or2"),
+            GateLevelNetlist.inverterChain(name: "b_inv3", stages: 3),
+            GateLevelNetlist.and2(name: "b_and2b"),
+        ].map { try synth.synthesize($0) }
+        let floor = try GridFloorplanner().tile(blocks, columns: 2, name: "grid2x2")
+        #expect(floor.placements.count == 4)
+        let report = try await runDRC(cell: "grid2x2", document: floor.document)
+        #expect(report.passed, "grid DRC: \(report.diagnostics.prefix(6).map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("BC2: a met2-via2-met3 stack passes real Magic Sky130 DRC (cross-row transition)",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func via2StackClean() async throws {
