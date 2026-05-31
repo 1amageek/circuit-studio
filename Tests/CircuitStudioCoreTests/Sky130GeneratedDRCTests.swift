@@ -103,6 +103,30 @@ struct Sky130GeneratedDRCTests {
         #expect(report.passed, "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("BC2/DoD-4: a 100-cell design in a 2x2 grid, maze-routed, is DRC + LVS clean (10^2 scale)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(12)))
+    func hierarchicalScaleSignsOff() async throws {
+        // 100 standard cells auto-partitioned into 4 wide blocks (pins naturally spread),
+        // tiled in a 2x2 grid (two rows of blocks — multi-row), and maze-routed over the cells
+        // on met3/met4. The hierarchical method reaching 10^2 cells DRC/LVS clean — the scale
+        // a single ever-wider row cannot keep growing into.
+        var insts: [GateLevelNetlist.Instance] = []
+        for i in 0..<100 {
+            let inNet = i == 0 ? "a" : "n\(i)"
+            let outNet = i == 99 ? "y" : "n\(i + 1)"
+            insts.append(.init(name: "g\(i)", cell: .inverter(name: "inv"), netMap: ["A": inNet, "Y": outNet]))
+        }
+        let netlist = GateLevelNetlist(name: "scale100", instances: insts, inputs: ["a"], output: "y")
+        #expect(netlist.instances.count == 100)
+        let doc = try HierarchicalSynthesizer(blocks: 4, columns: 2).synthesize(netlist)   // 2x2 grid
+        let spice = Sky130CircuitSynthesizer().referenceSPICE(netlist)
+        let review = try await signoffDocument(doc, topCell: "scale100", referenceSPICE: spice)
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "scale DRC: \(drc.diagnostics.prefix(8).map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "scale LVS: \(lvs.diagnostics.prefix(8).map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("BC2: the maze-routed hierarchical flow is DRC + LVS clean (multi-block, 4 layers)",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(8)))
     func hierarchicalMazeSignsOff() async throws {
