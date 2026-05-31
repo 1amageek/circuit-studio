@@ -177,6 +177,32 @@ struct Sky130GeneratedDRCTests {
         return try await signoff.run(layoutGDS: gds, topCell: topCell, schematicNetlist: spiceURL, artifactDirectory: dir)
     }
 
+    @Test("BC2: two VERTICALLY-STACKED blocks are one DRC + LVS clean circuit (cells in 2 rows)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(6)))
+    func stackedRowsMet3Routed() async throws {
+        // An 8-inverter chain auto-partitioned into 2 blocks, STACKED in 2 rows (columns:1)
+        // — cells in two y-rows, the structural break from single-row. met3 joins the
+        // crossing net across rows; a li1 comb joins the rails at their two row heights.
+        let synth = Sky130CircuitSynthesizer()
+        var insts: [GateLevelNetlist.Instance] = []
+        for i in 0..<8 {
+            let inNet = i == 0 ? "a" : "n\(i)"
+            let outNet = i == 7 ? "y" : "n\(i + 1)"
+            insts.append(.init(name: "g\(i)", cell: .inverter(name: "inv"), netMap: ["A": inNet, "Y": outNet]))
+        }
+        let full = GateLevelNetlist(name: "stack8", instances: insts, inputs: ["a"], output: "y")
+        let part = try NetlistPartitioner().partition(full, blocks: 2)
+        let docs = try part.blocks.map { try synth.synthesize($0) }
+        let floor = try GridFloorplanner().tile(docs, columns: 1, name: "stack8")   // 1 column -> 2 stacked rows
+        let routed = try InterBlockRouter().route(floor, boundaryNets: part.interBlockNets)
+
+        let review = try await signoffDocument(routed, topCell: "stack8", referenceSPICE: synth.referenceSPICE(full))
+        let drc = try #require(review.reports.first { $0.kind == .drc })
+        let lvs = try #require(review.reports.first { $0.kind == .lvs })
+        #expect(drc.passed, "stacked DRC: \(drc.diagnostics.prefix(8).map { ($0.ruleID ?? "?", $0.message) })")
+        #expect(lvs.passed, "stacked LVS: \(lvs.diagnostics.prefix(8).map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     @Test("BC2: two blocks joined by met3 are one DRC + LVS clean circuit (multi-row routing)",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(6)))
     func twoBlockMet3Routed() async throws {

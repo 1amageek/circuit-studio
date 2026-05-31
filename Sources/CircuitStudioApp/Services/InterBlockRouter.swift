@@ -55,13 +55,32 @@ public struct InterBlockRouter: Sendable {
         return shapes
     }
 
-    /// A li1 strap (rail height 0.45 µm) joining all of a power rail's per-block pins along
-    /// their shared row — so VPWR/VGND become one net across the blocks (the rails are
-    /// otherwise separate per block). Power nets stay as top-level ports.
-    private func powerStrap(pins: [LayoutPoint]) -> [LayoutShape] {
-        let minX = pins.map(\.x).min() ?? 0, maxX = pins.map(\.x).max() ?? 0
-        let y = pins.map(\.y).reduce(0, +) / Double(max(pins.count, 1))
-        return [rect("li1", minX - 0.085, y - 0.225, (maxX - minX) + 0.17, 0.45)]
+    /// A li1 "comb" joining all of a power rail's per-block pins into one net: a vertical
+    /// spine in the empty left margin (at `spineX`) plus a horizontal tooth at each rail row
+    /// reaching from the spine to that row's blocks. Side-by-side blocks share one row (one
+    /// tooth, no spine); vertically-stacked blocks have a tooth per row linked by the spine —
+    /// so VPWR/VGND become one net whatever the floorplan shape. Power nets stay top ports.
+    private func powerStrap(pins: [LayoutPoint], spineX: Double, onLeft: Bool) -> [LayoutShape] {
+        let railH = 0.45
+        let rowYs = pins.map(\.y).reduce(into: [Double]()) { acc, y in
+            if !acc.contains(where: { abs($0 - y) < 0.05 }) { acc.append(y) }
+        }.sorted()
+        var shapes: [LayoutShape] = []
+        for y in rowYs {
+            let rowX = pins.filter { abs($0.y - y) < 0.05 }.map(\.x)
+            // A left spine reaches RIGHT to the row's blocks; a right spine reaches LEFT.
+            if onLeft {
+                let maxX = rowX.max() ?? spineX
+                shapes.append(rect("li1", spineX, y - railH / 2, (maxX - spineX) + 0.085, railH))
+            } else {
+                let minX = rowX.min() ?? spineX
+                shapes.append(rect("li1", minX - 0.085, y - railH / 2, (spineX - minX) + 0.085 + 0.34, railH))
+            }
+        }
+        if let lo = rowYs.min(), let hi = rowYs.max(), hi - lo > 0.05 {
+            shapes.append(rect("li1", spineX, lo - railH / 2, 0.34, (hi - lo) + railH))
+        }
+        return shapes
     }
 
     /// Route the floorplan's inter-block nets, returning one connected document. Signal
@@ -76,10 +95,21 @@ public struct InterBlockRouter: Sendable {
         guard var cell = doc.cells.first(where: { $0.id == doc.topCellID }) ?? doc.cells.first else {
             throw RouteError.noTopCell
         }
-        for net in powerNets {
+        // Each power net gets its own margin so the combs never cross: the first on the
+        // left, the second on the right, etc. (a stacked block's lower rail otherwise sits
+        // inside the other rail's spine y-range and shorts it).
+        let xs = cell.shapes.compactMap { shape -> (lo: Double, hi: Double)? in
+            guard case let .rect(r) = shape.geometry else { return nil }
+            return (r.origin.x, r.origin.x + r.size.width)
+        }
+        let leftEdge = xs.map(\.lo).min() ?? 0, rightEdge = xs.map(\.hi).max() ?? 0
+        for (i, net) in powerNets.enumerated() {
             let pins = cell.labels.filter { $0.text == net }.map(\.position)
             guard pins.count >= 2 else { continue }   // a single-block power net is already whole
-            cell.shapes.append(contentsOf: powerStrap(pins: pins))
+            let onLeft = i % 2 == 0
+            let lane = Double(i / 2) * 0.8
+            let spineX = onLeft ? leftEdge - 0.6 - lane : rightEdge + 0.6 + lane
+            cell.shapes.append(contentsOf: powerStrap(pins: pins, spineX: spineX, onLeft: onLeft))
         }
         for net in boundaryNets {
             let pins = cell.labels.filter { $0.text == net }.map(\.position)
