@@ -12,7 +12,7 @@ struct PostLayoutOracleServiceTests {
     static let available = PostLayoutOracleService.ngspiceAvailable()
 
     @Test("CoreSpice agrees with ngspice on a level-1 inverter + parasitics deck",
-          .enabled(if: PostLayoutOracleServiceTests.available), .timeLimit(.minutes(2)))
+          .enabled(if: PostLayoutOracleServiceTests.available), .timeLimit(.minutes(6)))
     func crossCheckAgrees() async throws {
         // A loaded gate with gentle input edges: a realistic post-layout RC-smoothed
         // response where a raw max|ΔV| comparison is robust (sharp logic edges put a

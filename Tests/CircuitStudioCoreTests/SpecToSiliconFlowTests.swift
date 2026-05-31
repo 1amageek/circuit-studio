@@ -29,10 +29,14 @@ struct SpecToSiliconFlowTests {
     }
 
     @Test("Autonomous functional + timing closure yields a verifiable bundle (tool-independent)",
-          .timeLimit(.minutes(4)))
+          .timeLimit(.minutes(6)))
     func functionalTimingBundle() async throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "flow-\(UUID().uuidString)")
-        let result = try await SpecToSiliconFlow(runPhysical: false).run(try intent(), artifactDirectory: dir)
+        let result = try await SpecToSiliconFlow(
+            runPhysical: false,
+            timingLibraryBuilder: CachedStandardTimingLibraryBuilder(),
+            spiceValidator: CachedTimingPathValidator()
+        ).run(try intent(), artifactDirectory: dir)
 
         #expect(result.bundle.claim(.functional)?.passed == true)
         #expect(result.bundle.claim(.timing)?.passed == true)
@@ -49,7 +53,11 @@ struct SpecToSiliconFlowTests {
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(12)))
     func fullBundleSignsOff() async throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "flow-full-\(UUID().uuidString)")
-        let result = try await SpecToSiliconFlow(runPhysical: true).run(try intent(), artifactDirectory: dir)
+        let result = try await SpecToSiliconFlow(
+            runPhysical: true,
+            timingLibraryBuilder: CachedStandardTimingLibraryBuilder(),
+            spiceValidator: CachedTimingPathValidator()
+        ).run(try intent(), artifactDirectory: dir)
 
         #expect(result.bundle.passed, "failing: \(result.bundle.failing.map { ($0.axis, $0.measured) })")
         // Every axis present, passed, and backed by an artifact on disk.
@@ -58,5 +66,131 @@ struct SpecToSiliconFlowTests {
         #expect(FileManager.default.fileExists(atPath: gds.path))
         #expect(result.bundle.claim(.drc)?.passed == true)
         #expect(result.bundle.claim(.lvs)?.passed == true)
+    }
+
+    @Test("Sequential timing report without a measured grid point fails loud", .timeLimit(.minutes(1)))
+    func missingSequentialTimingGridFailsLoud() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "flow-empty-grid-\(UUID().uuidString)")
+        defer {
+            do {
+                try FileManager.default.removeItem(at: dir)
+            } catch {
+                Issue.record("Failed to remove temporary flow directory: \(error)")
+            }
+        }
+
+        await #expect(throws: SpecToSiliconFlow.FlowError.missingSequentialTimingGridPoint) {
+            _ = try await SpecToSiliconFlow(
+                runPhysical: false,
+                timingLibraryBuilder: EmptySequentialGridTimingLibraryBuilder(),
+                spiceValidator: PassingTimingPathValidator()
+            ).run(try intent(), artifactDirectory: dir)
+        }
+        #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "timing/timing-library.json").path))
+    }
+
+    private struct PassingTimingPathValidator: TimingPathValidating {
+        func validate(
+            path: TimingPath,
+            in netlist: SequentialNetlist,
+            toleranceFraction: Double
+        ) async throws -> STAvsSPICEValidator.Result {
+            STAvsSPICEValidator.Result(
+                staDelay: path.combinationalDelay,
+                spiceDelay: path.combinationalDelay,
+                relativeError: 0,
+                tolerance: toleranceFraction
+            )
+        }
+    }
+
+    private struct EmptySequentialGridTimingLibraryBuilder: TimingLibraryBuilding {
+        func buildStandardLibrary(runID: String?) async throws -> StandardTimingLibraryBuildResult {
+            let technology = TimingTechnologyContext(
+                processName: "test",
+                cornerID: "tt",
+                supplyVoltage: 1.8,
+                deviceModelID: "unit"
+            )
+            let library = Self.constantLibrary()
+            let sequentialReport = SequentialTimingCharacterizationReport(
+                cellName: "dff",
+                topologyHash: "hash",
+                activeClockEdge: .rising,
+                technology: technology,
+                characterizationGrid: SequentialTimingCharacterizationGrid(
+                    clockSlews: [],
+                    dataSlews: [80e-12],
+                    outputLoads: [],
+                    setupHoldSearchResolution: 10e-12,
+                    setupHoldSearchWindow: 100e-12
+                ),
+                timing: try library.sequential(),
+                clkToQMeasurements: [],
+                qTransitionMeasurements: [],
+                setupMeasurements: [],
+                holdMeasurements: [],
+                status: .passed
+            )
+            return StandardTimingLibraryBuildResult(
+                library: library,
+                libraryArtifact: TimingLibraryArtifact(
+                    runID: runID,
+                    technology: technology,
+                    library: library,
+                    modelSources: [
+                        TimingModelSource(
+                            modelID: "dff",
+                            modelKind: .sequentialCell,
+                            sourceType: .characterized,
+                            artifactIDs: ["sequential-dff-characterization"]
+                        ),
+                    ]
+                ),
+                combinationalReport: CombinationalTimingCharacterizationReport(
+                    technology: technology,
+                    inputSlews: [50e-12],
+                    outputLoads: [1e-15],
+                    cells: [],
+                    status: .passed
+                ),
+                sequentialReport: sequentialReport
+            )
+        }
+
+        private static func constantLibrary() -> TimingLibrary {
+            func arc(_ pin: String, _ delay: Double) -> TimingArc {
+                TimingArc(
+                    inputPin: pin,
+                    sense: .negativeUnate,
+                    delayRise: .constant(delay),
+                    delayFall: .constant(delay),
+                    transitionRise: .constant(20e-12),
+                    transitionFall: .constant(20e-12)
+                )
+            }
+            let inv = CellTiming(cellName: "inv", inputCapacitance: ["A": 1e-15], arcs: [arc("A", 30e-12)])
+            let nand = CellTiming(
+                cellName: "nand2",
+                inputCapacitance: ["A": 1e-15, "B": 1e-15],
+                arcs: [arc("A", 60e-12), arc("B", 60e-12)]
+            )
+            let nor = CellTiming(
+                cellName: "nor2",
+                inputCapacitance: ["A": 1e-15, "B": 1e-15],
+                arcs: [arc("A", 70e-12), arc("B", 70e-12)]
+            )
+            let ff = SequentialTiming(
+                clkToQRise: .constant(100e-12),
+                clkToQFall: .constant(100e-12),
+                qTransitionRise: .constant(20e-12),
+                qTransitionFall: .constant(20e-12),
+                setupTime: 20e-12,
+                holdTime: 5e-12,
+                dataCapacitance: 1e-15,
+                clockCapacitance: 1e-15
+            )
+            return TimingLibrary(cells: ["inv": inv, "nand2": nand, "nor2": nor], flipFlop: ff)
+        }
     }
 }

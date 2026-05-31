@@ -42,6 +42,17 @@ struct TapeoutEvidenceBundleTests {
         }
     }
 
+    @Test("Repeated axis lookup aggregates all claims for that axis")
+    func repeatedAxisLookupAggregatesClaims() {
+        let bundle = TapeoutEvidenceBundle(designName: "d", targetClockPeriod: nil, claims: [
+            .init(axis: .timing, statement: "setup met", passed: true, measured: "ok", artifact: nil),
+            .init(axis: .timing, statement: "spice validation", passed: false, measured: "failed", artifact: nil),
+        ], gdsPath: nil)
+
+        #expect(bundle.claims(for: .timing).count == 2)
+        #expect(bundle.claim(.timing)?.passed == false)
+    }
+
     @Test("A missing required axis throws (a constraint cannot be silently dropped)")
     func missingAxisThrows() {
         let bundle = TapeoutEvidenceBundle(designName: "d", targetClockPeriod: nil,

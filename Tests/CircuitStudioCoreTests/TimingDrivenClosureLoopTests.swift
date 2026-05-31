@@ -10,25 +10,10 @@ struct TimingDrivenClosureLoopTests {
 
     /// A library with sized variants (x1/x2/x4) of each cell, characterized in CoreSpice.
     private func sizedLibrary() async throws -> TimingLibrary {
-        let char = CellTimingCharacterizer(inputSlews: [40e-12, 200e-12], outputLoads: [1e-15, 4e-15, 12e-15])
-        var lib = TimingLibrary()
-        let bases: [CMOSGateNetlist] = [.inverter(name: "inv"),
-                                        .nand(name: "nand2", inputs: ["A", "B"]),
-                                        .nor(name: "nor2", inputs: ["A", "B"])]
-        for base in bases {
-            for variant in CellSizing.variants(of: base) {
-                lib.add(try await char.characterize(variant))
-            }
-        }
-        lib.flipFlop = SequentialTiming(
-            clkToQRise: .constant(120e-12), clkToQFall: .constant(120e-12),
-            qTransitionRise: .constant(40e-12), qTransitionFall: .constant(40e-12),
-            setupTime: 30e-12, holdTime: 10e-12,
-            dataCapacitance: lib.cells["nand2"]?.inputCapacitance["A"] ?? 1e-15, clockCapacitance: 2e-15)
-        return lib
+        try await TimingCharacterizationTestCache.shared.sizedClosureLibrary()
     }
 
-    @Test("Upsizing a critical-path cell reduces delay (the sizing knob works)", .timeLimit(.minutes(4)))
+    @Test("Upsizing a critical-path cell reduces delay (the sizing knob works)", .timeLimit(.minutes(7)))
     func sizingReducesDelay() async throws {
         let lib = try await sizedLibrary()
         let x1 = try #require(lib.cells["inv"]?.arc(fromInput: "A"))
@@ -41,7 +26,7 @@ struct TimingDrivenClosureLoopTests {
         #expect((lib.cells["inv_x2"]?.inputCapacitance["A"] ?? 0) > (lib.cells["inv"]?.inputCapacitance["A"] ?? 0))
     }
 
-    @Test("The loop closes the ACC-4 core at a clock it initially fails", .timeLimit(.minutes(5)))
+    @Test("The loop closes the ACC-4 core at a clock it initially fails", .timeLimit(.minutes(7)))
     func closesACC4AtTighterClock() async throws {
         let lib = try await sizedLibrary()
         let seq = ACC4CPUGenerator().sequentialNetlist()

@@ -58,7 +58,22 @@ public struct TapeoutEvidenceBundle: Sendable, Codable, Hashable {
 
     public var passed: Bool { !claims.isEmpty && claims.allSatisfy(\.passed) }
     public var failing: [Claim] { claims.filter { !$0.passed } }
-    public func claim(_ axis: Axis) -> Claim? { claims.first { $0.axis == axis } }
+    public func claims(for axis: Axis) -> [Claim] {
+        claims.filter { $0.axis == axis }
+    }
+
+    public func claim(_ axis: Axis) -> Claim? {
+        let axisClaims = claims(for: axis)
+        guard let first = axisClaims.first else { return nil }
+        guard axisClaims.count > 1 else { return first }
+        return Claim(
+            axis: axis,
+            statement: "\(axis.rawValue) axis aggregate",
+            passed: axisClaims.allSatisfy(\.passed),
+            measured: axisClaims.map { "\($0.statement): \($0.measured)" }.joined(separator: "; "),
+            artifact: nil
+        )
+    }
 
     /// Machine-check the bundle: every `requiredAxes` claim is present and passed, and every
     /// claim that names a backing artifact still has that file on disk. Throws on the first

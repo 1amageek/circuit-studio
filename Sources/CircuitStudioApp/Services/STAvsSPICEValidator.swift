@@ -3,6 +3,14 @@ import CircuitStudioCore
 import CoreSpiceEvent
 import CoreSpiceWaveform
 
+public protocol TimingPathValidating: Sendable {
+    func validate(
+        path: TimingPath,
+        in netlist: SequentialNetlist,
+        toleranceFraction: Double
+    ) async throws -> STAvsSPICEValidator.Result
+}
+
 /// The trust anchor for the timing axis: it re-simulates the STA critical path's actual
 /// gate chain in CoreSpice and compares the measured end-to-end delay against the sum of
 /// arc delays the `StaticTimingAnalyzer` predicted. Each stage is driven by the previous,
@@ -11,7 +19,7 @@ import CoreSpiceWaveform
 /// the STA abstraction (NLDM interpolation + slew/load propagation), not the model. CoreSpice
 /// itself is the ngspice-validated oracle (G5), so agreement here closes the chain
 /// ngspice ⟷ CoreSpice ⟷ STA.
-public struct STAvsSPICEValidator: Sendable {
+public struct STAvsSPICEValidator: TimingPathValidating {
 
     public enum ValidatorError: Error, LocalizedError, Equatable {
         case emptyPath

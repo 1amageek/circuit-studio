@@ -13,7 +13,7 @@ public struct NgspiceRunner: Sendable {
         cancellation: CancellationToken
     ) async throws -> URL {
         // Cap concurrent ngspice processes so parallel callers don't thrash the CPU.
-        await NgspiceConcurrencyGate.shared.acquire()
+        try await NgspiceConcurrencyGate.shared.acquire()
         do {
             let result = try await launch(netlistURL: netlistURL, rawURL: rawURL,
                                           workingDirectory: workingDirectory, cancellation: cancellation)

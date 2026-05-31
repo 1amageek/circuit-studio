@@ -103,8 +103,11 @@ public struct StaticTimingAnalyzer: Sendable {
             let load = netLoad[dff.q] ?? 0
             var arr = EdgePair(rise: 0, fall: 0), slew = EdgePair(rise: 0, fall: 0)
             for e in [TimingEdge.rise, .fall] {
-                arr.set(e, ff.clkToQ(outputEdge: e).lookup(inputSlew: 0, outputLoad: load))
-                slew.set(e, ff.qTransition(outputEdge: e).lookup(inputSlew: 0, outputLoad: load))
+                let delayLUT = ff.clkToQ(outputEdge: e)
+                let transitionLUT = ff.qTransition(outputEdge: e)
+                let characterizedClockSlew = delayLUT.inputSlews.first ?? defaultInputSlew
+                arr.set(e, delayLUT.lookup(inputSlew: characterizedClockSlew, outputLoad: load))
+                slew.set(e, transitionLUT.lookup(inputSlew: characterizedClockSlew, outputLoad: load))
             }
             lateArr[dff.q] = arr; earlyArr[dff.q] = arr; lateSlew[dff.q] = slew
             launchDelayOf[dff.q] = max(arr.rise, arr.fall)

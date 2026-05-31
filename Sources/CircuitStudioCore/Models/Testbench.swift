@@ -61,12 +61,37 @@ public struct TranSpec: Sendable, Codable, Hashable {
     public var stepTime: Double?
     public var startTime: Double?
     public var maxStep: Double?
+    public var useInitialConditions: Bool
 
-    public init(stopTime: Double, stepTime: Double? = nil, startTime: Double? = nil, maxStep: Double? = nil) {
+    public init(
+        stopTime: Double,
+        stepTime: Double? = nil,
+        startTime: Double? = nil,
+        maxStep: Double? = nil,
+        useInitialConditions: Bool = false
+    ) {
         self.stopTime = stopTime
         self.stepTime = stepTime
         self.startTime = startTime
         self.maxStep = maxStep
+        self.useInitialConditions = useInitialConditions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case stopTime
+        case stepTime
+        case startTime
+        case maxStep
+        case useInitialConditions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.stopTime = try container.decode(Double.self, forKey: .stopTime)
+        self.stepTime = try container.decodeIfPresent(Double.self, forKey: .stepTime)
+        self.startTime = try container.decodeIfPresent(Double.self, forKey: .startTime)
+        self.maxStep = try container.decodeIfPresent(Double.self, forKey: .maxStep)
+        self.useInitialConditions = try container.decodeIfPresent(Bool.self, forKey: .useInitialConditions) ?? false
     }
 }
 

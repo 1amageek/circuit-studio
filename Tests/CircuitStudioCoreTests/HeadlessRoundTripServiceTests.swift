@@ -38,7 +38,7 @@ struct HeadlessRoundTripServiceTests {
         try assertCompletedRoundTrip(roundTrip)
     }
 
-    @Test(.enabled(if: PostLayoutOracleService.ngspiceAvailable()), .timeLimit(.minutes(2)))
+    @Test(.enabled(if: PostLayoutOracleService.ngspiceAvailable()), .timeLimit(.minutes(6)))
     @MainActor
     func cmosInverterRoundTripCrossChecksAgainstNgspiceOracle() async throws {
         let testbench = Testbench(

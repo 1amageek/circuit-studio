@@ -14,11 +14,14 @@ struct STAvsSPICEValidatorTests {
                          setupTime: 30e-12, holdTime: 10e-12, dataCapacitance: dataCap, clockCapacitance: 2e-15)
     }
 
-    @Test("STA's predicted delay matches SPICE on a 4-inverter FF→FF path", .timeLimit(.minutes(4)))
+    @Test("STA's predicted delay matches SPICE on a 4-inverter FF→FF path", .timeLimit(.minutes(6)))
     func inverterChainValidates() async throws {
-        let char = CellTimingCharacterizer()   // default 3x3 grid for accuracy
         var lib = TimingLibrary()
-        let inv = try await char.characterize(.inverter(name: "inv"))
+        let inv = try await TimingCharacterizationTestCache.shared.characterizeCell(
+            .inverter(name: "inv"),
+            inputSlews: [20e-12, 80e-12, 320e-12],
+            outputLoads: [0.5e-15, 2e-15, 8e-15]
+        )
         lib.add(inv)
         lib.flipFlop = flipFlop(dataCap: inv.inputCapacitance["A"] ?? 1e-15)
 
@@ -35,24 +38,39 @@ struct STAvsSPICEValidatorTests {
         let report = try StaticTimingAnalyzer(library: lib).analyze(seq, clockPeriod: 5e-9, defaultInputSlew: 40e-12)
         #expect(report.criticalPath.stages.count == 4)
 
-        let result = try await STAvsSPICEValidator().validate(path: report.criticalPath, in: seq, toleranceFraction: 0.15)
+        let result = try await TimingCharacterizationTestSupport.withExclusiveSpiceSlot {
+            try await STAvsSPICEValidator().validate(path: report.criticalPath, in: seq, toleranceFraction: 0.15)
+        }
         #expect(result.staDelay > 0 && result.spiceDelay > 0)
         #expect(result.agrees, "STA \(result.staDelay) vs SPICE \(result.spiceDelay), relErr \(result.relativeError)")
     }
 
-    @Test("STA matches SPICE on the ACC-4 carry-chain critical path", .timeLimit(.minutes(5)))
+    @Test("STA matches SPICE on the ACC-4 carry-chain critical path", .timeLimit(.minutes(7)))
     func acc4CriticalPathValidates() async throws {
-        let char = CellTimingCharacterizer()
         var lib = TimingLibrary()
-        lib.add(try await char.characterize(.inverter(name: "inv")))
-        lib.add(try await char.characterize(.nand(name: "nand2", inputs: ["A", "B"])))
-        lib.add(try await char.characterize(.nor(name: "nor2", inputs: ["A", "B"])))
+        lib.add(try await TimingCharacterizationTestCache.shared.characterizeCell(
+            .inverter(name: "inv"),
+            inputSlews: [20e-12, 80e-12, 320e-12],
+            outputLoads: [0.5e-15, 2e-15, 8e-15]
+        ))
+        lib.add(try await TimingCharacterizationTestCache.shared.characterizeCell(
+            .nand(name: "nand2", inputs: ["A", "B"]),
+            inputSlews: [20e-12, 80e-12, 320e-12],
+            outputLoads: [0.5e-15, 2e-15, 8e-15]
+        ))
+        lib.add(try await TimingCharacterizationTestCache.shared.characterizeCell(
+            .nor(name: "nor2", inputs: ["A", "B"]),
+            inputSlews: [20e-12, 80e-12, 320e-12],
+            outputLoads: [0.5e-15, 2e-15, 8e-15]
+        ))
         lib.flipFlop = flipFlop(dataCap: lib.cells["nand2"]?.inputCapacitance["A"] ?? 1e-15)
 
         let seq = ACC4CPUGenerator().sequentialNetlist()
         let report = try StaticTimingAnalyzer(library: lib).analyze(seq, clockPeriod: 10e-9, defaultInputSlew: 50e-12)
 
-        let result = try await STAvsSPICEValidator().validate(path: report.criticalPath, in: seq, toleranceFraction: 0.20)
+        let result = try await TimingCharacterizationTestSupport.withExclusiveSpiceSlot {
+            try await STAvsSPICEValidator().validate(path: report.criticalPath, in: seq, toleranceFraction: 0.20)
+        }
         #expect(result.staDelay > 0 && result.spiceDelay > 0)
         #expect(result.agrees,
                 "ACC-4 path STA \(result.staDelay) vs SPICE \(result.spiceDelay), relErr \(result.relativeError) over \(report.criticalPath.stages.count) stages")

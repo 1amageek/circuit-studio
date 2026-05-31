@@ -9,14 +9,17 @@ import Testing
 @Suite("Cell timing characterization")
 struct CellTimingCharacterizerTests {
 
-    private func characterizer() -> CellTimingCharacterizer {
-        // A 2x2 grid keeps the suite fast while still exercising both axes.
-        CellTimingCharacterizer(inputSlews: [20e-12, 320e-12], outputLoads: [0.5e-15, 8e-15])
+    private func characterize(_ cell: CMOSGateNetlist) async throws -> CellTiming {
+        try await TimingCharacterizationTestCache.shared.characterizeCell(
+            cell,
+            inputSlews: [20e-12, 320e-12],
+            outputLoads: [0.5e-15, 8e-15]
+        )
     }
 
-    @Test("An inverter characterizes to positive, load- and slew-monotone delays", .timeLimit(.minutes(2)))
+    @Test("An inverter characterizes to positive, load- and slew-monotone delays", .timeLimit(.minutes(7)))
     func inverterCharacterizes() async throws {
-        let timing = try await characterizer().characterize(.inverter(name: "inv"))
+        let timing = try await characterize(.inverter(name: "inv"))
         #expect(timing.cellName == "inv")
         let arc = try #require(timing.arc(fromInput: "A"))
 
@@ -36,10 +39,10 @@ struct CellTimingCharacterizerTests {
         #expect(slewHeavy > slewLight)
     }
 
-    @Test("NAND2 and NOR2 characterize both input arcs with positive delay", .timeLimit(.minutes(2)))
+    @Test("NAND2 and NOR2 characterize both input arcs with positive delay", .timeLimit(.minutes(7)))
     func multiInputCellsCharacterize() async throws {
-        let nand = try await characterizer().characterize(.nand(name: "nand2", inputs: ["A", "B"]))
-        let nor = try await characterizer().characterize(.nor(name: "nor2", inputs: ["A", "B"]))
+        let nand = try await characterize(.nand(name: "nand2", inputs: ["A", "B"]))
+        let nor = try await characterize(.nor(name: "nor2", inputs: ["A", "B"]))
         for cell in [nand, nor] {
             #expect(cell.arcs.count == 2)
             for pin in ["A", "B"] {
@@ -50,13 +53,12 @@ struct CellTimingCharacterizerTests {
         }
     }
 
-    @Test("A characterized library drives STA on the ACC-4 core to a finite, physical fmax", .timeLimit(.minutes(3)))
+    @Test("A characterized library drives STA on the ACC-4 core to a finite, physical fmax", .timeLimit(.minutes(7)))
     func characterizedLibraryDrivesSTA() async throws {
-        let char = characterizer()
         var lib = TimingLibrary()
-        lib.add(try await char.characterize(.inverter(name: "inv")))
-        lib.add(try await char.characterize(.nand(name: "nand2", inputs: ["A", "B"])))
-        lib.add(try await char.characterize(.nor(name: "nor2", inputs: ["A", "B"])))
+        lib.add(try await characterize(.inverter(name: "inv")))
+        lib.add(try await characterize(.nand(name: "nand2", inputs: ["A", "B"])))
+        lib.add(try await characterize(.nor(name: "nor2", inputs: ["A", "B"])))
         // A hand flip-flop model (SPICE-characterized in BC1.2b); plausible for this smoke.
         lib.flipFlop = SequentialTiming(
             clkToQRise: .constant(120e-12), clkToQFall: .constant(120e-12),

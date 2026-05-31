@@ -457,8 +457,9 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         case .tran(let spec):
             let config = TransientConfig(
                 stopTime: spec.stopTime,
-                maxTimeStep: spec.stepTime ?? spec.stopTime / 50.0,
-                initialTimeStep: spec.stepTime ?? spec.stopTime / 50.0
+                maxTimeStep: spec.maxStep ?? spec.stepTime ?? spec.stopTime / 50.0,
+                initialTimeStep: spec.stepTime ?? spec.maxStep ?? spec.stopTime / 50.0,
+                useInitialConditions: spec.useInitialConditions
             )
 
             // Pull-based streaming: channel + polling task (decoupled from simulation)

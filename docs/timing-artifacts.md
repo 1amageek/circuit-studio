@@ -1,0 +1,382 @@
+# Timing Artifact Format
+
+Status: proposed contract for the FF timing characterization work
+Date: 2026-05-31
+
+This document defines the artifact format for timing characterization, static timing analysis, and timing validation in CircuitStudio. The goal is to make timing claims auditable: every value consumed by STA must be traceable to either a measured characterization artifact or an explicitly imported timing model.
+
+The immediate driver is the current flip-flop timing gap. Combinational cell timing is characterized from CoreSpice and the critical combinational path is checked by STA<->SPICE validation, but flip-flop `clk->q`, setup, and hold values still need their own artifact-backed contract.
+
+## Scope
+
+| Area | In scope | Out of scope |
+|---|---|---|
+| Timing library | Machine-readable model consumed by STA | Full Liberty parser/exporter |
+| Characterization | Combinational and sequential timing measurements with raw evidence | Foundry-certified `.lib` signoff |
+| STA report | Setup/hold/min-period result for one design and clock target | Multi-corner/multi-mode closure |
+| Validation | Comparisons between STA predictions and SPICE measurements | Proving transistor model accuracy beyond the CoreSpice trust gate |
+| Evidence | Claim-to-artifact links for human and Agent review | UI presentation layout |
+
+The JSON contracts here are the current executable artifacts. Standard formats remain the long-term source-of-truth target: imported Liberty and SDF support should be added as separate producers that create the same internal artifact contract with provenance.
+
+## Responsibility Map
+
+```mermaid
+flowchart LR
+  Deck["SPICE deck builder"] --> Sim["SimulationService"]
+  Sim --> Raw["Raw deck / waveform artifacts"]
+  Raw --> Measure["Waveform measurer"]
+  Measure --> Char["Characterization reports"]
+  Char --> Library["timing-library.json"]
+  Library --> STA["StaticTimingAnalyzer"]
+  STA --> STAReport["sta-report.json"]
+  STAReport --> Validator["Timing validators"]
+  Validator --> Validation["timing-validation.json"]
+  Validation --> Evidence["evidence bundle claim"]
+```
+
+| Producer | Artifact responsibility | Must not do |
+|---|---|---|
+| Characterizer | Generate timing models and measurement evidence | Decide final tapeout claims |
+| STA | Consume timing library and emit timing report | Run SPICE or invent missing timing values |
+| Validator | Compare an STA claim with SPICE evidence | Build or mutate the timing library |
+| Flow orchestrator | Place artifacts in a run directory and link claims | Encode measurement algorithms |
+| Evidence builder | State exactly which artifacts back each claim | Broaden a claim beyond its backing artifacts |
+
+## Run Directory Layout
+
+Timing artifacts live below the active run directory. Existing headless round trips use `.xcircuite/flow-runs/<run-id>/`; Agent harness runs may use `.xcircuite/runs/<run-id>/`. The format below is relative to either run directory root.
+
+```text
+<run-dir>/
+  timing/
+    manifest.json
+    timing-library.json
+    sta-report.json
+    characterization/
+      combinational-cells.json
+      sequential-dff.json
+      measurements.jsonl
+      decks/
+      waveforms/
+    validation/
+      combinational-path-spice.json
+      sequential-dff-spice.json
+```
+
+| Path | Required | Purpose |
+|---|---:|---|
+| `timing/manifest.json` | Yes for new timing runs | Index of timing artifacts, hashes, and status. |
+| `timing/timing-library.json` | Yes | STA input model. Contains combinational and sequential timing. |
+| `timing/sta-report.json` | Yes when STA runs | Design-level timing result. |
+| `timing/characterization/combinational-cells.json` | Yes when cells are characterized in this run | Summary of characterized combinational cells and their source measurements. |
+| `timing/characterization/sequential-dff.json` | Yes when FF timing is characterized in this run | Summary of measured `clk->q`, Q transition, setup, and hold. |
+| `timing/characterization/measurements.jsonl` | Yes when raw measurements are emitted | One simulator measurement record per line. |
+| `timing/characterization/decks/` | Required unless intentionally omitted | SPICE decks used to produce timing measurements. |
+| `timing/characterization/waveforms/` | Required unless intentionally omitted | CSV waveforms used by measurement records. |
+| `timing/validation/*.json` | Yes for each evidence claim that says SPICE validation was performed | Validation comparison reports. |
+
+The first implementation emits the summary reports and records raw per-trial logs, decks, and waveform CSVs as `omitted` manifest records. A claim must not reference an omitted artifact; omitted raw evidence is a recorded limitation, not proof for a pass/fail claim.
+
+## Shared JSON Rules
+
+All new timing JSON artifacts use these rules.
+
+| Rule | Contract |
+|---|---|
+| Encoding | UTF-8 JSON. JSONL is UTF-8 with one complete JSON object per line. |
+| Versioning | Top-level `schemaVersion` is required. Initial value is `1`. |
+| Kind | Top-level `kind` is required and uses lower-kebab-case. |
+| Dates | ISO-8601 strings in UTC. |
+| Units | Numeric values use SI base units: seconds, farads, volts, celsius, hertz. Field names include the unit suffix when ambiguity is possible. |
+| Numbers | All floating-point values must be finite. NaN and infinities are invalid. |
+| Paths | Paths inside manifests are run-relative. Absolute paths are allowed only in explicit provenance fields for original external inputs. |
+| Hashes | Available artifacts recorded in a manifest must include `sha256` and `byteCount`. |
+| Determinism | Arrays with no semantic order must be sorted by stable ID. JSON objects should be encoded with sorted keys. |
+| Unknown fields | Readers may ignore unknown fields for forward compatibility, but writers must not rely on ignored fields for correctness. |
+
+## Timing Artifact Manifest
+
+`timing/manifest.json` is the timing-local artifact index. The enclosing round-trip or tapeout manifest may also capture it as a higher-level artifact.
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `schemaVersion` | Yes | Manifest schema version. |
+| `kind` | Yes | Must be `timing-artifact-manifest`. |
+| `runID` | Yes | Run identifier from the enclosing flow. |
+| `createdAt` | Yes | Manifest creation time. |
+| `technology` | Yes | Technology and model reference used by timing artifacts. |
+| `artifacts` | Yes | Artifact records indexed by ID. |
+| `claims` | No | Timing-local claims that can be folded into `TapeoutEvidenceBundle`. |
+| `warnings` | No | Non-fatal limitations or omitted evidence. |
+
+`artifacts[]` fields:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `id` | Yes | Stable artifact ID unique within this manifest. |
+| `kind` | Yes | Artifact kind. |
+| `path` | Yes | Run-relative path. |
+| `status` | Yes | `available`, `omitted`, or `missing`. |
+| `sha256` | Required when `available` | Hash of the file content. |
+| `byteCount` | Required when `available` | File size in bytes. |
+| `createdAt` | Yes | Artifact creation time. |
+| `provenance` | No | Original source path, generator, or note. |
+
+Supported artifact kinds for timing:
+
+| Kind | File format |
+|---|---|
+| `timing-manifest` | JSON |
+| `timing-library` | JSON |
+| `sta-report` | JSON |
+| `characterization-report` | JSON |
+| `measurement-log` | JSONL |
+| `spice-deck` | SPICE text deck (`.cir`) |
+| `waveform-csv` | CSV |
+| `validation-report` | JSON |
+
+## Timing Library Artifact
+
+`timing/timing-library.json` is the only timing model artifact that `StaticTimingAnalyzer` should consume directly.
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `schemaVersion` | Yes | Timing library artifact schema version. |
+| `kind` | Yes | Must be `timing-library`. |
+| `runID` | No | Producing run ID, when generated inside a run. |
+| `createdAt` | Yes | Creation time. |
+| `technology` | Yes | Timing model context. |
+| `library` | Yes | Codable `TimingLibrary` payload. |
+| `modelSources` | Yes | References explaining where every timing model came from. |
+| `warnings` | No | Non-fatal model limitations. |
+
+`technology` fields:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `processName` | Yes | Process or virtual process name. |
+| `cornerID` | Yes | Timing corner ID. |
+| `supplyVoltage` | Yes | Supply voltage in volts. |
+| `temperatureC` | No | Temperature in celsius. |
+| `deviceModelID` | Yes | Stable ID for the transistor/device model set. |
+| `deviceModelHash` | No | Hash of the model cards or imported model file. |
+
+`modelSources[]` fields:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `modelID` | Yes | Cell name or sequential model name. |
+| `modelKind` | Yes | `combinational-cell` or `sequential-cell`. |
+| `sourceType` | Yes | `characterized`, `imported`, or `constant-fixture`. |
+| `artifactIDs` | Yes | Artifact IDs that support this model. |
+| `notes` | No | Human-readable limitation. |
+
+Production timing runs must not use `constant-fixture`. Tests may use it only when the test is explicitly about STA math rather than silicon evidence.
+
+## Combinational Characterization Report
+
+`timing/characterization/combinational-cells.json` summarizes the characterized combinational cells.
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `schemaVersion` | Yes | Schema version. |
+| `kind` | Yes | Must be `combinational-characterization-report`. |
+| `technology` | Yes | Same technology object as the timing library. |
+| `inputSlews` | Yes | Characterization input slew grid in seconds. |
+| `outputLoads` | Yes | Characterization output load grid in farads. |
+| `cells` | Yes | One entry per characterized cell. |
+| `measurementLogArtifactID` | No | Link to `measurements.jsonl`. |
+| `status` | Yes | `passed` or `failed`. |
+| `warnings` | No | Non-fatal limitations. |
+
+`cells[]` fields:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `cellName` | Yes | Timing cell name. |
+| `topologyHash` | Yes | Hash of the canonical CMOS gate netlist. |
+| `timing` | Yes | Codable `CellTiming` payload. |
+| `measurementIDs` | Yes | Measurement records used by this cell. |
+| `status` | Yes | `passed` or `failed`. |
+
+## Sequential DFF Characterization Report
+
+`timing/characterization/sequential-dff.json` is the audit artifact for flip-flop timing. It is distinct from `SequentialTiming`: the report explains how the model was measured, while `SequentialTiming` is the STA input payload.
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `schemaVersion` | Yes | Schema version. |
+| `kind` | Yes | Must be `sequential-characterization-report`. |
+| `cellName` | Yes | Sequential model name used by the timing library. |
+| `topologyHash` | Yes | Hash of the canonical DFF gate netlist or imported cell identity. |
+| `activeClockEdge` | Yes | `rising` or `falling`. |
+| `technology` | Yes | Same technology object as the timing library. |
+| `characterizationGrid` | Yes | Slew/load/search settings. |
+| `timing` | Yes | Codable `SequentialTiming` payload. |
+| `clkToQMeasurements` | Yes | Measurement summaries for Q rise/fall delay. |
+| `qTransitionMeasurements` | Yes | Measurement summaries for Q rise/fall transition. |
+| `setupMeasurements` | Yes | Setup boundary measurements. |
+| `holdMeasurements` | Yes | Hold boundary measurements. |
+| `measurementLogArtifactID` | No | Link to `measurements.jsonl`. |
+| `status` | Yes | `passed` or `failed`. |
+| `warnings` | No | Non-fatal limitations. |
+
+`characterizationGrid` fields:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `clockSlews` | Yes | Clock input slew grid in seconds. |
+| `dataSlews` | Yes | Data input slew grid in seconds. |
+| `outputLoads` | Yes | Q output load grid in farads. |
+| `setupHoldSearchResolution` | Yes | Binary-search stop resolution in seconds. |
+| `setupHoldSearchWindow` | Yes | Initial data-clock offset search window in seconds. |
+
+Sequential measurement summary fields:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `id` | Yes | Measurement ID, also present in `measurements.jsonl`. |
+| `metric` | Yes | One of `clkToQRise`, `clkToQFall`, `qTransitionRise`, `qTransitionFall`, `setupTime`, `holdTime`. |
+| `clockSlew` | Yes | Clock slew in seconds. |
+| `dataSlew` | Required for setup/hold | Data slew in seconds. |
+| `outputLoad` | Required for clk->q and Q transition | Q load in farads. |
+| `valueSeconds` | Yes | Measured value in seconds. |
+| `method` | Yes | `thresholdCrossing` or `binarySearch`. |
+| `status` | Yes | `passed` or `failed`. |
+| `deckArtifactID` | No | SPICE deck artifact. |
+| `waveformArtifactID` | No | Waveform artifact. |
+
+Setup and hold measurements must also include:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `passingOffsetSeconds` | Yes | Nearest passing data-clock offset. |
+| `failingOffsetSeconds` | Yes | Nearest failing data-clock offset. |
+| `capturedValue` | Yes | Logical value captured at the boundary check. |
+| `expectedValue` | Yes | Expected logical value. |
+
+## Measurement Log JSONL
+
+`timing/characterization/measurements.jsonl` preserves one measurement attempt per line. It is useful when a summary value is a boundary search result derived from several transient simulations.
+
+Each line uses `kind: timing-measurement`.
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `schemaVersion` | Yes | Measurement schema version. |
+| `kind` | Yes | Must be `timing-measurement`. |
+| `id` | Yes | Stable measurement ID. |
+| `parentReportID` | Yes | Characterization report ID. |
+| `metric` | Yes | Measured timing metric. |
+| `sweepPoint` | Yes | Clock slew, data slew, load, and offset values used for this run. |
+| `result` | Yes | Measured value and pass/fail outcome. |
+| `rawArtifacts` | Yes | Deck and waveform artifact IDs when emitted. |
+| `diagnostics` | No | Structured failure diagnostics. |
+
+Waveform artifacts are CSV with one sweep column followed by one column per probed node. The first line is the header. Values are decimal floating-point strings in SI units. The matching measurement record declares which column names were used for threshold crossing.
+
+## STA Report
+
+`timing/sta-report.json` wraps the existing Codable `TimingReport`.
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `schemaVersion` | Yes | Schema version. |
+| `kind` | Yes | Must be `sta-report`. |
+| `runID` | No | Producing run ID. |
+| `createdAt` | Yes | Creation time. |
+| `designName` | Yes | Design name. |
+| `timingLibraryArtifactID` | Yes | Artifact ID for `timing-library.json`. |
+| `report` | Yes | Codable `TimingReport` payload. |
+| `status` | Yes | `passed` or `failed`. |
+
+The existing bare `TimingReport` JSON remains readable as a legacy payload. New flow artifacts should use the wrapper so provenance is not lost.
+
+## Timing Validation Report
+
+Validation reports state exactly what was checked against SPICE. They must not imply that unvalidated parts of a path were checked.
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `schemaVersion` | Yes | Schema version. |
+| `kind` | Yes | Must be `timing-validation-report`. |
+| `scope` | Yes | `combinational-path`, `sequential-cell`, or `clocked-path`. |
+| `runID` | No | Producing run ID. |
+| `createdAt` | Yes | Creation time. |
+| `designName` | No | Design name when validating a design path. |
+| `sourceArtifacts` | Yes | Artifact IDs used by this validation. |
+| `comparisons` | Yes | One or more numeric comparisons. |
+| `status` | Yes | `passed` or `failed`. |
+| `warnings` | No | Non-fatal limitations. |
+
+`comparisons[]` fields:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `id` | Yes | Stable comparison ID. |
+| `metric` | Yes | Compared metric. |
+| `predictedSeconds` | Yes | STA or library value. |
+| `measuredSeconds` | Yes | SPICE-measured value. |
+| `absoluteErrorSeconds` | Yes | Absolute error. |
+| `relativeError` | Yes | Absolute error divided by measured magnitude with a documented floor. |
+| `tolerance` | Yes | Allowed relative or absolute tolerance. |
+| `passed` | Yes | Comparison result. |
+| `artifactIDs` | Yes | Deck, waveform, report, and library artifacts used. |
+
+Recommended validation scopes:
+
+| Scope | Must cover | Claim wording allowed |
+|---|---|---|
+| `combinational-path` | STA combinational path delay vs SPICE chain delay | `combinational STA path agrees with SPICE` |
+| `sequential-cell` | FF `clk->q`, Q transition, setup, and hold measurement consistency | `flip-flop timing is SPICE-characterized` |
+| `clocked-path` | Launch FF, combinational path, and capture FF setup in one SPICE experiment | `clocked path timing agrees with SPICE` |
+
+## Evidence Bundle Claims
+
+`TapeoutEvidenceBundle` currently has a single `timing` axis. Multiple timing claims may share that axis, but each claim must point to the artifact that backs its exact statement.
+
+| Claim | Backing artifact |
+|---|---|
+| Setup/hold met at target clock | `sta-report.json` plus `timing-library.json` |
+| Combinational STA path agrees with SPICE | `validation/combinational-path-spice.json` |
+| Flip-flop timing is SPICE-characterized | `characterization/sequential-dff.json` |
+| Full clocked path agrees with SPICE | `validation/sequential-dff-spice.json` or another `clocked-path` validation report |
+
+Timing evidence must avoid broad statements such as `STA vs SPICE within tolerance` unless the validation report scope includes every timing component relevant to the claim.
+
+## Failure and Omission Semantics
+
+| State | Meaning |
+|---|---|
+| `passed` | The artifact producer completed and all required checks passed. |
+| `failed` | The producer completed with a structured failure. The artifact should still be written when possible. |
+| `available` | The file exists and its hash/size were recorded. |
+| `omitted` | The file was intentionally not emitted. The reason must be recorded in provenance or warnings. |
+| `missing` | The file was expected but not found. This makes the timing manifest incomplete. |
+
+A production timing library is invalid if any timing value consumed by STA has no `modelSources` entry. A production evidence bundle is invalid if a claim references an omitted or missing backing artifact.
+
+## Compatibility Plan
+
+| Change type | Required action |
+|---|---|
+| Add optional field | Keep `schemaVersion` unchanged. |
+| Add enum case tolerated by old readers | Keep `schemaVersion` unchanged only if readers can ignore it safely. |
+| Rename field, change unit, change meaning, or remove required field | Increment `schemaVersion`. |
+| Add new artifact kind | Add manifest kind and document consumer behavior. |
+
+The first implementation should add wrapper artifact types instead of changing `TimingLibrary`, `TimingReport`, `CellTiming`, or `SequentialTiming` payloads directly. Those domain types remain the in-memory model; the wrappers provide provenance, schema versioning, and artifact links.
+
+## Implementation Checklist
+
+| Check | Required before replacing FF constants |
+|---|---:|
+| `SequentialTimingCharacterizationReport` type exists | Yes |
+| `TimingLibraryArtifact` wrapper exists | Yes |
+| `STAReportArtifact` wrapper exists | Yes |
+| Timing manifest records run-relative paths and hashes | Yes |
+| `SpecToSiliconFlow` writes timing artifacts through one writer/service | Yes |
+| Evidence timing claim names validation scope precisely | Yes |
+| Tests reject production `constant-fixture` FF timing | Yes |
+| Legacy bare `TimingReport` read path remains supported during migration | Yes |

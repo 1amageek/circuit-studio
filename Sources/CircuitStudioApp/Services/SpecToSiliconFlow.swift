@@ -11,6 +11,19 @@ import LayoutIO
 /// recorded honestly (the bundle simply lacks those axes when the tools are absent — never a
 /// silent pass). Each claim links the real artifact that backs it.
 public struct SpecToSiliconFlow: Sendable {
+    public enum FlowError: Error, LocalizedError, Equatable {
+        case missingTimingArtifactRecord(String)
+        case missingSequentialTimingGridPoint
+
+        public var errorDescription: String? {
+            switch self {
+            case .missingTimingArtifactRecord(let id):
+                return "Timing artifact manifest did not contain required artifact record '\(id)'."
+            case .missingSequentialTimingGridPoint:
+                return "Sequential timing report does not contain a clock slew and output load grid point."
+            }
+        }
+    }
 
     public struct Intent: Sendable {
         public let designName: String
@@ -33,11 +46,19 @@ public struct SpecToSiliconFlow: Sendable {
 
     private let generator = ACC4CPUGenerator()
     private let signoffAvailable: Bool
+    private let timingLibraryBuilder: any TimingLibraryBuilding
+    private let spiceValidator: any TimingPathValidating
 
     /// `runPhysical` lets a caller force-skip the gated DRC/LVS step (e.g. in tool-independent
     /// tests); by default it runs when the toolchain is reachable.
-    public init(runPhysical: Bool = true) {
+    public init(
+        runPhysical: Bool = true,
+        timingLibraryBuilder: any TimingLibraryBuilding = StandardTimingLibraryBuilder(),
+        spiceValidator: any TimingPathValidating = STAvsSPICEValidator()
+    ) {
         self.signoffAvailable = runPhysical
+        self.timingLibraryBuilder = timingLibraryBuilder
+        self.spiceValidator = spiceValidator
     }
 
     public func run(_ intent: Intent, artifactDirectory: URL) async throws -> Result {
@@ -56,24 +77,70 @@ public struct SpecToSiliconFlow: Sendable {
                             measured: functionalPass ? "trace match" : "trace diverged",
                             artifact: traceURL.path))
 
-        // 2) TIMING — characterize, run STA at the target, and validate against full SPICE.
-        let library = try await characterize()
+        // 2) TIMING — characterize, run STA at the target, and validate scoped claims against SPICE.
+        let runID = intent.designName
+        let timingBuild = try await timingLibraryBuilder.buildStandardLibrary(runID: runID)
+        let library = timingBuild.library
         let seq = generator.sequentialNetlist()
         let report = try StaticTimingAnalyzer(library: library)
             .analyze(seq, clockPeriod: intent.targetClockPeriod, defaultInputSlew: intent.defaultInputSlew)
-        let validation = try await STAvsSPICEValidator().validate(path: report.criticalPath, in: seq, toleranceFraction: 0.25)
-        let timingPass = report.met && validation.agrees
-        let reportURL = artifactDirectory.appending(path: "\(intent.designName).timing.json")
-        let timingEncoder = JSONEncoder()
-        timingEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try timingEncoder.encode(report).write(to: reportURL)
+        let validation = try await spiceValidator.validate(path: report.criticalPath, in: seq, toleranceFraction: 0.25)
+        let ffReportPoint = try sequentialTimingReportPoint(timingBuild.sequentialReport)
+        let staArtifact = STAReportArtifact(
+            runID: runID,
+            designName: intent.designName,
+            timingLibraryArtifactID: "timing-library",
+            report: report,
+            status: report.met ? .passed : .failed
+        )
+        let validationReport = timingValidationReport(
+            runID: runID,
+            designName: intent.designName,
+            validation: validation
+        )
+        let timingArtifacts = try TimingArtifactWriter().write(
+            runID: runID,
+            runDirectory: artifactDirectory,
+            technology: timingBuild.sequentialReport.technology,
+            library: timingBuild.libraryArtifact,
+            staReport: staArtifact,
+            combinationalReport: timingBuild.combinationalReport,
+            sequentialReport: timingBuild.sequentialReport,
+            validationReports: [(
+                id: "combinational-path-validation",
+                fileName: "combinational-path-spice.json",
+                report: validationReport
+            )],
+            claims: [
+                .init(statement: "setup/hold met at target clock", passed: report.met, artifactIDs: ["sta-report", "timing-library"]),
+                .init(statement: "combinational STA path agrees with SPICE", passed: validation.agrees, artifactIDs: ["combinational-path-validation"]),
+                .init(statement: "flip-flop timing is SPICE-characterized", passed: timingBuild.sequentialReport.status == .passed, artifactIDs: ["sequential-dff-characterization"]),
+            ]
+        )
+        let staURL = try artifactURL(id: "sta-report", in: timingArtifacts, runDirectory: artifactDirectory)
+        let validationURL = try artifactURL(id: "combinational-path-validation", in: timingArtifacts, runDirectory: artifactDirectory)
+        let sequentialURL = try artifactURL(id: "sequential-dff-characterization", in: timingArtifacts, runDirectory: artifactDirectory)
         claims.append(.init(axis: .timing,
-                            statement: String(format: "setup/hold met at T=%.0f ps; STA vs SPICE within tolerance",
-                                              intent.targetClockPeriod * 1e12),
-                            passed: timingPass,
-                            measured: String(format: "fmax %.0f MHz, slack %.1f ps, STA/SPICE err %.1f%%",
-                                             report.fmaxHz / 1e6, report.worstSetupSlack * 1e12, validation.relativeError * 100),
-                            artifact: reportURL.path))
+                            statement: String(format: "setup/hold met at T=%.0f ps",
+                                            intent.targetClockPeriod * 1e12),
+                            passed: report.met,
+                            measured: String(format: "fmax %.0f MHz, setup slack %.1f ps, hold slack %.1f ps",
+                                             report.fmaxHz / 1e6, report.worstSetupSlack * 1e12, report.worstHoldSlack * 1e12),
+                            artifact: staURL.path))
+        claims.append(.init(axis: .timing,
+                            statement: "combinational STA critical path agrees with SPICE",
+                            passed: validation.agrees,
+                            measured: String(format: "STA/SPICE combinational delay err %.1f%%", validation.relativeError * 100),
+                            artifact: validationURL.path))
+        claims.append(.init(axis: .timing,
+                            statement: "flip-flop timing is SPICE-characterized",
+                            passed: timingBuild.sequentialReport.status == .passed,
+                            measured: String(format: "clk2q %.1f/%.1f ps, setup %.1f ps, hold %.1f ps",
+                                             timingBuild.sequentialReport.timing.clkToQRise.lookup(inputSlew: ffReportPoint.clockSlew, outputLoad: ffReportPoint.outputLoad) * 1e12,
+                                             timingBuild.sequentialReport.timing.clkToQFall.lookup(inputSlew: ffReportPoint.clockSlew, outputLoad: ffReportPoint.outputLoad) * 1e12,
+                                             timingBuild.sequentialReport.timing.setupTime * 1e12,
+                                             timingBuild.sequentialReport.timing.holdTime * 1e12),
+                            artifact: sequentialURL.path))
 
         // 3) PHYSICAL — synthesize the core and sign it off with the real toolchain (gated).
         var gdsURL: URL? = nil
@@ -107,17 +174,52 @@ public struct SpecToSiliconFlow: Sendable {
         return Result(bundle: bundle, gdsPath: gdsURL)
     }
 
-    private func characterize() async throws -> TimingLibrary {
-        let char = CellTimingCharacterizer(inputSlews: [40e-12, 200e-12], outputLoads: [1e-15, 4e-15, 12e-15])
-        var lib = TimingLibrary()
-        lib.add(try await char.characterize(.inverter(name: "inv")))
-        lib.add(try await char.characterize(.nand(name: "nand2", inputs: ["A", "B"])))
-        lib.add(try await char.characterize(.nor(name: "nor2", inputs: ["A", "B"])))
-        lib.flipFlop = SequentialTiming(
-            clkToQRise: .constant(120e-12), clkToQFall: .constant(120e-12),
-            qTransitionRise: .constant(40e-12), qTransitionFall: .constant(40e-12),
-            setupTime: 30e-12, holdTime: 10e-12,
-            dataCapacitance: lib.cells["nand2"]?.inputCapacitance["A"] ?? 1e-15, clockCapacitance: 2e-15)
-        return lib
+    private func sequentialTimingReportPoint(
+        _ report: SequentialTimingCharacterizationReport
+    ) throws -> (clockSlew: Double, outputLoad: Double) {
+        guard let clockSlew = report.characterizationGrid.clockSlews.first,
+              let outputLoad = report.characterizationGrid.outputLoads.first else {
+            throw FlowError.missingSequentialTimingGridPoint
+        }
+        return (clockSlew, outputLoad)
+    }
+
+    private func timingValidationReport(
+        runID: String,
+        designName: String,
+        validation: STAvsSPICEValidator.Result
+    ) -> TimingValidationReport {
+        let absolute = abs(validation.spiceDelay - validation.staDelay)
+        return TimingValidationReport(
+            scope: .combinationalPath,
+            runID: runID,
+            designName: designName,
+            sourceArtifacts: ["timing-library", "sta-report"],
+            comparisons: [
+                TimingValidationComparison(
+                    id: "critical-combinational-path-delay",
+                    metric: "combinationalDelay",
+                    predictedSeconds: validation.staDelay,
+                    measuredSeconds: validation.spiceDelay,
+                    absoluteErrorSeconds: absolute,
+                    relativeError: validation.relativeError,
+                    tolerance: validation.tolerance,
+                    passed: validation.agrees,
+                    artifactIDs: ["timing-library", "sta-report"]
+                ),
+            ],
+            status: validation.agrees ? .passed : .failed
+        )
+    }
+
+    private func artifactURL(
+        id: String,
+        in result: TimingArtifactWriter.WriteResult,
+        runDirectory: URL
+    ) throws -> URL {
+        guard let record = result.record(id: id) else {
+            throw FlowError.missingTimingArtifactRecord(id)
+        }
+        return runDirectory.appending(path: record.path)
     }
 }
