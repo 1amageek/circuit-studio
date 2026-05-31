@@ -32,14 +32,21 @@ public struct TimingPath: Sendable, Hashable, Codable {
     public let startpoint: String      // launch net (Q of a flip-flop, or a primary input)
     public let endpoint: String        // capture net (D of a flip-flop, or a primary output)
     public let launchDelay: Double     // clk->Q at the startpoint (0 for a primary input)
+    public let launchSlew: Double      // input slew at the startpoint for the path's first edge
+    public let startEdge: TimingEdge   // the launching edge at the startpoint
     public let stages: [TimingStage]
     public let arrival: Double          // data arrival at the endpoint (launch + sum of stages)
 
-    public init(startpoint: String, endpoint: String, launchDelay: Double,
-                stages: [TimingStage], arrival: Double) {
+    public init(startpoint: String, endpoint: String, launchDelay: Double, launchSlew: Double,
+                startEdge: TimingEdge, stages: [TimingStage], arrival: Double) {
         self.startpoint = startpoint; self.endpoint = endpoint
-        self.launchDelay = launchDelay; self.stages = stages; self.arrival = arrival
+        self.launchDelay = launchDelay; self.launchSlew = launchSlew; self.startEdge = startEdge
+        self.stages = stages; self.arrival = arrival
     }
+
+    /// The combinational delay along the path (excluding the launch clk→Q) — the sum of the
+    /// per-stage gate delays, which the SPICE validator re-simulates.
+    public var combinationalDelay: Double { stages.reduce(0) { $0 + $1.stageDelay } }
 }
 
 /// The setup (and hold) result at one capture endpoint.

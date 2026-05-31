@@ -168,7 +168,7 @@ public struct StaticTimingAnalyzer: Sendable {
         let worstSetup = endpoints.map(\.setupSlack).min() ?? 0
         let worstHold = endpoints.map(\.holdSlack).min() ?? 0
         let minPeriod = (endpoints.map { $0.dataArrival + ff.setupTime }.max() ?? 0)
-        let critical = tracePath(endpoint: worst.net, order: order, lateArr: lateArr,
+        let critical = tracePath(endpoint: worst.net, order: order, lateArr: lateArr, lateSlew: lateSlew,
                                  latePred: latePred, launchDelayOf: launchDelayOf)
 
         return TimingReport(clockPeriod: clockPeriod, worstSetupSlack: worstSetup, worstHoldSlack: worstHold,
@@ -179,8 +179,8 @@ public struct StaticTimingAnalyzer: Sendable {
 
     private func tracePath(
         endpoint: String, order: [(Int, GateLevelNetlist.Instance)],
-        lateArr: [String: EdgePair], latePred: [String: [TimingEdge: Pred]],
-        launchDelayOf: [String: Double]
+        lateArr: [String: EdgePair], lateSlew: [String: EdgePair],
+        latePred: [String: [TimingEdge: Pred]], launchDelayOf: [String: Double]
     ) -> TimingPath {
         let instances = Dictionary(uniqueKeysWithValues: order.map { ($0.0, $0.1) })
         var stages: [TimingStage] = []
@@ -198,8 +198,10 @@ public struct StaticTimingAnalyzer: Sendable {
         }
         stages.reverse()
         let start = net
+        let startEdge = stages.first?.inputEdge ?? edge
+        let launchSlew = (lateSlew[start]).map { $0.at(startEdge) } ?? 0
         return TimingPath(startpoint: start, endpoint: endpoint, launchDelay: launchDelayOf[start] ?? 0,
-                          stages: stages, arrival: arrival)
+                          launchSlew: launchSlew, startEdge: startEdge, stages: stages, arrival: arrival)
     }
 
     // MARK: - topological order
