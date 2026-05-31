@@ -123,6 +123,23 @@ public struct SignoffEvaluationService: Sendable {
                 return known
             }
             return ("drc_violation", ["inspect_rule_\(diagnostic.ruleID ?? "unknown")_in_the_pdk_drc_manual"])
+        case .antenna:
+            if rule == "driver" {
+                return ("antenna_tool_error", ["inspect_antenna_driver_log", "verify_cell_loaded"])
+            }
+            return ("antenna_violation", [
+                "insert_antenna_diode_on_the_reported_gate_net",
+                "jog_the_long_metal_to_a_higher_layer_then_back_down",
+                "split_the_metal_run_so_no_single_layer_exceeds_the_ratio",
+            ])
+        case .density:
+            if rule == "driver" {
+                return ("density_tool_error", ["inspect_density_driver_log", "verify_cell_loaded"])
+            }
+            return ("density_violation", [
+                "insert_metal_fill_to_raise_local_density_into_the_window",
+                "remove_fill_or_widen_routing_to_lower_density_below_the_ceiling",
+            ])
         }
     }
 }

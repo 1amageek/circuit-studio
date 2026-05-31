@@ -14,6 +14,11 @@ public struct ExternalSignoffReportParser: Sendable {
         /// driver's `MISMATCH`/`ERROR rule=...` lines are diagnostics; Netgen's
         /// own chatter (e.g. the "*** MISMATCH ***" count lines) is ignored.
         case netgenLVS
+        /// Magic antennacheck output normalized by the `antenna.tcl` driver.
+        /// Only the driver's `VIOLATION rule=antenna`/`ERROR rule=...` lines are
+        /// diagnostics; the authoritative `ANTENNA_SUMMARY total=N` count gates
+        /// the verdict the same way `DRC_SUMMARY` does.
+        case magicAntenna
     }
 
     public let style: Style
@@ -63,7 +68,7 @@ public struct ExternalSignoffReportParser: Sendable {
         switch style {
         case .magicDRC:
             guard rawOutput.contains("DRC_DONE") else { return false }
-            if let total = drcSummaryTotal(in: rawOutput),
+            if let total = summaryTotal(prefix: "DRC_SUMMARY", in: rawOutput),
                total > 0,
                !diagnostics.contains(where: { $0.severity == .error }) {
                 diagnostics.append(ExternalSignoffDiagnostic(
@@ -76,17 +81,30 @@ public struct ExternalSignoffReportParser: Sendable {
             return true
         case .netgenLVS:
             return rawOutput.contains("LVS_RESULT status=match")
+        case .magicAntenna:
+            guard rawOutput.contains("ANTENNA_DONE") else { return false }
+            if let total = summaryTotal(prefix: "ANTENNA_SUMMARY", in: rawOutput),
+               total > 0,
+               !diagnostics.contains(where: { $0.severity == .error }) {
+                diagnostics.append(ExternalSignoffDiagnostic(
+                    severity: .error,
+                    message: "ANTENNA_SUMMARY reported total=\(total) violations but none were enumerated",
+                    ruleID: "ANTENNA_SUMMARY_MISMATCH",
+                    rawLine: "ANTENNA_SUMMARY total=\(total)"
+                ))
+            }
+            return true
         case .generic, .calibreLike, .magicNetgenLike, .klayoutLike:
             return true
         }
     }
 
-    /// The authoritative violation count from the driver's `DRC_SUMMARY total=<n>`
-    /// line, or nil when absent.
-    private func drcSummaryTotal(in rawOutput: String) -> Int? {
+    /// The authoritative violation count from a driver's `<PREFIX> total=<n>` summary
+    /// line (`DRC_SUMMARY`, `ANTENNA_SUMMARY`), or nil when absent.
+    private func summaryTotal(prefix: String, in rawOutput: String) -> Int? {
         for line in rawOutput.split(whereSeparator: \.isNewline) {
             let text = String(line)
-            guard text.contains("DRC_SUMMARY") else { continue }
+            guard text.contains(prefix) else { continue }
             if let total = keyValueFields(in: text)["total"], let n = Int(total) {
                 return n
             }
@@ -111,7 +129,7 @@ public struct ExternalSignoffReportParser: Sendable {
         // Styles that fully delegate to their style-specific handler must not
         // fall back to the permissive generic parse — it would misread incidental
         // tool chatter (e.g. Magic's "No errors found.") as a diagnostic.
-        if style == .magicDRC || style == .netgenLVS {
+        if style == .magicDRC || style == .netgenLVS || style == .magicAntenna {
             return nil
         }
         return ExternalSignoffDiagnostic(
@@ -162,7 +180,7 @@ public struct ExternalSignoffReportParser: Sendable {
             return magicNetgenDiagnostic(line: line, severity: severity, fields: fields)
         case .klayoutLike:
             return klayoutDiagnostic(line: line, severity: severity, fields: fields)
-        case .magicDRC, .netgenLVS:
+        case .magicDRC, .netgenLVS, .magicAntenna:
             return normalizedDriverDiagnostic(line: line, severity: severity, fields: fields)
         }
     }

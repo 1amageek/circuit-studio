@@ -48,6 +48,8 @@ public struct ExternalSignoffToolReport: Sendable, Hashable, Codable {
     public enum Kind: String, Sendable, Hashable, Codable {
         case drc
         case lvs
+        case antenna
+        case density
     }
 
     public let kind: Kind
