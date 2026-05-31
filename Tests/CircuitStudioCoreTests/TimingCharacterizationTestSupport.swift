@@ -22,6 +22,12 @@ struct CachedTimingPathValidator: TimingPathValidating {
     }
 }
 
+struct ExclusiveSpiceTimingCharacterizationExecutionPolicy: TimingCharacterizationExecutionPolicy {
+    func execute<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
+        try await TimingCharacterizationTestSupport.withExclusiveSpiceSlot(operation)
+    }
+}
+
 enum TimingCharacterizationTestSupport {
     static func withExclusiveSpiceSlot<T: Sendable>(
         _ operation: @Sendable () async throws -> T
@@ -76,11 +82,18 @@ actor TimingCharacterizationTestCache {
         }
 
         let task = Task {
-            try await TimingCharacterizationTestSupport.withExclusiveSpiceSlot {
-                try await CellTimingCharacterizer(
-                    inputSlews: inputSlews,
-                    outputLoads: outputLoads
-                ).characterize(cell)
+            try await TimingCharacterizationCache.shared.cellTiming(
+                cell: cell,
+                model: .sky130Like(),
+                inputSlews: inputSlews,
+                outputLoads: outputLoads
+            ) {
+                try await TimingCharacterizationTestSupport.withExclusiveSpiceSlot {
+                    try await CellTimingCharacterizer(
+                        inputSlews: inputSlews,
+                        outputLoads: outputLoads
+                    ).characterize(cell)
+                }
             }
         }
         pendingCellTimings[key] = task
@@ -102,16 +115,28 @@ actor TimingCharacterizationTestCache {
         }
 
         let task = Task {
-            try await TimingCharacterizationTestSupport.withExclusiveSpiceSlot {
-                try await SequentialTimingCharacterizer(
-                    outputLoads: [1e-15],
-                    setupHoldSearchWindow: 300e-12,
-                    setupHoldSearchResolution: 20e-12,
-                    maxSearchIterations: 4
-                ).characterizeFlipFlop(
-                    Sky130DFFGenerator().netlist(name: "dff"),
-                    cellName: "dff"
-                )
+            try await TimingCharacterizationCache.shared.sequentialReport(
+                netlist: Sky130DFFGenerator().netlist(name: "dff"),
+                cellName: "dff",
+                model: .sky130Like(),
+                clockSlew: 80e-12,
+                dataSlew: 80e-12,
+                outputLoads: [1e-15],
+                setupHoldSearchWindow: 300e-12,
+                setupHoldSearchResolution: 20e-12,
+                maxSearchIterations: 4
+            ) {
+                try await TimingCharacterizationTestSupport.withExclusiveSpiceSlot {
+                    try await SequentialTimingCharacterizer(
+                        outputLoads: [1e-15],
+                        setupHoldSearchWindow: 300e-12,
+                        setupHoldSearchResolution: 20e-12,
+                        maxSearchIterations: 4
+                    ).characterizeFlipFlop(
+                        Sky130DFFGenerator().netlist(name: "dff"),
+                        cellName: "dff"
+                    )
+                }
             }
         }
         pendingFlipFlopReport = task
@@ -135,9 +160,9 @@ actor TimingCharacterizationTestCache {
         }
 
         let task = Task {
-            try await TimingCharacterizationTestSupport.withExclusiveSpiceSlot {
-                try await StandardTimingLibraryBuilder().buildStandardLibrary(runID: nil)
-            }
+            try await StandardTimingLibraryBuilder(
+                executionPolicy: ExclusiveSpiceTimingCharacterizationExecutionPolicy()
+            ).buildStandardLibrary(runID: nil)
         }
         pendingStandardBuild = task
         do {
@@ -159,24 +184,25 @@ actor TimingCharacterizationTestCache {
 
         let characterizedFlipFlop = try await characterizedFlipFlopReport().timing
         let task = Task {
-            try await TimingCharacterizationTestSupport.withExclusiveSpiceSlot {
-                let inputSlews = [40e-12, 200e-12]
-                let outputLoads = [1e-15, 4e-15, 12e-15]
-                let characterizer = CellTimingCharacterizer(inputSlews: inputSlews, outputLoads: outputLoads)
-                var library = TimingLibrary()
-                let bases: [CMOSGateNetlist] = [
-                    .inverter(name: "inv"),
-                    .nand(name: "nand2", inputs: ["A", "B"]),
-                    .nor(name: "nor2", inputs: ["A", "B"]),
-                ]
-                for base in bases {
-                    for variant in CellSizing.variants(of: base) {
-                        library.add(try await characterizer.characterize(variant))
-                    }
+            let inputSlews = [40e-12, 200e-12]
+            let outputLoads = [1e-15, 4e-15, 12e-15]
+            var library = TimingLibrary()
+            let bases: [CMOSGateNetlist] = [
+                .inverter(name: "inv"),
+                .nand(name: "nand2", inputs: ["A", "B"]),
+                .nor(name: "nor2", inputs: ["A", "B"]),
+            ]
+            for base in bases {
+                for variant in CellSizing.variants(of: base) {
+                    library.add(try await self.characterizeCell(
+                        variant,
+                        inputSlews: inputSlews,
+                        outputLoads: outputLoads
+                    ))
                 }
-                library.flipFlop = characterizedFlipFlop
-                return library
             }
+            library.flipFlop = characterizedFlipFlop
+            return library
         }
         pendingSizedLibrary = task
         do {

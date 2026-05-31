@@ -78,6 +78,37 @@ Timing artifacts live below the active run directory. Existing headless round tr
 
 The first implementation emits the summary reports and records raw per-trial logs, decks, and waveform CSVs as `omitted` manifest records. A claim must not reference an omitted artifact; omitted raw evidence is a recorded limitation, not proof for a pass/fail claim.
 
+## Characterization Cache
+
+Timing characterization may reuse a local derived cache to avoid repeating identical CoreSpice sweeps. The cache is not a run evidence artifact and must not be cited by evidence claims. It is an implementation accelerator whose entries are only valid when their full characterization key matches the requested work.
+
+Default location:
+
+```text
+~/Library/Caches/CircuitStudio/timing-characterization/v1/
+  cells/<key-hash>.json
+  sequential/<key-hash>.json
+```
+
+`CIRCUIT_STUDIO_TIMING_CACHE_DIR` may override the directory for CI or test isolation.
+
+| Cache key field | Purpose |
+|---|---|
+| `schemaVersion` | Invalidates incompatible cache file structure. |
+| `characterizerVersion` | Invalidates measurement algorithm changes. |
+| `deviceModelHash` | Separates process/model changes. |
+| `topologyHash` | Separates transistor or gate-level topology changes. |
+| Grid/search settings | Separates slew, load, setup/hold window, and resolution changes. |
+
+Cache behavior:
+
+| Event | Contract |
+|---|---|
+| Cache hit | Return the cached timing model only after the stored key matches the requested key. |
+| Cache miss | Run the normal characterizer and atomically write the derived cache entry after success. |
+| Characterization failure | Propagate the typed failure and do not write a cache entry. |
+| Corrupt or mismatched cache file | Throw a cache read error instead of silently substituting or recomputing. |
+
 ## Shared JSON Rules
 
 All new timing JSON artifacts use these rules.
