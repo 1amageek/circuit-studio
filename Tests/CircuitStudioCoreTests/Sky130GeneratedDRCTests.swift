@@ -94,6 +94,29 @@ struct Sky130GeneratedDRCTests {
                 "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
+    @Test("BC2: a legal-width met3 wire passes real Magic Sky130 DRC (3rd routing layer)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func met3WireClean() async throws {
+        // 0.30 µm >= met3 minimum width 0.30 µm — the over-the-cell global-routing layer.
+        let doc = document(cell: "gen_met3_clean", shapes: [rect("met3", 0, 0, 2.0, 0.30)])
+        let report = try await runDRC(cell: "gen_met3_clean", document: doc)
+        #expect(report.passed, "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
+    @Test("BC2: a met2-via2-met3 stack passes real Magic Sky130 DRC (cross-row transition)",
+          .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
+    func via2StackClean() async throws {
+        // via2 cut 0.20, enclosed by met2 >= 0.085 and met3 >= 0.065; met3 pad >= 0.24 µm²
+        // minimum area (so 0.50 x 0.50). All centred at (0.25, 0.25).
+        let doc = document(cell: "gen_via2_stack", shapes: [
+            rect("met2", 0.065, 0.065, 0.37, 0.37),
+            rect("via2", 0.15, 0.15, 0.20, 0.20),
+            rect("met3", 0.00, 0.00, 0.50, 0.50),
+        ])
+        let report = try await runDRC(cell: "gen_via2_stack", document: doc)
+        #expect(report.passed, "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
+    }
+
     /// A poly contact (gate-input tap): a widened poly pad with a licon1 to li1, the
     /// nitride-poly-cut (npc) enclosing the contact. This is the primitive that lets a
     /// wire DRIVE a gate — the enabling piece for connecting one cell's output to the

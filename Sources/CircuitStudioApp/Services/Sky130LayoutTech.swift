@@ -48,6 +48,8 @@ public enum Sky130LayoutTech {
             def("met1", "Metal1", 68, 20, rgb: (0.3, 0.5, 0.9)),
             def("via", "met1-met2 Via", 68, 44, rgb: (0.8, 0.6, 0.2), fill: .crosshatch),
             def("met2", "Metal2", 69, 20, rgb: (0.2, 0.7, 0.7)),
+            def("via2", "met2-met3 Via", 69, 44, rgb: (0.7, 0.5, 0.3), fill: .crosshatch),
+            def("met3", "Metal3", 70, 20, rgb: (0.5, 0.3, 0.7)),
         ]
 
         // Sky130 minimum width / spacing (µm) for the layers an inverter uses.
@@ -65,6 +67,8 @@ public enum Sky130LayoutTech {
             rules("met1", width: 0.14, spacing: 0.14),
             rules("via", width: 0.15, spacing: 0.17),
             rules("met2", width: 0.14, spacing: 0.14),
+            rules("via2", width: 0.20, spacing: 0.20),
+            rules("met3", width: 0.30, spacing: 0.30),
         ]
 
         // licon1: diff/poly -> li1; mcon: li1 -> met1.
@@ -84,6 +88,13 @@ public enum Sky130LayoutTech {
                 id: "via", cutLayer: layer("via"), topLayer: layer("met2"), bottomLayer: layer("met1"),
                 cutSize: LayoutSize(width: 0.15, height: 0.15),
                 enclosure: LayoutViaEnclosure(top: 0.055, bottom: 0.055), cutSpacing: 0.17
+            ),
+            // via2: met2 -> met3 (the third layer — over-the-cell global routing for
+            // multi-row designs, breaking the 2-layer single-channel ceiling).
+            LayoutViaDefinition(
+                id: "via2", cutLayer: layer("via2"), topLayer: layer("met3"), bottomLayer: layer("met2"),
+                cutSize: LayoutSize(width: 0.20, height: 0.20),
+                enclosure: LayoutViaEnclosure(top: 0.065, bottom: 0.085), cutSpacing: 0.20
             ),
         ]
 
