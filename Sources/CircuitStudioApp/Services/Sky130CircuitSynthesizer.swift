@@ -133,7 +133,7 @@ public struct Sky130CircuitSynthesizer: Sendable {
     // MARK: - synthesis
 
     public func synthesize(_ netlist: GateLevelNetlist) throws -> LayoutDocument {
-        let order = try ordered(netlist)
+        let order = try placementOrder(netlist)
         let primaries = Set(netlist.inputs)
 
         // 1) Place each cell, translate its geometry, remap net labels.
@@ -218,6 +218,96 @@ public struct Sky130CircuitSynthesizer: Sendable {
     }
 
     private func layerName(of id: LayoutLayerID) -> String { id.name }
+
+    // MARK: - antenna-aware placement + net-span analysis
+
+    /// Antenna-aware placement order: start topological (a valid driver-before-sink order), then
+    /// run a few barycenter passes that pull each cell toward the average rank of the cells it
+    /// shares a net with. Clustering connected cells SHORTENS every net's met2 track, the dominant
+    /// met2 antenna at scale — e.g. it pulls each DFF's clock inverter next to its latches,
+    /// collapsing the long `clkb` nets. Reordering is LVS- and function-neutral (same netlist, the
+    /// channel router wires any order); it only moves cells in x. This is the placement groundwork
+    /// for full antenna closure (which also needs a 2D engine for the remaining global nets).
+    private static let barycenterIterations = 5
+    func placementOrder(_ netlist: GateLevelNetlist) throws -> [GateLevelNetlist.Instance] {
+        let insts = try ordered(netlist)
+        let n = insts.count
+        guard n > 2 else { return insts }
+        let driverInstOfNet = Dictionary(
+            insts.enumerated().map { (netlist.driverNet(of: $1), $0) }, uniquingKeysWith: { a, _ in a })
+        var neighbors = [Set<Int>](repeating: [], count: n)
+        for (i, inst) in insts.enumerated() {
+            for g in Set(inst.cell.devices.map(\.gate)) {
+                if let j = driverInstOfNet[inst.net(g)], j != i { neighbors[i].insert(j); neighbors[j].insert(i) }
+            }
+        }
+        var pos = (0..<n).map(Double.init)
+        for _ in 0..<Self.barycenterIterations {
+            var next = pos
+            for i in 0..<n where !neighbors[i].isEmpty {
+                next[i] = neighbors[i].reduce(0.0) { $0 + pos[$1] } / Double(neighbors[i].count)
+            }
+            let ranked = (0..<n).sorted { next[$0] != next[$1] ? next[$0] < next[$1] : $0 < $1 }
+            for (rank, i) in ranked.enumerated() { pos[i] = Double(rank) }
+        }
+        return (0..<n).sorted { pos[$0] != pos[$1] ? pos[$0] < pos[$1] : $0 < $1 }.map { insts[$0] }
+    }
+
+    /// One routed net's physical extent in the placed row. The met2 track spans `[minX, maxX]`;
+    /// `fanout` is the number of sink GATES it reaches. The met2-antenna ratio is ≈ 10.7·span/fanout,
+    /// so a net is antenna-safe (with a diode, ratio ≤ 2200) when `span/fanout ≤ ~205 µm` —
+    /// `spanPerGate` reports that figure directly. The input to antenna repeater/diode scoping.
+    public struct NetSpan: Sendable, Hashable {
+        public let net: String
+        public let minX: Double
+        public let maxX: Double
+        public let fanout: Int
+        public var span: Double { maxX - minX }
+        public var spanPerGate: Double { fanout > 0 ? span / Double(fanout) : span }
+    }
+
+    private struct PlacedCell {
+        let inst: GateLevelNetlist.Instance
+        let cell: Sky130StandardCellSynthesizer.CellLayout
+        let offsetX: Double
+    }
+
+    private func place(order: [GateLevelNetlist.Instance]) throws -> [PlacedCell] {
+        var placed: [PlacedCell] = []
+        var offsetX = 0.0
+        for inst in order {
+            let cl = try cellSynth.layout(inst.cell)
+            placed.append(PlacedCell(inst: inst, cell: cl, offsetX: offsetX))
+            offsetX += cl.width + Self.cellGap
+        }
+        return placed
+    }
+
+    /// Each signal net's placed span + fanout for a given instance `order` (default: the
+    /// synthesizer's actual placement order). Pure geometry (no Magic) — the input to antenna scoping.
+    public func analyzeNetSpans(_ netlist: GateLevelNetlist,
+                                order: [GateLevelNetlist.Instance]? = nil) throws -> [NetSpan] {
+        let placed = try place(order: order ?? placementOrder(netlist))
+        let driver = Dictionary(placed.map { (netlist.driverNet(of: $0.inst), $0) }, uniquingKeysWith: { a, _ in a })
+        var sinkTapsByNet: [String: [Double]] = [:]
+        for p in placed {
+            for g in Set(p.inst.cell.devices.map(\.gate)) {
+                let net = p.inst.net(g)
+                guard let gateLocalX = p.cell.gateNetX[g] else { continue }
+                guard net != netlist.vgnd, net != netlist.vpwr else { continue }
+                sinkTapsByNet[net, default: []].append(p.offsetX + gateLocalX + 0.08)
+            }
+        }
+        let allNets = Set(sinkTapsByNet.keys).union(driver.keys).subtracting([netlist.vpwr, netlist.vgnd])
+        var result: [NetSpan] = []
+        for net in allNets.sorted() {
+            var xs = sinkTapsByNet[net] ?? []
+            if let drv = driver[net] { xs.append(drv.offsetX + drv.cell.outputRightX - 0.165) }
+            guard let mn = xs.min(), let mx = xs.max() else { continue }
+            result.append(NetSpan(net: net, minX: mn, maxX: mx, fanout: (sinkTapsByNet[net] ?? []).count))
+        }
+        return result
+    }
 
     // MARK: - reference netlist
 
