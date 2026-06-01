@@ -71,7 +71,7 @@ struct CircuitStudioFlowRunner {
             return nil
         case .applyDesignEdit, .applyLayoutEdit:
             return options.outputURL?.path(percentEncoded: false)
-        case .runVerification, .approveGate:
+        case .runLayoutTrust, .runVerification, .approveGate:
             return options.outputURL?.path(percentEncoded: false)
         case .reviewRoundTrip:
             return options.outputURL?.path(percentEncoded: false)
@@ -184,11 +184,20 @@ struct CircuitStudioFlowRunner {
             Swift.print("layout_document=\(result.layoutDocumentPath ?? "")")
             Swift.print("actions=\(result.actionLogPath ?? "")")
             Swift.print("layout_diff=\(result.layoutDiffPath ?? "")")
+        case .runLayoutTrust:
+            Swift.print("layout_trust=\(result.layoutTrustReport?.status.rawValue ?? "")")
+            Swift.print("ready_for_pex=\(result.readyForPEX ?? false)")
+            Swift.print("layout_trust_report=\(result.layoutTrustReportPath ?? "")")
+            Swift.print("owned_shapes=\(result.layoutTrustReport?.ownedShapeCount ?? 0)")
+            Swift.print("unowned_shapes=\(result.layoutTrustReport?.unownedShapeCount ?? 0)")
+            Swift.print("shorts=\(result.layoutTrustReport?.netAwareReport.shorts.count ?? 0)")
+            Swift.print("opens=\(result.layoutTrustReport?.netAwareReport.opens.count ?? 0)")
         case .runVerification:
             Swift.print("verification=\(result.verificationReport?.status ?? "")")
             printDesignOrFixture(result: result, options: options)
             Swift.print("ready_for_pex=\(result.readyForPEX ?? false)")
             Swift.print("verification_report=\(result.verificationReportPath ?? "")")
+            Swift.print("layout_trust_report=\(result.layoutTrustReportPath ?? "")")
             Swift.print("drc_passed=\(result.verificationReport?.drc.passed ?? false)")
             Swift.print("drc_violations=\(result.verificationReport?.drc.violationCount ?? 0)")
             Swift.print("lvs_passed=\(result.verificationReport?.lvs.passed ?? false)")
@@ -382,6 +391,7 @@ struct CircuitStudioFlowRunner {
           --run-pex-extraction     Run pexengine extract through DesignFlowCommand
           --apply-design-edit      Apply a design edit script through DesignFlowCommand
           --apply-layout-edit      Apply a layout edit script through DesignFlowCommand
+          --run-layout-trust      Run ownership + net-aware topology evaluation for a layout document
           --run-verification       Run DRC/LVS/pre-PEX verification without a full round trip
           --approve-gate           Write a typed gate approval record for human-in-the-loop review
           --review-round-trip      Load a round-trip review summary from manifest artifacts
@@ -460,6 +470,7 @@ private enum RunnerMode: Equatable {
     case runPEXExtraction
     case applyDesignEdit
     case applyLayoutEdit
+    case runLayoutTrust
     case runVerification
     case approveGate
     case reviewRoundTrip
@@ -484,6 +495,8 @@ private enum RunnerMode: Equatable {
             return .applyDesignEdit
         case .applyLayoutEdit:
             return .applyLayoutEdit
+        case .runLayoutTrust:
+            return .runLayoutTrust
         case .runVerification:
             return .runVerification
         case .approveGate:
@@ -551,6 +564,8 @@ private struct RunnerOptions {
                 try selectMode(.applyDesignEdit)
             case "--apply-layout-edit":
                 try selectMode(.applyLayoutEdit)
+            case "--run-layout-trust":
+                try selectMode(.runLayoutTrust)
             case "--run-verification":
                 try selectMode(.runVerification)
             case "--approve-gate":

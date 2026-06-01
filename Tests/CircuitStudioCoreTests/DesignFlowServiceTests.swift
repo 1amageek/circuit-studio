@@ -311,6 +311,54 @@ struct DesignFlowServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIRunsLayoutTrustAndWritesArtifacts() async throws {
+        let root = try makeTemporaryRoot("layout-trust")
+        defer { removeTemporaryRoot(root) }
+        let layoutURL = root.appending(path: "layout.json")
+        let cellID = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
+        let netID = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
+        let shapeID = UUID(uuidString: "00000000-0000-0000-0000-000000000203")!
+        let layout = LayoutDocument(
+            name: "TrustedLayout",
+            cells: [
+                LayoutCell(
+                    id: cellID,
+                    name: "TOP",
+                    shapes: [
+                        LayoutShape(
+                            id: shapeID,
+                            layer: LayoutLayerID(name: "M1", purpose: "drawing"),
+                            netID: netID,
+                            geometry: .rect(LayoutRect(
+                                origin: LayoutPoint(x: 0, y: 0),
+                                size: LayoutSize(width: 2, height: 1)
+                            ))
+                        ),
+                    ],
+                    nets: [LayoutNet(id: netID, name: "out")]
+                ),
+            ],
+            topCellID: cellID
+        )
+        try writeLayoutDocument(layout, to: layoutURL)
+
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .runLayoutTrust,
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "layout-trust-run",
+            layoutDocumentPath: layoutURL.path(percentEncoded: false)
+        ))
+
+        #expect(result.readyForPEX == true)
+        #expect(result.layoutTrustReport?.passed == true)
+        #expect(result.layoutTrustReport?.ownedShapeCount == 1)
+        let reportPath = try #require(result.layoutTrustReportPath)
+        #expect(FileManager.default.fileExists(atPath: reportPath))
+        #expect(reportPath.hasSuffix(".xcircuite/runs/layout-trust-run/layout/layout-trust-report.json"))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func layoutEditRejectsRemovingReferencedNet() throws {
         let cellID = UUID(uuidString: "00000000-0000-0000-0000-000000000301")!
         let netID = UUID(uuidString: "00000000-0000-0000-0000-000000000302")!
@@ -374,8 +422,14 @@ struct DesignFlowServiceTests {
         #expect(result.fixtureName == "voltage-divider")
         #expect(result.readyForPEX == true)
         let reportPath = try #require(result.verificationReportPath)
+        let layoutTrustReportPath = try #require(result.layoutTrustReportPath)
         #expect(FileManager.default.fileExists(atPath: reportPath))
+        #expect(FileManager.default.fileExists(atPath: layoutTrustReportPath))
+        #expect(reportPath.hasSuffix(".xcircuite/runs/verification-run/reports/physical-verification.json"))
+        #expect(layoutTrustReportPath.hasSuffix(".xcircuite/runs/verification-run/layout/layout-trust-report.json"))
         #expect(result.verificationReport?.status == "passed")
+        #expect(result.verificationReport?.layoutTrust?.passed == true)
+        #expect(result.layoutTrustReport?.passed == true)
         #expect(result.verificationReport?.drc.passed == true)
         #expect(result.verificationReport?.lvs.passed == true)
     }

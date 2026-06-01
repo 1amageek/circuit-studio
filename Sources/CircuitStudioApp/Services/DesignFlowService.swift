@@ -208,6 +208,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case runPEXExtraction
         case applyDesignEdit
         case applyLayoutEdit
+        case runLayoutTrust
         case runVerification
         case approveGate
         case reviewRoundTrip
@@ -344,6 +345,8 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let actionLogPath: String?
     public let designDiffPath: String?
     public let layoutDiffPath: String?
+    public let layoutTrustReportPath: String?
+    public let layoutTrustReport: LayoutTrustReport?
     public let verificationReportPath: String?
     public let verificationReport: DesignFlowVerificationReport?
     public let approvalRecordPath: String?
@@ -376,6 +379,8 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         actionLogPath: String? = nil,
         designDiffPath: String? = nil,
         layoutDiffPath: String? = nil,
+        layoutTrustReportPath: String? = nil,
+        layoutTrustReport: LayoutTrustReport? = nil,
         verificationReportPath: String? = nil,
         verificationReport: DesignFlowVerificationReport? = nil,
         approvalRecordPath: String? = nil,
@@ -407,6 +412,8 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.actionLogPath = actionLogPath
         self.designDiffPath = designDiffPath
         self.layoutDiffPath = layoutDiffPath
+        self.layoutTrustReportPath = layoutTrustReportPath
+        self.layoutTrustReport = layoutTrustReport
         self.verificationReportPath = verificationReportPath
         self.verificationReport = verificationReport
         self.approvalRecordPath = approvalRecordPath
@@ -475,13 +482,19 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
 public struct DesignFlowService: Sendable {
     private let simulationService: SimulationService
     private let netlistGenerator: NetlistGenerator
+    private let layoutTrustEvaluator: any LayoutTrustEvaluating
+    private let layoutTrustArtifactWriter: any LayoutTrustArtifactWriting
 
     public init(
         simulationService: SimulationService = SimulationService(),
-        netlistGenerator: NetlistGenerator = NetlistGenerator()
+        netlistGenerator: NetlistGenerator = NetlistGenerator(),
+        layoutTrustEvaluator: any LayoutTrustEvaluating = LayoutTrustEvaluationService(),
+        layoutTrustArtifactWriter: any LayoutTrustArtifactWriting = LayoutTrustArtifactWriter()
     ) {
         self.simulationService = simulationService
         self.netlistGenerator = netlistGenerator
+        self.layoutTrustEvaluator = layoutTrustEvaluator
+        self.layoutTrustArtifactWriter = layoutTrustArtifactWriter
     }
 
     public var activeSimulationJobID: UUID? {
@@ -864,6 +877,8 @@ public struct DesignFlowService: Sendable {
             return try applyDesignEdit(command)
         case .applyLayoutEdit:
             return try applyLayoutEdit(command)
+        case .runLayoutTrust:
+            return try runLayoutTrust(command)
         case .runVerification:
             return try await runVerification(command)
         case .approveGate:
@@ -903,6 +918,35 @@ public struct DesignFlowService: Sendable {
     }
 
     @MainActor
+    private func runLayoutTrust(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+        guard let layoutDocumentPath = command.layoutDocumentPath else {
+            throw DesignFlowCommandError.missingLayoutDocumentPath
+        }
+        let package = try technologyPackage(for: command)
+        let layout = try loadLayoutDocument(URL(filePath: layoutDocumentPath))
+        let tech = try layoutTech(for: package) ?? .sampleProcess()
+        let report = try layoutTrustEvaluator.evaluate(document: layout, tech: tech, policy: LayoutOwnershipPolicy())
+        let artifactDirectory = layoutTrustArtifactDirectory(for: command)
+        let artifacts = try layoutTrustArtifactWriter.write(
+            document: layout,
+            report: report,
+            to: artifactDirectory
+        )
+
+        return DesignFlowCommandResult(
+            kind: command.kind,
+            runID: command.runID,
+            projectRootPath: command.projectRootPath,
+            readyForPEX: report.passed,
+            technologyPackageID: package?.manifest.packageID,
+            technologyPackagePath: package?.manifestURL.path(percentEncoded: false),
+            layoutTrustReportPath: artifacts.layoutTrustReportPath,
+            layoutTrustReport: report,
+            message: report.status.rawValue
+        )
+    }
+
+    @MainActor
     private func runVerification(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
         guard let layoutDocumentPath = command.layoutDocumentPath else {
             throw DesignFlowCommandError.missingLayoutDocumentPath
@@ -922,6 +966,7 @@ public struct DesignFlowService: Sendable {
             ? rawExternalSignoff?.approving(by: "design-flow-command", at: Date())
             : rawExternalSignoff
         let tech = try layoutTech(for: package) ?? .sampleProcess()
+        let layoutTrustReport = try layoutTrustEvaluator.evaluate(document: layout, tech: tech, policy: LayoutOwnershipPolicy())
         let report = runPrePEXVerification(DesignFlowPrePEXVerificationRequest(
             schematic: verificationInput.schematic,
             layout: layout,
@@ -930,11 +975,17 @@ public struct DesignFlowService: Sendable {
             catalog: .standard(),
             externalSignoff: externalSignoff
         ))
-        let verificationReport = DesignFlowVerificationReport(report: report)
+        let verificationReport = DesignFlowVerificationReport(report: report, layoutTrust: layoutTrustReport)
 
         let artifactDirectory = verificationArtifactDirectory(for: command)
-        try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
-        let reportURL = artifactDirectory.appending(path: "physical-verification.json")
+        let layoutTrustArtifacts = try layoutTrustArtifactWriter.write(
+            document: layout,
+            report: layoutTrustReport,
+            to: artifactDirectory.appending(path: "layout")
+        )
+        let reportDirectory = artifactDirectory.appending(path: "reports")
+        try FileManager.default.createDirectory(at: reportDirectory, withIntermediateDirectories: true)
+        let reportURL = reportDirectory.appending(path: "physical-verification.json")
         try writeJSON(verificationReport, to: reportURL)
 
         return DesignFlowCommandResult(
@@ -946,6 +997,8 @@ public struct DesignFlowService: Sendable {
             readyForPEX: verificationReport.readyForPEX,
             technologyPackageID: package?.manifest.packageID,
             technologyPackagePath: package?.manifestURL.path(percentEncoded: false),
+            layoutTrustReportPath: layoutTrustArtifacts.layoutTrustReportPath,
+            layoutTrustReport: layoutTrustReport,
             verificationReportPath: reportURL.path(percentEncoded: false),
             verificationReport: verificationReport,
             message: verificationReport.status
@@ -1463,14 +1516,23 @@ public struct DesignFlowService: Sendable {
             .appending(path: runID)
     }
 
+    private func layoutTrustArtifactDirectory(for command: DesignFlowCommand) -> URL {
+        runArtifactDirectory(for: command, fallbackRootName: "layout-trust-runs")
+            .appending(path: "layout")
+    }
+
     private func verificationArtifactDirectory(for command: DesignFlowCommand) -> URL {
+        runArtifactDirectory(for: command, fallbackRootName: "verification-runs")
+    }
+
+    private func runArtifactDirectory(for command: DesignFlowCommand, fallbackRootName: String) -> URL {
         let root = command.projectRootPath.map { URL(filePath: $0) }
             ?? URL(filePath: FileManager.default.currentDirectoryPath)
-                .appending(path: "verification-runs")
+                .appending(path: fallbackRootName)
         let runID = command.runID ?? Self.timestamp()
         return root
             .appending(path: ".xcircuite")
-            .appending(path: "verification")
+            .appending(path: "runs")
             .appending(path: runID)
     }
 

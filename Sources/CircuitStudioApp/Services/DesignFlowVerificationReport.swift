@@ -3,15 +3,18 @@ import Foundation
 public struct DesignFlowVerificationReport: Sendable, Hashable, Codable {
     public let status: String
     public let readyForPEX: Bool
+    public let layoutTrust: LayoutTrustReport?
     public let drc: DesignFlowDRCVerificationSummary
     public let lvs: DesignFlowLVSVerificationSummary
     public let externalSignoff: RoundTripReviewSignoffSummary?
 
     public init(
-        report: PhysicalVerificationReport
+        report: PhysicalVerificationReport,
+        layoutTrust: LayoutTrustReport? = nil
     ) {
-        self.status = report.isReadyForPEX ? "passed" : "failed"
-        self.readyForPEX = report.isReadyForPEX
+        self.readyForPEX = report.isReadyForPEX && (layoutTrust?.passed ?? true)
+        self.status = self.readyForPEX ? "passed" : "failed"
+        self.layoutTrust = layoutTrust
         self.drc = DesignFlowDRCVerificationSummary(report: report.drc)
         self.lvs = DesignFlowLVSVerificationSummary(report: report.lvs)
         self.externalSignoff = report.externalSignoff.map {

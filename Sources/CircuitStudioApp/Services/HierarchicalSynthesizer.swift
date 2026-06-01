@@ -45,10 +45,13 @@ public struct HierarchicalSynthesizer: Sendable {
         let pinsByNet = Dictionary(grouping: cell.labels.filter { !rails.contains($0.text) }, by: \.text)
         let primary = Set(netlist.inputs).union(netlist.outputs)
         var mazeNets: [MazeRouter.Net] = []
-        for (net, labels) in pinsByNet where labels.count >= 2 {
+        for net in pinsByNet.keys.sorted() {
+            guard let labels = pinsByNet[net], labels.count >= 2 else { continue }
             mazeNets.append(MazeRouter.Net(name: net, pins: labels.map(\.position)))
         }
-        cell.shapes.append(contentsOf: try MazeRouter().route(mazeNets))
+        if !mazeNets.isEmpty {
+            cell.shapes.append(contentsOf: try MazeRouter().route(mazeNets))
+        }
 
         // Labels: a routed internal net is no longer a port (drop all its labels); a primary
         // I/O net keeps exactly one label (the chip port). Single-pin primary I/O is untouched.

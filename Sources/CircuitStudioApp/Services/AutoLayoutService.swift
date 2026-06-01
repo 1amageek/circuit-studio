@@ -546,6 +546,8 @@ public final class AutoLayoutService {
             var nettedShape = shape
             if let netID = netIDsByIndex[index] {
                 nettedShape.netID = netID
+            } else {
+                nettedShape.properties[LayoutOwnershipPolicy.defaultExemptionProperty] = "non-net"
             }
             return nettedShape
         }

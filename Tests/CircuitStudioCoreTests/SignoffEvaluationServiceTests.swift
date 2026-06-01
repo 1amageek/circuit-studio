@@ -6,7 +6,7 @@ import Testing
 struct SignoffEvaluationServiceTests {
 
     @Test("DRC spacing + LVS mismatch become actionable findings")
-    func structuresFindings() {
+    func structuresFindings() throws {
         let review = ExternalSignoffReview(reports: [
             ExternalSignoffToolReport(
                 kind: .drc, toolName: "magic", success: true, logPath: "/tmp/drc.log",
@@ -38,19 +38,19 @@ struct SignoffEvaluationServiceTests {
         #expect(evaluation.findings.count == 2)
         #expect(evaluation.blockingFindings.count == 2)
 
-        let drc = try? #require(evaluation.findings.first { $0.stage == "drc" })
-        #expect(drc?.reason == "min_spacing_violation")
-        #expect(drc?.ruleID == "met1.2")
-        #expect(drc?.net == "out")
-        #expect(drc?.suggestedActions.contains { $0.contains("met1") } == true)
+        let drc = try #require(evaluation.findings.first { $0.stage == "drc" })
+        #expect(drc.reason == "min_spacing_violation")
+        #expect(drc.ruleID == "met1.2")
+        #expect(drc.net == "out")
+        #expect(drc.suggestedActions.contains { $0.contains("met1") } == true)
 
-        let lvs = try? #require(evaluation.findings.first { $0.stage == "lvs" })
-        #expect(lvs?.reason == "layout_schematic_mismatch")
-        #expect(lvs?.suggestedActions.isEmpty == false)
+        let lvs = try #require(evaluation.findings.first { $0.stage == "lvs" })
+        #expect(lvs.reason == "layout_schematic_mismatch")
+        #expect(lvs.suggestedActions.isEmpty == false)
     }
 
     @Test("An unknown DRC rule is reported generically, not mislabeled by a suffix guess")
-    func unknownRuleIsReportedHonestly() {
+    func unknownRuleIsReportedHonestly() throws {
         // A ".2" suffix is NOT a reliable spacing marker across all rules; an unknown
         // code must not be confidently labeled a spacing violation.
         let review = ExternalSignoffReview(reports: [
@@ -64,10 +64,10 @@ struct SignoffEvaluationServiceTests {
                 ]
             ),
         ])
-        let finding = try? #require(SignoffEvaluationService().evaluate(review).findings.first)
-        #expect(finding?.reason == "drc_violation")            // generic, not "min_spacing_violation"
-        #expect(finding?.ruleID == "exotic.2")                 // ground truth preserved
-        #expect(finding?.suggestedActions.contains { $0.contains("exotic.2") } == true)
+        let finding = try #require(SignoffEvaluationService().evaluate(review).findings.first)
+        #expect(finding.reason == "drc_violation")
+        #expect(finding.ruleID == "exotic.2")
+        #expect(finding.suggestedActions.contains { $0.contains("exotic.2") } == true)
     }
 
     @Test("A clean review yields no findings and passes")

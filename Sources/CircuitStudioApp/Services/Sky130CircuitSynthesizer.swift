@@ -27,6 +27,11 @@ public struct Sky130CircuitSynthesizer: Sendable {
 
     private let cellSynth: Sky130StandardCellSynthesizer
     private static let cellGap = 0.90   // inter-cell spacing (keeps implants >= 0.38 apart)
+    private static let firstSignalTrackY = 3.60
+    private static let met3AccessPadWidth = 0.50
+    private static let signalTrackRuleMargin = 0.05
+    private static let met3MinimumSpacing = minimumSpacing(layer: "met3")
+    private static let signalTrackPitch = met3AccessPadWidth + met3MinimumSpacing + signalTrackRuleMargin
 
     public init(cellSynthesizer: Sky130StandardCellSynthesizer = Sky130StandardCellSynthesizer()) {
         self.cellSynth = cellSynthesizer
@@ -75,6 +80,13 @@ public struct Sky130CircuitSynthesizer: Sendable {
     }
     private func label(_ t: String, _ layer: String, _ x: Double, _ y: Double) -> LayoutLabel {
         LayoutLabel(text: t, position: LayoutPoint(x: x, y: y), layer: Sky130LayoutTech.layer(layer))
+    }
+
+    private static func minimumSpacing(layer: String) -> Double {
+        guard let spacing = Sky130LayoutTech.tech().ruleSet(for: Sky130LayoutTech.layer(layer))?.minSpacing else {
+            preconditionFailure("Sky130 \(layer) rule must define minimum spacing")
+        }
+        return spacing
     }
 
     /// Lift a li1 tap at field y up to a met2 track: an mcon (li1->met1), a continuous
@@ -195,7 +207,7 @@ public struct Sky130CircuitSynthesizer: Sendable {
             .subtracting([netlist.vpwr, netlist.vgnd])
         for (index, net) in allNets.sorted().enumerated() {
             let sinks = sinkTapsByNet[net] ?? []
-            let trackY = 3.6 + Double(index) * 0.50
+            let trackY = Self.firstSignalTrackY + Double(index) * Self.signalTrackPitch
             var xs = sinks
             if let drv = driver[net] {
                 let driverTapX = drv.offsetX + drv.cell.outputRightX - 0.165
