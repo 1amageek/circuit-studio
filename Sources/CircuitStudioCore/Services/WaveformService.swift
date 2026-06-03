@@ -26,7 +26,6 @@ public struct WaveformService: WaveformServiceProtocol, Sendable {
     /// Returns a decimated waveform for efficient display.
     /// Uses min/max envelope decimation to preserve signal peaks.
     ///
-    /// WaveformData stores realData as `[point][variable]`.
     public func fetch(
         waveform: WaveformData,
         variables: [String],
@@ -58,9 +57,10 @@ public struct WaveformService: WaveformServiceProtocol, Sendable {
         let bucketSize = Double(rangeCount) / Double(maxPoints / 2)
         guard bucketSize > 0 else { return waveform }
 
-        // realData shape: [point][variable]
         var decimatedSweep: [Double] = []
-        var decimatedData: [[Double]] = []
+        decimatedSweep.reserveCapacity(maxPoints)
+        var decimatedValues: [Double] = []
+        decimatedValues.reserveCapacity(maxPoints * waveform.variableCount)
 
         var bucketStart = startIdx
         while bucketStart <= endIdx {
@@ -71,15 +71,20 @@ public struct WaveformService: WaveformServiceProtocol, Sendable {
             var minIdx = bucketStart
             var maxIdx = bucketStart
 
-            // Access first variable value at each point: data[point][0]
-            if let firstPointData = waveform.allRealData, !firstPointData.isEmpty {
-                var minVal = waveform.realValue(variable: 0, point: bucketStart) ?? 0
-                var maxVal = minVal
-                for i in bucketStart...bucketEnd {
-                    guard i < waveform.pointCount else { break }
-                    let val = waveform.realValue(variable: 0, point: i) ?? 0
-                    if val < minVal { minVal = val; minIdx = i }
-                    if val > maxVal { maxVal = val; maxIdx = i }
+            if let initialValue = waveform.realValue(variable: 0, point: bucketStart) {
+                var minValue = initialValue
+                var maxValue = initialValue
+                for point in bucketStart...bucketEnd {
+                    guard point < waveform.pointCount else { break }
+                    guard let value = waveform.realValue(variable: 0, point: point) else { continue }
+                    if value < minValue {
+                        minValue = value
+                        minIdx = point
+                    }
+                    if value > maxValue {
+                        maxValue = value
+                        maxIdx = point
+                    }
                 }
             }
 
@@ -88,12 +93,15 @@ public struct WaveformService: WaveformServiceProtocol, Sendable {
             for idx in indices {
                 guard idx <= endIdx, idx < waveform.pointCount else { continue }
                 decimatedSweep.append(sweepValues[idx])
-                // Build one point row: [var0, var1, var2, ...]
-                var pointRow: [Double] = []
-                for varIdx in 0..<waveform.variableCount {
-                    pointRow.append(waveform.realValue(variable: varIdx, point: idx) ?? 0)
+                if let rowWasAppended = waveform.withRealValues(at: idx, { values in
+                    decimatedValues.append(contentsOf: values)
+                    return true
+                }), rowWasAppended {
+                    continue
                 }
-                decimatedData.append(pointRow)
+                for variable in 0..<waveform.variableCount {
+                    decimatedValues.append(waveform.realValue(variable: variable, point: idx) ?? 0)
+                }
             }
 
             bucketStart = bucketEnd + 1
@@ -104,7 +112,9 @@ public struct WaveformService: WaveformServiceProtocol, Sendable {
             sweepVariable: waveform.sweepVariable,
             sweepValues: decimatedSweep,
             variables: waveform.variables,
-            realData: decimatedData
+            realRowMajorData: decimatedValues,
+            pointCount: decimatedSweep.count,
+            variableCount: waveform.variableCount
         )
     }
 
