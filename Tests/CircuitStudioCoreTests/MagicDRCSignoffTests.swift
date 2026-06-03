@@ -20,7 +20,7 @@ struct MagicDRCSignoffTests {
     func cleanCellPasses() async throws {
         let tool = try #require(Self.toolchain)
         let artifacts = try makeArtifactDirectory("clean")
-        defer { try? FileManager.default.removeItem(at: artifacts) }
+        defer { removeCoreTestTemporaryDirectory(artifacts) }
 
         // The inverter ships in the PDK; no GDS is supplied, so the driver loads
         // it through the magicrc search path.
@@ -57,7 +57,7 @@ struct MagicDRCSignoffTests {
             "missing fixture magic/met1_spacing_violation.gds"
         )
         let artifacts = try makeArtifactDirectory("violation")
-        defer { try? FileManager.default.removeItem(at: artifacts) }
+        defer { removeCoreTestTemporaryDirectory(artifacts) }
 
         let command = tool.command(
             cell: "drc_broken",
@@ -86,7 +86,7 @@ struct MagicDRCSignoffTests {
     func missingCellFailsLoud() async throws {
         let tool = try #require(Self.toolchain)
         let artifacts = try makeArtifactDirectory("missing")
-        defer { try? FileManager.default.removeItem(at: artifacts) }
+        defer { removeCoreTestTemporaryDirectory(artifacts) }
 
         let command = tool.command(cell: "no_such_cell_xyz", artifactDirectory: artifacts)
         let result = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(

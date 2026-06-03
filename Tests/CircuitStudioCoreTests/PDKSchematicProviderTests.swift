@@ -50,14 +50,14 @@ struct PDKSchematicProviderTests {
         let layout = try #require(PDKCellLayoutService.locate())
         let work = FileManager.default.temporaryDirectory.appending(path: "PDKSchem-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: work) }
+        defer { removeCoreTestTemporaryDirectory(work) }
         let cell = "sky130_fd_sc_hd__inv_1"
 
         let schematic = try provider.schematic(forCell: cell, into: work.appending(path: "schem"))
         let contents = try String(contentsOf: schematic, encoding: .utf8)
         #expect(contents.contains(".subckt \(cell)"))
 
-        let gds = try layout.materialize(cell: cell, into: work.appending(path: "layout"))
+        let gds = try await layout.materialize(cell: cell, into: work.appending(path: "layout"))
         let review = try await DesignFlowService().runLiveSignoff(
             layoutGDS: gds, topCell: cell, schematicNetlist: schematic,
             artifactDirectory: work.appending(path: "signoff")

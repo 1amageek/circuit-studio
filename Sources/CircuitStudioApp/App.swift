@@ -460,7 +460,7 @@ public struct CircuitStudioApp: App {
             let designFlowService = services.designFlowService
             let configPath = services.projectService.pexConfigPath(projectRoot: projectRoot)
             let extraction = try await Task.detached(priority: .userInitiated) {
-                try designFlowService.runPEXExtraction(DesignFlowPEXExtractionRequest(
+                try await designFlowService.runPEXExtraction(DesignFlowPEXExtractionRequest(
                     configURL: configPath,
                     workingDirectory: projectRoot,
                     cornerID: config.normalizedCorners.first ?? "tt_25c_1v0",

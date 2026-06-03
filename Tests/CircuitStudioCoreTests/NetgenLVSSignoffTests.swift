@@ -35,7 +35,7 @@ struct NetgenLVSSignoffTests {
     func matchingNetlistsPass() async throws {
         let tool = try #require(Self.toolchain)
         let artifacts = try makeArtifactDirectory("match")
-        defer { try? FileManager.default.removeItem(at: artifacts) }
+        defer { removeCoreTestTemporaryDirectory(artifacts) }
 
         let command = tool.command(
             layoutNetlist: try fixture("inv_layout"),
@@ -63,7 +63,7 @@ struct NetgenLVSSignoffTests {
     func mismatchedNetlistsFail() async throws {
         let tool = try #require(Self.toolchain)
         let artifacts = try makeArtifactDirectory("mismatch")
-        defer { try? FileManager.default.removeItem(at: artifacts) }
+        defer { removeCoreTestTemporaryDirectory(artifacts) }
 
         let command = tool.command(
             layoutNetlist: try fixture("inv_layout_broken"),

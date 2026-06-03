@@ -86,6 +86,24 @@ struct LayoutTrustEvaluationServiceTests {
         #expect(FileManager.default.fileExists(atPath: artifacts.ownershipMapPath))
         #expect(FileManager.default.fileExists(atPath: artifacts.netAwareReportPath))
         #expect(FileManager.default.fileExists(atPath: artifacts.layoutTrustReportPath))
+        let manifestPath = try #require(artifacts.layoutArtifactManifestPath)
+        #expect(FileManager.default.fileExists(atPath: manifestPath))
+
+        let manifest = try JSONDecoder().decode(
+            ArtifactSetManifest.self,
+            from: Data(contentsOf: URL(filePath: manifestPath))
+        )
+        #expect(manifest.artifactSetKind == "layout-trust")
+        #expect(Set(manifest.records.map(\.id)) == [
+            "canonical-layout",
+            "layout-trust-report",
+            "net-aware-report",
+            "ownership-map",
+        ])
+        let checker = ArtifactIntegrityChecker()
+        for record in manifest.records {
+            _ = try checker.verifiedData(for: record, in: root.appending(path: "layout-trust"))
+        }
     }
 
     @Test("Non-policy layers are ignored rather than silently treated as trusted routes")

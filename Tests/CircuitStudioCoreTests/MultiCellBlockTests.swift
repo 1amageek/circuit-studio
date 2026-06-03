@@ -37,7 +37,7 @@ struct MultiCellBlockTests {
     func blockDRCClean() async throws {
         let drc = try #require(MagicDRCSignoff.locate())
         let work = try makeDir("drc")
-        defer { try? FileManager.default.removeItem(at: work) }
+        defer { removeCoreTestTemporaryDirectory(work) }
 
         let result = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
             command: drc.command(cell: topCell, gds: try blockGDS(), artifactDirectory: work),
@@ -54,7 +54,7 @@ struct MultiCellBlockTests {
     )
     func blockPEX() async throws {
         let work = try makeDir("pex")
-        defer { try? FileManager.default.removeItem(at: work) }
+        defer { removeCoreTestTemporaryDirectory(work) }
         let netlist = work.appending(path: "top.cir")
         try Data("* placeholder\n.end\n".utf8).write(to: netlist)
         let tech = TechnologyIR(

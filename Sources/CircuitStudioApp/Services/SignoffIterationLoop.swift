@@ -66,7 +66,7 @@ public struct SignoffIterationLoop: Sendable {
     public func run(
         maxIterations: Int,
         artifactDirectory: URL,
-        nextCandidate: (_ index: Int, _ lastReview: ExternalSignoffReview?) throws -> Candidate?
+        nextCandidate: (_ index: Int, _ lastReview: ExternalSignoffReview?) async throws -> Candidate?
     ) async throws -> LoopResult {
         guard maxIterations >= 1 else { throw LoopError.nonPositiveIterationBudget }
         try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
@@ -75,7 +75,7 @@ public struct SignoffIterationLoop: Sendable {
         var lastReview: ExternalSignoffReview?
 
         for index in 0..<maxIterations {
-            guard let candidate = try nextCandidate(index, lastReview) else { break }
+            guard let candidate = try await nextCandidate(index, lastReview) else { break }
             let review = try await signoff.run(
                 layoutGDS: candidate.layoutGDS,
                 topCell: candidate.topCell,

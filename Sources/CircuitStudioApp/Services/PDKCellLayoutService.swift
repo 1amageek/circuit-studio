@@ -1,4 +1,5 @@
 import Foundation
+import CircuitStudioCore
 
 /// Materializes a real PDK cell (or composed block) layout to a GDS file via
 /// Magic, so a design referenced by cell name flows into signoff without a
@@ -10,12 +11,20 @@ public struct PDKCellLayoutService: Sendable {
     public let rcFileURL: URL
     public let pdkRoot: String
     public let driverScriptURL: URL
+    public let timeoutSeconds: Double
 
-    public init(magicExecutableURL: URL, rcFileURL: URL, pdkRoot: String, driverScriptURL: URL) {
+    public init(
+        magicExecutableURL: URL,
+        rcFileURL: URL,
+        pdkRoot: String,
+        driverScriptURL: URL,
+        timeoutSeconds: Double = 300
+    ) {
         self.magicExecutableURL = magicExecutableURL
         self.rcFileURL = rcFileURL
         self.pdkRoot = pdkRoot
         self.driverScriptURL = driverScriptURL
+        self.timeoutSeconds = timeoutSeconds
     }
 
     public static var bundledDriverScriptURL: URL? {
@@ -56,7 +65,7 @@ public struct PDKCellLayoutService: Sendable {
 
     /// Writes `cell`'s layout to a GDS under `directory`, returning the GDS URL.
     /// Fails loudly on any tool error.
-    public func materialize(cell: String, into directory: URL) throws -> URL {
+    public func materialize(cell: String, into directory: URL) async throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let outputURL = directory.appending(path: "\(cell).gds")
         if FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)) {
@@ -78,16 +87,11 @@ public struct PDKCellLayoutService: Sendable {
             "MAGTYPE": "mag",
         ]) { _, new in new }
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let output = String(data: data, encoding: .utf8) ?? ""
+        let result = try await TimedProcessRunner(timeoutSeconds: timeoutSeconds).run(process: process)
+        let output = [result.standardOutput, result.standardError].joined(separator: "\n")
 
-        guard process.terminationStatus == 0, !output.contains("MAT_ERROR") else {
-            throw LayoutError.toolFailed(exitCode: process.terminationStatus, output: output)
+        guard result.exitCode == 0, !output.contains("MAT_ERROR") else {
+            throw LayoutError.toolFailed(exitCode: result.exitCode, output: output)
         }
         guard FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)) else {
             throw LayoutError.outputMissing(outputURL)

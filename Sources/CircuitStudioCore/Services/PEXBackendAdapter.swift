@@ -44,7 +44,7 @@ public struct PEXBackendExtractionResult: Sendable, Hashable {
 
 public protocol PEXBackendAdapter: Sendable {
     var backendID: String { get }
-    func extract(request: PEXBackendExtractionRequest) throws -> PEXBackendExtractionResult
+    func extract(request: PEXBackendExtractionRequest) async throws -> PEXBackendExtractionResult
 }
 
 public enum PEXBackendAdapterError: Error, LocalizedError, Equatable {
@@ -73,7 +73,7 @@ public struct SavedPEXManifestBackendAdapter: PEXBackendAdapter {
         self.artifactService = artifactService
     }
 
-    public func extract(request: PEXBackendExtractionRequest) throws -> PEXBackendExtractionResult {
+    public func extract(request: PEXBackendExtractionRequest) async throws -> PEXBackendExtractionResult {
         let manifest = try artifactService.loadManifest(manifestURL: request.configURL)
         let ir = try artifactService.loadIR(for: request.cornerID, manifestURL: request.configURL)
         return PEXBackendExtractionResult(manifestURL: request.configURL, manifest: manifest, ir: ir)
@@ -95,12 +95,12 @@ public struct PEXEngineCommandBackendAdapter: PEXBackendAdapter {
         self.artifactService = artifactService
     }
 
-    public func extract(request: PEXBackendExtractionRequest) throws -> PEXBackendExtractionResult {
+    public func extract(request: PEXBackendExtractionRequest) async throws -> PEXBackendExtractionResult {
         let commandService = PEXCommandService(executablePath: request.executablePath ?? executablePath)
         let arguments = request.additionalArguments.contains("--json")
             ? request.additionalArguments
             : request.additionalArguments + ["--json"]
-        let result = try commandService.extract(
+        let result = try await commandService.extract(
             configURL: request.configURL,
             workingDirectory: request.workingDirectory,
             additionalArguments: arguments

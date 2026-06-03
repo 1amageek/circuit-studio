@@ -55,7 +55,7 @@ public struct LiveSignoffService: Sendable {
             artifactDirectory: artifactDirectory
         )
 
-        let layoutNetlist = try extractor.extractLayoutNetlist(
+        let layoutNetlist = try await extractor.extractLayoutNetlist(
             gds: layoutGDS, cell: topCell, into: artifactDirectory
         )
 

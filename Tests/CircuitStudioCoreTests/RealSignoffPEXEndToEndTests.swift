@@ -26,7 +26,7 @@ struct RealSignoffPEXEndToEndTests {
         let work = FileManager.default.temporaryDirectory
             .appending(path: "RealE2E-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: work) }
+        defer { removeCoreTestTemporaryDirectory(work) }
 
         let gds = try lvsFixture("inv1", "gds")
 

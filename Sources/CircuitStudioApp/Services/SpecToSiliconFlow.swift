@@ -69,13 +69,18 @@ public struct SpecToSiliconFlow: Sendable {
         let golden = ACC4Reference().run(intent.program, cycles: intent.cycles)
         let actual = try ACC4Machine().run(intent.program, cycles: intent.cycles)
         let functionalPass = actual == golden.trace
-        let traceURL = artifactDirectory.appending(path: "\(intent.designName).trace.json")
-        try Data(golden.trace.map { "\($0.pc),\($0.acc)" }.joined(separator: "\n").utf8).write(to: traceURL)
+        let traceRecord = try ArtifactPublisher(runDirectory: artifactDirectory).publishJSON(
+            ACC4FunctionalTraceArtifact(designName: intent.designName, trace: golden.trace),
+            id: ACC4FunctionalTraceArtifact.artifactKind,
+            kind: ACC4FunctionalTraceArtifact.artifactKind,
+            relativePath: "\(intent.designName).trace.json"
+        )
         claims.append(.init(axis: .functional,
                             statement: "gate-level core matches the reference over \(intent.cycles) cycles",
                             passed: functionalPass,
                             measured: functionalPass ? "trace match" : "trace diverged",
-                            artifact: traceURL.path))
+                            artifact: TapeoutEvidenceArtifact(publicationRecord: traceRecord),
+                            kind: .signoff))
 
         // 2) TIMING — characterize, run STA at the target, and validate scoped claims against SPICE.
         let runID = intent.designName
@@ -86,7 +91,7 @@ public struct SpecToSiliconFlow: Sendable {
             .analyze(seq, clockPeriod: intent.targetClockPeriod, defaultInputSlew: intent.defaultInputSlew)
         let validation = try await spiceValidator.validate(path: report.criticalPath, in: seq, toleranceFraction: 0.25)
         let ffReportPoint = try sequentialTimingReportPoint(timingBuild.sequentialReport)
-        let staArtifact = STAReportArtifact(
+        let staReportArtifact = STAReportArtifact(
             runID: runID,
             designName: intent.designName,
             timingLibraryArtifactID: "timing-library",
@@ -103,7 +108,7 @@ public struct SpecToSiliconFlow: Sendable {
             runDirectory: artifactDirectory,
             technology: timingBuild.sequentialReport.technology,
             library: timingBuild.libraryArtifact,
-            staReport: staArtifact,
+            staReport: staReportArtifact,
             combinationalReport: timingBuild.combinationalReport,
             sequentialReport: timingBuild.sequentialReport,
             validationReports: [(
@@ -117,21 +122,23 @@ public struct SpecToSiliconFlow: Sendable {
                 .init(statement: "flip-flop timing is SPICE-characterized", passed: timingBuild.sequentialReport.status == .passed, artifactIDs: ["sequential-dff-characterization"]),
             ]
         )
-        let staURL = try artifactURL(id: "sta-report", in: timingArtifacts, runDirectory: artifactDirectory)
-        let validationURL = try artifactURL(id: "combinational-path-validation", in: timingArtifacts, runDirectory: artifactDirectory)
-        let sequentialURL = try artifactURL(id: "sequential-dff-characterization", in: timingArtifacts, runDirectory: artifactDirectory)
+        let staArtifact = try evidenceArtifact(id: "sta-report", in: timingArtifacts)
+        let validationArtifact = try evidenceArtifact(id: "combinational-path-validation", in: timingArtifacts)
+        let sequentialArtifact = try evidenceArtifact(id: "sequential-dff-characterization", in: timingArtifacts)
         claims.append(.init(axis: .timing,
                             statement: String(format: "setup/hold met at T=%.0f ps",
                                             intent.targetClockPeriod * 1e12),
                             passed: report.met,
                             measured: String(format: "fmax %.0f MHz, setup slack %.1f ps, hold slack %.1f ps",
                                              report.fmaxHz / 1e6, report.worstSetupSlack * 1e12, report.worstHoldSlack * 1e12),
-                            artifact: staURL.path))
+                            artifact: staArtifact,
+                            kind: .signoff))
         claims.append(.init(axis: .timing,
                             statement: "combinational STA critical path agrees with SPICE",
                             passed: validation.agrees,
                             measured: String(format: "STA/SPICE combinational delay err %.1f%%", validation.relativeError * 100),
-                            artifact: validationURL.path))
+                            artifact: validationArtifact,
+                            kind: .signoff))
         claims.append(.init(axis: .timing,
                             statement: "flip-flop timing is SPICE-characterized",
                             passed: timingBuild.sequentialReport.status == .passed,
@@ -140,7 +147,8 @@ public struct SpecToSiliconFlow: Sendable {
                                              timingBuild.sequentialReport.timing.clkToQFall.lookup(inputSlew: ffReportPoint.clockSlew, outputLoad: ffReportPoint.outputLoad) * 1e12,
                                              timingBuild.sequentialReport.timing.setupTime * 1e12,
                                              timingBuild.sequentialReport.timing.holdTime * 1e12),
-                            artifact: sequentialURL.path))
+                            artifact: sequentialArtifact,
+                            kind: .signoff))
 
         // 3) PHYSICAL — synthesize the core and run the FULL physical deck. ERC, IR drop and EM
         //    always run (in-process); DRC, LVS, antenna and density run on the real toolchain
@@ -148,11 +156,20 @@ public struct SpecToSiliconFlow: Sendable {
         //    reported truthfully — a failing axis fails the bundle, never a curated green.
         let netlist = generator.gateLevelNetlist(name: intent.designName)
         let synth = Sky130CircuitSynthesizer()
-        let doc = try synth.synthesize(netlist)
+        let synthesis = try synth.synthesisResult(for: netlist)
+        let antennaPlanURL = artifactDirectory.appending(path: "\(intent.designName).antenna-protection.json")
+        let antennaPlanRecord = try AntennaProtectionArtifactWriter().write(synthesis.antennaProtectionPlan, to: antennaPlanURL)
+        claims.append(.init(axis: .antenna,
+                            statement: TapeoutEvidenceBundle.Claim.antennaProtectionPlanStatement,
+                            passed: true,
+                            measured: "\(synthesis.antennaProtectionPlan.sites.count) diffusion-tie site(s)",
+                            artifact: TapeoutEvidenceArtifact(publicationRecord: antennaPlanRecord),
+                            kind: .supportingEvidence))
+        let doc = synthesis.document
         let gds = artifactDirectory.appending(path: "\(intent.designName).gds")
         try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(doc, to: gds, format: .gds)
         let spiceURL = artifactDirectory.appending(path: "\(intent.designName).spice")
-        try synth.referenceSPICE(netlist).write(to: spiceURL, atomically: true, encoding: .utf8)
+        try synth.referenceSPICE(for: netlist).write(to: spiceURL, atomically: true, encoding: .utf8)
 
         let runGated = signoffAvailable && LiveSignoffService.locate() != nil
         let deck = try await PhysicalSignoffDeck(runGatedTools: runGated).run(
@@ -207,14 +224,13 @@ public struct SpecToSiliconFlow: Sendable {
         )
     }
 
-    private func artifactURL(
+    private func evidenceArtifact(
         id: String,
-        in result: TimingArtifactWriter.WriteResult,
-        runDirectory: URL
-    ) throws -> URL {
+        in result: TimingArtifactWriter.WriteResult
+    ) throws -> TapeoutEvidenceArtifact {
         guard let record = result.record(id: id) else {
             throw FlowError.missingTimingArtifactRecord(id)
         }
-        return runDirectory.appending(path: record.path)
+        return TapeoutEvidenceArtifact(timingRecord: record)
     }
 }

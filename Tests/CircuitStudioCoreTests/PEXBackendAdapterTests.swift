@@ -4,14 +4,14 @@ import Testing
 
 @Suite("PEXBackendAdapter Tests")
 struct PEXBackendAdapterTests {
-    @Test func savedManifestAdapterLoadsIR() throws {
+    @Test func savedManifestAdapterLoadsIR() async throws {
         let manifestURL = try fixtureURL(
             "manifest",
             extension: "json",
             subdirectory: "pex/golden-voltage-divider"
         )
 
-        let result = try SavedPEXManifestBackendAdapter().extract(request: PEXBackendExtractionRequest(
+        let result = try await SavedPEXManifestBackendAdapter().extract(request: PEXBackendExtractionRequest(
             configURL: manifestURL,
             cornerID: "tt_25c_1v0"
         ))
@@ -22,7 +22,8 @@ struct PEXBackendAdapterTests {
         #expect(result.ir.elements.count == 3)
     }
 
-    @Test func pexEngineCommandAdapterLoadsManifestFromJSONOutput() throws {
+    @Test(.timeLimit(.minutes(1)))
+    func pexEngineCommandAdapterLoadsManifestFromJSONOutput() async throws {
         let root = try makeTemporaryRoot("command")
         defer { removeTemporaryRoot(root) }
         let runDirectory = root.appending(path: "pex-runs").appending(path: "mock-run")
@@ -39,7 +40,7 @@ struct PEXBackendAdapterTests {
             """
         )
 
-        let result = try PEXEngineCommandBackendAdapter(
+        let result = try await PEXEngineCommandBackendAdapter(
             executablePath: "/definitely/missing/pexengine"
         ).extract(request: PEXBackendExtractionRequest(
             configURL: configURL,
@@ -67,7 +68,8 @@ struct PEXBackendAdapterTests {
         ])
     }
 
-    @Test func pexEngineCommandAdapterRejectsMissingManifestURL() throws {
+    @Test(.timeLimit(.minutes(1)))
+    func pexEngineCommandAdapterRejectsMissingManifestURL() async throws {
         let root = try makeTemporaryRoot("missing-manifest-url")
         defer { removeTemporaryRoot(root) }
         let configURL = root.appending(path: "pex-config.json")
@@ -82,8 +84,8 @@ struct PEXBackendAdapterTests {
             """
         )
 
-        #expect(throws: PEXBackendAdapterError.missingManifestURLInCommandOutput) {
-            _ = try PEXEngineCommandBackendAdapter(
+        await #expect(throws: PEXBackendAdapterError.missingManifestURLInCommandOutput) {
+            _ = try await PEXEngineCommandBackendAdapter(
                 executablePath: executable.path(percentEncoded: false)
             ).extract(request: PEXBackendExtractionRequest(
                 configURL: configURL,

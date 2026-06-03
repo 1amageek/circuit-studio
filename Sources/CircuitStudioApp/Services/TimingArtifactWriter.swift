@@ -1,8 +1,6 @@
 import Foundation
 
 public enum TimingArtifactWriterError: Error, LocalizedError, Equatable {
-    case directoryCreationFailed(path: String, reason: String)
-    case writeFailed(path: String, reason: String)
     case claimReferencesMissingArtifact(statement: String, artifactID: String)
     case claimReferencesUnavailableArtifact(statement: String, artifactID: String, status: TimingArtifactStatus)
     case modelSourceReferencesMissingArtifact(modelID: String, artifactID: String)
@@ -10,13 +8,10 @@ public enum TimingArtifactWriterError: Error, LocalizedError, Equatable {
     case constantFixtureModelInProduction(modelID: String)
     case duplicateArtifactID(String)
     case duplicateArtifactPath(path: String, artifactID: String, existingArtifactID: String)
+    case unknownPublishedArtifactKind(artifactID: String, kind: String)
 
     public var errorDescription: String? {
         switch self {
-        case .directoryCreationFailed(let path, let reason):
-            return "Failed to create timing artifact directory at \(path): \(reason)"
-        case .writeFailed(let path, let reason):
-            return "Failed to write timing artifact at \(path): \(reason)"
         case .claimReferencesMissingArtifact(let statement, let artifactID):
             return "Timing claim '\(statement)' references missing artifact '\(artifactID)'."
         case .claimReferencesUnavailableArtifact(let statement, let artifactID, let status):
@@ -31,6 +26,8 @@ public enum TimingArtifactWriterError: Error, LocalizedError, Equatable {
             return "Timing artifact id '\(id)' is declared more than once."
         case .duplicateArtifactPath(let path, let artifactID, let existingArtifactID):
             return "Timing artifact '\(artifactID)' writes to '\(path)', already used by artifact '\(existingArtifactID)'."
+        case .unknownPublishedArtifactKind(let artifactID, let kind):
+            return "Timing artifact '\(artifactID)' was published with unknown kind '\(kind)'."
         }
     }
 }
@@ -96,11 +93,8 @@ public struct TimingArtifactWriter: Sendable {
         try validateModelSources(library.modelSources, records: plannedRecords, allowConstantFixtureModels: allowConstantFixtureModels)
         try validateClaims(claims, records: plannedRecords)
 
-        try createDirectory(characterizationDirectory)
-        try createDirectory(validationDirectory)
-
-        var records: [TimingArtifactRecord] = []
-        records.append(try writeArtifact(
+        var artifactItems: [ArtifactSetPublisher.Item] = []
+        artifactItems.append(try artifactItem(
             id: "timing-library",
             kind: .timingLibrary,
             value: library,
@@ -109,7 +103,7 @@ public struct TimingArtifactWriter: Sendable {
         ))
 
         if let staReport {
-            records.append(try writeArtifact(
+            artifactItems.append(try artifactItem(
                 id: "sta-report",
                 kind: .staReport,
                 value: staReport,
@@ -119,7 +113,7 @@ public struct TimingArtifactWriter: Sendable {
         }
 
         if let combinationalReport {
-            records.append(try writeArtifact(
+            artifactItems.append(try artifactItem(
                 id: "combinational-characterization",
                 kind: .characterizationReport,
                 value: combinationalReport,
@@ -129,7 +123,7 @@ public struct TimingArtifactWriter: Sendable {
         }
 
         if let sequentialReport {
-            records.append(try writeArtifact(
+            artifactItems.append(try artifactItem(
                 id: "sequential-dff-characterization",
                 kind: .characterizationReport,
                 value: sequentialReport,
@@ -139,7 +133,7 @@ public struct TimingArtifactWriter: Sendable {
         }
 
         for validation in validationReports {
-            records.append(try writeArtifact(
+            artifactItems.append(try artifactItem(
                 id: validation.id,
                 kind: .validationReport,
                 value: validation.report,
@@ -147,26 +141,32 @@ public struct TimingArtifactWriter: Sendable {
                 runDirectory: runDirectory
             ))
         }
-        if combinationalReport != nil || sequentialReport != nil {
-            records += omittedRawEvidenceRecords()
-        }
+        let omittedRecords = (combinationalReport != nil || sequentialReport != nil)
+            ? omittedRawEvidenceRecords()
+            : []
+        let publisher = ArtifactSetPublisher(runDirectory: runDirectory)
+        let preparedArtifacts = try publisher.prepare(artifactItems)
+        let artifactRecords = try preparedArtifacts.map { try timingRecord(publicationRecord: $0.record) }
 
         let manifest = TimingArtifactManifest(
             runID: runID,
             technology: technology,
-            artifacts: records.sorted { $0.id < $1.id },
+            artifacts: (artifactRecords + omittedRecords).sorted { $0.id < $1.id },
             claims: claims,
             warnings: warnings
         )
         let manifestURL = timingDirectory.appending(path: "manifest.json")
-        try writeJSON(manifest, to: manifestURL)
-        let manifestRecord = try artifactRecord(
+        let manifestItem = try artifactItem(
             id: "timing-manifest",
             kind: .timingManifest,
+            value: manifest,
             url: manifestURL,
             runDirectory: runDirectory
         )
-        let allRecords = (records + [manifestRecord]).sorted { $0.id < $1.id }
+        let preparedManifest = try publisher.prepare([manifestItem])
+        let publishedRecords = try publisher.publish(preparedArtifacts + preparedManifest)
+        let publishedTimingRecords = try publishedRecords.map { try timingRecord(publicationRecord: $0) }
+        let allRecords = (publishedTimingRecords + omittedRecords).sorted { $0.id < $1.id }
         return WriteResult(manifest: manifest, manifestURL: manifestURL, records: allRecords)
     }
 
@@ -241,58 +241,30 @@ public struct TimingArtifactWriter: Sendable {
         )
     }
 
-    private func writeArtifact<T: Encodable>(
+    private func artifactItem<T: Encodable>(
         id: String,
         kind: TimingArtifactKind,
         value: T,
         url: URL,
         runDirectory: URL
-    ) throws -> TimingArtifactRecord {
-        try writeJSON(value, to: url)
-        return try artifactRecord(id: id, kind: kind, url: url, runDirectory: runDirectory)
-    }
-
-    private func artifactRecord(
-        id: String,
-        kind: TimingArtifactKind,
-        url: URL,
-        runDirectory: URL
-    ) throws -> TimingArtifactRecord {
-        let digest = try RoundTripArtifactDigest.compute(url: url)
-        return TimingArtifactRecord(
+    ) throws -> ArtifactSetPublisher.Item {
+        let relativePath = try RoundTripArtifactResolver(runDirectory: runDirectory).relativePath(for: url)
+        return try ArtifactSetPublisher.jsonItem(
+            value,
             id: id,
-            kind: kind,
-            path: try RoundTripArtifactResolver(runDirectory: runDirectory).relativePath(for: url),
-            status: .available,
-            sha256: digest.sha256,
-            byteCount: digest.byteCount
+            kind: kind.rawValue,
+            relativePath: relativePath
         )
     }
 
-    private func createDirectory(_ url: URL) throws {
-        do {
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        } catch {
-            throw TimingArtifactWriterError.directoryCreationFailed(
-                path: url.path(percentEncoded: false),
-                reason: error.localizedDescription
+    private func timingRecord(publicationRecord: ArtifactPublicationRecord) throws -> TimingArtifactRecord {
+        guard let kind = TimingArtifactKind(rawValue: publicationRecord.kind) else {
+            throw TimingArtifactWriterError.unknownPublishedArtifactKind(
+                artifactID: publicationRecord.id,
+                kind: publicationRecord.kind
             )
         }
-    }
-
-    private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        do {
-            let data = try encoder.encode(value)
-            try data.write(to: url, options: .atomic)
-        } catch {
-            throw TimingArtifactWriterError.writeFailed(
-                path: url.path(percentEncoded: false),
-                reason: error.localizedDescription
-            )
-        }
+        return TimingArtifactRecord(publicationRecord: publicationRecord, kind: kind)
     }
 
     private func validateClaims(

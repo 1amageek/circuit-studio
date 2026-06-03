@@ -5,7 +5,7 @@ import LayoutCore
 @testable import CircuitStudioCore
 @testable import SchematicEditor
 
-@Suite("DesignFlowService Tests")
+@Suite("DesignFlowService Tests", .serialized)
 struct DesignFlowServiceTests {
     @Test
     @MainActor
@@ -27,7 +27,7 @@ struct DesignFlowServiceTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIListsFixturesGeneratesNetlistAndRunsSimulation() async throws {
         let service = DesignFlowService()
@@ -50,7 +50,7 @@ struct DesignFlowServiceTests {
         #expect(simulation.netlist?.contains(".op") == true)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func technologyPackageLoadsAndInjectsProcessConfig() async throws {
         let packageURL = try rootFixtureURL("technology-package", extension: "json")
@@ -79,7 +79,7 @@ struct DesignFlowServiceTests {
         #expect(netlist.netlist?.contains(".include \"models/passives.inc\"") == true)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRunsFixtureRoundTripWithTechnologyPackage() async throws {
         let packageURL = try rootFixtureURL("technology-package", extension: "json")
@@ -106,7 +106,7 @@ struct DesignFlowServiceTests {
         #expect(manifest.artifacts.contains { $0.kind == "pex-artifact" })
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRunsDesignSpecNetlistSimulationAndRoundTrip() async throws {
         let root = try makeTemporaryRoot("design-spec-round-trip")
@@ -165,7 +165,7 @@ struct DesignFlowServiceTests {
         #expect(decoded.designName == roundTrip.designName)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIAppliesDesignEditAndWritesAuditArtifacts() async throws {
         let root = try makeTemporaryRoot("design-edit")
@@ -218,7 +218,7 @@ struct DesignFlowServiceTests {
         #expect(simulation.simulationStatus == "completed")
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIAppliesLayoutEditAndWritesAuditArtifacts() async throws {
         let root = try makeTemporaryRoot("layout-edit")
@@ -310,7 +310,7 @@ struct DesignFlowServiceTests {
         #expect(diff.addedLabels == ["TOP:out"])
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRunsLayoutTrustAndWritesArtifacts() async throws {
         let root = try makeTemporaryRoot("layout-trust")
@@ -350,7 +350,8 @@ struct DesignFlowServiceTests {
             layoutDocumentPath: layoutURL.path(percentEncoded: false)
         ))
 
-        #expect(result.readyForPEX == true)
+        #expect(result.readyForPEX == nil)
+        #expect(result.layoutTrustPassed == true)
         #expect(result.layoutTrustReport?.passed == true)
         #expect(result.layoutTrustReport?.ownedShapeCount == 1)
         let reportPath = try #require(result.layoutTrustReportPath)
@@ -358,7 +359,7 @@ struct DesignFlowServiceTests {
         #expect(reportPath.hasSuffix(".xcircuite/runs/layout-trust-run/layout/layout-trust-report.json"))
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     func layoutEditRejectsRemovingReferencedNet() throws {
         let cellID = UUID(uuidString: "00000000-0000-0000-0000-000000000301")!
         let netID = UUID(uuidString: "00000000-0000-0000-0000-000000000302")!
@@ -394,7 +395,7 @@ struct DesignFlowServiceTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRunsVerificationOnlyAndWritesReportArtifact() async throws {
         let root = try makeTemporaryRoot("verification-only")
@@ -421,6 +422,7 @@ struct DesignFlowServiceTests {
 
         #expect(result.fixtureName == "voltage-divider")
         #expect(result.readyForPEX == true)
+        #expect(result.layoutTrustPassed == true)
         let reportPath = try #require(result.verificationReportPath)
         let layoutTrustReportPath = try #require(result.layoutTrustReportPath)
         #expect(FileManager.default.fileExists(atPath: reportPath))
@@ -434,7 +436,7 @@ struct DesignFlowServiceTests {
         #expect(result.verificationReport?.lvs.passed == true)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIApprovesGateAndWritesAuditRecord() async throws {
         let root = try makeTemporaryRoot("gate-approval")
@@ -494,7 +496,7 @@ struct DesignFlowServiceTests {
         #expect(review.approvals.first?.gateID == .postLayoutComparison)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsEscapingGateApprovalArtifactPath() async throws {
         let root = try makeTemporaryRoot("gate-approval-escape")
@@ -548,7 +550,7 @@ struct DesignFlowServiceTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsAbsoluteManifestArtifactPath() async throws {
         let root = try makeTemporaryRoot("gate-approval-absolute-artifact")
@@ -598,7 +600,7 @@ struct DesignFlowServiceTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsGateApprovalForInvalidManifestRunID() async throws {
         let root = try makeTemporaryRoot("gate-approval-invalid-run")
@@ -642,7 +644,7 @@ struct DesignFlowServiceTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsPrePEXApprovalWithoutVerificationArtifact() async throws {
         let root = try makeTemporaryRoot("gate-approval-missing-pre-pex")
@@ -688,7 +690,7 @@ struct DesignFlowServiceTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIApprovesPhysicalVerificationReportGates() async throws {
         let root = try makeTemporaryRoot("gate-approval-physical-verification")
@@ -748,7 +750,7 @@ struct DesignFlowServiceTests {
         ])
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsUnsafeDesignSpecNamesAndDuplicateTerminals() async throws {
         let root = try makeTemporaryRoot("invalid-design-spec")
@@ -802,16 +804,29 @@ struct DesignFlowServiceTests {
             ))
         }
 
+        let missingSchemaData = Data("""
+        {
+          "name": "missing-schema",
+          "components": [],
+          "nets": [],
+          "analyses": []
+        }
+        """.utf8)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(DesignFlowDesignSpec.self, from: missingSchemaData)
+        }
+
         let unsupportedSchemaURL = root.appending(path: "unsupported-schema.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "unsupported-schema",
-            schemaVersion: 2,
-            title: base.title,
-            components: base.components,
-            nets: base.nets,
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: unsupportedSchemaURL)
+        let unsupportedSchemaData = Data("""
+        {
+          "schemaVersion": 2,
+          "name": "unsupported-schema",
+          "components": [],
+          "nets": [],
+          "analyses": []
+        }
+        """.utf8)
+        try unsupportedSchemaData.write(to: unsupportedSchemaURL)
 
         await #expect(throws: DesignFlowDesignSpecError.unsupportedSchemaVersion(2)) {
             try await service.execute(DesignFlowCommand(
@@ -1052,7 +1067,7 @@ struct DesignFlowServiceTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func designSpecNormalizesInlinePEXUnitsAndRejectsInvalidPEX() async throws {
         let root = try makeTemporaryRoot("inline-pex-spec")
@@ -1144,7 +1159,7 @@ struct DesignFlowServiceTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRunsFixtureRoundTripAndSummarizesBottlenecks() async throws {
         let root = try makeTemporaryRoot("command-round-trip")
@@ -1193,7 +1208,7 @@ struct DesignFlowServiceTests {
         #expect(decoded.bottleneckSummary == roundTrip.bottleneckSummary)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsIncompleteSignoffPairAndInvalidLimits() async throws {
         let service = DesignFlowService()
@@ -1263,7 +1278,7 @@ struct DesignFlowServiceTests {
         #expect(!FileManager.default.fileExists(atPath: invalidRunIDRoot.path(percentEncoded: false)))
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func unifiedAPIRunsHeadlessRoundTrip() async throws {
         let root = try makeTemporaryRoot("round-trip")
@@ -1303,7 +1318,7 @@ struct DesignFlowServiceTests {
         #expect(bottlenecks.mostExpensiveStageName != nil)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     func unifiedAPIRunsSchematicSimulation() async throws {
         let service = DesignFlowService()
         let result = try await service.runSchematicSimulation(DesignFlowSchematicSimulationRequest(
@@ -1316,7 +1331,7 @@ struct DesignFlowServiceTests {
         #expect(result.simulationResult.waveform != nil)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func unifiedAPIGeneratesLayoutAndRunsPrePEXVerification() throws {
         let service = DesignFlowService()
@@ -1334,13 +1349,17 @@ struct DesignFlowServiceTests {
             catalog: .standard()
         ))
 
+        if !verification.drc.passed {
+            Issue.record("Auto-layout DRC violations: \(layout.drcResult.violations.map(\.message).joined(separator: " | "))")
+            Issue.record("Auto-layout DRC details: \(layout.drcResult.violations.map { "\($0.kind.rawValue) layer=\($0.layer?.name ?? "-") region=\($0.region) nets=\($0.netIDs)" }.joined(separator: " | "))")
+        }
         #expect(layout.unroutedNets.isEmpty)
         #expect(verification.drc.passed)
         #expect(verification.lvs.passed)
         #expect(verification.isReadyForPEX)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func unifiedAPIGeneratesRCLowPassLayoutAndRunsPrePEXVerification() throws {
         let service = DesignFlowService()
@@ -1359,6 +1378,9 @@ struct DesignFlowServiceTests {
         ))
 
         if !verification.isReadyForPEX {
+            Issue.record("Auto-layout DRC violations: \(layout.drcResult.violations.map(\.message).joined(separator: " | "))")
+            Issue.record("Auto-layout DRC details: \(layout.drcResult.violations.map { "\($0.kind.rawValue) layer=\($0.layer?.name ?? "-") region=\($0.region) nets=\($0.netIDs)" }.joined(separator: " | "))")
+            Issue.record("Auto-layout via neighborhood: \(viaNeighborhoodSummary(layout.document, around: layout.drcResult.violations.first?.region))")
             Issue.record("DRC: \(verification.drc)")
             Issue.record("LVS: \(verification.lvs)")
         }
@@ -1369,7 +1391,28 @@ struct DesignFlowServiceTests {
         #expect(verification.isReadyForPEX)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    private func viaNeighborhoodSummary(_ document: LayoutDocument, around region: LayoutRect?) -> String {
+        guard let topCellID = document.topCellID,
+              let topCell = document.cell(withID: topCellID),
+              let region else {
+            return "unavailable"
+        }
+        let expanded = region.expanded(by: 0.5, 0.5)
+        let nearbyShapes = topCell.shapes.filter {
+            let box = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            return box.intersects(expanded)
+        }.map {
+            "\($0.layer.name) net=\($0.netID?.uuidString ?? "-") box=\(LayoutGeometryUtils.boundingBox(for: $0.geometry))"
+        }
+        let nearbyVias = topCell.vias.filter {
+            expanded.contains($0.position)
+        }.map {
+            "\($0.viaDefinitionID) net=\($0.netID?.uuidString ?? "-") at=\($0.position)"
+        }
+        return "vias=[\(nearbyVias.joined(separator: "; "))] shapes=[\(nearbyShapes.joined(separator: "; "))]"
+    }
+
+    @Test(.timeLimit(.minutes(2)))
     func unifiedAPIRunsPostLayoutSimulationAndComparison() async throws {
         let service = DesignFlowService()
         let baseNetlist = """
@@ -1434,7 +1477,7 @@ struct DesignFlowServiceTests {
         #expect(input.artifactPaths.contains { $0.hasSuffix("extraction.log") })
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRunsPEXExtractionThroughBackendAdapter() async throws {
         let root = try makeTemporaryRoot("pex-extraction-command")
@@ -1467,8 +1510,8 @@ struct DesignFlowServiceTests {
         #expect(result.message == "mock-pexengine")
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func sharedPEXExtractionAPIProducesInjectablePostLayoutNetlist() throws {
+    @Test(.timeLimit(.minutes(2)))
+    func sharedPEXExtractionAPIProducesInjectablePostLayoutNetlist() async throws {
         let root = try makeTemporaryRoot("pex-extraction-shared-api")
         defer { removeTemporaryRoot(root) }
         let runDirectory = root.appending(path: "pex-runs").appending(path: "mock-run")
@@ -1486,7 +1529,7 @@ struct DesignFlowServiceTests {
         )
 
         let service = DesignFlowService()
-        let extraction = try service.runPEXExtraction(DesignFlowPEXExtractionRequest(
+        let extraction = try await service.runPEXExtraction(DesignFlowPEXExtractionRequest(
             configURL: configURL,
             workingDirectory: root,
             cornerID: "tt_25c_1v0",

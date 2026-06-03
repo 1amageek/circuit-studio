@@ -23,6 +23,24 @@ public struct RoundTripArtifactDigest: Sendable, Hashable, Codable {
         self.byteCount = byteCount
     }
 
+    public static func isValidSHA256(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy { byte in
+            (48...57).contains(byte)
+                || (65...70).contains(byte)
+                || (97...102).contains(byte)
+        }
+    }
+
+    public static func compute(data: Data) -> RoundTripArtifactDigest {
+        var hasher = SHA256()
+        hasher.update(data: data)
+        let digest = hasher.finalize()
+        return RoundTripArtifactDigest(
+            sha256: digest.map { String(format: "%02x", $0) }.joined(),
+            byteCount: Int64(data.count)
+        )
+    }
+
     public static func compute(url: URL) throws -> RoundTripArtifactDigest {
         let handle = try FileHandle(forReadingFrom: url)
         var hasher = SHA256()

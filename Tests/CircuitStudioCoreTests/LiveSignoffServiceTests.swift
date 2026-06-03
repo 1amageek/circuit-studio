@@ -34,7 +34,7 @@ struct LiveSignoffServiceTests {
     func cleanLayoutPasses() async throws {
         let service = try #require(Self.service)
         let artifacts = try makeArtifactDirectory("clean")
-        defer { try? FileManager.default.removeItem(at: artifacts) }
+        defer { removeCoreTestTemporaryDirectory(artifacts) }
 
         let review = try await service.run(
             layoutGDS: try fixture("inv1", "gds"),
@@ -57,7 +57,7 @@ struct LiveSignoffServiceTests {
     func wrongSchematicFailsLVS() async throws {
         let service = try #require(Self.service)
         let artifacts = try makeArtifactDirectory("lvs-mismatch")
-        defer { try? FileManager.default.removeItem(at: artifacts) }
+        defer { removeCoreTestTemporaryDirectory(artifacts) }
 
         let review = try await service.run(
             layoutGDS: try fixture("inv1", "gds"),
@@ -82,7 +82,7 @@ struct LiveSignoffServiceTests {
     func drcViolationFailsDRC() async throws {
         let service = try #require(Self.service)
         let artifacts = try makeArtifactDirectory("drc-violation")
-        defer { try? FileManager.default.removeItem(at: artifacts) }
+        defer { removeCoreTestTemporaryDirectory(artifacts) }
 
         // The met1-spacing-violation plate (cell "drc_broken").
         let brokenGDS = try #require(
@@ -106,7 +106,7 @@ struct LiveSignoffServiceTests {
         .enabled(if: LiveSignoffServiceTests.service != nil),
         .timeLimit(.minutes(2))
     )
-    func extractorFailsLoudOnMissingCell() throws {
+    func extractorFailsLoudOnMissingCell() async throws {
         let drc = try #require(MagicDRCSignoff.locate())
         let driver = try #require(MagicLayoutExtractor.bundledDriverScriptURL)
         let extractor = MagicLayoutExtractor(
@@ -116,10 +116,10 @@ struct LiveSignoffServiceTests {
             driverScriptURL: driver
         )
         let artifacts = try makeArtifactDirectory("extract-fail")
-        defer { try? FileManager.default.removeItem(at: artifacts) }
+        defer { removeCoreTestTemporaryDirectory(artifacts) }
 
-        #expect(throws: MagicLayoutExtractor.ExtractionError.self) {
-            _ = try extractor.extractLayoutNetlist(
+        await #expect(throws: MagicLayoutExtractor.ExtractionError.self) {
+            _ = try await extractor.extractLayoutNetlist(
                 gds: try fixture("inv1", "gds"),
                 cell: "no_such_cell_xyz",
                 into: artifacts

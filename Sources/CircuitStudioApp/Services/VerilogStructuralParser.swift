@@ -47,15 +47,15 @@ public struct VerilogStructuralParser: Sendable {
     public func parse(_ source: String) throws -> GateLevelNetlist {
         let text = stripComments(source)
         let ns0 = text as NSString
-        guard let moduleRE = try? NSRegularExpression(pattern: #"module\s+(\w+)\s*\(([^)]*)\)\s*;"#),
-              let module = moduleRE.firstMatch(in: text, range: NSRange(location: 0, length: ns0.length)) else {
+        let moduleRE = try NSRegularExpression(pattern: #"module\s+(\w+)\s*\(([^)]*)\)\s*;"#)
+        guard let module = moduleRE.firstMatch(in: text, range: NSRange(location: 0, length: ns0.length)) else {
             throw ParseError.noModule
         }
         let name = ns0.substring(with: module.range(at: 1))
         let body = ns0.substring(from: module.range.location + module.range.length)
 
-        let inputs = declaredNets("input", in: body)
-        let outputs = declaredNets("output", in: body)
+        let inputs = try declaredNets("input", in: body)
+        let outputs = try declaredNets("output", in: body)
         guard let output = outputs.first else { throw ParseError.noOutputPort }
 
         var instances: [GateLevelNetlist.Instance] = []
@@ -90,10 +90,10 @@ public struct VerilogStructuralParser: Sendable {
         return t
     }
 
-    private func declaredNets(_ keyword: String, in body: String) -> [String] {
+    private func declaredNets(_ keyword: String, in body: String) throws -> [String] {
         var nets: [String] = []
         let ns = body as NSString
-        guard let re = try? NSRegularExpression(pattern: "\\b\(keyword)\\s+([^;]+);") else { return nets }
+        let re = try NSRegularExpression(pattern: "\\b\(keyword)\\s+([^;]+);")
         for m in re.matches(in: body, range: NSRange(location: 0, length: ns.length)) {
             let list = ns.substring(with: m.range(at: 1))
             for n in list.split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\n" || $0 == "\t" }) {

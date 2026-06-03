@@ -178,7 +178,6 @@ public struct DesignFlowDesignEditService: Sendable {
 
         let edited = DesignFlowDesignSpec(
             name: spec.name,
-            schemaVersion: spec.schemaVersion,
             title: spec.title,
             components: components,
             nets: nets,

@@ -220,6 +220,7 @@ public struct RoundTripReviewSignoffSummary: Sendable, Hashable, Codable {
     public let readyForPEX: Bool
     public let approvedBy: String?
     public let approvedAt: Date?
+    public let approvalKind: ExternalSignoffReview.ApprovalKind?
     public let waiverIDs: [String]
     public let reports: [RoundTripReviewSignoffReportSummary]
 
@@ -229,6 +230,7 @@ public struct RoundTripReviewSignoffSummary: Sendable, Hashable, Codable {
         readyForPEX: Bool,
         approvedBy: String?,
         approvedAt: Date?,
+        approvalKind: ExternalSignoffReview.ApprovalKind? = nil,
         waiverIDs: [String],
         reports: [RoundTripReviewSignoffReportSummary]
     ) {
@@ -237,6 +239,7 @@ public struct RoundTripReviewSignoffSummary: Sendable, Hashable, Codable {
         self.readyForPEX = readyForPEX
         self.approvedBy = approvedBy
         self.approvedAt = approvedAt
+        self.approvalKind = approvalKind
         self.waiverIDs = waiverIDs
         self.reports = reports
     }

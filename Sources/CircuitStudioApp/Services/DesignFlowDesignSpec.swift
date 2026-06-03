@@ -458,7 +458,6 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
 
     public init(
         name: String,
-        schemaVersion: Int = Self.currentSchemaVersion,
         title: String? = nil,
         components: [Component],
         nets: [Net],
@@ -468,7 +467,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         pexIR: PEXParasiticIR? = nil
     ) {
         self.name = name
-        self.schemaVersion = schemaVersion
+        self.schemaVersion = Self.currentSchemaVersion
         self.title = title
         self.components = components
         self.nets = nets
@@ -480,7 +479,6 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
 
     public init(
         name: String,
-        schemaVersion: Int = Self.currentSchemaVersion,
         title: String? = nil,
         components: [Component],
         nets: [Net],
@@ -490,7 +488,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         parasiticIR: ParasiticIR?
     ) {
         self.name = name
-        self.schemaVersion = schemaVersion
+        self.schemaVersion = Self.currentSchemaVersion
         self.title = title
         self.components = components
         self.nets = nets
@@ -503,8 +501,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.name = try container.decode(String.self, forKey: .name)
-        self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
-            ?? Self.currentSchemaVersion
+        self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         self.title = try container.decodeIfPresent(String.self, forKey: .title)
         self.components = try container.decode([Component].self, forKey: .components)
         self.nets = try container.decode([Net].self, forKey: .nets)

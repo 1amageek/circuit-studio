@@ -122,9 +122,12 @@ All new timing JSON artifacts use these rules.
 | Units | Numeric values use SI base units: seconds, farads, volts, celsius, hertz. Field names include the unit suffix when ambiguity is possible. |
 | Numbers | All floating-point values must be finite. NaN and infinities are invalid. |
 | Paths | Paths inside manifests are run-relative. Absolute paths are allowed only in explicit provenance fields for original external inputs. |
-| Hashes | Available artifacts recorded in a manifest must include `sha256` and `byteCount`. |
+| Hashes | Available artifacts recorded in a manifest must include a 64-character hexadecimal `sha256` and `byteCount`. |
 | Determinism | Arrays with no semantic order must be sorted by stable ID. JSON objects should be encoded with sorted keys. |
+| Optional collections | Optional array fields decode to empty arrays when omitted. Writers should emit the fields explicitly for audit readability. |
 | Unknown fields | Readers may ignore unknown fields for forward compatibility, but writers must not rely on ignored fields for correctness. |
+
+Timing readers reject an `available` artifact record that omits `sha256` or `byteCount`, reject malformed SHA-256 digests, and reject negative `byteCount` values. In-memory planning records may exist before files are written, but persisted manifests must satisfy the available-artifact digest contract.
 
 ## Timing Artifact Manifest
 
@@ -149,7 +152,7 @@ All new timing JSON artifacts use these rules.
 | `kind` | Yes | Artifact kind. |
 | `path` | Yes | Run-relative path. |
 | `status` | Yes | `available`, `omitted`, or `missing`. |
-| `sha256` | Required when `available` | Hash of the file content. |
+| `sha256` | Required when `available` | 64-character hexadecimal SHA-256 hash of the file content. |
 | `byteCount` | Required when `available` | File size in bytes. |
 | `createdAt` | Yes | Artifact creation time. |
 | `provenance` | No | Original source path, generator, or note. |
@@ -309,7 +312,9 @@ Waveform artifacts are CSV with one sweep column followed by one column per prob
 
 ## STA Report
 
-`timing/sta-report.json` wraps the existing Codable `TimingReport`.
+`timing/sta-report.json` wraps the in-memory `TimingReport` model. Persisted STA
+artifacts must use this wrapper so schema version, artifact kind, provenance, and
+status stay attached to the report payload.
 
 | Field | Required | Meaning |
 |---|---:|---|
@@ -322,7 +327,9 @@ Waveform artifacts are CSV with one sweep column followed by one column per prob
 | `report` | Yes | Codable `TimingReport` payload. |
 | `status` | Yes | `passed` or `failed`. |
 
-The existing bare `TimingReport` JSON remains readable as a legacy payload. New flow artifacts should use the wrapper so provenance is not lost.
+Bare `TimingReport` JSON is not a valid persisted artifact. Readers must reject
+payloads without the wrapper instead of inferring provenance or silently
+upgrading an older shape.
 
 ## Timing Validation Report
 
@@ -388,7 +395,7 @@ Timing evidence must avoid broad statements such as `STA vs SPICE within toleran
 
 A production timing library is invalid if any timing value consumed by STA has no `modelSources` entry. A production evidence bundle is invalid if a claim references an omitted or missing backing artifact.
 
-## Compatibility Plan
+## Schema Change Rules
 
 | Change type | Required action |
 |---|---|
@@ -397,7 +404,11 @@ A production timing library is invalid if any timing value consumed by STA has n
 | Rename field, change unit, change meaning, or remove required field | Increment `schemaVersion`. |
 | Add new artifact kind | Add manifest kind and document consumer behavior. |
 
-The first implementation should add wrapper artifact types instead of changing `TimingLibrary`, `TimingReport`, `CellTiming`, or `SequentialTiming` payloads directly. Those domain types remain the in-memory model; the wrappers provide provenance, schema versioning, and artifact links.
+This project is still in active development, so persisted artifact readers should
+prefer a strict current-schema contract over compatibility layers. Domain
+types such as `TimingLibrary`, `TimingReport`, `CellTiming`, and
+`SequentialTiming` remain in-memory models; wrappers provide the persisted
+schema, provenance, and artifact links.
 
 ## Implementation Checklist
 
@@ -410,4 +421,4 @@ The first implementation should add wrapper artifact types instead of changing `
 | `SpecToSiliconFlow` writes timing artifacts through one writer/service | Yes |
 | Evidence timing claim names validation scope precisely | Yes |
 | Tests reject production `constant-fixture` FF timing | Yes |
-| Legacy bare `TimingReport` read path remains supported during migration | Yes |
+| Bare `TimingReport` artifacts are rejected | Yes |

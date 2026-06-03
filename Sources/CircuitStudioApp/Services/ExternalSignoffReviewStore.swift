@@ -87,10 +87,16 @@ public struct ExternalSignoffReviewStore: Sendable {
         projectRoot: URL,
         approvedBy reviewer: String,
         approvedAt date: Date,
+        approvalKind: ExternalSignoffReview.ApprovalKind = .human,
         waiverIDs: [String]? = nil
     ) throws -> ExternalSignoffReview {
         let review = try load(projectRoot: projectRoot)
-        let approved = review.approving(by: reviewer, at: date, waiverIDs: waiverIDs)
+        let approved = review.approving(
+            by: reviewer,
+            at: date,
+            approvalKind: approvalKind,
+            waiverIDs: waiverIDs
+        )
         try save(approved, projectRoot: projectRoot)
         return approved
     }

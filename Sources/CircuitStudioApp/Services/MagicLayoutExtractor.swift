@@ -1,4 +1,5 @@
 import Foundation
+import CircuitStudioCore
 
 /// Extracts an LVS-mode SPICE netlist (device-level, no parasitics) from a layout
 /// GDS using Magic, so Netgen can compare it against the schematic. Distinct from
@@ -9,17 +10,20 @@ public struct MagicLayoutExtractor: Sendable {
     public let rcFileURL: URL
     public let pdkRoot: String
     public let driverScriptURL: URL
+    public let timeoutSeconds: Double
 
     public init(
         magicExecutableURL: URL,
         rcFileURL: URL,
         pdkRoot: String,
-        driverScriptURL: URL
+        driverScriptURL: URL,
+        timeoutSeconds: Double = 300
     ) {
         self.magicExecutableURL = magicExecutableURL
         self.rcFileURL = rcFileURL
         self.pdkRoot = pdkRoot
         self.driverScriptURL = driverScriptURL
+        self.timeoutSeconds = timeoutSeconds
     }
 
     /// The bundled extraction driver shipped with this module.
@@ -44,7 +48,7 @@ public struct MagicLayoutExtractor: Sendable {
     /// Extracts `cell` from `gds` into a SPICE netlist under `directory`, returning
     /// the netlist URL. Fails loudly (throws) on any tool error — never returns a
     /// stale/empty netlist silently.
-    public func extractLayoutNetlist(gds: URL, cell: String, into directory: URL) throws -> URL {
+    public func extractLayoutNetlist(gds: URL, cell: String, into directory: URL) async throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let outputURL = directory.appending(path: "\(cell).lvs.spice")
         if FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)) {
@@ -67,16 +71,11 @@ public struct MagicLayoutExtractor: Sendable {
             "MAGTYPE": "mag",
         ]) { _, new in new }
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let output = String(data: data, encoding: .utf8) ?? ""
+        let result = try await TimedProcessRunner(timeoutSeconds: timeoutSeconds).run(process: process)
+        let output = [result.standardOutput, result.standardError].joined(separator: "\n")
 
-        guard process.terminationStatus == 0, !output.contains("EXT_ERROR") else {
-            throw ExtractionError.toolFailed(exitCode: process.terminationStatus, output: output)
+        guard result.exitCode == 0, !output.contains("EXT_ERROR") else {
+            throw ExtractionError.toolFailed(exitCode: result.exitCode, output: output)
         }
         guard FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)) else {
             throw ExtractionError.outputMissing(outputURL)

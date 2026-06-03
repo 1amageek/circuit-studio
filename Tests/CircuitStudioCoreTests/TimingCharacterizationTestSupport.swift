@@ -253,8 +253,6 @@ actor TimingCharacterizationTestCache {
         runID: String?
     ) -> StandardTimingLibraryBuildResult {
         let libraryArtifact = TimingLibraryArtifact(
-            schemaVersion: build.libraryArtifact.schemaVersion,
-            kind: build.libraryArtifact.kind,
             runID: runID,
             createdAt: build.libraryArtifact.createdAt,
             technology: build.libraryArtifact.technology,

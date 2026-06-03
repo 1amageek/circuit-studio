@@ -24,7 +24,7 @@ struct PDKBlockSignoffTests {
     func flipFlopFullFlow() async throws {
         let work = FileManager.default.temporaryDirectory.appending(path: "PDKBlock-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: work) }
+        defer { removeCoreTestTemporaryDirectory(work) }
 
         let gds = try fixture("dff", "gds")
 

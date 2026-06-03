@@ -27,9 +27,9 @@ struct MagicAntennaSignoffTests {
     /// met1 antenna rule is `sidewall` (perimeter-based), so a long thin run — not a
     /// fat plate — is the antenna: metal charge collected on the gate during fab with no
     /// diode to bleed it off. A short run is a normal in-cell connection.
-    private func gateWithMetal(cell: String, metalLength: Double) -> LayoutDocument {
+    private func gateWithMetal(cell: String, metalLength: Double, diffusionTie: Bool = false) -> LayoutDocument {
         let thin = 0.14   // met1 minimum width; the long dimension drives the antenna perimeter
-        let shapes: [LayoutShape] = [
+        var shapes: [LayoutShape] = [
             // --- the transistor: n+ active + poly gate + source/drain contacts ---
             rect("diff", 0.00, 0.00, 1.00, 0.42),
             rect("nsdm", -0.125, -0.125, 1.25, 0.67),
@@ -47,6 +47,17 @@ struct MagicAntennaSignoffTests {
             rect("mcon", 0.41, 0.84, 0.17, 0.17),        // mcon on the gate li1
             rect("met1", 0.40, 0.83, metalLength, thin),  // the gate-connected met1 run (length = antenna)
         ]
+        if diffusionTie {
+            let tieX = 1.20
+            shapes.append(contentsOf: [
+                rect("diff", tieX - 0.205, 0.00, 0.41, 0.41),
+                rect("nsdm", tieX - 0.33, -0.125, 0.66, 0.66),
+                rect("licon1", tieX - 0.085, 0.125, 0.17, 0.17),
+                rect("li1", tieX - 0.165, 0.045, 0.33, 0.33),
+                rect("mcon", tieX - 0.085, 0.125, 0.17, 0.17),
+                rect("met1", tieX - 0.165, 0.045, 0.33, 0.925),
+            ])
+        }
         let cellIR = LayoutCell(name: cell, shapes: shapes)
         return LayoutDocument(name: cell, cells: [cellIR], topCellID: cellIR.id)
     }
@@ -87,5 +98,15 @@ struct MagicAntennaSignoffTests {
         #expect(!report.passed, "the antenna violation must be rejected")
         #expect(report.diagnostics.contains { ($0.ruleID ?? "").lowercased().contains("antenna") },
                 "expected a named antenna rule; got \(report.diagnostics.map { $0.ruleID ?? "?" })")
+    }
+
+    @Test("A diffusion tie discharges the same long gate metal for real Magic antennacheck",
+          .enabled(if: MagicAntennaSignoffTests.available), .timeLimit(.minutes(5)))
+    func longMetalWithDiffusionTiePasses() async throws {
+        let report = try await runAntenna(
+            cell: "ant_diffusion_tie",
+            document: gateWithMetal(cell: "ant_diffusion_tie", metalLength: 200.0, diffusionTie: true))
+        #expect(report.passed,
+                "expected clean with diffusion tie; diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 }

@@ -17,7 +17,10 @@ public enum Sky130PDK {
         }
         let versions = NSString(string: "~/.volare/volare/sky130/versions")
             .expandingTildeInPath
-        guard let entries = try? fileManager.contentsOfDirectory(atPath: versions) else {
+        let entries: [String]
+        do {
+            entries = try fileManager.contentsOfDirectory(atPath: versions)
+        } catch {
             return nil
         }
         let builds = entries.filter { !$0.hasPrefix(".") }

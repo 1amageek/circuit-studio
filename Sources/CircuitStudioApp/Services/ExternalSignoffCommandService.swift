@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CircuitStudioCore
 
 public struct ExternalSignoffCommand: Sendable, Hashable, Codable {
     public let kind: ExternalSignoffToolReport.Kind
@@ -9,6 +9,7 @@ public struct ExternalSignoffCommand: Sendable, Hashable, Codable {
     public let environment: [String: String]
     public let workingDirectory: URL?
     public let logFileName: String?
+    public let timeoutSeconds: Double
 
     public init(
         kind: ExternalSignoffToolReport.Kind,
@@ -17,7 +18,8 @@ public struct ExternalSignoffCommand: Sendable, Hashable, Codable {
         arguments: [String] = [],
         environment: [String: String] = [:],
         workingDirectory: URL? = nil,
-        logFileName: String? = nil
+        logFileName: String? = nil,
+        timeoutSeconds: Double = 300
     ) {
         self.kind = kind
         self.toolName = toolName
@@ -26,6 +28,7 @@ public struct ExternalSignoffCommand: Sendable, Hashable, Codable {
         self.environment = environment
         self.workingDirectory = workingDirectory
         self.logFileName = logFileName
+        self.timeoutSeconds = timeoutSeconds
     }
 }
 
@@ -104,10 +107,10 @@ public struct ExternalSignoffCommandService: Sendable {
             process.environment = ProcessInfo.processInfo.environment.merging(command.environment) { _, new in new }
         }
 
-        let capture = try await capture(process: process)
-        let stdout = capture.stdout
-        let stderr = capture.stderr
-        let exitCode = capture.exitCode
+        let processResult = try await TimedProcessRunner(timeoutSeconds: command.timeoutSeconds).run(process: process)
+        let stdout = processResult.standardOutput
+        let stderr = processResult.standardError
+        let exitCode = processResult.exitCode
 
         let commandLine = [executableURL.path(percentEncoded: false)] + command.arguments
         let logURL = artifactDirectory.appending(path: logFileName(for: command))
@@ -154,77 +157,6 @@ public struct ExternalSignoffCommandService: Sendable {
             reports.append(result.report)
         }
         return ExternalSignoffReview(reports: reports)
-    }
-
-    private struct Capture: Sendable {
-        let exitCode: Int32
-        let stdout: String
-        let stderr: String
-    }
-
-    /// Launches `process` and drains stdout/stderr CONCURRENTLY while it runs, then
-    /// takes its exit code. Never `waitUntilExit()` before reading: a tool that
-    /// fills a pipe buffer (>~64KB) before exiting would block on the write and
-    /// hang the wait forever. Mirrors PEXEngine's `ProcessRunner`.
-    private func capture(process: Process) async throws -> Capture {
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Capture, Error>) in
-            let stdoutBuf = Mutex(Data())
-            let stderrBuf = Mutex(Data())
-            let exitCodeBuf = Mutex<Int32>(0)
-            let remaining = Mutex(3)   // stdout EOF + stderr EOF + process exit
-
-            let finish: @Sendable () -> Void = {
-                let count = remaining.withLock { value -> Int in
-                    value -= 1
-                    return value
-                }
-                guard count == 0 else { return }
-                let out = stdoutBuf.withLock { $0 }
-                let err = stderrBuf.withLock { $0 }
-                let code = exitCodeBuf.withLock { $0 }
-                continuation.resume(returning: Capture(
-                    exitCode: code,
-                    stdout: String(data: out, encoding: .utf8) ?? "",
-                    stderr: String(data: err, encoding: .utf8) ?? ""
-                ))
-            }
-
-            outputPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    handle.readabilityHandler = nil
-                    finish()
-                } else {
-                    stdoutBuf.withLock { $0.append(data) }
-                }
-            }
-            errorPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    handle.readabilityHandler = nil
-                    finish()
-                } else {
-                    stderrBuf.withLock { $0.append(data) }
-                }
-            }
-            process.terminationHandler = { @Sendable proc in
-                exitCodeBuf.withLock { $0 = proc.terminationStatus }
-                finish()
-            }
-
-            do {
-                try process.run()
-            } catch {
-                outputPipe.fileHandleForReading.readabilityHandler = nil
-                errorPipe.fileHandleForReading.readabilityHandler = nil
-                continuation.resume(throwing: ExternalSignoffCommandError.launchFailed(error.localizedDescription))
-            }
-        }
     }
 
     private func validateExecutable(path: String) throws -> URL {

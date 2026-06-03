@@ -32,6 +32,7 @@ public final class HeadlessRoundTripService {
         public let externalSignoffReview: ExternalSignoffReview?
         public let approvedBy: String?
         public let approvedAt: Date?
+        public let approvalKind: ExternalSignoffReview.ApprovalKind?
         public let waiverIDs: [String]
         public let createdAt: Date
         public let catalog: DeviceCatalog
@@ -57,6 +58,7 @@ public final class HeadlessRoundTripService {
             externalSignoffReview: ExternalSignoffReview? = nil,
             approvedBy: String? = nil,
             approvedAt: Date? = nil,
+            approvalKind: ExternalSignoffReview.ApprovalKind? = nil,
             waiverIDs: [String] = [],
             createdAt: Date = Date(),
             catalog: DeviceCatalog = .standard(),
@@ -78,6 +80,7 @@ public final class HeadlessRoundTripService {
             self.externalSignoffReview = externalSignoffReview
             self.approvedBy = approvedBy
             self.approvedAt = approvedAt
+            self.approvalKind = approvalKind
             self.waiverIDs = waiverIDs
             self.createdAt = createdAt
             self.catalog = catalog
@@ -466,6 +469,7 @@ public final class HeadlessRoundTripService {
             catalog: configuration.catalog,
             externalSignoff: externalSignoff
         )
+        reconcileAutoLayoutStage(stages: &stages, verification: verification)
         do {
             try persistPrePEXVerificationArtifact(
                 verification,
@@ -848,6 +852,38 @@ public final class HeadlessRoundTripService {
         }
     }
 
+    private func reconcileAutoLayoutStage(
+        stages: inout [Stage],
+        verification: PhysicalVerificationReport
+    ) {
+        guard let index = stages.lastIndex(where: { $0.name == "auto-layout" }) else {
+            return
+        }
+        let stage = stages[index]
+        guard stage.status == .passed else {
+            return
+        }
+        guard !verification.drc.passed || !verification.lvs.passed else {
+            return
+        }
+
+        var issues: [String] = []
+        if !verification.drc.passed {
+            issues.append("DRC violations: \(verification.drc.violationCount)")
+        }
+        if !verification.lvs.passed {
+            let missingInstances = verification.lvs.missingLayoutInstances.count
+            let missingNets = verification.lvs.missingLayoutNets.count
+            issues.append("LVS mismatches: \(missingInstances) missing instances, \(missingNets) missing nets")
+        }
+        stages[index] = Stage(
+            name: stage.name,
+            status: .failed,
+            message: "Generated layout failed physical verification: \(issues.joined(separator: "; "))",
+            durationSeconds: stage.durationSeconds
+        )
+    }
+
     private func writeManifest(
         configuration: Configuration,
         runDirectory: URL,
@@ -894,6 +930,7 @@ public final class HeadlessRoundTripService {
                 review = review.approving(
                     by: approvedBy,
                     at: approvedAt,
+                    approvalKind: configuration.approvalKind ?? .human,
                     waiverIDs: configuration.waiverIDs
                 )
                 try store.save(review, projectRoot: configuration.projectRoot)
@@ -919,6 +956,7 @@ public final class HeadlessRoundTripService {
                 projectRoot: configuration.projectRoot,
                 approvedBy: approvedBy,
                 approvedAt: approvedAt,
+                approvalKind: configuration.approvalKind ?? .human,
                 waiverIDs: configuration.waiverIDs
             )
         }

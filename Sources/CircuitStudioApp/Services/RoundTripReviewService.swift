@@ -304,6 +304,7 @@ public struct RoundTripReviewService: Sendable {
                 readyForPEX: review.isReadyForPEX,
                 approvedBy: review.approvedBy,
                 approvedAt: review.approvedAt,
+                approvalKind: review.approvalKind,
                 waiverIDs: review.waiverIDs,
                 reports: review.reports.map { report in
                     RoundTripReviewSignoffReportSummary(
@@ -459,40 +460,14 @@ public struct RoundTripReviewService: Sendable {
         diagnostics: inout [String],
         warnings: inout [String]
     ) -> URL? {
-        guard let url = resolveArtifactURL(
-            artifact,
-            resolver: resolver,
-            diagnostics: &diagnostics,
-            warnings: &warnings
-        ) else {
-            return nil
-        }
-
-        let path = url.path(percentEncoded: false)
-        guard FileManager.default.fileExists(atPath: path) else {
-            appendUnique(["Artifact is missing: \(artifact.kind) at \(path)"], to: &diagnostics)
-            return nil
-        }
-
-        let actualDigest: RoundTripArtifactDigest
         do {
-            actualDigest = try RoundTripArtifactDigest.compute(url: url)
+            let verified = try ArtifactIntegrityChecker().verifiedArtifact(
+                for: artifact,
+                in: resolver.runDirectory
+            )
+            return verified.url
         } catch {
-            appendUnique([
-                "Artifact is unreadable: \(artifact.kind) at \(path): \(error.localizedDescription)",
-            ], to: &diagnostics)
-            return nil
-        }
-
-        let status = integrityStatus(
-            artifact: artifact,
-            actualDigest: actualDigest,
-            diagnostics: &diagnostics
-        )
-        switch status {
-        case .verified:
-            return url
-        case .missingArtifact, .unreadableArtifact, .sha256Mismatch, .byteCountMismatch, .unresolved:
+            appendUnique([error.localizedDescription], to: &diagnostics)
             return nil
         }
     }

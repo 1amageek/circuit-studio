@@ -16,7 +16,7 @@ public struct ExternalSpicePreprocessor: Sendable {
         fileName: String?,
         processConfiguration: ProcessConfiguration?,
         command: AnalysisCommand?
-    ) throws -> PreparedNetlist {
+    ) async throws -> PreparedNetlist {
         let includePaths = processConfiguration?.effectiveIncludePaths() ?? []
         let fileBaseURL = fileName.map { URL(fileURLWithPath: $0).deletingLastPathComponent() }
 
@@ -87,7 +87,7 @@ public struct ExternalSpicePreprocessor: Sendable {
 
         var compiledOSDI: [URL] = []
         if !verilogaLibraries.isEmpty {
-            compiledOSDI = try compileVerilogA(
+            compiledOSDI = try await compileVerilogA(
                 sources: verilogaLibraries,
                 outputDirectory: tempDir
             )
@@ -299,11 +299,12 @@ public struct ExternalSpicePreprocessor: Sendable {
         return ".include \"\(resolvedPath)\""
     }
 
-    private func compileVerilogA(sources: [URL], outputDirectory: URL) throws -> [URL] {
+    private func compileVerilogA(sources: [URL], outputDirectory: URL) async throws -> [URL] {
         var outputs: [URL] = []
         outputs.reserveCapacity(sources.count)
 
         let openvafPath = ProcessInfo.processInfo.environment["OPENVAF_BIN"] ?? "openvaf"
+        let runner = TimedProcessRunner(timeoutSeconds: openVAFTimeoutSeconds())
 
         for source in sources {
             let dest = outputDirectory.appendingPathComponent(source.lastPathComponent)
@@ -313,24 +314,28 @@ public struct ExternalSpicePreprocessor: Sendable {
             try FileManager.default.copyItem(at: source, to: dest)
 
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: openvafPath)
-            process.currentDirectoryURL = outputDirectory
-            process.arguments = [dest.lastPathComponent]
-
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-
-            do {
-                try process.run()
-            } catch {
-                throw StudioError.simulationFailure("OpenVAF not found or failed to launch: \(error.localizedDescription)")
+            if openvafPath.contains("/") {
+                process.executableURL = URL(fileURLWithPath: openvafPath)
+                process.arguments = [dest.lastPathComponent]
+            } else {
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                process.arguments = [openvafPath, dest.lastPathComponent]
             }
-            process.waitUntilExit()
+            process.currentDirectoryURL = outputDirectory
 
-            guard process.terminationStatus == 0 else {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8) ?? ""
+            let result: TimedProcessResult
+            do {
+                result = try await runner.run(process: process)
+            } catch let error as TimedProcessError {
+                throw StudioError.simulationFailure("OpenVAF failed: \(error.localizedDescription)")
+            } catch {
+                throw StudioError.simulationFailure("OpenVAF failed: \(error.localizedDescription)")
+            }
+
+            guard result.exitCode == 0 else {
+                let output = [result.standardOutput, result.standardError]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
                 throw StudioError.simulationFailure("OpenVAF failed: \(output)")
             }
 
@@ -343,6 +348,15 @@ public struct ExternalSpicePreprocessor: Sendable {
         }
 
         return outputs
+    }
+
+    private func openVAFTimeoutSeconds() -> Double {
+        guard let raw = ProcessInfo.processInfo.environment["OPENVAF_TIMEOUT_SECONDS"],
+              let value = Double(raw),
+              value > 0 else {
+            return 300
+        }
+        return value
     }
 
     private func buildControlBlock(rawURL: URL, osdiLibraries: [URL]) -> [String] {

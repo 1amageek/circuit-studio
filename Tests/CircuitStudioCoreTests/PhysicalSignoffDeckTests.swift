@@ -8,7 +8,7 @@ import LayoutIO
 /// BC3.5 — the full physical deck folded into ONE verdict. ERC, IR drop and EM always run
 /// (in-process); DRC, LVS, antenna and density run on the real toolchain when present and are
 /// honestly skipped otherwise. A small clean design closes EVERY axis (a genuine full-deck
-/// pass, machine-verified); the ACC-4 core's real antenna debt is caught at scale.
+/// pass, machine-verified); the ACC-4 core's generated antenna protection is checked at scale.
 @Suite("Physical signoff deck (full tapeout deck)")
 struct PhysicalSignoffDeckTests {
 
@@ -25,7 +25,7 @@ struct PhysicalSignoffDeckTests {
         let gds = dir.appending(path: "\(netlist.name).gds")
         try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(doc, to: gds, format: .gds)
         let spice = dir.appending(path: "\(netlist.name).spice")
-        try synth.referenceSPICE(netlist).write(to: spice, atomically: true, encoding: .utf8)
+        try synth.referenceSPICE(for: netlist).write(to: spice, atomically: true, encoding: .utf8)
         return (gds, spice)
     }
 
@@ -50,7 +50,7 @@ struct PhysicalSignoffDeckTests {
         let bundle = TapeoutEvidenceBundle(designName: netlist.name, targetClockPeriod: nil,
                                            claims: outcome.claims, gdsPath: gds.path)
         #expect(bundle.passed)
-        try bundle.verify(requiredAxes: Self.allBundleAxes)
+        try bundle.verify(requiredAxes: Self.allBundleAxes, runDirectory: dir)
         for axis in Self.allBundleAxes {
             #expect(bundle.claim(axis)?.passed == true, "axis \(axis) must pass")
         }
@@ -82,13 +82,15 @@ struct PhysicalSignoffDeckTests {
         }
     }
 
-    @Test("Scale: the ACC-4 core's real antenna debt is CAUGHT by the deck's antenna axis",
+    @Test("Scale: the ACC-4 core's generated antenna protection closes the deck's antenna axis",
           .enabled(if: PhysicalSignoffDeckTests.toolchain), .timeLimit(.minutes(8)))
-    func acc4AntennaCaughtAtScale() async throws {
-        // The auto-router connects gate inputs on long met1 runs; at 240 cells this blows past
-        // the Sky130 met1 sidewall antenna ratio many times over. The deck's antenna axis must
-        // catch it — an honest failing verdict, not a curated green.
+    func acc4AntennaClosedAtScale() async throws {
+        // Gate-input met1 risers are same-stage antenna risks. The Sky130 circuit synthesizer
+        // now plans and inserts local diffusion ties generically before signoff, so the antenna
+        // axis must pass by real Magic evidence.
         let netlist = ACC4CPUGenerator().gateLevelNetlist(name: "deck_acc4")
+        let plan = try Sky130CircuitSynthesizer().antennaProtectionPlan(for: netlist)
+        #expect(Set(netlist.inputs).isSubset(of: Set(plan.sites.map(\.net))))
         let dir = FileManager.default.temporaryDirectory.appending(path: "deck-acc4-\(UUID().uuidString)")
         let (gds, _) = try synthesize(netlist, into: dir)
 
@@ -96,14 +98,14 @@ struct PhysicalSignoffDeckTests {
         let result = try await ExternalSignoffCommandService(parser: MagicAntennaSignoff.reportParser).run(
             command: antenna.command(cell: netlist.name, gds: gds, artifactDirectory: dir),
             artifactDirectory: dir)
-        #expect(!result.report.passed, "ACC-4 has real antenna violations; the axis must flag them")
-        #expect(result.report.diagnostics.contains { ($0.ruleID ?? "").lowercased().contains("antenna") })
+        #expect(result.report.passed,
+                "ACC-4 antenna diagnostics: \(result.report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
 
-        // Folded into the single verdict, one failing physical axis fails the whole deck.
+        // Folded into the single verdict, the antenna axis now contributes a real passing claim.
         let verdict = MultiConstraintSignoff.antenna(passed: result.report.passed,
                                                      violationCount: result.report.diagnostics.count,
                                                      evidence: result.report.logPath)
         let folded = try MultiConstraintSignoff(requiredAxes: [.antenna]).combine([verdict])
-        #expect(!folded.passed)
+        #expect(folded.passed)
     }
 }

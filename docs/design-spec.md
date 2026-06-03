@@ -145,6 +145,8 @@ Element IDs must be unique. Element values must be finite and positive.
 
 When `--output` is omitted, design-spec round trips use `./round-trip-runs/<design-spec-file-name-without-extension>`.
 
+Line-oriented runner output is documented in [cli-contract.md](cli-contract.md).
+
 The round-trip manifest records the original spec as:
 
 | Manifest artifact | Meaning |

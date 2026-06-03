@@ -29,10 +29,10 @@ struct PDKCellLayoutServiceTests {
     func materializeAndSignoff() async throws {
         let layout = try #require(Self.layout)
         let work = try makeDir("materialize")
-        defer { try? FileManager.default.removeItem(at: work) }
+        defer { removeCoreTestTemporaryDirectory(work) }
         let cell = "sky130_fd_sc_hd__inv_1"
 
-        let gds = try layout.materialize(cell: cell, into: work.appending(path: "layout"))
+        let gds = try await layout.materialize(cell: cell, into: work.appending(path: "layout"))
         #expect(FileManager.default.fileExists(atPath: gds.path(percentEncoded: false)))
 
         let review = try await DesignFlowService().runLiveSignoff(
@@ -49,12 +49,12 @@ struct PDKCellLayoutServiceTests {
         .enabled(if: PDKCellLayoutServiceTests.layout != nil),
         .timeLimit(.minutes(2))
     )
-    func unknownCellFailsLoud() throws {
+    func unknownCellFailsLoud() async throws {
         let layout = try #require(Self.layout)
         let work = try makeDir("unknown")
-        defer { try? FileManager.default.removeItem(at: work) }
-        #expect(throws: PDKCellLayoutService.LayoutError.self) {
-            _ = try layout.materialize(cell: "no_such_cell_xyz", into: work)
+        defer { removeCoreTestTemporaryDirectory(work) }
+        await #expect(throws: PDKCellLayoutService.LayoutError.self) {
+            _ = try await layout.materialize(cell: "no_such_cell_xyz", into: work)
         }
     }
 }

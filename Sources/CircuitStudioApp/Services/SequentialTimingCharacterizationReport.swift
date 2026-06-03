@@ -92,6 +92,7 @@ public struct SequentialTimingMeasurementSummary: Sendable, Hashable, Codable {
 
 public struct SequentialTimingCharacterizationReport: Sendable, Hashable, Codable {
     public static let currentSchemaVersion = 1
+    private static let expectedKind = "sequential-characterization-report"
 
     public let schemaVersion: Int
     public let kind: String
@@ -110,8 +111,6 @@ public struct SequentialTimingCharacterizationReport: Sendable, Hashable, Codabl
     public let warnings: [String]
 
     public init(
-        schemaVersion: Int = Self.currentSchemaVersion,
-        kind: String = "sequential-characterization-report",
         cellName: String,
         topologyHash: String,
         activeClockEdge: TimingClockEdge,
@@ -126,8 +125,8 @@ public struct SequentialTimingCharacterizationReport: Sendable, Hashable, Codabl
         status: TimingRunStatus,
         warnings: [String] = []
     ) {
-        self.schemaVersion = schemaVersion
-        self.kind = kind
+        self.schemaVersion = Self.currentSchemaVersion
+        self.kind = Self.expectedKind
         self.cellName = cellName
         self.topologyHash = topologyHash
         self.activeClockEdge = activeClockEdge
@@ -141,5 +140,60 @@ public struct SequentialTimingCharacterizationReport: Sendable, Hashable, Codabl
         self.measurementLogArtifactID = measurementLogArtifactID
         self.status = status
         self.warnings = warnings
+    }
+}
+
+extension SequentialTimingCharacterizationReport {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case kind
+        case cellName
+        case topologyHash
+        case activeClockEdge
+        case technology
+        case characterizationGrid
+        case timing
+        case clkToQMeasurements
+        case qTransitionMeasurements
+        case setupMeasurements
+        case holdMeasurements
+        case measurementLogArtifactID
+        case status
+        case warnings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedSchemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard decodedSchemaVersion == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: container,
+                debugDescription: "Unsupported sequential characterization report schema version \(decodedSchemaVersion)."
+            )
+        }
+        let decodedKind = try container.decode(String.self, forKey: .kind)
+        guard decodedKind == Self.expectedKind else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind,
+                in: container,
+                debugDescription: "Unsupported sequential characterization report kind \(decodedKind)."
+            )
+        }
+        schemaVersion = decodedSchemaVersion
+        kind = decodedKind
+        cellName = try container.decode(String.self, forKey: .cellName)
+        topologyHash = try container.decode(String.self, forKey: .topologyHash)
+        activeClockEdge = try container.decode(TimingClockEdge.self, forKey: .activeClockEdge)
+        technology = try container.decode(TimingTechnologyContext.self, forKey: .technology)
+        characterizationGrid = try container.decode(SequentialTimingCharacterizationGrid.self, forKey: .characterizationGrid)
+        timing = try container.decode(SequentialTiming.self, forKey: .timing)
+        clkToQMeasurements = try container.decode([SequentialTimingMeasurementSummary].self, forKey: .clkToQMeasurements)
+        qTransitionMeasurements = try container.decode([SequentialTimingMeasurementSummary].self, forKey: .qTransitionMeasurements)
+        setupMeasurements = try container.decode([SequentialTimingMeasurementSummary].self, forKey: .setupMeasurements)
+        holdMeasurements = try container.decode([SequentialTimingMeasurementSummary].self, forKey: .holdMeasurements)
+        measurementLogArtifactID = try container.decodeIfPresent(String.self, forKey: .measurementLogArtifactID)
+        status = try container.decode(TimingRunStatus.self, forKey: .status)
+        warnings = try container.decodeIfPresent([String].self, forKey: .warnings) ?? []
     }
 }

@@ -40,9 +40,23 @@ struct SpecToSiliconFlowTests {
 
         #expect(result.bundle.claim(.functional)?.passed == true)
         #expect(result.bundle.claim(.timing)?.passed == true)
+        #expect(result.bundle.supportingClaims(for: .antenna).contains {
+            $0.statement == TapeoutEvidenceBundle.Claim.antennaProtectionPlanStatement
+        })
+        #expect(result.bundle.claim(.antenna) == nil)
         // The functional + timing axes verify, and their artifacts are on disk.
-        try result.bundle.verify(requiredAxes: [.functional, .timing])
-        #expect(FileManager.default.fileExists(atPath: dir.appending(path: "acc4flow.evidence.json").path))
+        try result.bundle.verify(requiredAxes: [.functional, .timing], runDirectory: dir)
+        #expect(throws: TapeoutEvidenceBundle.VerificationError.missingAxis(.antenna)) {
+            try result.bundle.verify(requiredAxes: [.antenna], runDirectory: dir)
+        }
+        let evidenceURL = dir.appending(path: "acc4flow.evidence.json")
+        #expect(FileManager.default.fileExists(atPath: evidenceURL.path))
+        let persistedBundle = try JSONDecoder().decode(TapeoutEvidenceBundle.self, from: Data(contentsOf: evidenceURL))
+        #expect(persistedBundle.schemaVersion == TapeoutEvidenceBundle.currentSchemaVersion)
+        #expect(persistedBundle.supportingClaims(for: .antenna).contains {
+            $0.kind == .supportingEvidence
+                && $0.statement == TapeoutEvidenceBundle.Claim.antennaProtectionPlanStatement
+        })
         // Requiring the physical axes (not run) must FAIL — honest, never a silent pass.
         #expect(throws: TapeoutEvidenceBundle.VerificationError.self) {
             try result.bundle.verify(requiredAxes: [.functional, .timing, .drc, .lvs])
@@ -66,23 +80,38 @@ struct SpecToSiliconFlowTests {
         let gds = try #require(result.gdsPath)
         #expect(FileManager.default.fileExists(atPath: gds.path))
 
-        // The ACC-4 core is DRC/LVS/ERC/density/IR/EM clean, but the auto-router leaves real
-        // met1 antenna debt at 240 cells — the flow reports that HONESTLY rather than hiding it.
+        let antennaPlan = dir.appending(path: "acc4flow.antenna-protection.json")
+        #expect(FileManager.default.fileExists(atPath: antennaPlan.path))
+        let decodedPlan = try JSONDecoder().decode(AntennaProtectionPlan.self, from: Data(contentsOf: antennaPlan))
+        #expect(decodedPlan.ruleSet.protectsLocalGateContacts)
+        #expect(!decodedPlan.sites.isEmpty)
+        #expect(Set(decodedPlan.sites.map(\.strategy)) == [.diffusionTie])
+        #expect(decodedPlan.sites.allSatisfy { !$0.id.isEmpty && !$0.instanceName.isEmpty && !$0.gateName.isEmpty })
+        #expect(result.bundle.claims(for: .antenna).contains {
+            $0.artifact?.path == "acc4flow.antenna-protection.json"
+                && $0.kind == .supportingEvidence
+                && $0.statement == TapeoutEvidenceBundle.Claim.antennaProtectionPlanStatement
+        })
+        #expect(result.bundle.signoffClaims(for: .antenna).contains {
+            $0.statement == "no gate-oxide antenna violations"
+        })
+
+        // The ACC-4 core is DRC/LVS/ERC/density/IR/EM clean, and the generated antenna
+        // protection closes local gate-contact met1 risers before Magic antennacheck runs.
         #expect(result.bundle.claim(.drc)?.passed == true)
         #expect(result.bundle.claim(.lvs)?.passed == true)
         #expect(result.bundle.claim(.erc)?.passed == true)
         #expect(result.bundle.claim(.ir)?.passed == true)
         #expect(result.bundle.claim(.em)?.passed == true)
         #expect(result.bundle.claim(.density)?.passed == true)
-        #expect(result.bundle.claim(.antenna)?.passed == false, "ACC-4 has real antenna violations at scale")
+        #expect(result.bundle.claim(.antenna)?.passed == true)
 
-        // The single verdict is therefore an honest FAIL on antenna only, and a bundle with a
-        // failing claim cannot verify — never a silent pass.
-        #expect(!result.bundle.passed)
-        #expect(result.bundle.failing.map(\.axis) == [.antenna])
-        #expect(throws: TapeoutEvidenceBundle.VerificationError.self) {
-            try result.bundle.verify(requiredAxes: [.functional, .timing, .drc, .lvs])
-        }
+        #expect(result.bundle.passed)
+        #expect(result.bundle.failing.isEmpty)
+        try result.bundle.verify(
+            requiredAxes: [.functional, .timing, .drc, .lvs, .antenna, .density, .ir, .em],
+            runDirectory: dir
+        )
     }
 
     @Test("Sequential timing report without a measured grid point fails loud", .timeLimit(.minutes(1)))

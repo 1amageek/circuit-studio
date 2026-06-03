@@ -24,6 +24,7 @@ public struct DesignFlowVerificationReport: Sendable, Hashable, Codable {
                 readyForPEX: $0.isReadyForPEX,
                 approvedBy: $0.approvedBy,
                 approvedAt: $0.approvedAt,
+                approvalKind: $0.approvalKind,
                 waiverIDs: $0.waiverIDs,
                 reports: $0.reports.map { toolReport in
                     RoundTripReviewSignoffReportSummary(

@@ -345,6 +345,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let actionLogPath: String?
     public let designDiffPath: String?
     public let layoutDiffPath: String?
+    public let layoutTrustPassed: Bool?
     public let layoutTrustReportPath: String?
     public let layoutTrustReport: LayoutTrustReport?
     public let verificationReportPath: String?
@@ -379,6 +380,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         actionLogPath: String? = nil,
         designDiffPath: String? = nil,
         layoutDiffPath: String? = nil,
+        layoutTrustPassed: Bool? = nil,
         layoutTrustReportPath: String? = nil,
         layoutTrustReport: LayoutTrustReport? = nil,
         verificationReportPath: String? = nil,
@@ -412,6 +414,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.actionLogPath = actionLogPath
         self.designDiffPath = designDiffPath
         self.layoutDiffPath = layoutDiffPath
+        self.layoutTrustPassed = layoutTrustPassed
         self.layoutTrustReportPath = layoutTrustReportPath
         self.layoutTrustReport = layoutTrustReport
         self.verificationReportPath = verificationReportPath
@@ -656,9 +659,9 @@ public struct DesignFlowService: Sendable {
 
     public func runPEXExtraction(
         _ request: DesignFlowPEXExtractionRequest
-    ) throws -> PEXBackendExtractionResult {
+    ) async throws -> PEXBackendExtractionResult {
         let adapter = PEXEngineCommandBackendAdapter(executablePath: request.executablePath)
-        return try adapter.extract(request: PEXBackendExtractionRequest(
+        return try await adapter.extract(request: PEXBackendExtractionRequest(
             configURL: request.configURL,
             workingDirectory: request.workingDirectory,
             cornerID: request.cornerID,
@@ -701,7 +704,7 @@ public struct DesignFlowService: Sendable {
     public func runSignoffIterationLoop(
         maxIterations: Int,
         artifactDirectory: URL,
-        nextCandidate: (_ index: Int, _ lastReview: ExternalSignoffReview?) throws -> SignoffIterationLoop.Candidate?
+        nextCandidate: (_ index: Int, _ lastReview: ExternalSignoffReview?) async throws -> SignoffIterationLoop.Candidate?
     ) async throws -> SignoffIterationLoop.LoopResult {
         guard let loop = SignoffIterationLoop.locate() else {
             throw DesignFlowCommandError.signoffToolchainUnavailable
@@ -872,7 +875,7 @@ public struct DesignFlowService: Sendable {
                 message: package.manifest.name
             )
         case .runPEXExtraction:
-            return try runPEXExtraction(command)
+            return try await runPEXExtraction(command)
         case .applyDesignEdit:
             return try applyDesignEdit(command)
         case .applyLayoutEdit:
@@ -937,9 +940,9 @@ public struct DesignFlowService: Sendable {
             kind: command.kind,
             runID: command.runID,
             projectRootPath: command.projectRootPath,
-            readyForPEX: report.passed,
             technologyPackageID: package?.manifest.packageID,
             technologyPackagePath: package?.manifestURL.path(percentEncoded: false),
+            layoutTrustPassed: report.passed,
             layoutTrustReportPath: artifacts.layoutTrustReportPath,
             layoutTrustReport: report,
             message: report.status.rawValue
@@ -963,7 +966,11 @@ public struct DesignFlowService: Sendable {
         )
         let rawExternalSignoff = try await loadExternalSignoffReview(from: command, package: package)
         let externalSignoff = command.approveSignoff
-            ? rawExternalSignoff?.approving(by: "design-flow-command", at: Date())
+            ? rawExternalSignoff?.approving(
+                by: "design-flow-command",
+                at: Date(),
+                approvalKind: .automated
+            )
             : rawExternalSignoff
         let tech = try layoutTech(for: package) ?? .sampleProcess()
         let layoutTrustReport = try layoutTrustEvaluator.evaluate(document: layout, tech: tech, policy: LayoutOwnershipPolicy())
@@ -997,6 +1004,7 @@ public struct DesignFlowService: Sendable {
             readyForPEX: verificationReport.readyForPEX,
             technologyPackageID: package?.manifest.packageID,
             technologyPackagePath: package?.manifestURL.path(percentEncoded: false),
+            layoutTrustPassed: layoutTrustReport.passed,
             layoutTrustReportPath: layoutTrustArtifacts.layoutTrustReportPath,
             layoutTrustReport: layoutTrustReport,
             verificationReportPath: reportURL.path(percentEncoded: false),
@@ -1096,11 +1104,11 @@ public struct DesignFlowService: Sendable {
         )
     }
 
-    private func runPEXExtraction(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+    private func runPEXExtraction(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
         guard let pexConfigPath = command.pexConfigPath else {
             throw DesignFlowCommandError.missingPEXConfigPath
         }
-        let result = try runPEXExtraction(DesignFlowPEXExtractionRequest(
+        let result = try await runPEXExtraction(DesignFlowPEXExtractionRequest(
             configURL: URL(filePath: pexConfigPath),
             cornerID: command.pexCornerID ?? "tt_25c_1v0",
             executablePath: command.pexExecutablePath
@@ -1161,6 +1169,7 @@ public struct DesignFlowService: Sendable {
             externalSignoffReview: externalSignoffReview,
             approvedBy: command.approveSignoff ? "design-flow-command" : nil,
             approvedAt: command.approveSignoff ? Date() : nil,
+            approvalKind: command.approveSignoff ? .automated : nil,
             createdAt: Date(),
             processConfiguration: package?.processConfiguration,
             layoutTech: try layoutTech(for: package)
@@ -1228,6 +1237,7 @@ public struct DesignFlowService: Sendable {
             externalSignoffReview: externalSignoffReview,
             approvedBy: command.approveSignoff ? "design-flow-command" : nil,
             approvedAt: command.approveSignoff ? Date() : nil,
+            approvalKind: command.approveSignoff ? .automated : nil,
             createdAt: Date(),
             processConfiguration: package?.processConfiguration,
             layoutTech: try layoutTech(for: package)

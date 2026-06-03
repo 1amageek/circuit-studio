@@ -3,25 +3,27 @@ import Foundation
 /// Executes the standalone `pexengine` command from CircuitStudio.
 public struct PEXCommandService: Sendable {
     private let explicitExecutablePath: String?
+    private let timeoutSeconds: Double
 
-    public init(executablePath: String? = nil) {
+    public init(executablePath: String? = nil, timeoutSeconds: Double = 300) {
         self.explicitExecutablePath = executablePath
+        self.timeoutSeconds = timeoutSeconds
     }
 
     public func extract(
         configURL: URL,
         workingDirectory: URL? = nil,
         additionalArguments: [String] = []
-    ) throws -> PEXCommandResult {
+    ) async throws -> PEXCommandResult {
         var arguments: [String] = [
             "extract",
             "--config", configURL.path(percentEncoded: false)
         ]
         arguments.append(contentsOf: additionalArguments)
-        return try run(arguments: arguments, workingDirectory: workingDirectory)
+        return try await run(arguments: arguments, workingDirectory: workingDirectory)
     }
 
-    public func run(arguments: [String], workingDirectory: URL? = nil) throws -> PEXCommandResult {
+    public func run(arguments: [String], workingDirectory: URL? = nil) async throws -> PEXCommandResult {
         let executableURL = try resolveExecutableURL()
 
         let process = Process()
@@ -29,36 +31,38 @@ public struct PEXCommandService: Sendable {
         process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
 
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
+        let processResult: TimedProcessResult
         do {
-            try process.run()
+            processResult = try await TimedProcessRunner(timeoutSeconds: timeoutSeconds).run(process: process)
+        } catch let error as TimedProcessError {
+            switch error {
+            case .launchFailed(_, let message):
+                throw PEXCommandError.launchFailed(message)
+            case .cancelled(_, let standardOutput, let standardError):
+                throw PEXCommandError.cancelled(stdout: standardOutput, stderr: standardError)
+            case .timedOut(let executablePath, let timeoutSeconds, let standardOutput, let standardError):
+                throw PEXCommandError.timedOut(
+                    executablePath: executablePath,
+                    timeoutSeconds: timeoutSeconds,
+                    stdout: standardOutput,
+                    stderr: standardError
+                )
+            }
         } catch {
-            throw PEXCommandError.launchFailed(error.localizedDescription)
+            throw error
         }
-
-        process.waitUntilExit()
-
-        let stdoutData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
 
         let commandLine = [executableURL.path(percentEncoded: false)] + arguments
         let result = PEXCommandResult(
             commandLine: commandLine,
             workingDirectory: workingDirectory,
-            exitCode: process.terminationStatus,
-            standardOutput: stdout,
-            standardError: stderr
+            exitCode: processResult.exitCode,
+            standardOutput: processResult.standardOutput,
+            standardError: processResult.standardError
         )
 
-        guard process.terminationStatus == 0 else {
-            throw PEXCommandError.nonZeroExit(code: process.terminationStatus, stderr: stderr)
+        guard processResult.exitCode == 0 else {
+            throw PEXCommandError.nonZeroExit(code: processResult.exitCode, stderr: processResult.standardError)
         }
 
         return result

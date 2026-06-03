@@ -42,6 +42,7 @@ public struct TimingValidationComparison: Sendable, Hashable, Codable {
 
 public struct TimingValidationReport: Sendable, Hashable, Codable {
     public static let currentSchemaVersion = 1
+    private static let expectedKind = "timing-validation-report"
 
     public let schemaVersion: Int
     public let kind: String
@@ -55,8 +56,6 @@ public struct TimingValidationReport: Sendable, Hashable, Codable {
     public let warnings: [String]
 
     public init(
-        schemaVersion: Int = Self.currentSchemaVersion,
-        kind: String = "timing-validation-report",
         scope: TimingValidationScope,
         runID: String? = nil,
         createdAt: Date = Date(),
@@ -66,8 +65,8 @@ public struct TimingValidationReport: Sendable, Hashable, Codable {
         status: TimingRunStatus,
         warnings: [String] = []
     ) {
-        self.schemaVersion = schemaVersion
-        self.kind = kind
+        self.schemaVersion = Self.currentSchemaVersion
+        self.kind = Self.expectedKind
         self.scope = scope
         self.runID = runID
         self.createdAt = createdAt
@@ -76,5 +75,64 @@ public struct TimingValidationReport: Sendable, Hashable, Codable {
         self.comparisons = comparisons
         self.status = status
         self.warnings = warnings
+    }
+}
+
+extension TimingValidationReport {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case kind
+        case scope
+        case runID
+        case createdAt
+        case designName
+        case sourceArtifacts
+        case comparisons
+        case status
+        case warnings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedSchemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard decodedSchemaVersion == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: container,
+                debugDescription: "Unsupported timing validation report schema version \(decodedSchemaVersion)."
+            )
+        }
+        let decodedKind = try container.decode(String.self, forKey: .kind)
+        guard decodedKind == Self.expectedKind else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind,
+                in: container,
+                debugDescription: "Unsupported timing validation report kind \(decodedKind)."
+            )
+        }
+        schemaVersion = decodedSchemaVersion
+        kind = decodedKind
+        scope = try container.decode(TimingValidationScope.self, forKey: .scope)
+        runID = try container.decodeIfPresent(String.self, forKey: .runID)
+        createdAt = try TimingArtifactDateCoding.decode(from: container, forKey: .createdAt)
+        designName = try container.decodeIfPresent(String.self, forKey: .designName)
+        sourceArtifacts = try container.decode([String].self, forKey: .sourceArtifacts)
+        comparisons = try container.decode([TimingValidationComparison].self, forKey: .comparisons)
+        status = try container.decode(TimingRunStatus.self, forKey: .status)
+        warnings = try container.decodeIfPresent([String].self, forKey: .warnings) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(scope, forKey: .scope)
+        try container.encodeIfPresent(runID, forKey: .runID)
+        try TimingArtifactDateCoding.encode(createdAt, to: &container, forKey: .createdAt)
+        try container.encodeIfPresent(designName, forKey: .designName)
+        try container.encode(sourceArtifacts, forKey: .sourceArtifacts)
+        try container.encode(comparisons, forKey: .comparisons)
+        try container.encode(status, forKey: .status)
+        try container.encode(warnings, forKey: .warnings)
     }
 }

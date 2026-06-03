@@ -30,7 +30,7 @@ public struct ExternalSpiceSimulator: Sendable {
         command: AnalysisCommand?,
         cancellation: CancellationToken
     ) async throws -> WaveformData {
-        let prepared = try preprocessor.prepare(
+        let prepared = try await preprocessor.prepare(
             source: source,
             fileName: fileName,
             processConfiguration: processConfiguration,

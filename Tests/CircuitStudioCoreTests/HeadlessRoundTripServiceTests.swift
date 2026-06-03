@@ -1,5 +1,8 @@
 import Foundation
 import Testing
+import LayoutCore
+import LayoutTech
+import LayoutVerify
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 @testable import SchematicEditor
@@ -877,6 +880,7 @@ struct HeadlessRoundTripServiceTests {
             )
             return RoundTripOutput(result: result, projectRoot: root)
         } catch {
+            recordRoundTripFailure(projectRoot: root, runID: runID)
             removeTemporaryRoot(root)
             throw error
         }
@@ -1079,6 +1083,73 @@ struct HeadlessRoundTripServiceTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(HeadlessRoundTripService.Manifest.self, from: data)
+    }
+
+    private func recordRoundTripFailure(projectRoot: URL, runID: String) {
+        do {
+            let manifest = try loadManifest(projectRoot: projectRoot, runID: runID)
+            let stages = manifest.stages.map { stage in
+                [
+                    stage.name,
+                    stage.status.rawValue,
+                    stage.message ?? "",
+                ].joined(separator: ":")
+            }.joined(separator: " | ")
+            Issue.record("Round-trip failure stages: \(stages)")
+            if let verification = try readPrePEXVerification(from: manifest, projectRoot: projectRoot) {
+                Issue.record("Pre-PEX DRC: \(String(describing: verification.drc))")
+                Issue.record("Pre-PEX LVS: \(String(describing: verification.lvs))")
+            }
+            recordDRCViolations(from: manifest, projectRoot: projectRoot)
+        } catch {
+            Issue.record("Round-trip failure manifest could not be loaded: \(error)")
+        }
+    }
+
+    private func readPrePEXVerification(
+        from manifest: HeadlessRoundTripService.Manifest,
+        projectRoot: URL
+    ) throws -> DesignFlowVerificationReport? {
+        guard let artifact = manifest.artifacts.first(where: { $0.kind == "physical-verification-report" }) else {
+            return nil
+        }
+        let url = projectRoot
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: manifest.runID)
+            .appending(path: artifact.path)
+        let data = try Data(contentsOf: url)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(DesignFlowVerificationReport.self, from: data)
+    }
+
+    private func recordDRCViolations(from manifest: HeadlessRoundTripService.Manifest, projectRoot: URL) {
+        do {
+            guard let artifact = manifest.artifacts.first(where: { $0.kind == "layout-document" }) else {
+                return
+            }
+            let url = projectRoot
+                .appending(path: ".xcircuite")
+                .appending(path: "flow-runs")
+                .appending(path: manifest.runID)
+                .appending(path: artifact.path)
+            let data = try Data(contentsOf: url)
+            let layout = try JSONDecoder().decode(LayoutDocument.self, from: data)
+            let result = LayoutDRCService().run(document: layout, tech: .sampleProcess())
+            let summary = result.violations.prefix(20).map { violation in
+                let layerName = violation.layer.map { "\($0.name)/\($0.purpose)" } ?? "<no-layer>"
+                return [
+                    violation.kind.rawValue,
+                    layerName,
+                    violation.message,
+                    String(describing: violation.region),
+                ].joined(separator: " | ")
+            }.joined(separator: " || ")
+            Issue.record("Pre-PEX DRC details: \(summary)")
+        } catch {
+            Issue.record("Pre-PEX DRC details could not be loaded: \(error)")
+        }
     }
 
     private func writeManifest(

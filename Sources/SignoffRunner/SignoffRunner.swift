@@ -117,7 +117,7 @@ struct SignoffRunner {
     /// Runs DRC + LVS + PEX (+ back-annotation) on one design and returns whether
     /// the signoff review passed (the single source of truth — `review.passed`).
     private static func evaluate(_ options: Options) async throws -> Bool {
-        let design = try resolveDesign(options)
+        let design = try await resolveDesign(options)
         let rc = options.flag("--rc")
         let corner = options.value("--corner") ?? "tt"
 
@@ -187,7 +187,7 @@ struct SignoffRunner {
             guard index < cells.count else { return nil }
             let cell = cells[index]
             let base = artifacts.appending(path: cell)
-            let gds = try layoutService.materialize(cell: cell, into: base.appending(path: "layout"))
+            let gds = try await layoutService.materialize(cell: cell, into: base.appending(path: "layout"))
             let schematic = try provider.schematic(forCell: cell, into: base.appending(path: "schematic"))
             return SignoffIterationLoop.Candidate(layoutGDS: gds, topCell: cell, schematicNetlist: schematic)
         }
@@ -214,7 +214,7 @@ struct SignoffRunner {
         let materializedByName: Bool
     }
 
-    private static func resolveDesign(_ options: Options) throws -> Design {
+    private static func resolveDesign(_ options: Options) async throws -> Design {
         let artifacts = options.artifactsDirectory()
         try FileManager.default.createDirectory(at: artifacts, withIntermediateDirectories: true)
 
@@ -222,7 +222,7 @@ struct SignoffRunner {
             guard let layoutService = PDKCellLayoutService.locate() else {
                 throw CLIError(code: 2, message: "layout toolchain unavailable — run `signoff doctor`")
             }
-            let gds = try layoutService.materialize(cell: cell, into: artifacts.appending(path: "layout"))
+            let gds = try await layoutService.materialize(cell: cell, into: artifacts.appending(path: "layout"))
             let schematic: URL
             if let supplied = options.value("--schematic") {
                 schematic = URL(filePath: supplied)

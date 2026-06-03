@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CircuitStudioCore
 @testable import CircuitStudioApp
 
 @Suite("ExternalSignoffCommandService Tests")
@@ -136,6 +137,46 @@ struct ExternalSignoffCommandServiceTests {
         #expect(!review.isReadyForPEX)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func commandTimeoutTerminatesToolAndPreservesCapturedOutput() async throws {
+        try await ProcessTimeoutTestGate.shared.withExclusiveAccess {
+            let root = try makeTemporaryRoot("timeout")
+            defer { removeTemporaryRoot(root) }
+
+            let executable = try writeExecutable(
+                named: "mock-timeout",
+                in: root,
+                contents: """
+                #!/bin/sh
+                printf '[INFO] rule=START message="started"\\n'
+                exec sleep 30
+                """
+            )
+            let command = ExternalSignoffCommand(
+                kind: .drc,
+                toolName: "slow-drc",
+                executablePath: executable.path(percentEncoded: false),
+                timeoutSeconds: 1.0
+            )
+
+            do {
+                _ = try await ExternalSignoffCommandService().run(
+                    command: command,
+                    artifactDirectory: root.appending(path: "artifacts")
+                )
+                Issue.record("Expected timedOut")
+            } catch let error as TimedProcessError {
+                guard case .timedOut(let executablePath, let timeoutSeconds, let stdout, _) = error else {
+                    Issue.record("Expected timedOut, got \(error)")
+                    return
+                }
+                #expect(executablePath == executable.path(percentEncoded: false))
+                #expect(timeoutSeconds == 1.0)
+                #expect(stdout.contains("START"))
+            }
+        }
+    }
+
     @Test func reviewStorePersistsApproval() throws {
         let root = try makeTemporaryRoot("review-store")
         defer { removeTemporaryRoot(root) }
@@ -172,8 +213,16 @@ struct ExternalSignoffCommandServiceTests {
         #expect(approved.isReadyForPEX)
         #expect(loaded.approvedBy == "layout-reviewer")
         #expect(loaded.approvedAt == approvedAt)
+        #expect(loaded.approvalKind == .human)
         #expect(loaded.waiverIDs == ["W-001"])
         #expect(loaded.isReadyForPEX)
+
+        let automated = review.approving(
+            by: "design-flow-command",
+            at: approvedAt,
+            approvalKind: .automated
+        )
+        #expect(automated.approvalKind == .automated)
     }
 
     private func makeTemporaryRoot(_ name: String) throws -> URL {

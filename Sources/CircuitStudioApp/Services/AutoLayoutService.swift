@@ -453,7 +453,8 @@ public final class AutoLayoutService {
             topInstances.append(LayoutInstance(
                 cellID: cellID,
                 name: inst.name,
-                transform: transform
+                transform: transform,
+                terminalNetIDs: terminalNetIDs(for: inst.id, routingNets: routingNets)
             ))
         }
 
@@ -505,6 +506,16 @@ public final class AutoLayoutService {
             cells: allCells,
             topCellID: topCell.id
         )
+    }
+
+    private func terminalNetIDs(for instanceID: UUID, routingNets: [RoutingNet]) -> [String: UUID] {
+        var terminalNetIDs: [String: UUID] = [:]
+        for net in routingNets {
+            for pin in net.pins where pin.instanceID == instanceID {
+                terminalNetIDs[pin.pinName] = net.id
+            }
+        }
+        return terminalNetIDs
     }
 
     private func appendTopNet(

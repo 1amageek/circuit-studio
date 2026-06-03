@@ -25,6 +25,11 @@ The goal is not to replace signoff tools with a local heuristic. The goal is to 
 a layered trust system where fast in-process checks catch generator and router mistakes
 early, while signoff-grade tools remain the final physical authority.
 
+The cross-cutting artifact publication and verified-reader design is defined in
+`docs/trusted-artifact-completion-design.md`. Layout trust, antenna protection, timing
+artifacts, review summaries, and approval records should converge on that shared
+artifact spine instead of adding feature-local integrity checks.
+
 ## Trust Boundary
 
 ```mermaid
@@ -285,15 +290,28 @@ Acceptance criteria:
 
 Move from detecting antenna debt to actively reducing it through P&R.
 
+Implemented baseline for generated Sky130 gate-level rows:
+
+| Component | Responsibility |
+|---|---|
+| `AntennaProtectionPlanProvider` | Protocol boundary for choosing protection sites from route-derived candidates. |
+| `GateLevelAntennaProtectionPlanner` | Derives per-instance/per-gate protection sites from gate-load topology and route budget data. |
+| `AntennaProtectionRuleSet` | Encodes whether local gate contacts, unanchored gate nets, and span-budget violations need protection. |
+| `Sky130AntennaTieGenerator` | Emits DRC/LVS-clean local diffusion ties on the same met1 riser stage as the protected gate contact, tagging each shape with the materialized protection site ID. |
+| `SpecToSiliconFlow` | Writes `*.antenna-protection.json` as supporting antenna evidence, then exports GDS and runs the physical deck. Magic antennacheck remains the antenna signoff claim. |
+
+`AntennaProtectionPlan` and `LayoutTrustReport` are strict JSON artifacts. Both carry `schemaVersion` and `kind`; readers reject unsupported envelopes. Protection plans also validate site identity, topology fields, finite geometry, duplicate IDs, and rule-set values before decode/write/use. Layout trust reports validate that stored top-cell identity, status, and shape counts are derivable from `ownershipMap` and `netAwareReport`.
+
 Acceptance criteria:
 
 | Step | Required |
 |---|---|
-| Net budgeting | Each route has an antenna budget derived from gate area and process limits. |
+| Net budgeting | Each generated route has an antenna budget derived from gate area and process limits; local met1 gate-contact risers are treated as same-stage antenna risks. |
 | Partitioning | Block partitioning minimizes long gate-connected cross-block nets. |
 | Router | True rip-up-reroute and congestion cost are implemented before claiming high-scale routability. |
 | Repair | Diode insertion or jumper strategy is net-aware, DRC-clean, LVS-clean, and does not short neighboring nets. |
 | Signoff | ACC-4 antenna violations are reduced or eliminated with evidence from the antenna deck. |
+| Evidence separation | Protection plans and route diagnostics are recorded as supporting evidence; they do not satisfy the `.antenna` axis without a passing antenna signoff claim. Evidence manifests use schema v2 and must encode the claim kind explicitly; older schemas are rejected without conversion. |
 
 ### LT-8: Incremental and Scalable Verification
 
@@ -328,7 +346,7 @@ The current work is moving from signoff-only detection toward a layered trust sy
 |---|---|---|
 | Net-aware guard | Implemented for generated maze-router routes and standalone layout trust command runs. | Extend ownership normalization to all generated/imported layout paths. |
 | DRC/LVS generated fixtures | Strong regression coverage for Sky130 generated cells and blocks. | Continue adding negative fixtures and imported binary corpora. |
-| Antenna | Deck catches real ACC-4 antenna debt honestly. | Full antenna-aware P&R and repair are not complete. |
+| Antenna | Generated Sky130 gate-level rows now plan local diffusion ties per gate contact, emit an antenna-protection artifact that names the instance/gate/site coordinates as supporting evidence, and pass real Magic antenna on ACC-4 while preserving DRC/LVS. | Extend the same protection model to hierarchical cross-block routing and imported layouts. |
 | Artifacts | Dedicated layout trust reports, ownership maps, canonical layout snapshots, and net-aware reports are written by the layout trust stage. | Add UI panels and broader corpus entries that consume the new artifacts. |
 
 This roadmap intentionally separates "detecting a problem truthfully" from "repairing

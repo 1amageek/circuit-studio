@@ -5,7 +5,8 @@ import Testing
 @Suite("PEXCommandService Tests")
 struct PEXCommandServiceTests {
 
-    @Test func runUsesExplicitExecutableAndCapturesOutput() throws {
+    @Test(.timeLimit(.minutes(1)))
+    func runUsesExplicitExecutableAndCapturesOutput() async throws {
         let root = try makeTemporaryRoot("run")
         defer { removeTemporaryRoot(root) }
 
@@ -26,7 +27,7 @@ struct PEXCommandServiceTests {
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
 
         let service = PEXCommandService(executablePath: executable.path(percentEncoded: false))
-        let result = try service.run(
+        let result = try await service.run(
             arguments: ["doctor", "--json"],
             workingDirectory: workingDirectory
         )
@@ -44,7 +45,8 @@ struct PEXCommandServiceTests {
         #expect(result.standardError == "warning output\n")
     }
 
-    @Test func extractBuildsExpectedCommandLine() throws {
+    @Test(.timeLimit(.minutes(1)))
+    func extractBuildsExpectedCommandLine() async throws {
         let root = try makeTemporaryRoot("extract")
         defer { removeTemporaryRoot(root) }
 
@@ -63,7 +65,7 @@ struct PEXCommandServiceTests {
         try "{}".write(to: configURL, atomically: true, encoding: .utf8)
 
         let service = PEXCommandService(executablePath: executable.path(percentEncoded: false))
-        let result = try service.extract(
+        let result = try await service.extract(
             configURL: configURL,
             workingDirectory: root,
             additionalArguments: ["--json", "--verbose"]
@@ -87,7 +89,8 @@ struct PEXCommandServiceTests {
         """)
     }
 
-    @Test func nonZeroExitThrowsTypedErrorWithStderr() throws {
+    @Test(.timeLimit(.minutes(1)))
+    func nonZeroExitThrowsTypedErrorWithStderr() async throws {
         let root = try makeTemporaryRoot("failure")
         defer { removeTemporaryRoot(root) }
 
@@ -104,7 +107,7 @@ struct PEXCommandServiceTests {
         let service = PEXCommandService(executablePath: executable.path(percentEncoded: false))
 
         do {
-            _ = try service.run(arguments: ["extract"])
+            _ = try await service.run(arguments: ["extract"])
             Issue.record("Expected nonZeroExit")
         } catch let error as PEXCommandError {
             guard case .nonZeroExit(let code, let stderr) = error else {
@@ -116,11 +119,12 @@ struct PEXCommandServiceTests {
         }
     }
 
-    @Test func invalidExplicitExecutablePathThrowsBeforeLaunch() throws {
+    @Test(.timeLimit(.minutes(1)))
+    func invalidExplicitExecutablePathThrowsBeforeLaunch() async throws {
         let service = PEXCommandService(executablePath: "/definitely/missing/pexengine")
 
         do {
-            _ = try service.run(arguments: ["doctor"])
+            _ = try await service.run(arguments: ["doctor"])
             Issue.record("Expected invalidExecutablePath")
         } catch let error as PEXCommandError {
             guard case .invalidExecutablePath(let path) = error else {
@@ -128,6 +132,42 @@ struct PEXCommandServiceTests {
                 return
             }
             #expect(path == "/definitely/missing/pexengine")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func timeoutTerminatesLongRunningProcess() async throws {
+        try await ProcessTimeoutTestGate.shared.withExclusiveAccess {
+            let root = try makeTemporaryRoot("timeout")
+            defer { removeTemporaryRoot(root) }
+
+            let executable = try writeExecutable(
+                named: "mock-pexengine",
+                in: root,
+                contents: """
+                #!/bin/sh
+                printf 'started\\n'
+                exec sleep 30
+                """
+            )
+
+            let service = PEXCommandService(
+                executablePath: executable.path(percentEncoded: false),
+                timeoutSeconds: 1.0
+            )
+
+            do {
+                _ = try await service.run(arguments: ["extract"])
+                Issue.record("Expected timedOut")
+            } catch let error as PEXCommandError {
+                guard case .timedOut(let executablePath, let timeoutSeconds, let stdout, _) = error else {
+                    Issue.record("Expected timedOut, got \(error)")
+                    return
+                }
+                #expect(executablePath == executable.path(percentEncoded: false))
+                #expect(timeoutSeconds == 1.0)
+                #expect(stdout.contains("started"))
+            }
         }
     }
 

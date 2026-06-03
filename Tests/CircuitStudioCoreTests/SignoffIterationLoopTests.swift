@@ -29,7 +29,7 @@ struct SignoffIterationLoopTests {
     func convergesAfterFix() async throws {
         let loop = try #require(Self.loop)
         let work = try makeDir("converge")
-        defer { try? FileManager.default.removeItem(at: work) }
+        defer { removeCoreTestTemporaryDirectory(work) }
 
         // The "agent" first proposes a DRC-violating layout, then (after seeing the
         // failing review) a clean one — modelling an edit that fixes the violation.
@@ -71,7 +71,7 @@ struct SignoffIterationLoopTests {
     func nonConvergenceAndBudgetGuard() async throws {
         let loop = try #require(Self.loop)
         let work = try makeDir("nonconverge")
-        defer { try? FileManager.default.removeItem(at: work) }
+        defer { removeCoreTestTemporaryDirectory(work) }
 
         let broken = SignoffIterationLoop.Candidate(
             layoutGDS: try fixture("met1_spacing_violation", "gds", "magic"),

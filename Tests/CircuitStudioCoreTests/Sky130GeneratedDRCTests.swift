@@ -119,7 +119,7 @@ struct Sky130GeneratedDRCTests {
         let netlist = GateLevelNetlist(name: "scale100", instances: insts, inputs: ["a"], output: "y")
         #expect(netlist.instances.count == 100)
         let doc = try HierarchicalSynthesizer(blocks: 4, columns: 2).synthesize(netlist)   // 2x2 grid
-        let spice = Sky130CircuitSynthesizer().referenceSPICE(netlist)
+        let spice = Sky130CircuitSynthesizer().referenceSPICE(for: netlist)
         let review = try await signoffDocument(doc, topCell: "scale100", referenceSPICE: spice)
         let drc = try #require(review.reports.first { $0.kind == .drc })
         let lvs = try #require(review.reports.first { $0.kind == .lvs })
@@ -140,7 +140,7 @@ struct Sky130GeneratedDRCTests {
         }
         let netlist = GateLevelNetlist(name: "mz_chain", instances: insts, inputs: ["a"], output: "y")
         let doc = try HierarchicalSynthesizer(blocks: 3, columns: 3).synthesize(netlist)
-        let spice = Sky130CircuitSynthesizer().referenceSPICE(netlist)
+        let spice = Sky130CircuitSynthesizer().referenceSPICE(for: netlist)
         let review = try await signoffDocument(doc, topCell: "mz_chain", referenceSPICE: spice)
         let drc = try #require(review.reports.first { $0.kind == .drc })
         let lvs = try #require(review.reports.first { $0.kind == .lvs })
@@ -258,7 +258,7 @@ struct Sky130GeneratedDRCTests {
         let floor = try GridFloorplanner().tile(docs, columns: 1, name: "stack8")   // 1 column -> 2 stacked rows
         let routed = try InterBlockRouter().route(floor, boundaryNets: part.interBlockNets)
 
-        let review = try await signoffDocument(routed, topCell: "stack8", referenceSPICE: synth.referenceSPICE(full))
+        let review = try await signoffDocument(routed, topCell: "stack8", referenceSPICE: synth.referenceSPICE(for: full))
         let drc = try #require(review.reports.first { $0.kind == .drc })
         let lvs = try #require(review.reports.first { $0.kind == .lvs })
         #expect(drc.passed, "stacked DRC: \(drc.diagnostics.prefix(8).map { ($0.ruleID ?? "?", $0.message) })")
@@ -286,7 +286,7 @@ struct Sky130GeneratedDRCTests {
         // The flat reference: the same four inverters as one netlist.
         let full = GateLevelNetlist(name: "twoblock", instances: blkA.instances + blkB.instances,
                                     inputs: ["a"], output: "y")
-        let review = try await signoffDocument(routed, topCell: "twoblock", referenceSPICE: synth.referenceSPICE(full))
+        let review = try await signoffDocument(routed, topCell: "twoblock", referenceSPICE: synth.referenceSPICE(for: full))
         let drc = try #require(review.reports.first { $0.kind == .drc })
         let lvs = try #require(review.reports.first { $0.kind == .lvs })
         #expect(drc.passed, "2-block DRC: \(drc.diagnostics.prefix(6).map { ($0.ruleID ?? "?", $0.message) })")
@@ -316,7 +316,7 @@ struct Sky130GeneratedDRCTests {
     private func signoffCircuit(_ netlist: GateLevelNetlist) async throws -> ExternalSignoffReview {
         let synth = Sky130CircuitSynthesizer()
         let doc = try synth.synthesize(netlist)
-        let spice = synth.referenceSPICE(netlist)
+        let spice = synth.referenceSPICE(for: netlist)
         let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-circuit-\(netlist.name)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let gds = dir.appending(path: "\(netlist.name).gds")
@@ -1343,7 +1343,7 @@ struct Sky130GeneratedDRCTests {
             magicExecutableURL: drc.magicExecutableURL, rcFileURL: drc.rcFileURL,
             pdkRoot: drc.pdkRoot, driverScriptURL: try #require(MagicLayoutExtractor.bundledDriverScriptURL)
         )
-        let netlistURL = try extractor.extractLayoutNetlist(gds: gds, cell: "gen_inverter", into: dir)
+        let netlistURL = try await extractor.extractLayoutNetlist(gds: gds, cell: "gen_inverter", into: dir)
         let netlist = try String(contentsOf: netlistURL, encoding: .utf8)
 
         let devices = netlist.split(whereSeparator: \.isNewline).filter { $0.first == "X" || $0.first == "M" }
