@@ -342,31 +342,122 @@ public final class WaveformViewModel {
         }
 
         let visibleTraces = document.traces.filter(\.isVisible)
-        var series: [ChartSeries] = []
         let rangeAlreadyApplied = waveform.pointCount > maxDisplayPoints && !waveform.isComplex
+        let pointIndices = visiblePointIndices(
+            in: displayWaveform,
+            rangeAlreadyApplied: rangeAlreadyApplied
+        )
 
-        for trace in visibleTraces {
-            guard let varIdx = displayWaveform.variableIndex(named: trace.variableName) else {
+        if displayWaveform.isComplex {
+            chartSeries = makeComplexChartSeries(
+                waveform: displayWaveform,
+                traces: visibleTraces,
+                pointIndices: pointIndices
+            )
+            return
+        }
+
+        if let rowMajorSeries = makeRealChartSeriesFromRowMajor(
+            waveform: displayWaveform,
+            traces: visibleTraces,
+            pointIndices: pointIndices
+        ) {
+            chartSeries = rowMajorSeries
+            return
+        }
+
+        chartSeries = makeRealChartSeries(
+            waveform: displayWaveform,
+            traces: visibleTraces,
+            pointIndices: pointIndices
+        )
+    }
+
+    private func visiblePointIndices(
+        in waveform: WaveformData,
+        rangeAlreadyApplied: Bool
+    ) -> [Int] {
+        if rangeAlreadyApplied || document.visibleRange == nil {
+            return Array(0..<waveform.pointCount)
+        }
+
+        guard let range = document.visibleRange else {
+            return Array(0..<waveform.pointCount)
+        }
+
+        var indices: [Int] = []
+        indices.reserveCapacity(waveform.pointCount)
+        for pointIdx in 0..<waveform.pointCount where range.contains(waveform.sweepValues[pointIdx]) {
+            indices.append(pointIdx)
+        }
+        return indices
+    }
+
+    private func makeRealChartSeriesFromRowMajor(
+        waveform: WaveformData,
+        traces: [WaveformTrace],
+        pointIndices: [Int]
+    ) -> [ChartSeries]? {
+        waveform.withRealRowMajorBuffer { buffer in
+            guard let sourceBase = buffer.values.baseAddress else {
+                return []
+            }
+
+            var series: [ChartSeries] = []
+            series.reserveCapacity(traces.count)
+
+            for trace in traces {
+                guard let varIdx = waveform.variableIndex(named: trace.variableName),
+                      varIdx < buffer.variableCount else {
+                    continue
+                }
+
+                var points: [ChartPoint] = []
+                points.reserveCapacity(pointIndices.count)
+                for pointIdx in pointIndices {
+                    guard pointIdx < buffer.pointCount else { continue }
+                    let sourceOffset = buffer.startOffset + (pointIdx * buffer.rowStride) + varIdx
+                    points.append(ChartPoint(
+                        id: pointIdx,
+                        sweep: waveform.sweepValues[pointIdx],
+                        value: sourceBase[sourceOffset]
+                    ))
+                }
+
+                series.append(ChartSeries(
+                    id: trace.id,
+                    name: trace.displayName,
+                    color: trace.color,
+                    points: points,
+                    isComplex: false
+                ))
+            }
+
+            return series
+        }
+    }
+
+    private func makeRealChartSeries(
+        waveform: WaveformData,
+        traces: [WaveformTrace],
+        pointIndices: [Int]
+    ) -> [ChartSeries] {
+        var series: [ChartSeries] = []
+        series.reserveCapacity(traces.count)
+
+        for trace in traces {
+            guard let varIdx = waveform.variableIndex(named: trace.variableName) else {
                 continue
             }
 
             var points: [ChartPoint] = []
-            for pointIdx in 0..<displayWaveform.pointCount {
-                let sweep = displayWaveform.sweepValues[pointIdx]
-
-                // Skip range filter if decimation already applied it
-                if !rangeAlreadyApplied, let range = document.visibleRange {
-                    guard range.contains(sweep) else { continue }
-                }
-
-                let value: Double
-                if isComplex {
-                    value = displayWaveform.magnitudeDB(variable: varIdx, point: pointIdx) ?? 0
-                } else {
-                    value = displayWaveform.realValue(variable: varIdx, point: pointIdx) ?? 0
-                }
-
-                points.append(ChartPoint(id: pointIdx, sweep: sweep, value: value))
+            points.reserveCapacity(pointIndices.count)
+            for pointIdx in pointIndices {
+                points.append(ChartPoint(
+                    id: pointIdx,
+                    sweep: waveform.sweepValues[pointIdx],
+                    value: waveform.realValue(variable: varIdx, point: pointIdx) ?? 0
+                ))
             }
 
             series.append(ChartSeries(
@@ -374,10 +465,45 @@ public final class WaveformViewModel {
                 name: trace.displayName,
                 color: trace.color,
                 points: points,
-                isComplex: isComplex
+                isComplex: false
             ))
         }
 
-        chartSeries = series
+        return series
+    }
+
+    private func makeComplexChartSeries(
+        waveform: WaveformData,
+        traces: [WaveformTrace],
+        pointIndices: [Int]
+    ) -> [ChartSeries] {
+        var series: [ChartSeries] = []
+        series.reserveCapacity(traces.count)
+
+        for trace in traces {
+            guard let varIdx = waveform.variableIndex(named: trace.variableName) else {
+                continue
+            }
+
+            var points: [ChartPoint] = []
+            points.reserveCapacity(pointIndices.count)
+            for pointIdx in pointIndices {
+                points.append(ChartPoint(
+                    id: pointIdx,
+                    sweep: waveform.sweepValues[pointIdx],
+                    value: waveform.magnitudeDB(variable: varIdx, point: pointIdx) ?? 0
+                ))
+            }
+
+            series.append(ChartSeries(
+                id: trace.id,
+                name: trace.displayName,
+                color: trace.color,
+                points: points,
+                isComplex: true
+            ))
+        }
+
+        return series
     }
 }

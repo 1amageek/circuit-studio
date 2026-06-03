@@ -1027,6 +1027,26 @@ public struct PostLayoutComparisonService: Sendable {
         var lastPreLayoutValue: Double?
         var lastPostLayoutValue: Double?
 
+        var rowMajorComparison: PostLayoutVariableComparison?
+        _ = preLayoutWaveform.withRealRowMajorBuffer { preBuffer in
+            _ = postLayoutWaveform.withRealRowMajorBuffer { postBuffer in
+                rowMajorComparison = compareVariable(
+                    named: variableName,
+                    alignedPoints: alignedPoints,
+                    preLayoutWaveform: preLayoutWaveform,
+                    postLayoutWaveform: postLayoutWaveform,
+                    preIndex: preIndex,
+                    postIndex: postIndex,
+                    preBuffer: preBuffer,
+                    postBuffer: postBuffer,
+                    relativeDeltaDenominatorFloor: relativeDeltaDenominatorFloor
+                )
+            }
+        }
+        if let rowMajorComparison {
+            return rowMajorComparison
+        }
+
         for (alignedIndex, point) in alignedPoints.enumerated() {
             guard let preValue = comparableValue(
                 waveform: preLayoutWaveform,
@@ -1037,6 +1057,65 @@ public struct PostLayoutComparisonService: Sendable {
                 variable: postIndex,
                 point: point
             ) else {
+                continue
+            }
+
+            if alignedIndex == 0 {
+                firstPreLayoutValue = preValue
+                firstPostLayoutValue = postValue
+            }
+            lastPreLayoutValue = preValue
+            lastPostLayoutValue = postValue
+
+            let absoluteDelta = abs(postValue - preValue)
+            let relativeDelta = absoluteDelta / max(
+                abs(preValue),
+                abs(postValue),
+                relativeDeltaDenominatorFloor
+            )
+            maxAbsoluteDelta = max(maxAbsoluteDelta, absoluteDelta)
+            maxRelativeDelta = max(maxRelativeDelta, relativeDelta)
+        }
+
+        return PostLayoutVariableComparison(
+            variableName: variableName,
+            signalDomain: signalDomain(for: preLayoutWaveform.variables[preIndex]),
+            unit: preLayoutWaveform.variables[preIndex].unit.rawValue,
+            maxAbsoluteDelta: maxAbsoluteDelta,
+            maxRelativeDelta: maxRelativeDelta,
+            firstPreLayoutValue: firstPreLayoutValue,
+            firstPostLayoutValue: firstPostLayoutValue,
+            lastPreLayoutValue: lastPreLayoutValue,
+            lastPostLayoutValue: lastPostLayoutValue
+        )
+    }
+
+    private func compareVariable(
+        named variableName: String,
+        alignedPoints: [AlignedPoint],
+        preLayoutWaveform: WaveformData,
+        postLayoutWaveform: WaveformData,
+        preIndex: Int,
+        postIndex: Int,
+        preBuffer: RealRowMajorBuffer,
+        postBuffer: RealRowMajorBuffer,
+        relativeDeltaDenominatorFloor: Double
+    ) -> PostLayoutVariableComparison? {
+        guard preIndex < preBuffer.variableCount,
+              postIndex < postBuffer.variableCount else {
+            return nil
+        }
+
+        var maxAbsoluteDelta = 0.0
+        var maxRelativeDelta = 0.0
+        var firstPreLayoutValue: Double?
+        var firstPostLayoutValue: Double?
+        var lastPreLayoutValue: Double?
+        var lastPostLayoutValue: Double?
+
+        for (alignedIndex, point) in alignedPoints.enumerated() {
+            guard let preValue = comparableValue(buffer: preBuffer, variable: preIndex, point: point.prePoint),
+                  let postValue = alignedPostValue(buffer: postBuffer, variable: postIndex, point: point) else {
                 continue
             }
 
@@ -1125,11 +1204,32 @@ public struct PostLayoutComparisonService: Sendable {
         return lowerValue + ((upperValue - lowerValue) * point.interpolationFraction)
     }
 
+    private func alignedPostValue(
+        buffer: RealRowMajorBuffer,
+        variable: Int,
+        point: AlignedPoint
+    ) -> Double? {
+        if let postPoint = point.postPoint {
+            return comparableValue(buffer: buffer, variable: variable, point: postPoint)
+        }
+        guard let lowerPostPoint = point.lowerPostPoint,
+              let upperPostPoint = point.upperPostPoint,
+              let lowerValue = comparableValue(buffer: buffer, variable: variable, point: lowerPostPoint),
+              let upperValue = comparableValue(buffer: buffer, variable: variable, point: upperPostPoint) else {
+            return nil
+        }
+        return lowerValue + ((upperValue - lowerValue) * point.interpolationFraction)
+    }
+
     private func comparableValue(waveform: WaveformData, variable: Int, point: Int) -> Double? {
         if waveform.isComplex {
             return waveform.magnitude(variable: variable, point: point)
         }
         return waveform.realValue(variable: variable, point: point)
+    }
+
+    private func comparableValue(buffer: RealRowMajorBuffer, variable: Int, point: Int) -> Double? {
+        buffer.value(point: point, variable: variable)
     }
 
     private func compareOscillationMetric(
@@ -1191,6 +1291,28 @@ public struct PostLayoutComparisonService: Sendable {
     }
 
     private func realValues(waveform: WaveformData, variable: Int) -> [Double]? {
+        if let rowMajorValues = waveform.withRealRowMajorBuffer({ buffer -> [Double]? in
+            guard variable >= 0, variable < buffer.variableCount else {
+                return nil
+            }
+            guard let sourceBase = buffer.values.baseAddress else {
+                return buffer.pointCount == 0 ? [] : nil
+            }
+
+            var values: [Double] = []
+            values.reserveCapacity(buffer.pointCount)
+            for point in 0..<buffer.pointCount {
+                let value = sourceBase[buffer.startOffset + (point * buffer.rowStride) + variable]
+                guard value.isFinite else {
+                    return nil
+                }
+                values.append(value)
+            }
+            return values
+        }), let rowMajorValues {
+            return rowMajorValues
+        }
+
         var values: [Double] = []
         values.reserveCapacity(waveform.pointCount)
         for point in 0..<waveform.pointCount {

@@ -482,7 +482,11 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                         break
                     }
                     if let batch = channel.drain() {
-                        builder.appendBatch(timePoints: batch.timePoints, solutions: batch.solutions)
+                        builder.appendBatch(
+                            timePoints: batch.timePoints,
+                            rowMajorSolutions: batch.rowMajorSolutions,
+                            sourceVariableCount: batch.sourceVariableCount
+                        )
                         let waveform = builder.buildWaveformData()
                         self?.emit(jobID: capturedJobID, event: .waveformUpdate(waveform))
                         capturedCallback?(waveform)
@@ -490,7 +494,11 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 }
                 // Final drain: capture any data appended after the last poll cycle
                 if let batch = channel.drain() {
-                    builder.appendBatch(timePoints: batch.timePoints, solutions: batch.solutions)
+                    builder.appendBatch(
+                        timePoints: batch.timePoints,
+                        rowMajorSolutions: batch.rowMajorSolutions,
+                        sourceVariableCount: batch.sourceVariableCount
+                    )
                     let waveform = builder.buildWaveformData()
                     self?.emit(jobID: capturedJobID, event: .waveformUpdate(waveform))
                     capturedCallback?(waveform)
@@ -662,6 +670,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             )
         }
 
+        guard variables != waveform.variables else {
+            return waveform
+        }
+
         if waveform.isComplex {
             var complexData: [[(real: Double, imag: Double)]] = []
             complexData.reserveCapacity(waveform.pointCount)
@@ -682,22 +694,24 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             )
         }
 
-        var realData: [[Double]] = []
-        realData.reserveCapacity(waveform.pointCount)
-        for point in 0..<waveform.pointCount {
-            var row: [Double] = []
-            row.reserveCapacity(waveform.variableCount)
-            for variable in 0..<waveform.variableCount {
-                row.append(waveform.realValue(variable: variable, point: point) ?? 0)
-            }
-            realData.append(row)
+        if let rowMajorValues = waveform.realRowMajorValues {
+            return WaveformData(
+                metadata: waveform.metadata,
+                sweepVariable: waveform.sweepVariable,
+                sweepValues: waveform.sweepValues,
+                variables: variables,
+                realRowMajorData: rowMajorValues.values,
+                pointCount: rowMajorValues.pointCount,
+                variableCount: rowMajorValues.variableCount
+            )
         }
+
         return WaveformData(
             metadata: waveform.metadata,
             sweepVariable: waveform.sweepVariable,
             sweepValues: waveform.sweepValues,
             variables: variables,
-            realData: realData
+            realData: waveform.allRealData ?? []
         )
     }
 

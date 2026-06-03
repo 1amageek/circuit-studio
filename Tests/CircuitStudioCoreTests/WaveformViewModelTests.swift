@@ -139,7 +139,9 @@ struct WaveformViewModelTests {
                 .voltage(node: "out", index: 0),
                 .current(device: "R1", index: 1),
             ],
-            realData: zip(voltageValues, currentValues).map { [$0.0, $0.1] }
+            realRowMajorData: zip(voltageValues, currentValues).flatMap { [$0.0, $0.1] },
+            pointCount: sweepValues.count,
+            variableCount: 2
         )
     }
 

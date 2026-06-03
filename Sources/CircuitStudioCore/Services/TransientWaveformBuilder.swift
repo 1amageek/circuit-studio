@@ -14,7 +14,7 @@ public struct TransientWaveformBuilder {
     private let sortedVars: [(MNAVariable, Int)]
     private let variables: [VariableDescriptor]
     private var timePoints: [Double] = []
-    private var realData: [[Double]] = []
+    private var realRowMajorData: [Double] = []
 
     public init(variableMap: [MNAVariable: Int], nodeNamesByID: [Int: String] = [:]) {
         self.sortedVars = variableMap.sorted { $0.value < $1.value }
@@ -41,17 +41,29 @@ public struct TransientWaveformBuilder {
         self.variables = vars
     }
 
-    /// Append a batch of drained data to the accumulated dataset.
-    public mutating func appendBatch(timePoints: [Double], solutions: [[Double]]) {
+    /// Append a batch of drained row-major source data to the accumulated dataset.
+    public mutating func appendBatch(
+        timePoints: [Double],
+        rowMajorSolutions: [Double],
+        sourceVariableCount: Int
+    ) {
         self.timePoints.append(contentsOf: timePoints)
-        self.realData.reserveCapacity(self.realData.count + solutions.count)
-        for solution in solutions {
-            var point: [Double] = []
-            point.reserveCapacity(sortedVars.count)
+        self.realRowMajorData.reserveCapacity(
+            self.realRowMajorData.count + (timePoints.count * sortedVars.count)
+        )
+        guard sourceVariableCount > 0 else {
+            self.realRowMajorData.append(
+                contentsOf: Array(repeating: 0, count: timePoints.count * sortedVars.count)
+            )
+            return
+        }
+
+        for point in 0..<timePoints.count {
+            let sourceOffset = point * sourceVariableCount
             for (_, mnaIdx) in sortedVars {
-                point.append(mnaIdx < solution.count ? solution[mnaIdx] : 0)
+                let valueOffset = sourceOffset + mnaIdx
+                realRowMajorData.append(valueOffset < rowMajorSolutions.count ? rowMajorSolutions[valueOffset] : 0)
             }
-            self.realData.append(point)
         }
     }
 
@@ -68,7 +80,9 @@ public struct TransientWaveformBuilder {
             sweepVariable: .time(),
             sweepValues: timePoints,
             variables: variables,
-            realData: realData
+            realRowMajorData: realRowMajorData,
+            pointCount: timePoints.count,
+            variableCount: variables.count
         )
     }
 }

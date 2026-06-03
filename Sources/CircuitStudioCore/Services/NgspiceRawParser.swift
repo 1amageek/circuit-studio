@@ -108,7 +108,9 @@ public struct NgspiceRawParser: Sendable {
             sweepVariable: sweepVariable,
             sweepValues: parsed.sweepValues,
             variables: descriptors,
-            realData: parsed.realData
+            realRowMajorData: parsed.realRowMajorData,
+            pointCount: pointCount,
+            variableCount: descriptors.count
         )
     }
 
@@ -122,7 +124,8 @@ public struct NgspiceRawParser: Sendable {
         var sweepValues: [Double] = []
         sweepValues.reserveCapacity(pointCount)
 
-        var realData: [[Double]] = Array(repeating: [], count: pointCount)
+        var realRowMajorData: [Double] = []
+        realRowMajorData.reserveCapacity(pointCount * max(variableCount - 1, 0))
         var complexData: [[(real: Double, imag: Double)]] = Array(repeating: [], count: pointCount)
 
         for point in 0..<pointCount {
@@ -132,9 +135,7 @@ public struct NgspiceRawParser: Sendable {
             index += 1 // skip point index
 
             var pointSweep: Double = 0
-            var realRow: [Double] = []
             var complexRow: [(real: Double, imag: Double)] = []
-            realRow.reserveCapacity(max(variableCount - 1, 0))
             complexRow.reserveCapacity(max(variableCount - 1, 0))
 
             for varIndex in 0..<variableCount {
@@ -164,7 +165,7 @@ public struct NgspiceRawParser: Sendable {
                     if varIndex == 0 {
                         pointSweep = value
                     } else {
-                        realRow.append(value)
+                        realRowMajorData.append(value)
                     }
                 }
             }
@@ -172,14 +173,12 @@ public struct NgspiceRawParser: Sendable {
             sweepValues.append(pointSweep)
             if isComplex {
                 complexData[point] = complexRow
-            } else {
-                realData[point] = realRow
             }
         }
 
         return ParsedValues(
             sweepValues: sweepValues,
-            realData: realData,
+            realRowMajorData: realRowMajorData,
             complexData: complexData
         )
     }
@@ -260,7 +259,7 @@ public struct NgspiceRawParser: Sendable {
 
     private struct ParsedValues: Sendable {
         let sweepValues: [Double]
-        let realData: [[Double]]
+        let realRowMajorData: [Double]
         let complexData: [[(real: Double, imag: Double)]]
     }
 }
