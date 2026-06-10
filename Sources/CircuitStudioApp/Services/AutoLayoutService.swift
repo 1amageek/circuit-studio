@@ -30,6 +30,13 @@ public struct AutoLayoutOutput: Sendable {
     public let unroutedNets: [String]
     public let skippedComponents: [String]
     public let metrics: LayoutQualityMetrics
+    /// Rip-up-and-reroute rounds the DRC repair loop executed.
+    public let repairIterations: Int
+    /// Antenna jumpers inserted by the post-route mitigation pass.
+    public let antennaJumpersInserted: Int
+    /// Gates the antenna mitigation pass could not protect, with reasons.
+    /// Their violations remain in `drcResult` — nothing is dropped.
+    public let antennaMitigationFailures: [String]
 }
 
 /// Orchestrates the full auto-layout pipeline: net extraction → cell generation → placement → routing → DRC.
@@ -139,42 +146,55 @@ public final class AutoLayoutService {
             componentToCellID: componentToCellID
         )
 
-        // 6. Route
-        let routing: RoutingResult
+        // 6.-8. Route, assemble, and verify in a DRC-driven repair loop:
+        // violations attributed to routed nets trigger rip-up and reroute
+        // against the kept routes; whatever survives the budget is carried
+        // into the reported DRC result instead of being dropped.
+        let engine: any RoutingEngine
         switch routingStrategy {
         case .simple:
-            routing = try SimpleRoutingEngine().route(
-                nets: routingNets,
-                placements: placement.placements,
-                cells: cells,
-                obstructions: placement.powerRails,
-                tech: tech
-            )
+            engine = SimpleRoutingEngine()
         case .steiner:
-            routing = try SteinerRoutingEngine().route(
-                nets: routingNets,
-                placements: placement.placements,
-                cells: cells,
-                obstructions: placement.powerRails,
-                tech: tech
-            )
+            engine = SteinerRoutingEngine()
         }
-
-        // 7. Assemble LayoutDocument
-        let layoutDoc = assembleDocument(
-            name: "AutoLayout",
+        let outcome = try DRCDrivenRoutingLoop().run(
+            nets: routingNets,
+            placements: placement.placements,
             cells: cells,
-            instances: instances,
-            placement: placement,
-            routing: routing,
-            routingNets: routingNets,
-            componentToCellID: componentToCellID
+            obstructions: placement.powerRails,
+            tech: tech,
+            engine: engine,
+            verifier: DRCPostRouteVerifier(tech: tech),
+            assemble: { routing in
+                self.assembleDocument(
+                    name: "AutoLayout",
+                    cells: cells,
+                    instances: instances,
+                    placement: placement,
+                    routing: routing,
+                    routingNets: routingNets,
+                    componentToCellID: componentToCellID
+                )
+            }
+        )
+        let routing = outcome.routing
+        var layoutDoc = outcome.document
+
+        // The loop's verifier only carries errors; rerun full DRC so the
+        // reported result keeps warnings as well.
+        var drcResult = LayoutDRCService().run(document: layoutDoc, tech: tech)
+
+        // 9. Antenna mitigation: the repair loop excludes antenna violations
+        // because rip-up reproduces the same topology; instead, insert layer
+        // jumpers next to the affected gates and rerun DRC. The rerun is the
+        // single source of truth for whether the mitigation worked.
+        let mitigation = try mitigateAntennaViolations(
+            document: &layoutDoc,
+            drcResult: &drcResult,
+            tech: tech
         )
 
-        // 8. DRC
-        let drcResult = LayoutDRCService().run(document: layoutDoc, tech: tech)
-
-        // 9. Build DesignUnit
+        // 10. Build DesignUnit
         let designUnit = buildDesignUnit(
             document: document,
             layoutDoc: layoutDoc,
@@ -183,7 +203,7 @@ public final class AutoLayoutService {
             routingNets: routingNets
         )
 
-        // 10. Evaluate quality metrics
+        // 11. Evaluate quality metrics
         let evaluator = LayoutQualityEvaluator()
         var metrics = evaluator.evaluate(
             document: layoutDoc,
@@ -206,8 +226,135 @@ public final class AutoLayoutService {
             drcResult: drcResult,
             unroutedNets: routing.unroutedNets,
             skippedComponents: skipped,
-            metrics: metrics
+            metrics: metrics,
+            repairIterations: outcome.repairIterations,
+            antennaJumpersInserted: mitigation.insertedJumpers,
+            antennaMitigationFailures: mitigation.failures
         )
+    }
+
+    // MARK: - Antenna Mitigation
+
+    private struct AntennaMitigationSummary {
+        var insertedJumpers: Int
+        var failures: [String]
+    }
+
+    /// Repairs antenna violations reported by `drcResult` by inserting layer
+    /// jumpers near the affected gates, rerunning DRC after each round. Stops
+    /// after `maxRounds`, when no antenna violations remain, or when a round
+    /// makes no progress. Failures reflect the final state: a gate that a
+    /// later round repaired is not reported, and when the final DRC result is
+    /// antenna-clean the failure list is empty. Reported failures always have
+    /// their violations still present in the final `drcResult`.
+    private func mitigateAntennaViolations(
+        document: inout LayoutDocument,
+        drcResult: inout LayoutDRCResult,
+        tech: LayoutTechDatabase,
+        maxRounds: Int = 3
+    ) throws -> AntennaMitigationSummary {
+        var insertedJumpers = 0
+        var failures: [String] = []
+        let inserter = AntennaJumperInserter()
+
+        for _ in 0..<maxRounds {
+            let antennaViolations = actionableAntennaViolations(in: drcResult)
+            guard !antennaViolations.isEmpty,
+                  let topCellID = document.topCellID else { break }
+
+            // Merge per violating layer: PAR and CAR findings on the same
+            // layer share gates, so deduplication avoids double jumpers.
+            var layerOrder: [LayoutLayerID] = []
+            var shapeIDsByLayer: [LayoutLayerID: [UUID]] = [:]
+            var gatesByLayer: [LayoutLayerID: [AntennaJumperGate]] = [:]
+            for violation in antennaViolations {
+                guard let layer = violation.layer else { continue }
+                if shapeIDsByLayer[layer] == nil { layerOrder.append(layer) }
+                shapeIDsByLayer[layer, default: []].append(contentsOf: violation.shapeIDs)
+                gatesByLayer[layer, default: []].append(
+                    contentsOf: gateTerminals(forPinIDs: violation.pinIDs, in: document)
+                )
+            }
+            let requests = layerOrder.compactMap { layer -> AntennaJumperRequest? in
+                let gates = orderedDeduplicated(gatesByLayer[layer] ?? [])
+                guard !gates.isEmpty else { return nil }
+                return AntennaJumperRequest(
+                    layer: layer,
+                    shapeIDs: orderedDeduplicated(shapeIDsByLayer[layer] ?? []),
+                    gates: gates
+                )
+            }
+            guard !requests.isEmpty else { break }
+
+            let result = try inserter.insert(
+                requests: requests,
+                into: &document,
+                cellID: topCellID,
+                tech: tech
+            )
+            // Overwrite, not accumulate: a later round can repair a gate
+            // that an earlier round failed on (the first jumper changes the
+            // component, so the next violation lists different candidate
+            // wires). Only the last round describes the final document.
+            failures = result.failures.map(\.description)
+            guard result.insertedJumpers > 0 else { break }
+            insertedJumpers += result.insertedJumpers
+            drcResult = LayoutDRCService().run(document: document, tech: tech)
+        }
+
+        // A failure is only meaningful while its violation survives; when
+        // the final DRC is antenna-clean the transient failures are stale.
+        if actionableAntennaViolations(in: drcResult).isEmpty {
+            failures = []
+        }
+
+        return AntennaMitigationSummary(
+            insertedJumpers: insertedJumpers,
+            failures: orderedDeduplicated(failures)
+        )
+    }
+
+    /// Antenna violations a jumper pass can act on. Configuration violations
+    /// (antenna.config.*) carry no shape IDs; they describe tech-database
+    /// gaps a jumper cannot fix.
+    private func actionableAntennaViolations(in result: LayoutDRCResult) -> [LayoutViolation] {
+        result.violations.filter {
+            $0.kind == .antenna && !$0.shapeIDs.isEmpty && !$0.pinIDs.isEmpty
+        }
+    }
+
+    /// Maps violation pin IDs back to absolute gate terminals. Device pins
+    /// live one instancing level below TOP (the only structure this service
+    /// assembles), so a single transform application matches the positions
+    /// the DRC flatten reported; pin sizes are not rotated, matching the
+    /// flatten's own behavior. Cell deduplication means one pin ID can map
+    /// to several instance positions; all of them are returned.
+    private func gateTerminals(
+        forPinIDs pinIDs: [UUID],
+        in document: LayoutDocument
+    ) -> [AntennaJumperGate] {
+        guard let topCellID = document.topCellID,
+              let topCell = document.cell(withID: topCellID) else { return [] }
+        let pinIDSet = Set(pinIDs)
+        var gates: [AntennaJumperGate] = []
+        for pin in topCell.pins where pinIDSet.contains(pin.id) {
+            gates.append(AntennaJumperGate(position: pin.position, size: pin.size))
+        }
+        for instance in topCell.instances {
+            guard let cell = document.cell(withID: instance.cellID) else { continue }
+            for pin in cell.pins where pinIDSet.contains(pin.id) {
+                gates.append(AntennaJumperGate(
+                    position: instance.transform.apply(to: pin.position),
+                    size: pin.size
+                ))
+            }
+        }
+        return gates
+    }
+
+    private func orderedDeduplicated<Element: Hashable>(_ values: [Element]) -> [Element] {
+        var seen = Set<Element>()
+        return values.filter { seen.insert($0).inserted }
     }
 
     // MARK: - Contact Definition Synthesis

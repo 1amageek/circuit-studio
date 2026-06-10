@@ -1,0 +1,221 @@
+import Foundation
+import OpenVAFSupport
+import Testing
+
+@testable import CircuitStudioCore
+
+@Suite("ExternalSpicePreprocessor Tests")
+struct ExternalSpicePreprocessorTests {
+
+  @Test("Verilog-A includes compile through OpenVAFSupport")
+  func verilogAIncludesCompileThroughOpenVAFSupport() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "CircuitStudioExternalSpicePreprocessorTests-\(UUID().uuidString)")
+    defer { removeCoreTestTemporaryDirectory(directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+    let sourceURL = directory.appending(path: "compact.va")
+    try Data("module compact_type; endmodule\n".utf8).write(to: sourceURL)
+
+    let compiler = RecordingOpenVAFCompiler()
+    let preprocessor = ExternalSpicePreprocessor(openVAFCompiler: compiler)
+    let prepared = try await preprocessor.prepare(
+      source: """
+        .include "\(sourceURL.path)"
+        .model compact_model compact_type
+        M1 d g s b compact_model w=1u l=1u
+        .tran 1n 10n
+        .end
+        """,
+      fileName: directory.appending(path: "input.cir").path,
+      processConfiguration: nil,
+      command: nil
+    )
+
+    let netlist = try String(contentsOf: prepared.netlistURL, encoding: .utf8)
+    let requests = await compiler.requests()
+    let artifacts = await compiler.artifacts()
+
+    #expect(requests.map(\.sourceURL) == [sourceURL])
+    #expect(
+      requests.first?.outputDirectory.path == prepared.netlistURL.deletingLastPathComponent().path)
+    #expect(requests.first?.includeRootDirectory?.path == directory.path)
+    #expect(artifacts.count == 1)
+    #expect(netlist.contains("pre_osdi \"\(artifacts[0].outputURL.path)\""))
+    #expect(netlist.contains("N1 d g s b compact_model w=1u l=1u"))
+    #expect(!netlist.contains(".include \"\(sourceURL.path)\""))
+  }
+
+  @Test("Verilog-A frontend constrains instance prefix rewrites to parsed module types")
+  func verilogAFrontendConstrainsInstancePrefixRewrites() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "CircuitStudioExternalSpicePreprocessorModuleMapTests-\(UUID().uuidString)")
+    defer { removeCoreTestTemporaryDirectory(directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+    let sourceURL = directory.appending(path: "compact.va")
+    try Data("module compact_type; endmodule\n".utf8).write(to: sourceURL)
+
+    let compiler = RecordingOpenVAFCompiler()
+    let preprocessor = ExternalSpicePreprocessor(openVAFCompiler: compiler)
+    let prepared = try await preprocessor.prepare(
+      source: """
+        .include "\(sourceURL.path)"
+        .model compact_model compact_type
+        .model unrelated_model unrelated_type
+        M1 d g s b compact_model w=1u l=1u
+        M2 d2 g2 s2 b2 unrelated_model w=1u l=1u
+        .tran 1n 10n
+        .end
+        """,
+      fileName: directory.appending(path: "input.cir").path,
+      processConfiguration: nil,
+      command: nil
+    )
+
+    let netlist = try String(contentsOf: prepared.netlistURL, encoding: .utf8)
+
+    #expect(netlist.contains("N1 d g s b compact_model w=1u l=1u"))
+    #expect(netlist.contains("M2 d2 g2 s2 b2 unrelated_model w=1u l=1u"))
+    #expect(!netlist.contains("N2 d2 g2 s2 b2 unrelated_model"))
+  }
+
+  @Test("OpenVAF compile failures surface diagnostics once")
+  func openVAFCompileFailuresSurfaceDiagnosticsOnce() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "CircuitStudioExternalSpicePreprocessorFailureTests-\(UUID().uuidString)")
+    defer { removeCoreTestTemporaryDirectory(directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+    let sourceURL = directory.appending(path: "bad.va")
+    try Data("module bad; endmodule\n".utf8).write(to: sourceURL)
+
+    let preprocessor = ExternalSpicePreprocessor(openVAFCompiler: FailingOpenVAFCompiler())
+
+    do {
+      _ = try await preprocessor.prepare(
+        source: """
+          .include "\(sourceURL.path)"
+          .model bad_model compact_type
+          M1 d g s b bad_model
+          .end
+          """,
+        fileName: directory.appending(path: "input.cir").path,
+        processConfiguration: nil,
+        command: nil
+      )
+      Issue.record("Expected OpenVAF compile failure")
+    } catch StudioError.simulationFailure(let message) {
+      #expect(message.contains("OpenVAF failed with exit code 2"))
+      #expect(message.contains("syntax error"))
+      #expect(message.components(separatedBy: "syntax error").count == 2)
+    } catch {
+      Issue.record("Expected simulation failure, got \(error)")
+    }
+  }
+}
+
+private actor RecordingOpenVAFCompiler: OpenVAFCompiler {
+  private var recordedRequests: [OpenVAFCompilationRequest] = []
+  private var recordedArtifacts: [OpenVAFCompilationArtifact] = []
+
+  func availability() async -> OpenVAFAvailability {
+    .available(
+      OpenVAFInstallation(
+        executableURL: URL(fileURLWithPath: "/test/openvaf"),
+        version: "test",
+        rawVersionOutput: "OpenVAF test"
+      ))
+  }
+
+  func compile(_ request: OpenVAFCompilationRequest) async throws(OpenVAFError)
+    -> OpenVAFCompilationArtifact
+  {
+    recordedRequests.append(request)
+    let outputFileName =
+      request.outputFileName
+      ?? request.sourceURL.deletingPathExtension().lastPathComponent + ".osdi"
+    let outputDirectory = request.outputDirectory
+      .appending(path: "openvaf-test-\(recordedRequests.count)")
+    let outputURL = outputDirectory.appending(path: outputFileName)
+    do {
+      try FileManager.default.createDirectory(
+        at: outputDirectory, withIntermediateDirectories: true)
+      try Data("osdi".utf8).write(to: outputURL)
+    } catch {
+      throw .fileSystemFailure(
+        operation: "write fake osdi",
+        path: outputURL.path,
+        message: error.localizedDescription
+      )
+    }
+
+    let now = Date()
+    let artifact = OpenVAFCompilationArtifact(
+      sourceURL: request.sourceURL,
+      sourceSHA256: "test-sha256",
+      stagedSourceURL: outputDirectory.appending(path: request.sourceURL.lastPathComponent),
+      outputURL: outputURL,
+      command: OpenVAFCommandRecord(
+        executableURL: URL(fileURLWithPath: "/test/openvaf"),
+        arguments: [request.sourceURL.lastPathComponent],
+        workingDirectory: outputDirectory,
+        environmentKeys: []
+      ),
+      openVAFVersion: "test",
+      exitCode: 0,
+      standardOutput: "",
+      standardError: "",
+      startedAt: now,
+      finishedAt: now
+    )
+    recordedArtifacts.append(artifact)
+    return artifact
+  }
+
+  func requests() -> [OpenVAFCompilationRequest] {
+    recordedRequests
+  }
+
+  func artifacts() -> [OpenVAFCompilationArtifact] {
+    recordedArtifacts
+  }
+}
+
+private struct FailingOpenVAFCompiler: OpenVAFCompiler {
+  func availability() async -> OpenVAFAvailability {
+    .available(
+      OpenVAFInstallation(
+        executableURL: URL(fileURLWithPath: "/test/openvaf"),
+        version: "test",
+        rawVersionOutput: "OpenVAF test"
+      ))
+  }
+
+  func compile(_ request: OpenVAFCompilationRequest) async throws(OpenVAFError)
+    -> OpenVAFCompilationArtifact
+  {
+    let now = Date()
+    let command = OpenVAFCommandRecord(
+      executableURL: URL(fileURLWithPath: "/test/openvaf"),
+      arguments: [request.sourceURL.lastPathComponent],
+      workingDirectory: request.outputDirectory,
+      environmentKeys: []
+    )
+    let failure = OpenVAFCompilationFailure(
+      sourceURL: request.sourceURL,
+      sourceSHA256: "test-sha256",
+      stagedSourceURL: request.outputDirectory.appending(path: request.sourceURL.lastPathComponent),
+      outputURL: request.outputDirectory.appending(
+        path: request.sourceURL.deletingPathExtension().lastPathComponent + ".osdi"),
+      command: command,
+      openVAFVersion: "test",
+      exitCode: 2,
+      standardOutput: "",
+      standardError: "syntax error",
+      startedAt: now,
+      finishedAt: now
+    )
+    throw .compilationFailed(failure)
+  }
+}

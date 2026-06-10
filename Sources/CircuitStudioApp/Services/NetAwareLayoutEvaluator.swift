@@ -201,19 +201,19 @@ public struct NetAwareLayoutEvaluator: Sendable {
     }
 
     private func geometriesTouch(_ lhs: LayoutGeometry, _ rhs: LayoutGeometry) -> Bool {
-        let lhsBox = LayoutGeometryUtils.boundingBox(for: lhs)
-        let rhsBox = LayoutGeometryUtils.boundingBox(for: rhs)
+        let lhsBox = LayoutGeometryAnalysis.boundingBox(for: lhs)
+        let rhsBox = LayoutGeometryAnalysis.boundingBox(for: rhs)
         guard lhsBox.intersects(rhsBox) else { return false }
-        if LayoutGeometryUtils.intersects(lhs, rhs) { return true }
-        if LayoutGeometryUtils.contains(lhsBox.center, in: rhs) { return true }
-        if LayoutGeometryUtils.contains(rhsBox.center, in: lhs) { return true }
+        if LayoutGeometryAnalysis.intersects(lhs, rhs) { return true }
+        if LayoutGeometryAnalysis.contains(lhsBox.center, in: rhs) { return true }
+        if LayoutGeometryAnalysis.contains(rhsBox.center, in: lhs) { return true }
         return false
     }
 
     private func makeShort(_ lhs: EvaluationElement, _ rhs: EvaluationElement) -> PhysicalShort {
         let netNames = [lhs.netName, rhs.netName].sorted()
-        let region = LayoutGeometryUtils.boundingBox(for: lhs.shape.geometry)
-            .union(LayoutGeometryUtils.boundingBox(for: rhs.shape.geometry))
+        let region = LayoutGeometryAnalysis.boundingBox(for: lhs.shape.geometry)
+            .union(LayoutGeometryAnalysis.boundingBox(for: rhs.shape.geometry))
         let shapeIDs = [lhs.shape.id, rhs.shape.id].sorted { $0.uuidString < $1.uuidString }
         return PhysicalShort(
             netNames: netNames,

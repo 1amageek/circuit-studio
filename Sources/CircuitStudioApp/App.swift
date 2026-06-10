@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 public struct CircuitStudioApp: App {
     @State private var appState = AppState()
     @State private var services = ServiceContainer()
-    @State private var project = DesignProject()
+    @State private var project = StudioSession()
 
     public init() {}
 
@@ -299,20 +299,20 @@ public struct CircuitStudioApp: App {
 
     private func loadProjectConfig(from projectRoot: URL) {
         do {
-            try services.projectService.ensurePEXProjectFiles(projectRoot: projectRoot)
+            try services.projectService.ensurePEXProjectFiles(forProjectAt: projectRoot)
         } catch {
             appState.log("Could not prepare PEX files: \(error.localizedDescription)", kind: .warning)
         }
 
         do {
-            let config = try services.projectService.loadWorkspaceConfig(projectRoot: projectRoot)
+            let config = try services.projectService.loadWorkspaceConfig(forProjectAt: projectRoot)
             appState.apply(config)
         } catch {
             appState.log("Could not load workspace config: \(error.localizedDescription)", kind: .warning)
         }
 
         do {
-            let placement = try services.projectService.loadSchematicPlacement(projectRoot: projectRoot)
+            let placement = try services.projectService.loadSchematicPlacement(forProjectAt: projectRoot)
             project.apply(placement)
             appState.spiceSource = placement.sourceNetlist
         } catch {
@@ -320,7 +320,7 @@ public struct CircuitStudioApp: App {
         }
 
         do {
-            let config = try services.projectService.loadSimulationConfig(projectRoot: projectRoot)
+            let config = try services.projectService.loadSimulationConfig(forProjectAt: projectRoot)
             appState.apply(config)
         } catch {
             // Not an error — config may not exist yet
@@ -354,29 +354,29 @@ public struct CircuitStudioApp: App {
 
     private func saveProject(projectRoot: URL) {
         do {
-            try services.projectService.ensurePEXProjectFiles(projectRoot: projectRoot)
+            try services.projectService.ensurePEXProjectFiles(forProjectAt: projectRoot)
 
             try services.projectService.saveWorkspaceConfig(
                 appState.workspaceConfig(),
-                projectRoot: projectRoot
+                forProjectAt: projectRoot
             )
 
             try services.projectService.saveSchematicPlacement(
                 project.schematicPlacement(sourceNetlist: appState.spiceSource),
-                projectRoot: projectRoot
+                forProjectAt: projectRoot
             )
 
             try services.projectService.saveSimulationConfig(
                 appState.simulationConfig(),
-                projectRoot: projectRoot
+                forProjectAt: projectRoot
             )
 
             if !appState.spiceSource.isEmpty {
                 let fileName = appState.spiceFileName ?? "top.cir"
                 try services.projectService.saveNetlist(
                     appState.spiceSource,
-                    fileName: fileName,
-                    projectRoot: projectRoot
+                    named: fileName,
+                    inProjectAt: projectRoot
                 )
             }
 
@@ -385,7 +385,7 @@ public struct CircuitStudioApp: App {
                     document: project.layoutViewModel.editor.document,
                     tech: project.layoutViewModel.tech,
                     to: "top.oas",
-                    projectRoot: projectRoot
+                    inProjectAt: projectRoot
                 )
             }
 
@@ -441,27 +441,27 @@ public struct CircuitStudioApp: App {
         defer { appState.isRunningPEX = false }
 
         do {
-            try services.projectService.ensurePEXProjectFiles(projectRoot: projectRoot)
-            let config = try services.projectService.loadPEXProjectConfig(projectRoot: projectRoot)
+            try services.projectService.ensurePEXProjectFiles(forProjectAt: projectRoot)
+            let config = try services.projectService.loadPEXProjectConfig(forProjectAt: projectRoot)
 
             try services.projectService.saveNetlist(
                 appState.spiceSource,
-                relativePath: config.inputs.netlist,
-                projectRoot: projectRoot
+                toProjectRelativePath: config.inputs.netlist,
+                inProjectAt: projectRoot
             )
             try services.projectService.saveLayout(
                 document: project.layoutViewModel.editor.document,
                 tech: project.layoutViewModel.tech,
-                relativePath: config.inputs.layout,
-                projectRoot: projectRoot
+                toProjectRelativePath: config.inputs.layout,
+                inProjectAt: projectRoot
             )
 
             appState.log("Running pexengine extract...", kind: .info)
             let designFlowService = services.designFlowService
-            let configPath = services.projectService.pexConfigPath(projectRoot: projectRoot)
+            let configURL = services.projectService.pexTOMLURL(inProjectAt: projectRoot)
             let extraction = try await Task.detached(priority: .userInitiated) {
                 try await designFlowService.runPEXExtraction(DesignFlowPEXExtractionRequest(
-                    configURL: configPath,
+                    configURL: configURL,
                     workingDirectory: projectRoot,
                     cornerID: config.normalizedCorners.first ?? "tt_25c_1v0",
                     executablePath: config.executablePath

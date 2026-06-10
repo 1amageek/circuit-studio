@@ -14,21 +14,23 @@ struct ProjectServiceTests {
         try service.createProject(at: root)
 
         #expect(service.isProject(root))
+        #expect(fileExists(".xcircuite/project.json", in: root))
         #expect(fileExists(".xcircuite/workspace.json", in: root))
         #expect(fileExists(".xcircuite/pex.json", in: root))
         #expect(fileExists(".xcircuite/pex/runs", in: root, isDirectory: true))
         #expect(fileExists("pex.toml", in: root))
         #expect(fileExists("tech.json", in: root))
 
-        let workspace = try service.loadWorkspaceConfig(projectRoot: root)
+        let workspace = try service.loadWorkspaceConfig(forProjectAt: root)
         #expect(workspace.version == 1)
         #expect(workspace.activeWorkspace == "schematicCapture")
         #expect(workspace.schematicMode == "netlist")
 
-        let pex = try service.loadPEXProjectConfig(projectRoot: root)
+        let pex = try service.loadPEXProjectConfig(forProjectAt: root)
         #expect(pex.topCell == "TOP")
         #expect(pex.backendID == "mock")
         #expect(pex.normalizedCorners == ["tt_25c_1v0"])
+        #expect(pex.options.strictValidation)
     }
 
     @Test func saveAndLoadWorkspacePlacementAndSimulationConfigs() throws {
@@ -43,28 +45,28 @@ struct ProjectServiceTests {
             schematicMode: "visual",
             panels: .init(inspector: true, console: true, simulationResults: false)
         )
-        try service.saveWorkspaceConfig(workspace, projectRoot: root)
+        try service.saveWorkspaceConfig(workspace, forProjectAt: root)
 
         let placement = SchematicPlacement(sourceNetlist: "amp.cir")
-        try service.saveSchematicPlacement(placement, projectRoot: root)
+        try service.saveSchematicPlacement(placement, forProjectAt: root)
 
         let simulation = SimulationConfig(
             selectedAnalysis: .tran(TranSpec(stopTime: 1e-6, stepTime: 1e-9))
         )
-        try service.saveSimulationConfig(simulation, projectRoot: root)
+        try service.saveSimulationConfig(simulation, forProjectAt: root)
 
-        let loadedWorkspace = try service.loadWorkspaceConfig(projectRoot: root)
+        let loadedWorkspace = try service.loadWorkspaceConfig(forProjectAt: root)
         #expect(loadedWorkspace.activeWorkspace == "layout")
         #expect(loadedWorkspace.schematicMode == "visual")
         #expect(loadedWorkspace.panels.inspector)
         #expect(loadedWorkspace.panels.console)
         #expect(!loadedWorkspace.panels.simulationResults)
 
-        let loadedPlacement = try service.loadSchematicPlacement(projectRoot: root)
+        let loadedPlacement = try service.loadSchematicPlacement(forProjectAt: root)
         #expect(loadedPlacement.version == 1)
         #expect(loadedPlacement.sourceNetlist == "amp.cir")
 
-        let loadedSimulation = try service.loadSimulationConfig(projectRoot: root)
+        let loadedSimulation = try service.loadSimulationConfig(forProjectAt: root)
         #expect(loadedSimulation.version == 1)
         #expect(loadedSimulation.selectedAnalysis == .tran(TranSpec(stopTime: 1e-6, stepTime: 1e-9)))
     }
@@ -96,12 +98,12 @@ struct ProjectServiceTests {
             )
         )
 
-        try service.savePEXProjectConfig(config, projectRoot: root)
+        try service.savePEXProjectConfig(config, forProjectAt: root)
 
-        let loaded = try service.loadPEXProjectConfig(projectRoot: root)
+        let loaded = try service.loadPEXProjectConfig(forProjectAt: root)
         #expect(loaded == config)
 
-        let toml = try String(contentsOf: service.pexConfigPath(projectRoot: root), encoding: .utf8)
+        let toml = try String(contentsOf: service.pexTOMLURL(inProjectAt: root), encoding: .utf8)
         #expect(toml.contains("layout = \"layout/amp.oas\""))
         #expect(toml.contains("netlist = \"netlists/amp.cir\""))
         #expect(toml.contains("top_cell = \"AMP_TOP\""))
@@ -131,7 +133,7 @@ struct ProjectServiceTests {
         .end
         """
 
-        try service.saveNetlist(source, relativePath: "netlists/generated/top.cir", projectRoot: root)
+        try service.saveNetlist(source, toProjectRelativePath: "netlists/generated/top.cir", inProjectAt: root)
 
         let url = root.appending(path: "netlists/generated/top.cir")
         let loaded = try String(contentsOf: url, encoding: .utf8)

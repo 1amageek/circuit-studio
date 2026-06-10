@@ -7,7 +7,7 @@ import LayoutEditor
 struct NavigatorPane: View {
     @Bindable var appState: AppState
     let services: ServiceContainer
-    @Bindable var project: DesignProject
+    @Bindable var project: StudioSession
 
     var body: some View {
         VStack(spacing: 0) {

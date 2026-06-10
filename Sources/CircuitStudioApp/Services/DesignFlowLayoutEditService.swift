@@ -11,15 +11,24 @@ public struct DesignFlowLayoutEditScript: Sendable, Hashable, Codable {
 
 public struct DesignFlowLayoutEdit: Sendable, Hashable, Codable {
     public enum Kind: String, Sendable, Hashable, Codable {
+        case addCell
         case addNet
         case removeNet
         case addRectShape
+        case addPolygonShape
         case addPathShape
+        case moveShape
         case removeShape
+        case setShapeNet
+        case clearShapeNet
+        case addVia
+        case removeVia
         case addPin
         case removePin
         case addLabel
         case removeLabel
+        case addInstance
+        case removeInstance
     }
 
     public let kind: Kind
@@ -34,10 +43,20 @@ public struct DesignFlowLayoutEdit: Sendable, Hashable, Codable {
     public let y: Double?
     public let width: Double?
     public let height: Double?
+    public let dx: Double?
+    public let dy: Double?
     public let points: [LayoutPoint]?
     public let pathWidth: Double?
     public let pinName: String?
     public let labelText: String?
+    public let viaDefinitionID: String?
+    public let instanceName: String?
+    public let referenceCellID: UUID?
+    public let referenceCellName: String?
+    public let rotationDegrees: Double?
+    public let magnification: Double?
+    public let mirrorX: Bool?
+    public let mirrorY: Bool?
     public let properties: [String: String]?
 
     public init(
@@ -53,10 +72,20 @@ public struct DesignFlowLayoutEdit: Sendable, Hashable, Codable {
         y: Double? = nil,
         width: Double? = nil,
         height: Double? = nil,
+        dx: Double? = nil,
+        dy: Double? = nil,
         points: [LayoutPoint]? = nil,
         pathWidth: Double? = nil,
         pinName: String? = nil,
         labelText: String? = nil,
+        viaDefinitionID: String? = nil,
+        instanceName: String? = nil,
+        referenceCellID: UUID? = nil,
+        referenceCellName: String? = nil,
+        rotationDegrees: Double? = nil,
+        magnification: Double? = nil,
+        mirrorX: Bool? = nil,
+        mirrorY: Bool? = nil,
         properties: [String: String]? = nil
     ) {
         self.kind = kind
@@ -71,10 +100,20 @@ public struct DesignFlowLayoutEdit: Sendable, Hashable, Codable {
         self.y = y
         self.width = width
         self.height = height
+        self.dx = dx
+        self.dy = dy
         self.points = points
         self.pathWidth = pathWidth
         self.pinName = pinName
         self.labelText = labelText
+        self.viaDefinitionID = viaDefinitionID
+        self.instanceName = instanceName
+        self.referenceCellID = referenceCellID
+        self.referenceCellName = referenceCellName
+        self.rotationDegrees = rotationDegrees
+        self.magnification = magnification
+        self.mirrorX = mirrorX
+        self.mirrorY = mirrorY
         self.properties = properties
     }
 }
@@ -110,33 +149,62 @@ public struct DesignFlowLayoutEditAction: Sendable, Hashable, Codable {
 }
 
 public struct DesignFlowLayoutDiff: Sendable, Hashable, Codable {
+    public let addedCells: [String]
+    public let removedCells: [String]
     public let addedNets: [String]
     public let removedNets: [String]
     public let addedShapes: [UUID]
     public let removedShapes: [UUID]
+    /// Shapes present in both documents under the same ID whose layer,
+    /// geometry, net, or properties changed (e.g. by a move).
+    public let modifiedShapes: [UUID]
+    public let addedVias: [UUID]
+    public let removedVias: [UUID]
     public let addedPins: [String]
     public let removedPins: [String]
     public let addedLabels: [String]
     public let removedLabels: [String]
+    public let addedInstances: [String]
+    public let removedInstances: [String]
 
     public init(before: LayoutDocument, after: LayoutDocument) {
+        let beforeCells = Set(before.cells.map(\.name))
+        let afterCells = Set(after.cells.map(\.name))
         let beforeNets = Self.nets(in: before)
         let afterNets = Self.nets(in: after)
         let beforeShapes = Self.shapes(in: before)
         let afterShapes = Self.shapes(in: after)
+        let beforeVias = Self.vias(in: before)
+        let afterVias = Self.vias(in: after)
         let beforePins = Self.pins(in: before)
         let afterPins = Self.pins(in: after)
         let beforeLabels = Self.labels(in: before)
         let afterLabels = Self.labels(in: after)
+        let beforeInstances = Self.instances(in: before)
+        let afterInstances = Self.instances(in: after)
 
-        self.addedNets = afterNets.filter { !beforeNets.contains($0) }.sorted()
-        self.removedNets = beforeNets.filter { !afterNets.contains($0) }.sorted()
-        self.addedShapes = afterShapes.filter { !beforeShapes.contains($0) }.sorted { $0.uuidString < $1.uuidString }
-        self.removedShapes = beforeShapes.filter { !afterShapes.contains($0) }.sorted { $0.uuidString < $1.uuidString }
-        self.addedPins = afterPins.filter { !beforePins.contains($0) }.sorted()
-        self.removedPins = beforePins.filter { !afterPins.contains($0) }.sorted()
-        self.addedLabels = afterLabels.filter { !beforeLabels.contains($0) }.sorted()
-        self.removedLabels = beforeLabels.filter { !afterLabels.contains($0) }.sorted()
+        self.addedCells = afterCells.subtracting(beforeCells).sorted()
+        self.removedCells = beforeCells.subtracting(afterCells).sorted()
+        self.addedNets = afterNets.subtracting(beforeNets).sorted()
+        self.removedNets = beforeNets.subtracting(afterNets).sorted()
+        self.addedShapes = Set(afterShapes.keys).subtracting(beforeShapes.keys)
+            .sorted { $0.uuidString < $1.uuidString }
+        self.removedShapes = Set(beforeShapes.keys).subtracting(afterShapes.keys)
+            .sorted { $0.uuidString < $1.uuidString }
+        self.modifiedShapes = beforeShapes
+            .compactMap { id, shape -> UUID? in
+                guard let counterpart = afterShapes[id], counterpart != shape else { return nil }
+                return id
+            }
+            .sorted { $0.uuidString < $1.uuidString }
+        self.addedVias = afterVias.subtracting(beforeVias).sorted { $0.uuidString < $1.uuidString }
+        self.removedVias = beforeVias.subtracting(afterVias).sorted { $0.uuidString < $1.uuidString }
+        self.addedPins = afterPins.subtracting(beforePins).sorted()
+        self.removedPins = beforePins.subtracting(afterPins).sorted()
+        self.addedLabels = afterLabels.subtracting(beforeLabels).sorted()
+        self.removedLabels = beforeLabels.subtracting(afterLabels).sorted()
+        self.addedInstances = afterInstances.subtracting(beforeInstances).sorted()
+        self.removedInstances = beforeInstances.subtracting(afterInstances).sorted()
     }
 
     private static func nets(in document: LayoutDocument) -> Set<String> {
@@ -145,8 +213,15 @@ public struct DesignFlowLayoutDiff: Sendable, Hashable, Codable {
         })
     }
 
-    private static func shapes(in document: LayoutDocument) -> Set<UUID> {
-        Set(document.cells.flatMap { $0.shapes.map(\.id) })
+    private static func shapes(in document: LayoutDocument) -> [UUID: LayoutShape] {
+        Dictionary(
+            document.cells.flatMap { cell in cell.shapes.map { ($0.id, $0) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    private static func vias(in document: LayoutDocument) -> Set<UUID> {
+        Set(document.cells.flatMap { $0.vias.map(\.id) })
     }
 
     private static func pins(in document: LayoutDocument) -> Set<String> {
@@ -160,6 +235,12 @@ public struct DesignFlowLayoutDiff: Sendable, Hashable, Codable {
             cell.labels.map { "\(cell.name):\($0.text)" }
         })
     }
+
+    private static func instances(in document: LayoutDocument) -> Set<String> {
+        Set(document.cells.flatMap { cell in
+            cell.instances.map { "\(cell.name):\($0.name)" }
+        })
+    }
 }
 
 public enum DesignFlowLayoutEditError: Error, LocalizedError, Equatable {
@@ -167,11 +248,14 @@ public enum DesignFlowLayoutEditError: Error, LocalizedError, Equatable {
     case missingField(String, DesignFlowLayoutEdit.Kind)
     case invalidGeometry(String)
     case unknownCell(String)
+    case duplicateCell(String)
     case unknownNet(String)
     case netInUse(String)
     case duplicateNet(String)
     case unknownElement(UUID)
     case duplicateElement(UUID)
+    case duplicateInstanceName(String)
+    case instanceCycle(String)
 
     public var errorDescription: String? {
         switch self {
@@ -183,6 +267,8 @@ public enum DesignFlowLayoutEditError: Error, LocalizedError, Equatable {
             return "Invalid layout edit geometry: \(message)"
         case .unknownCell(let cell):
             return "Layout edit references unknown cell '\(cell)'."
+        case .duplicateCell(let cell):
+            return "Layout edit would create duplicate cell '\(cell)'."
         case .unknownNet(let net):
             return "Layout edit references unknown net '\(net)'."
         case .netInUse(let net):
@@ -193,6 +279,10 @@ public enum DesignFlowLayoutEditError: Error, LocalizedError, Equatable {
             return "Layout edit references unknown element '\(id.uuidString)'."
         case .duplicateElement(let id):
             return "Layout edit would create duplicate element '\(id.uuidString)'."
+        case .duplicateInstanceName(let name):
+            return "Layout edit would create duplicate instance name '\(name)' in the target cell."
+        case .instanceCycle(let message):
+            return "Layout edit would create an instance cycle: \(message)"
         }
     }
 }
@@ -230,16 +320,30 @@ public struct DesignFlowLayoutEditService: Sendable {
 
     private func apply(edit: DesignFlowLayoutEdit, to layout: inout LayoutDocument) throws -> String {
         switch edit.kind {
+        case .addCell:
+            return try addCell(edit, to: &layout)
         case .addNet:
             return try addNet(edit, to: &layout)
         case .removeNet:
             return try removeNet(edit, from: &layout)
         case .addRectShape:
             return try addRectShape(edit, to: &layout)
+        case .addPolygonShape:
+            return try addPolygonShape(edit, to: &layout)
         case .addPathShape:
             return try addPathShape(edit, to: &layout)
+        case .moveShape:
+            return try moveShape(edit, in: &layout)
         case .removeShape:
             return try removeShape(edit, from: &layout)
+        case .setShapeNet:
+            return try setShapeNet(edit, in: &layout)
+        case .clearShapeNet:
+            return try clearShapeNet(edit, in: &layout)
+        case .addVia:
+            return try addVia(edit, to: &layout)
+        case .removeVia:
+            return try removeVia(edit, from: &layout)
         case .addPin:
             return try addPin(edit, to: &layout)
         case .removePin:
@@ -248,7 +352,27 @@ public struct DesignFlowLayoutEditService: Sendable {
             return try addLabel(edit, to: &layout)
         case .removeLabel:
             return try removeLabel(edit, from: &layout)
+        case .addInstance:
+            return try addInstance(edit, to: &layout)
+        case .removeInstance:
+            return try removeInstance(edit, from: &layout)
         }
+    }
+
+    private func addCell(_ edit: DesignFlowLayoutEdit, to layout: inout LayoutDocument) throws -> String {
+        let cellName = try nonEmpty(edit.cellName, field: "cellName", kind: edit.kind)
+        guard !layout.cells.contains(where: { $0.name == cellName }) else {
+            throw DesignFlowLayoutEditError.duplicateCell(cellName)
+        }
+        let cellID = edit.elementID ?? UUID()
+        guard !allElementIDs(in: layout).contains(cellID) else {
+            throw DesignFlowLayoutEditError.duplicateElement(cellID)
+        }
+        layout.cells.append(LayoutCell(id: cellID, name: cellName))
+        if layout.topCellID == nil {
+            layout.topCellID = cellID
+        }
+        return "Added cell \(cellName)."
     }
 
     private func addNet(_ edit: DesignFlowLayoutEdit, to layout: inout LayoutDocument) throws -> String {
@@ -400,6 +524,204 @@ public struct DesignFlowLayoutEditService: Sendable {
         let labelText = layout.cells[cellIndex].labels[index].text
         layout.cells[cellIndex].labels.remove(at: index)
         return "Removed label \(labelText) from cell \(layout.cells[cellIndex].name)."
+    }
+
+    private func addPolygonShape(_ edit: DesignFlowLayoutEdit, to layout: inout LayoutDocument) throws -> String {
+        let cellIndex = try resolvedCellIndex(for: edit, in: layout)
+        let shapeID = edit.elementID ?? UUID()
+        guard !allElementIDs(in: layout).contains(shapeID) else {
+            throw DesignFlowLayoutEditError.duplicateElement(shapeID)
+        }
+        let points = try required(edit.points, field: "points", kind: edit.kind)
+        guard points.count >= 3 else {
+            throw DesignFlowLayoutEditError.invalidGeometry("Polygon shape requires at least three points.")
+        }
+        guard points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else {
+            throw DesignFlowLayoutEditError.invalidGeometry("Polygon shape points must be finite.")
+        }
+        let shape = LayoutShape(
+            id: shapeID,
+            layer: try layer(from: edit),
+            netID: try optionalNetID(for: edit, in: layout),
+            geometry: .polygon(LayoutPolygon(points: points)),
+            properties: edit.properties ?? [:]
+        )
+        layout.cells[cellIndex].shapes.append(shape)
+        return "Added polygon shape \(shapeID.uuidString) to cell \(layout.cells[cellIndex].name)."
+    }
+
+    private func moveShape(_ edit: DesignFlowLayoutEdit, in layout: inout LayoutDocument) throws -> String {
+        let cellIndex = try resolvedCellIndex(for: edit, in: layout)
+        let elementID = try required(edit.elementID, field: "elementID", kind: edit.kind)
+        let dx = try finite(edit.dx, field: "dx", kind: edit.kind)
+        let dy = try finite(edit.dy, field: "dy", kind: edit.kind)
+        guard let index = layout.cells[cellIndex].shapes.firstIndex(where: { $0.id == elementID }) else {
+            throw DesignFlowLayoutEditError.unknownElement(elementID)
+        }
+        let delta = LayoutPoint(x: dx, y: dy)
+        var shape = layout.cells[cellIndex].shapes[index]
+        // The shape keeps its ID across the move so follow-up edits and
+        // diff consumers can track it as the same element.
+        switch shape.geometry {
+        case .rect(let rect):
+            shape.geometry = .rect(LayoutRect(
+                origin: rect.origin.translated(by: delta),
+                size: rect.size
+            ))
+        case .polygon(let polygon):
+            shape.geometry = .polygon(LayoutPolygon(
+                points: polygon.points.map { $0.translated(by: delta) }
+            ))
+        case .path(let path):
+            shape.geometry = .path(LayoutPath(
+                points: path.points.map { $0.translated(by: delta) },
+                width: path.width,
+                endCap: path.endCap
+            ))
+        }
+        layout.cells[cellIndex].shapes[index] = shape
+        return "Moved shape \(elementID.uuidString) by (\(dx), \(dy)) in cell \(layout.cells[cellIndex].name)."
+    }
+
+    private func setShapeNet(_ edit: DesignFlowLayoutEdit, in layout: inout LayoutDocument) throws -> String {
+        let cellIndex = try resolvedCellIndex(for: edit, in: layout)
+        let elementID = try required(edit.elementID, field: "elementID", kind: edit.kind)
+        let net = try resolvedNet(for: edit, in: layout)
+        guard let index = layout.cells[cellIndex].shapes.firstIndex(where: { $0.id == elementID }) else {
+            throw DesignFlowLayoutEditError.unknownElement(elementID)
+        }
+        layout.cells[cellIndex].shapes[index].netID = net.id
+        return "Assigned net \(net.name) to shape \(elementID.uuidString) in cell \(layout.cells[cellIndex].name)."
+    }
+
+    private func clearShapeNet(_ edit: DesignFlowLayoutEdit, in layout: inout LayoutDocument) throws -> String {
+        let cellIndex = try resolvedCellIndex(for: edit, in: layout)
+        let elementID = try required(edit.elementID, field: "elementID", kind: edit.kind)
+        guard let index = layout.cells[cellIndex].shapes.firstIndex(where: { $0.id == elementID }) else {
+            throw DesignFlowLayoutEditError.unknownElement(elementID)
+        }
+        layout.cells[cellIndex].shapes[index].netID = nil
+        return "Cleared net from shape \(elementID.uuidString) in cell \(layout.cells[cellIndex].name)."
+    }
+
+    private func addVia(_ edit: DesignFlowLayoutEdit, to layout: inout LayoutDocument) throws -> String {
+        let cellIndex = try resolvedCellIndex(for: edit, in: layout)
+        let viaID = edit.elementID ?? UUID()
+        guard !allElementIDs(in: layout).contains(viaID) else {
+            throw DesignFlowLayoutEditError.duplicateElement(viaID)
+        }
+        // The via definition is a tech-database key; whether it exists in
+        // the active tech is the DRC's verdict, not this document edit's.
+        let viaDefinitionID = try nonEmpty(edit.viaDefinitionID, field: "viaDefinitionID", kind: edit.kind)
+        let x = try finite(edit.x, field: "x", kind: edit.kind)
+        let y = try finite(edit.y, field: "y", kind: edit.kind)
+        let via = LayoutVia(
+            id: viaID,
+            viaDefinitionID: viaDefinitionID,
+            position: LayoutPoint(x: x, y: y),
+            netID: try optionalNetID(for: edit, in: layout)
+        )
+        layout.cells[cellIndex].vias.append(via)
+        return "Added via \(viaDefinitionID) at (\(x), \(y)) to cell \(layout.cells[cellIndex].name)."
+    }
+
+    private func removeVia(_ edit: DesignFlowLayoutEdit, from layout: inout LayoutDocument) throws -> String {
+        let cellIndex = try resolvedCellIndex(for: edit, in: layout)
+        let elementID = try required(edit.elementID, field: "elementID", kind: edit.kind)
+        guard let index = layout.cells[cellIndex].vias.firstIndex(where: { $0.id == elementID }) else {
+            throw DesignFlowLayoutEditError.unknownElement(elementID)
+        }
+        layout.cells[cellIndex].vias.remove(at: index)
+        return "Removed via \(elementID.uuidString) from cell \(layout.cells[cellIndex].name)."
+    }
+
+    private func addInstance(_ edit: DesignFlowLayoutEdit, to layout: inout LayoutDocument) throws -> String {
+        let cellIndex = try resolvedCellIndex(for: edit, in: layout)
+        let instanceID = edit.elementID ?? UUID()
+        guard !allElementIDs(in: layout).contains(instanceID) else {
+            throw DesignFlowLayoutEditError.duplicateElement(instanceID)
+        }
+        let instanceName = try nonEmpty(edit.instanceName, field: "instanceName", kind: edit.kind)
+        guard !layout.cells[cellIndex].instances.contains(where: { $0.name == instanceName }) else {
+            throw DesignFlowLayoutEditError.duplicateInstanceName(instanceName)
+        }
+        let referenceCell = try resolvedReferenceCell(for: edit, in: layout)
+        let hostCell = layout.cells[cellIndex]
+        guard !isCellReachable(hostCell.id, from: referenceCell.id, in: layout) else {
+            throw DesignFlowLayoutEditError.instanceCycle(
+                "instantiating \(referenceCell.name) inside \(hostCell.name) would make \(hostCell.name) contain itself"
+            )
+        }
+        let x = try finite(edit.x, field: "x", kind: edit.kind)
+        let y = try finite(edit.y, field: "y", kind: edit.kind)
+        let magnification = edit.magnification ?? 1.0
+        guard magnification.isFinite, magnification > 0 else {
+            throw DesignFlowLayoutEditError.invalidGeometry("magnification must be finite and greater than zero.")
+        }
+        let rotationDegrees = edit.rotationDegrees ?? 0.0
+        guard rotationDegrees.isFinite else {
+            throw DesignFlowLayoutEditError.invalidGeometry("rotationDegrees must be finite.")
+        }
+        let instance = LayoutInstance(
+            id: instanceID,
+            cellID: referenceCell.id,
+            name: instanceName,
+            transform: LayoutTransform(
+                translation: LayoutPoint(x: x, y: y),
+                rotationDegrees: rotationDegrees,
+                magnification: magnification,
+                mirrorX: edit.mirrorX ?? false,
+                mirrorY: edit.mirrorY ?? false
+            )
+        )
+        layout.cells[cellIndex].instances.append(instance)
+        return "Added instance \(instanceName) of cell \(referenceCell.name) to cell \(hostCell.name)."
+    }
+
+    private func removeInstance(_ edit: DesignFlowLayoutEdit, from layout: inout LayoutDocument) throws -> String {
+        let cellIndex = try resolvedCellIndex(for: edit, in: layout)
+        let elementID = try required(edit.elementID, field: "elementID", kind: edit.kind)
+        guard let index = layout.cells[cellIndex].instances.firstIndex(where: { $0.id == elementID }) else {
+            throw DesignFlowLayoutEditError.unknownElement(elementID)
+        }
+        let instanceName = layout.cells[cellIndex].instances[index].name
+        layout.cells[cellIndex].instances.remove(at: index)
+        return "Removed instance \(instanceName) from cell \(layout.cells[cellIndex].name)."
+    }
+
+    private func resolvedReferenceCell(
+        for edit: DesignFlowLayoutEdit,
+        in layout: LayoutDocument
+    ) throws -> LayoutCell {
+        if let referenceCellID = edit.referenceCellID {
+            guard let cell = layout.cells.first(where: { $0.id == referenceCellID }) else {
+                throw DesignFlowLayoutEditError.unknownCell(referenceCellID.uuidString)
+            }
+            return cell
+        }
+        if let referenceCellName = edit.referenceCellName {
+            guard let cell = layout.cells.first(where: { $0.name == referenceCellName }) else {
+                throw DesignFlowLayoutEditError.unknownCell(referenceCellName)
+            }
+            return cell
+        }
+        throw DesignFlowLayoutEditError.missingField("referenceCellName", edit.kind)
+    }
+
+    /// Whether `target` is reachable from `start` through instance
+    /// references. Used to reject edits that would close an instance cycle
+    /// (including self-instantiation), which GDS hierarchies forbid.
+    private func isCellReachable(_ target: UUID, from start: UUID, in layout: LayoutDocument) -> Bool {
+        var visited = Set<UUID>()
+        var stack = [start]
+        while let current = stack.popLast() {
+            if current == target { return true }
+            guard visited.insert(current).inserted else { continue }
+            if let cell = layout.cells.first(where: { $0.id == current }) {
+                stack.append(contentsOf: cell.instances.map(\.cellID))
+            }
+        }
+        return false
     }
 
     private func resolvedCellIndex(for edit: DesignFlowLayoutEdit, in layout: LayoutDocument) throws -> Int {

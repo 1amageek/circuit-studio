@@ -67,7 +67,7 @@ public struct RoundTripBottleneckHistoryService: Sendable {
         self.decoder = decoder
     }
 
-    public func summarize(projectRoot: URL) throws -> Summary {
+    public func summarize(forProjectAt projectRoot: URL) throws -> Summary {
         let runsDirectory = projectRoot
             .appending(path: ".xcircuite")
             .appending(path: "flow-runs")

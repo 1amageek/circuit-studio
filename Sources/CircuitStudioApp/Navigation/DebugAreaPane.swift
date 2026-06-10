@@ -5,7 +5,7 @@ import WaveformViewer
 /// Visibility is driven by `appState.showDebugArea`; the active tab is `appState.debugAreaTab`.
 struct DebugAreaPane: View {
     @Bindable var appState: AppState
-    @Bindable var project: DesignProject
+    @Bindable var project: StudioSession
 
     var body: some View {
         VStack(spacing: 0) {

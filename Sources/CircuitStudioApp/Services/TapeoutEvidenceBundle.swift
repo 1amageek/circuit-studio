@@ -136,6 +136,17 @@ public struct TapeoutEvidenceBundle: Sendable, Codable, Hashable {
             return false
         }
     }
+
+    public func closesPresentSignoffAxes() -> Bool {
+        let axes = Set(claims.filter { $0.kind == .signoff }.map(\.axis))
+        guard !axes.isEmpty else { return false }
+        do {
+            try verify(requiredAxes: Array(axes), requireArtifacts: false)
+            return true
+        } catch {
+            return false
+        }
+    }
     public var failing: [Claim] { claims.filter { !$0.passed } }
     public func claims(for axis: Axis) -> [Claim] {
         claims.filter { $0.axis == axis }

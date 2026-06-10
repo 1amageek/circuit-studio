@@ -430,7 +430,7 @@ public final class HeadlessRoundTripService {
                     subdirectory: "signoff"
                 ))
                 let reviewURL = ExternalSignoffReviewStore()
-                    .reviewURL(projectRoot: configuration.projectRoot)
+                    .reviewURL(forProjectAt: configuration.projectRoot)
                 artifacts.append(contentsOf: try captureInputArtifacts(
                     paths: [reviewURL.path(percentEncoded: false)],
                     kind: "external-signoff-review",
@@ -924,7 +924,7 @@ public final class HeadlessRoundTripService {
     ) async throws -> ExternalSignoffReview? {
         let store = ExternalSignoffReviewStore()
         if var review = configuration.externalSignoffReview {
-            try store.save(review, projectRoot: configuration.projectRoot)
+            try store.save(review, forProjectAt: configuration.projectRoot)
             if let approvedBy = configuration.approvedBy,
                let approvedAt = configuration.approvedAt {
                 review = review.approving(
@@ -933,7 +933,7 @@ public final class HeadlessRoundTripService {
                     approvalKind: configuration.approvalKind ?? .human,
                     waiverIDs: configuration.waiverIDs
                 )
-                try store.save(review, projectRoot: configuration.projectRoot)
+                try store.save(review, forProjectAt: configuration.projectRoot)
             }
             return review
         }
@@ -948,12 +948,12 @@ public final class HeadlessRoundTripService {
             commands: configuration.externalSignoffCommands,
             artifactDirectory: artifactDirectory
         ))
-        try store.save(review, projectRoot: configuration.projectRoot)
+        try store.save(review, forProjectAt: configuration.projectRoot)
 
         if let approvedBy = configuration.approvedBy,
            let approvedAt = configuration.approvedAt {
             review = try store.approve(
-                projectRoot: configuration.projectRoot,
+                forProjectAt: configuration.projectRoot,
                 approvedBy: approvedBy,
                 approvedAt: approvedAt,
                 approvalKind: configuration.approvalKind ?? .human,

@@ -296,7 +296,7 @@ public struct FlowRunGovernanceService: Sendable {
         )
     }
 
-    public func approvalRecords(projectRoot: URL, runID: String) throws -> [GateApprovalRecord] {
+    public func approvalRecords(forProjectAt projectRoot: URL, runID: String) throws -> [GateApprovalRecord] {
         try validateRunID(runID)
         let directory = projectRoot
             .appending(path: ".xcircuite")

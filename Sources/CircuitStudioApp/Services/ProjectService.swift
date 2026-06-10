@@ -3,91 +3,74 @@ import CircuitStudioCore
 import LayoutCore
 import LayoutTech
 import LayoutIO
+import XcircuitePackage
 
 /// Manages `.xcircuite/` project directory for persistent workspace state.
 public struct ProjectService: Sendable {
 
-    private static let configDir = ".xcircuite"
     private static let pexConfigFileName = "pex.json"
     private static let pexDirectoryName = "pex"
     private static let pexRunsDirectoryName = "runs"
     private static let pexTOMLFileName = "pex.toml"
 
-    private let encoder: JSONEncoder = {
-        let e = JSONEncoder()
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return e
-    }()
+    private let packageStore: XcircuitePackageStore
 
-    private let decoder = JSONDecoder()
-
-    public init() {}
+    public init(packageStore: XcircuitePackageStore = XcircuitePackageStore()) {
+        self.packageStore = packageStore
+    }
 
     // MARK: - Project Lifecycle
 
     /// Creates a new project at the given directory, initializing `.xcircuite/`.
     func createProject(at directory: URL) throws {
-        let configURL = directory.appending(path: Self.configDir)
-        do {
-            try FileManager.default.createDirectory(
-                at: configURL,
-                withIntermediateDirectories: true
-            )
-        } catch {
-            throw StudioError.projectSaveFailed(
-                "Failed to create project directory: \(error.localizedDescription)"
-            )
-        }
+        try packageStore.createPackage(at: directory)
 
         // Write default workspace config
         let defaultConfig = WorkspaceConfig()
-        try saveWorkspaceConfig(defaultConfig, projectRoot: directory)
+        try saveWorkspaceConfig(defaultConfig, forProjectAt: directory)
 
         // Bootstrap PEX files so the project is immediately runnable by `pexengine`.
-        try ensurePEXProjectFiles(projectRoot: directory)
+        try ensurePEXProjectFiles(forProjectAt: directory)
     }
 
     /// Returns `true` if the directory contains a `.xcircuite/` folder.
     func isProject(_ directory: URL) -> Bool {
-        var isDir: ObjCBool = false
-        let configURL = directory.appending(path: Self.configDir)
-        return FileManager.default.fileExists(atPath: configURL.path(percentEncoded: false), isDirectory: &isDir)
-            && isDir.boolValue
+        packageStore.isPackage(at: directory)
     }
 
     // MARK: - Workspace Config
 
-    func saveWorkspaceConfig(_ config: WorkspaceConfig, projectRoot: URL) throws {
-        let url = configFileURL(projectRoot: projectRoot, fileName: "workspace.json")
-        try writeJSON(config, to: url, projectRoot: projectRoot)
+    func saveWorkspaceConfig(_ config: WorkspaceConfig, forProjectAt projectRoot: URL) throws {
+        let url = try configurationFileURL(named: "workspace.json", inProjectAt: projectRoot)
+        try writeJSON(config, to: url, forProjectAt: projectRoot)
     }
 
-    func loadWorkspaceConfig(projectRoot: URL) throws -> WorkspaceConfig {
-        let url = configFileURL(projectRoot: projectRoot, fileName: "workspace.json")
+    func loadWorkspaceConfig(forProjectAt projectRoot: URL) throws -> WorkspaceConfig {
+        let url = try configurationFileURL(named: "workspace.json", inProjectAt: projectRoot)
         return try readJSON(WorkspaceConfig.self, from: url)
     }
 
     // MARK: - Schematic Placement
 
-    func saveSchematicPlacement(_ placement: SchematicPlacement, projectRoot: URL) throws {
-        let url = configFileURL(projectRoot: projectRoot, fileName: "schematic-placement.json")
-        try writeJSON(placement, to: url, projectRoot: projectRoot)
+    func saveSchematicPlacement(_ placement: SchematicPlacement, forProjectAt projectRoot: URL) throws {
+        let url = try configurationFileURL(named: "schematic-placement.json", inProjectAt: projectRoot)
+        try writeJSON(placement, to: url, forProjectAt: projectRoot)
     }
 
-    func loadSchematicPlacement(projectRoot: URL) throws -> SchematicPlacement {
-        let url = configFileURL(projectRoot: projectRoot, fileName: "schematic-placement.json")
+    func loadSchematicPlacement(forProjectAt projectRoot: URL) throws -> SchematicPlacement {
+        let url = try configurationFileURL(named: "schematic-placement.json", inProjectAt: projectRoot)
         return try readJSON(SchematicPlacement.self, from: url)
     }
 
     // MARK: - Simulation Config
 
-    func saveSimulationConfig(_ config: SimulationConfig, projectRoot: URL) throws {
-        let url = configFileURL(projectRoot: projectRoot, fileName: "simulation.json")
-        try writeJSON(config, to: url, projectRoot: projectRoot)
+    func saveSimulationConfig(_ config: SimulationConfig, forProjectAt projectRoot: URL) throws {
+        let url = try configurationFileURL(named: "simulation.json", inProjectAt: projectRoot)
+        try writeJSON(config, to: url, forProjectAt: projectRoot)
     }
 
-    func loadSimulationConfig(projectRoot: URL) throws -> SimulationConfig {
-        let url = configFileURL(projectRoot: projectRoot, fileName: "simulation.json")
+    func loadSimulationConfig(forProjectAt projectRoot: URL) throws -> SimulationConfig {
+        let url = try configurationFileURL(named: "simulation.json", inProjectAt: projectRoot)
         return try readJSON(SimulationConfig.self, from: url)
     }
 
@@ -100,10 +83,10 @@ public struct ProjectService: Sendable {
     /// - `pex.toml`
     /// - `tech.json` (if missing and config points to default relative path)
     /// - `.xcircuite/pex/runs/`
-    func ensurePEXProjectFiles(projectRoot: URL) throws {
-        try ensureConfigDir(projectRoot: projectRoot)
+    func ensurePEXProjectFiles(forProjectAt projectRoot: URL) throws {
+        try ensureConfigurationDirectory(forProjectAt: projectRoot)
 
-        let pexDir = pexDirectoryURL(projectRoot: projectRoot)
+        let pexDir = pexDirectoryURL(inProjectAt: projectRoot)
         do {
             try FileManager.default.createDirectory(
                 at: pexDir,
@@ -115,7 +98,7 @@ public struct ProjectService: Sendable {
             )
         }
 
-        let runsDir = pexRunsDirectoryURL(projectRoot: projectRoot)
+        let runsDir = pexRunsDirectoryURL(inProjectAt: projectRoot)
         do {
             try FileManager.default.createDirectory(
                 at: runsDir,
@@ -127,74 +110,57 @@ public struct ProjectService: Sendable {
             )
         }
 
-        let configURL = pexConfigFileURL(projectRoot: projectRoot)
+        let configURL = try pexConfigurationURL(inProjectAt: projectRoot)
         let config: PEXProjectConfig
 
         if FileManager.default.fileExists(atPath: configURL.path(percentEncoded: false)) {
-            config = try loadPEXProjectConfig(projectRoot: projectRoot)
+            config = try loadPEXProjectConfig(forProjectAt: projectRoot)
         } else {
             config = PEXProjectConfig()
-            try savePEXProjectConfig(config, projectRoot: projectRoot)
+            try savePEXProjectConfig(config, forProjectAt: projectRoot)
         }
 
-        try writePEXTOML(config: config, projectRoot: projectRoot)
-        try writeDefaultTechTemplateIfNeeded(projectRoot: projectRoot, config: config)
+        try writePEXTOML(config: config, forProjectAt: projectRoot)
+        try writeDefaultTechTemplateIfNeeded(forProjectAt: projectRoot, config: config)
     }
 
-    func savePEXProjectConfig(_ config: PEXProjectConfig, projectRoot: URL) throws {
-        let url = pexConfigFileURL(projectRoot: projectRoot)
-        try writeJSON(config, to: url, projectRoot: projectRoot)
-        try writePEXTOML(config: config, projectRoot: projectRoot)
+    func savePEXProjectConfig(_ config: PEXProjectConfig, forProjectAt projectRoot: URL) throws {
+        let url = try pexConfigurationURL(inProjectAt: projectRoot)
+        try writeJSON(config, to: url, forProjectAt: projectRoot)
+        try writePEXTOML(config: config, forProjectAt: projectRoot)
     }
 
-    func loadPEXProjectConfig(projectRoot: URL) throws -> PEXProjectConfig {
-        let url = pexConfigFileURL(projectRoot: projectRoot)
+    func loadPEXProjectConfig(forProjectAt projectRoot: URL) throws -> PEXProjectConfig {
+        let url = try pexConfigurationURL(inProjectAt: projectRoot)
         return try readJSON(PEXProjectConfig.self, from: url)
     }
 
-    func pexConfigPath(projectRoot: URL) -> URL {
+    func pexTOMLURL(inProjectAt projectRoot: URL) -> URL {
         projectRoot.appending(path: Self.pexTOMLFileName)
     }
 
-    func pexWorkspaceDirectory(projectRoot: URL) -> URL {
-        pexRunsDirectoryURL(projectRoot: projectRoot)
+    func pexWorkspaceDirectory(inProjectAt projectRoot: URL) -> URL {
+        pexRunsDirectoryURL(inProjectAt: projectRoot)
     }
 
     // MARK: - Standard Format I/O
 
     /// Saves a SPICE netlist string to the project root.
-    func saveNetlist(_ spice: String, fileName: String, projectRoot: URL) throws {
+    func saveNetlist(_ spice: String, named fileName: String, inProjectAt projectRoot: URL) throws {
         let url = projectRoot.appending(path: fileName)
-        do {
-            try spice.write(to: url, atomically: true, encoding: .utf8)
-        } catch {
-            throw StudioError.projectSaveFailed(
-                "Failed to save netlist: \(error.localizedDescription)"
-            )
-        }
+        try packageStore.writeText(spice, to: url)
     }
 
-    /// Saves a SPICE netlist string to a project-relative or absolute path.
-    func saveNetlist(_ spice: String, relativePath: String, projectRoot: URL) throws {
-        let url = resolveProjectPath(relativePath, projectRoot: projectRoot)
+    /// Saves a SPICE netlist string to a project-relative path.
+    func saveNetlist(
+        _ spice: String,
+        toProjectRelativePath relativePath: String,
+        inProjectAt projectRoot: URL
+    ) throws {
+        let url = try url(forProjectRelativePath: relativePath, inProjectAt: projectRoot)
         let parent = url.deletingLastPathComponent()
-        do {
-            try FileManager.default.createDirectory(
-                at: parent,
-                withIntermediateDirectories: true
-            )
-        } catch {
-            throw StudioError.projectSaveFailed(
-                "Failed to create netlist directory: \(error.localizedDescription)"
-            )
-        }
-        do {
-            try spice.write(to: url, atomically: true, encoding: .utf8)
-        } catch {
-            throw StudioError.projectSaveFailed(
-                "Failed to save netlist: \(error.localizedDescription)"
-            )
-        }
+        try packageStore.ensureDirectory(at: parent)
+        try packageStore.writeText(spice, to: url)
     }
 
     /// Saves a layout document in OASIS format to the project root.
@@ -202,7 +168,7 @@ public struct ProjectService: Sendable {
         document: LayoutDocument,
         tech: LayoutTechDatabase,
         to fileName: String,
-        projectRoot: URL
+        inProjectAt projectRoot: URL
     ) throws {
         let url = projectRoot.appending(path: fileName)
         let converter = MaskDataFormatConverter(tech: tech)
@@ -215,25 +181,16 @@ public struct ProjectService: Sendable {
         }
     }
 
-    /// Saves a layout document in OASIS format to a project-relative or absolute path.
+    /// Saves a layout document in OASIS format to a project-relative path.
     func saveLayout(
         document: LayoutDocument,
         tech: LayoutTechDatabase,
-        relativePath: String,
-        projectRoot: URL
+        toProjectRelativePath relativePath: String,
+        inProjectAt projectRoot: URL
     ) throws {
-        let url = resolveProjectPath(relativePath, projectRoot: projectRoot)
+        let url = try url(forProjectRelativePath: relativePath, inProjectAt: projectRoot)
         let parent = url.deletingLastPathComponent()
-        do {
-            try FileManager.default.createDirectory(
-                at: parent,
-                withIntermediateDirectories: true
-            )
-        } catch {
-            throw StudioError.projectSaveFailed(
-                "Failed to create layout directory: \(error.localizedDescription)"
-            )
-        }
+        try packageStore.ensureDirectory(at: parent)
         let converter = MaskDataFormatConverter(tech: tech)
         do {
             try converter.exportDocument(document, to: url, format: .oasis)
@@ -246,70 +203,46 @@ public struct ProjectService: Sendable {
 
     // MARK: - Private
 
-    private func configFileURL(projectRoot: URL, fileName: String) -> URL {
-        let configDir = projectRoot.appending(path: Self.configDir)
-        return configDir.appending(path: fileName)
+    private func configurationFileURL(named fileName: String, inProjectAt projectRoot: URL) throws -> URL {
+        try packageStore.configurationURL(named: fileName, inProjectAt: projectRoot)
     }
 
-    private func pexConfigFileURL(projectRoot: URL) -> URL {
-        configFileURL(projectRoot: projectRoot, fileName: Self.pexConfigFileName)
+    private func pexConfigurationURL(inProjectAt projectRoot: URL) throws -> URL {
+        try configurationFileURL(named: Self.pexConfigFileName, inProjectAt: projectRoot)
     }
 
-    private func pexDirectoryURL(projectRoot: URL) -> URL {
-        let configDir = projectRoot.appending(path: Self.configDir)
-        return configDir.appending(path: Self.pexDirectoryName)
+    private func pexDirectoryURL(inProjectAt projectRoot: URL) -> URL {
+        packageStore
+            .packageURL(forProjectAt: projectRoot)
+            .appending(path: Self.pexDirectoryName)
     }
 
-    private func pexRunsDirectoryURL(projectRoot: URL) -> URL {
-        pexDirectoryURL(projectRoot: projectRoot).appending(path: Self.pexRunsDirectoryName)
+    private func pexRunsDirectoryURL(inProjectAt projectRoot: URL) -> URL {
+        pexDirectoryURL(inProjectAt: projectRoot).appending(path: Self.pexRunsDirectoryName)
     }
 
-    private func ensureConfigDir(projectRoot: URL) throws {
-        let configDir = projectRoot.appending(path: Self.configDir)
-        if !FileManager.default.fileExists(atPath: configDir.path(percentEncoded: false)) {
-            do {
-                try FileManager.default.createDirectory(
-                    at: configDir,
-                    withIntermediateDirectories: true
-                )
-            } catch {
-                throw StudioError.projectSaveFailed(
-                    "Failed to create .xcircuite directory: \(error.localizedDescription)"
-                )
-            }
-        }
+    private func ensureConfigurationDirectory(forProjectAt projectRoot: URL) throws {
+        try packageStore.ensurePackageDirectory(forProjectAt: projectRoot)
     }
 
-    private func writePEXTOML(config: PEXProjectConfig, projectRoot: URL) throws {
-        let tomlURL = projectRoot.appending(path: Self.pexTOMLFileName)
+    private func writePEXTOML(config: PEXProjectConfig, forProjectAt projectRoot: URL) throws {
+        let tomlURL = pexTOMLURL(inProjectAt: projectRoot)
         let contents = renderPEXTOML(config: config)
-        do {
-            try contents.write(to: tomlURL, atomically: true, encoding: .utf8)
-        } catch {
-            throw StudioError.projectSaveFailed(
-                "Failed to write \(Self.pexTOMLFileName): \(error.localizedDescription)"
-            )
-        }
+        try packageStore.writeText(contents, to: tomlURL)
     }
 
-    private func writeDefaultTechTemplateIfNeeded(projectRoot: URL, config: PEXProjectConfig) throws {
-        let techURL = resolveProjectPath(config.inputs.technology, projectRoot: projectRoot)
+    private func writeDefaultTechTemplateIfNeeded(
+        forProjectAt projectRoot: URL,
+        config: PEXProjectConfig
+    ) throws {
+        let techURL = try url(forProjectRelativePath: config.inputs.technology, inProjectAt: projectRoot)
         let techPath = techURL.path(percentEncoded: false)
         guard !FileManager.default.fileExists(atPath: techPath) else {
             return
         }
 
         let parent = techURL.deletingLastPathComponent()
-        do {
-            try FileManager.default.createDirectory(
-                at: parent,
-                withIntermediateDirectories: true
-            )
-        } catch {
-            throw StudioError.projectSaveFailed(
-                "Failed to create tech directory: \(error.localizedDescription)"
-            )
-        }
+        try packageStore.ensureDirectory(at: parent)
 
         let template = """
         {
@@ -323,21 +256,11 @@ public struct ProjectService: Sendable {
         }
         """
 
-        do {
-            try template.write(to: techURL, atomically: true, encoding: .utf8)
-        } catch {
-            throw StudioError.projectSaveFailed(
-                "Failed to write default technology template: \(error.localizedDescription)"
-            )
-        }
+        try packageStore.writeText(template, to: techURL)
     }
 
-    private func resolveProjectPath(_ rawPath: String, projectRoot: URL) -> URL {
-        let expanded = NSString(string: rawPath).expandingTildeInPath
-        if expanded.hasPrefix("/") {
-            return URL(filePath: expanded)
-        }
-        return projectRoot.appending(path: expanded)
+    private func url(forProjectRelativePath rawPath: String, inProjectAt projectRoot: URL) throws -> URL {
+        try packageStore.url(forProjectRelativePath: rawPath, inProjectAt: projectRoot)
     }
 
     private func renderPEXTOML(config: PEXProjectConfig) -> String {
@@ -389,40 +312,11 @@ public struct ProjectService: Sendable {
             .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
-    private func writeJSON<T: Encodable>(_ value: T, to url: URL, projectRoot: URL) throws {
-        try ensureConfigDir(projectRoot: projectRoot)
-        let data: Data
-        do {
-            data = try encoder.encode(value)
-        } catch {
-            throw StudioError.projectSaveFailed(
-                "Failed to encode: \(error.localizedDescription)"
-            )
-        }
-        do {
-            try data.write(to: url, options: .atomic)
-        } catch {
-            throw StudioError.projectSaveFailed(
-                "Failed to write \(url.lastPathComponent): \(error.localizedDescription)"
-            )
-        }
+    private func writeJSON<T: Encodable>(_ value: T, to url: URL, forProjectAt projectRoot: URL) throws {
+        try packageStore.writeJSON(value, to: url, forProjectAt: projectRoot)
     }
 
     private func readJSON<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
-        let data: Data
-        do {
-            data = try Data(contentsOf: url)
-        } catch {
-            throw StudioError.projectLoadFailed(
-                "Failed to read \(url.lastPathComponent): \(error.localizedDescription)"
-            )
-        }
-        do {
-            return try decoder.decode(type, from: data)
-        } catch {
-            throw StudioError.projectLoadFailed(
-                "Failed to decode \(url.lastPathComponent): \(error.localizedDescription)"
-            )
-        }
+        try packageStore.readJSON(type, from: url)
     }
 }

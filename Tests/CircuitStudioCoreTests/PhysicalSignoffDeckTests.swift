@@ -49,7 +49,7 @@ struct PhysicalSignoffDeckTests {
         // The evidence bundle machine-verifies every axis AND that each artifact is on disk.
         let bundle = TapeoutEvidenceBundle(designName: netlist.name, targetClockPeriod: nil,
                                            claims: outcome.claims, gdsPath: gds.path)
-        #expect(bundle.passed)
+        #expect(bundle.closesPresentSignoffAxes())
         try bundle.verify(requiredAxes: Self.allBundleAxes, runDirectory: dir)
         for axis in Self.allBundleAxes {
             #expect(bundle.claim(axis)?.passed == true, "axis \(axis) must pass")

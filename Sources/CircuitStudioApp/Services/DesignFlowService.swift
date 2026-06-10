@@ -719,7 +719,7 @@ public struct DesignFlowService: Sendable {
     public func summarizeBottlenecks(
         projectRoot: URL
     ) throws -> RoundTripBottleneckHistoryService.Summary {
-        try RoundTripBottleneckHistoryService().summarize(projectRoot: projectRoot)
+        try RoundTripBottleneckHistoryService().summarize(forProjectAt: projectRoot)
     }
 
     public func loadDesignSpec(_ url: URL) throws -> DesignFlowDesignSpec {
@@ -1020,7 +1020,7 @@ public struct DesignFlowService: Sendable {
             summary = try service.loadReview(manifestURL: URL(filePath: path))
         } else if let projectRootPath = command.projectRootPath,
                   let runID = command.runID {
-            summary = try service.loadReview(projectRoot: URL(filePath: projectRootPath), runID: runID)
+            summary = try service.loadReview(forProjectAt: URL(filePath: projectRootPath), runID: runID)
         } else {
             throw DesignFlowCommandError.missingRoundTripManifestPath
         }

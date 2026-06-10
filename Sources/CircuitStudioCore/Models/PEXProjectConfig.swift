@@ -38,7 +38,7 @@ public struct PEXProjectConfig: Sendable, Codable, Hashable {
             minCapacitanceF: Double? = nil,
             minResistanceOhm: Double? = nil,
             maxParallelJobs: Int = 2,
-            strictValidation: Bool = false
+            strictValidation: Bool = true
         ) {
             self.includeCouplingCaps = includeCouplingCaps
             self.minCapacitanceF = minCapacitanceF

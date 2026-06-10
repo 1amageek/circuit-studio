@@ -196,19 +196,19 @@ struct ExternalSignoffCommandServiceTests {
             ),
         ])
 
-        let url = try store.save(review, projectRoot: root)
+        let url = try store.save(review, forProjectAt: root)
         #expect(url.lastPathComponent == "external-signoff-review.json")
-        let unapproved = try store.load(projectRoot: root)
+        let unapproved = try store.load(forProjectAt: root)
         #expect(!unapproved.isReadyForPEX)
 
         let approvedAt = Date(timeIntervalSince1970: 1_800)
         let approved = try store.approve(
-            projectRoot: root,
+            forProjectAt: root,
             approvedBy: "layout-reviewer",
             approvedAt: approvedAt,
             waiverIDs: ["W-001"]
         )
-        let loaded = try store.load(projectRoot: root)
+        let loaded = try store.load(forProjectAt: root)
 
         #expect(approved.isReadyForPEX)
         #expect(loaded.approvedBy == "layout-reviewer")

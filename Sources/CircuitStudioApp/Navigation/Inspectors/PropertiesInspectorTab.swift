@@ -5,7 +5,7 @@ import LayoutEditor
 /// Context-aware Properties inspector. Renders the right inspector based on the active workspace and mode.
 struct PropertiesInspectorTab: View {
     @Bindable var appState: AppState
-    @Bindable var project: DesignProject
+    @Bindable var project: StudioSession
 
     var body: some View {
         switch appState.workspace {

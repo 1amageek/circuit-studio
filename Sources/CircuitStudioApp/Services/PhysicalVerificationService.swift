@@ -1493,16 +1493,16 @@ private struct LayoutConnectivityExtractor: Sendable {
     }
 
     private func geometriesTouch(_ lhs: LayoutGeometry, _ rhs: LayoutGeometry) -> Bool {
-        let leftBox = LayoutGeometryUtils.boundingBox(for: lhs)
-        let rightBox = LayoutGeometryUtils.boundingBox(for: rhs)
+        let leftBox = LayoutGeometryAnalysis.boundingBox(for: lhs)
+        let rightBox = LayoutGeometryAnalysis.boundingBox(for: rhs)
         guard leftBox.intersects(rightBox) else { return false }
-        if LayoutGeometryUtils.intersects(lhs, rhs) {
+        if LayoutGeometryAnalysis.intersects(lhs, rhs) {
             return true
         }
-        if LayoutGeometryUtils.contains(leftBox.center, in: rhs) {
+        if LayoutGeometryAnalysis.contains(leftBox.center, in: rhs) {
             return true
         }
-        if LayoutGeometryUtils.contains(rightBox.center, in: lhs) {
+        if LayoutGeometryAnalysis.contains(rightBox.center, in: lhs) {
             return true
         }
         return false
@@ -1576,12 +1576,12 @@ private struct RawLayoutDeviceExtractor: Sendable {
         devices.append(contentsOf: extractResistors(resis: resis, polys: polys, m1Shapes: m1Shapes, labels: labels))
         devices.append(contentsOf: extractCapacitors(actives: actives, polys: polys, m1Shapes: m1Shapes, labels: labels))
         for active in actives {
-            let activeBox = LayoutGeometryUtils.boundingBox(for: active.geometry)
+            let activeBox = LayoutGeometryAnalysis.boundingBox(for: active.geometry)
             if isCapacitorActive(activeBox: activeBox, polys: polys, labels: labels) {
                 continue
             }
             let channels = polys.compactMap { poly -> (polyBox: LayoutRect, channel: LayoutRect)? in
-                let polyBox = LayoutGeometryUtils.boundingBox(for: poly.geometry)
+                let polyBox = LayoutGeometryAnalysis.boundingBox(for: poly.geometry)
                 guard let channel = positiveIntersection(activeBox, polyBox) else { return nil }
                 return (polyBox, channel)
             }
@@ -1662,13 +1662,13 @@ private struct RawLayoutDeviceExtractor: Sendable {
     ) -> [RawLayoutDevice] {
         var devices: [RawLayoutDevice] = []
         for resi in resis {
-            let resiBox = LayoutGeometryUtils.boundingBox(for: resi.geometry)
+            let resiBox = LayoutGeometryAnalysis.boundingBox(for: resi.geometry)
             guard let poly = polys.first(where: {
-                LayoutGeometryUtils.boundingBox(for: $0.geometry).intersects(resiBox)
+                LayoutGeometryAnalysis.boundingBox(for: $0.geometry).intersects(resiBox)
             }) else {
                 continue
             }
-            let polyBox = LayoutGeometryUtils.boundingBox(for: poly.geometry)
+            let polyBox = LayoutGeometryAnalysis.boundingBox(for: poly.geometry)
             guard let name = componentName(for: polyBox, labels: labels) else { continue }
             let body = positiveIntersection(polyBox, resiBox) ?? polyBox
             let width = body.size.height
@@ -1696,10 +1696,10 @@ private struct RawLayoutDeviceExtractor: Sendable {
     ) -> [RawLayoutDevice] {
         var devices: [RawLayoutDevice] = []
         for active in actives {
-            let activeBox = LayoutGeometryUtils.boundingBox(for: active.geometry)
+            let activeBox = LayoutGeometryAnalysis.boundingBox(for: active.geometry)
             guard let name = capacitorName(for: activeBox, labels: labels) else { continue }
             let overlaps = polys.compactMap { poly -> (polyBox: LayoutRect, overlap: LayoutRect)? in
-                let polyBox = LayoutGeometryUtils.boundingBox(for: poly.geometry)
+                let polyBox = LayoutGeometryAnalysis.boundingBox(for: poly.geometry)
                 guard let overlap = positiveIntersection(activeBox, polyBox) else { return nil }
                 return (polyBox, overlap)
             }
@@ -1736,7 +1736,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
     ) -> Bool {
         guard capacitorName(for: activeBox, labels: labels) != nil else { return false }
         return polys.contains { poly in
-            positiveIntersection(activeBox, LayoutGeometryUtils.boundingBox(for: poly.geometry)) != nil
+            positiveIntersection(activeBox, LayoutGeometryAnalysis.boundingBox(for: poly.geometry)) != nil
         }
     }
 
@@ -1785,15 +1785,15 @@ private struct RawLayoutDeviceExtractor: Sendable {
         labels
             .filter { activeBox.contains($0.position) && !$0.text.isEmpty }
             .sorted { lhs, rhs in
-                LayoutGeometryUtils.distance(lhs.position, activeBox.center)
-                    < LayoutGeometryUtils.distance(rhs.position, activeBox.center)
+                LayoutGeometryAnalysis.distance(lhs.position, activeBox.center)
+                    < LayoutGeometryAnalysis.distance(rhs.position, activeBox.center)
             }
     }
 
     private func nearestLabel(to point: LayoutPoint, labels: [LabelRecord]) -> LabelRecord? {
         labels.min {
-            LayoutGeometryUtils.distance($0.position, point)
-                < LayoutGeometryUtils.distance($1.position, point)
+            LayoutGeometryAnalysis.distance($0.position, point)
+                < LayoutGeometryAnalysis.distance($1.position, point)
         }
     }
 
@@ -1805,13 +1805,13 @@ private struct RawLayoutDeviceExtractor: Sendable {
     ) -> RawLayoutDevice.Kind? {
         let center = channel.center
         let inPImplant = pimplants.contains {
-            LayoutGeometryUtils.contains(center, in: $0.geometry)
+            LayoutGeometryAnalysis.contains(center, in: $0.geometry)
         }
         let inNImplant = nimplants.contains {
-            LayoutGeometryUtils.contains(center, in: $0.geometry)
+            LayoutGeometryAnalysis.contains(center, in: $0.geometry)
         }
         let inNWell = nwells.contains {
-            LayoutGeometryUtils.contains(center, in: $0.geometry)
+            LayoutGeometryAnalysis.contains(center, in: $0.geometry)
         }
         if inPImplant || inNWell {
             return .pmos
@@ -1830,7 +1830,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
         m1Shapes: [ShapeRecord]
     ) -> [RawLayoutTerminal] {
         let localM1Shapes = m1Shapes.filter { shape in
-            let rect = LayoutGeometryUtils.boundingBox(for: shape.geometry)
+            let rect = LayoutGeometryAnalysis.boundingBox(for: shape.geometry)
             return
                 rect.minX >= activeBox.minX - 0.001 && rect.maxX <= activeBox.maxX + 0.001
         }
@@ -1841,7 +1841,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
         let rightTerminalBoundary = nextChannel?.minX ?? activeBox.maxX
         var terminals: [RawLayoutTerminal] = []
         if let source = terminal(pinName: "source", shapes: localM1Shapes.filter {
-            let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            let rect = LayoutGeometryAnalysis.boundingBox(for: $0.geometry)
             return rect.intersects(activeBox)
                 && rect.center.x < channel.minX
                 && rect.center.x >= leftTerminalBoundary
@@ -1849,7 +1849,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
             terminals.append(source)
         }
         if let drain = terminal(pinName: "drain", shapes: localM1Shapes.filter {
-            let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            let rect = LayoutGeometryAnalysis.boundingBox(for: $0.geometry)
             return rect.intersects(activeBox)
                 && rect.center.x > channel.maxX
                 && rect.center.x <= rightTerminalBoundary
@@ -1857,7 +1857,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
             terminals.append(drain)
         }
         if let gate = terminal(pinName: "gate", shapes: localM1Shapes.filter {
-            let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            let rect = LayoutGeometryAnalysis.boundingBox(for: $0.geometry)
             return rect.intersects(polyBox)
                 && !rect.intersects(channel)
                 && (rect.maxY <= activeBox.minY || rect.minY >= activeBox.maxY)
@@ -1865,7 +1865,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
             terminals.append(gate)
         }
         if let bulk = terminal(pinName: "bulk", shapes: localM1Shapes.filter {
-            let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            let rect = LayoutGeometryAnalysis.boundingBox(for: $0.geometry)
             return !rect.intersects(activeBox)
                 && !rect.intersects(polyBox)
                 && rangesOverlap(rect.minX, rect.maxX, activeBox.minX, activeBox.maxX)
@@ -1879,13 +1879,13 @@ private struct RawLayoutDeviceExtractor: Sendable {
     private func resistorTerminals(polyBox: LayoutRect, m1Shapes: [ShapeRecord]) -> [RawLayoutTerminal] {
         var terminals: [RawLayoutTerminal] = []
         if let neg = terminal(pinName: "neg", shapes: m1Shapes.filter {
-            let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            let rect = LayoutGeometryAnalysis.boundingBox(for: $0.geometry)
             return rect.intersects(polyBox) && rect.center.x <= polyBox.center.x
         }) {
             terminals.append(neg)
         }
         if let pos = terminal(pinName: "pos", shapes: m1Shapes.filter {
-            let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            let rect = LayoutGeometryAnalysis.boundingBox(for: $0.geometry)
             return rect.intersects(polyBox) && rect.center.x > polyBox.center.x
         }) {
             terminals.append(pos)
@@ -1901,7 +1901,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
     ) -> [RawLayoutTerminal] {
         var terminals: [RawLayoutTerminal] = []
         if let neg = terminal(pinName: "neg", shapes: m1Shapes.filter {
-            let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            let rect = LayoutGeometryAnalysis.boundingBox(for: $0.geometry)
             return rect.intersects(activeBox)
                 && !rect.intersects(overlapBox)
                 && rect.center.x < overlapBox.center.x
@@ -1909,7 +1909,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
             terminals.append(neg)
         }
         if let pos = terminal(pinName: "pos", shapes: m1Shapes.filter {
-            let rect = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            let rect = LayoutGeometryAnalysis.boundingBox(for: $0.geometry)
             return rect.intersects(polyBox)
                 && !rect.intersects(overlapBox)
                 && rect.center.x > overlapBox.center.x
@@ -1921,7 +1921,7 @@ private struct RawLayoutDeviceExtractor: Sendable {
 
     private func terminal(pinName: String, shapes: [ShapeRecord]) -> RawLayoutTerminal? {
         guard let layer = shapes.first?.layer,
-              let rect = mergeRects(shapes.map({ LayoutGeometryUtils.boundingBox(for: $0.geometry) })) else {
+              let rect = mergeRects(shapes.map({ LayoutGeometryAnalysis.boundingBox(for: $0.geometry) })) else {
             return nil
         }
         return RawLayoutTerminal(pinName: pinName, layer: layer, geometry: .rect(rect))

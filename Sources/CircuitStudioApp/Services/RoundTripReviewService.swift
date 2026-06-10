@@ -15,7 +15,7 @@ public enum RoundTripReviewServiceError: Error, LocalizedError, Equatable {
 public struct RoundTripReviewService: Sendable {
     public init() {}
 
-    public func loadReview(projectRoot: URL, runID: String) throws -> RoundTripReviewSummary {
+    public func loadReview(forProjectAt projectRoot: URL, runID: String) throws -> RoundTripReviewSummary {
         try Self.validateRunID(runID)
         let manifestURL = projectRoot
             .appending(path: ".xcircuite")
@@ -113,7 +113,7 @@ public struct RoundTripReviewService: Sendable {
         }
         do {
             let records = try FlowRunGovernanceService().approvalRecords(
-                projectRoot: projectRoot,
+                forProjectAt: projectRoot,
                 runID: manifest.runID
             )
             validateApprovalRecords(

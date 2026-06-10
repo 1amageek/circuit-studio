@@ -1399,10 +1399,10 @@ struct DesignFlowServiceTests {
         }
         let expanded = region.expanded(by: 0.5, 0.5)
         let nearbyShapes = topCell.shapes.filter {
-            let box = LayoutGeometryUtils.boundingBox(for: $0.geometry)
+            let box = LayoutGeometryAnalysis.boundingBox(for: $0.geometry)
             return box.intersects(expanded)
         }.map {
-            "\($0.layer.name) net=\($0.netID?.uuidString ?? "-") box=\(LayoutGeometryUtils.boundingBox(for: $0.geometry))"
+            "\($0.layer.name) net=\($0.netID?.uuidString ?? "-") box=\(LayoutGeometryAnalysis.boundingBox(for: $0.geometry))"
         }
         let nearbyVias = topCell.vias.filter {
             expanded.contains($0.position)

@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.3
 import PackageDescription
 
 let package = Package(
@@ -13,9 +13,14 @@ let package = Package(
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
+        .package(path: "../XcircuitePackage"),
         .package(path: "../CoreSpice"),
         .package(path: "../semiconductor-layout"),
         .package(path: "../PEXEngine"),
+        .package(
+            url: "https://github.com/1amageek/swift-openvaf.git",
+            revision: "3037901f3c59ecdd41f4d87b2cf3adb62d9395c1"
+        ),
     ],
     targets: [
         .target(
@@ -24,6 +29,8 @@ let package = Package(
                 .product(name: "CoreSpice", package: "CoreSpice"),
                 .product(name: "CoreSpiceIO", package: "CoreSpice"),
                 .product(name: "PEXEngine", package: "PEXEngine"),
+                .product(name: "OpenVAFSupport", package: "swift-openvaf"),
+                .product(name: "VerilogACompiler", package: "swift-openvaf"),
             ]
         ),
         .target(
@@ -37,6 +44,7 @@ let package = Package(
         .target(
             name: "CircuitStudioApp",
             dependencies: [
+                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
                 "CircuitStudioCore",
                 "SchematicEditor",
                 "WaveformViewer",
@@ -78,6 +86,8 @@ let package = Package(
                 "SchematicEditor",
                 "WaveformViewer",
                 "CircuitStudioApp",
+                .product(name: "OpenVAFSupport", package: "swift-openvaf"),
+                .product(name: "VerilogACompiler", package: "swift-openvaf"),
                 .product(name: "PEXEngine", package: "PEXEngine"),
             ],
             resources: [
@@ -88,7 +98,7 @@ let package = Package(
                 .copy("Fixtures/layout"),
                 .copy("Fixtures/pex"),
                 .copy("Fixtures/magic"),
-                .copy("Fixtures/lvs")
+                .copy("Fixtures/lvs"),
             ]
         ),
     ]

@@ -8,10 +8,10 @@ import LayoutTech
 import LayoutIO
 import LayoutVerify
 
-/// Unified design project that owns all editor ViewModels and shared state.
+/// Human app session that owns editor ViewModels and shared UI state.
 @Observable
 @MainActor
-public final class DesignProject {
+public final class StudioSession {
     // Editor ViewModels
     public let schematicViewModel: SchematicViewModel
     public let layoutViewModel: LayoutEditorViewModel
@@ -128,14 +128,14 @@ public final class DesignProject {
 }
 
 #if DEBUG
-extension DesignProject {
+extension StudioSession {
     /// Creates a project with layout already generated from a sample schematic.
     static func withGeneratedLayout(
         schematicViewModel: SchematicViewModel,
         catalog: DeviceCatalog = .standard(),
         canvasSize: CGSize = CGSize(width: 1200, height: 800)
-    ) -> DesignProject {
-        let project = DesignProject(schematicViewModel: schematicViewModel)
+    ) -> StudioSession {
+        let project = StudioSession(schematicViewModel: schematicViewModel)
         project.generateLayout(catalog: catalog)
         project.layoutViewModel.canvasSize = canvasSize
         project.layoutViewModel.fitAll()

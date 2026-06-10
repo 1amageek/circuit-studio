@@ -152,6 +152,8 @@ struct TimingCharacterizationCacheTests {
 
         let cache = TimingCharacterizationCache(directory: directory)
         let cell = CMOSGateNetlist.inverter(name: "inv")
+        let leaderStarted = AsyncGate()
+        let secondCalled = AsyncGate()
         let gate = AsyncGate()
         let first = Task {
             try await cache.cellTiming(
@@ -160,12 +162,18 @@ struct TimingCharacterizationCacheTests {
                 inputSlews: [40e-12],
                 outputLoads: [1e-15]
             ) {
+                await leaderStarted.open()
                 await gate.wait()
                 return Self.cellTimingFixture(cellName: "inv", value: 10e-12)
             }
         }
         let second = Task {
-            try await cache.cellTiming(
+            // Joining an in-flight characterization requires one to exist;
+            // wait until the leader's closure is running before calling in,
+            // otherwise this task races to become the leader itself.
+            await leaderStarted.wait()
+            await secondCalled.open()
+            return try await cache.cellTiming(
                 cell: cell,
                 model: .sky130Like(),
                 inputSlews: [40e-12],
@@ -176,7 +184,13 @@ struct TimingCharacterizationCacheTests {
             }
         }
 
-        try await Task.sleep(nanoseconds: 10_000_000)
+        // The pending entry lives until the gate opens, so the only ordering
+        // the test must provide is "the second call is underway before the
+        // gate opens"; the yields let its actor hop land first.
+        await secondCalled.wait()
+        for _ in 0..<10 {
+            await Task.yield()
+        }
         await gate.open()
 
         let firstResult = await first.result
@@ -318,17 +332,24 @@ private actor CallCounter {
     }
 }
 
+/// Latching gate: once opened, every past and future `wait()` returns
+/// immediately, so callers need no assumptions about wait/open ordering.
 private actor AsyncGate {
-    private var continuation: CheckedContinuation<Void, Never>?
+    private var isOpen = false
+    private var continuations: [CheckedContinuation<Void, Never>] = []
 
     func wait() async {
+        guard !isOpen else { return }
         await withCheckedContinuation { continuation in
-            self.continuation = continuation
+            continuations.append(continuation)
         }
     }
 
     func open() {
-        continuation?.resume()
-        continuation = nil
+        isOpen = true
+        for continuation in continuations {
+            continuation.resume()
+        }
+        continuations.removeAll()
     }
 }

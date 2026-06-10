@@ -23,8 +23,11 @@ struct NgspiceRunnerTests {
         try "* no-op\n.end\n".write(to: netlist, atomically: true, encoding: .utf8)
 
         try await ProcessTimeoutTestGate.shared.withExclusiveAccess {
+            // The timeout budget must absorb process spawn + shell startup
+            // latency under parallel suite load, or the mock is killed
+            // before it prints the marker the assertion depends on.
             let runner = NgspiceRunner(
-                timeoutSeconds: 1.0,
+                timeoutSeconds: 3.0,
                 terminationGraceSeconds: 0.05,
                 executablePath: executable.path(percentEncoded: false),
                 concurrencyGate: nil

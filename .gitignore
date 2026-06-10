@@ -7,12 +7,16 @@
 xcuserdata/
 DerivedData/
 *.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+*.xcworkspace/xcshareddata/swiftpm/Package.resolved
+**/*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+**/*.xcworkspace/xcshareddata/swiftpm/Package.resolved
 *.xcodeproj/xcuserdata/
 
 # Swift Package Manager
 /.build
+**/.build
 /Packages
-Package.resolved
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .swiftpm/xcode/package.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist

@@ -20,20 +20,20 @@ public struct ExternalSignoffReviewStore: Sendable {
         self.decoder = decoder
     }
 
-    public func artifactDirectory(projectRoot: URL) -> URL {
+    public func artifactDirectory(forProjectAt projectRoot: URL) -> URL {
         projectRoot
             .appending(path: Self.configDir)
             .appending(path: Self.signoffDir)
     }
 
-    public func reviewURL(projectRoot: URL) -> URL {
-        artifactDirectory(projectRoot: projectRoot)
+    public func reviewURL(forProjectAt projectRoot: URL) -> URL {
+        artifactDirectory(forProjectAt: projectRoot)
             .appending(path: Self.reviewFileName)
     }
 
     @discardableResult
-    public func save(_ review: ExternalSignoffReview, projectRoot: URL) throws -> URL {
-        let directory = artifactDirectory(projectRoot: projectRoot)
+    public func save(_ review: ExternalSignoffReview, forProjectAt projectRoot: URL) throws -> URL {
+        let directory = artifactDirectory(forProjectAt: projectRoot)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         } catch {
@@ -42,7 +42,7 @@ public struct ExternalSignoffReviewStore: Sendable {
             )
         }
 
-        let url = reviewURL(projectRoot: projectRoot)
+        let url = reviewURL(forProjectAt: projectRoot)
         let data: Data
         do {
             data = try encoder.encode(review)
@@ -62,8 +62,8 @@ public struct ExternalSignoffReviewStore: Sendable {
         return url
     }
 
-    public func load(projectRoot: URL) throws -> ExternalSignoffReview {
-        let url = reviewURL(projectRoot: projectRoot)
+    public func load(forProjectAt projectRoot: URL) throws -> ExternalSignoffReview {
+        let url = reviewURL(forProjectAt: projectRoot)
         let data: Data
         do {
             data = try Data(contentsOf: url)
@@ -84,20 +84,20 @@ public struct ExternalSignoffReviewStore: Sendable {
 
     @discardableResult
     public func approve(
-        projectRoot: URL,
+        forProjectAt projectRoot: URL,
         approvedBy reviewer: String,
         approvedAt date: Date,
         approvalKind: ExternalSignoffReview.ApprovalKind = .human,
         waiverIDs: [String]? = nil
     ) throws -> ExternalSignoffReview {
-        let review = try load(projectRoot: projectRoot)
+        let review = try load(forProjectAt: projectRoot)
         let approved = review.approving(
             by: reviewer,
             at: date,
             approvalKind: approvalKind,
             waiverIDs: waiverIDs
         )
-        try save(approved, projectRoot: projectRoot)
+        try save(approved, forProjectAt: projectRoot)
         return approved
     }
 }

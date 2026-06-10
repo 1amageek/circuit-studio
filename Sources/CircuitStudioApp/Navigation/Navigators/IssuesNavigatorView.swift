@@ -6,7 +6,7 @@ import LayoutVerify
 /// Mirrors Xcode's Issue Navigator: errors first, warnings next, info last.
 struct IssuesNavigatorView: View {
     @Bindable var appState: AppState
-    @Bindable var project: DesignProject
+    @Bindable var project: StudioSession
 
     var body: some View {
         if rows.isEmpty {

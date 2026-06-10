@@ -224,7 +224,7 @@ struct HeadlessRoundTripServiceTests {
         })
         #expect(!result.manifest.artifacts.map(\.path).contains { $0.hasSuffix("mock-drc.log") })
 
-        let storedReview = try ExternalSignoffReviewStore().load(projectRoot: root)
+        let storedReview = try ExternalSignoffReviewStore().load(forProjectAt: root)
         #expect(storedReview.approvedBy == "layout-reviewer")
         #expect(storedReview.isReadyForPEX)
     }
@@ -503,7 +503,7 @@ struct HeadlessRoundTripServiceTests {
         try writeManifest(completedManifest, projectRoot: root, runID: "completed")
         try writeManifest(failedManifest, projectRoot: root, runID: "failed")
 
-        let summary = try RoundTripBottleneckHistoryService().summarize(projectRoot: root)
+        let summary = try RoundTripBottleneckHistoryService().summarize(forProjectAt: root)
         let postLayoutSimulation = try #require(summary.stageSummaries.first {
             $0.stageName == "post-layout-simulation"
         })
@@ -962,7 +962,7 @@ struct HeadlessRoundTripServiceTests {
         let manifest = try decoder.decode(HeadlessRoundTripService.Manifest.self, from: manifestData)
         #expect(manifest == result.manifest)
 
-        let review = try ExternalSignoffReviewStore().load(projectRoot: roundTrip.projectRoot)
+        let review = try ExternalSignoffReviewStore().load(forProjectAt: roundTrip.projectRoot)
         #expect(review.approvedBy == "layout-reviewer")
         #expect(review.isReadyForPEX)
     }

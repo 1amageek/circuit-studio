@@ -9,12 +9,12 @@ import LayoutEditor
 public struct ContentView: View {
     @Bindable var appState: AppState
     let services: ServiceContainer
-    @Bindable var project: DesignProject
+    @Bindable var project: StudioSession
 
     public init(
         appState: AppState,
         services: ServiceContainer,
-        project: DesignProject
+        project: StudioSession
     ) {
         self.appState = appState
         self.services = services
@@ -350,7 +350,7 @@ private func makePreviewState(
     ContentView(
         appState: makePreviewState(),
         services: ServiceContainer(),
-        project: DesignProject(schematicViewModel: SchematicPreview.voltageDividerViewModel())
+        project: StudioSession(schematicViewModel: SchematicPreview.voltageDividerViewModel())
     )
     .frame(width: 1200, height: 800)
 }
@@ -359,7 +359,7 @@ private func makePreviewState(
     ContentView(
         appState: makePreviewState(),
         services: ServiceContainer(),
-        project: DesignProject(schematicViewModel: SchematicPreview.diodeForwardBiasViewModel())
+        project: StudioSession(schematicViewModel: SchematicPreview.diodeForwardBiasViewModel())
     )
     .frame(width: 1200, height: 800)
 }
@@ -371,7 +371,7 @@ private func makePreviewState(
             startFrequency: 1, stopFrequency: 1e6
         ))),
         services: ServiceContainer(),
-        project: DesignProject(schematicViewModel: SchematicPreview.rcLowpassViewModel())
+        project: StudioSession(schematicViewModel: SchematicPreview.rcLowpassViewModel())
     )
     .frame(width: 1200, height: 800)
 }
@@ -380,7 +380,7 @@ private func makePreviewState(
     ContentView(
         appState: makePreviewState(analysis: .tran(TranSpec(stopTime: 2e-6, stepTime: 1e-9))),
         services: ServiceContainer(),
-        project: DesignProject(schematicViewModel: SchematicPreview.rcLoadedStepViewModel())
+        project: StudioSession(schematicViewModel: SchematicPreview.rcLoadedStepViewModel())
     )
     .frame(width: 1200, height: 800)
 }
@@ -389,7 +389,7 @@ private func makePreviewState(
     ContentView(
         appState: makePreviewState(analysis: .tran(TranSpec(stopTime: 500e-9, stepTime: 0.5e-9))),
         services: ServiceContainer(),
-        project: DesignProject(schematicViewModel: SchematicPreview.rlcDampedViewModel())
+        project: StudioSession(schematicViewModel: SchematicPreview.rlcDampedViewModel())
     )
     .frame(width: 1200, height: 800)
 }
@@ -398,7 +398,7 @@ private func makePreviewState(
     ContentView(
         appState: makePreviewState(analysis: .tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9))),
         services: ServiceContainer(),
-        project: DesignProject(schematicViewModel: SchematicPreview.cmosInverterViewModel())
+        project: StudioSession(schematicViewModel: SchematicPreview.cmosInverterViewModel())
     )
     .frame(width: 1200, height: 800)
 }
@@ -409,7 +409,7 @@ private func makePreviewState(
     return ContentView(
         appState: state,
         services: ServiceContainer(),
-        project: DesignProject.withGeneratedLayout(
+        project: StudioSession.withGeneratedLayout(
             schematicViewModel: SchematicPreview.cmosInverterViewModel()
         )
     )
@@ -422,7 +422,7 @@ private func makePreviewState(
     return ContentView(
         appState: state,
         services: ServiceContainer(),
-        project: DesignProject.withGeneratedLayout(
+        project: StudioSession.withGeneratedLayout(
             schematicViewModel: SchematicPreview.voltageDividerViewModel()
         )
     )
@@ -435,7 +435,7 @@ private func makePreviewState(
     return ContentView(
         appState: state,
         services: ServiceContainer(),
-        project: DesignProject.withGeneratedLayout(
+        project: StudioSession.withGeneratedLayout(
             schematicViewModel: SchematicPreview.currentMirrorViewModel()
         )
     )
