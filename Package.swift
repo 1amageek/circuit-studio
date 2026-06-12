@@ -22,6 +22,10 @@ let package = Package(
             url: "https://github.com/1amageek/swift-openvaf.git",
             revision: "3037901f3c59ecdd41f4d87b2cf3adb62d9395c1"
         ),
+        .package(
+            url: "https://github.com/1amageek/mac-component.git",
+            revision: "d3aee65b8dd73a838bcfba124e7c1afe520b97bb"
+        ),
     ],
     targets: [
         .target(
@@ -56,6 +60,7 @@ let package = Package(
                 .product(name: "LayoutTech", package: "semiconductor-layout"),
                 .product(name: "LayoutIO", package: "semiconductor-layout"),
                 .product(name: "LayoutVerify", package: "semiconductor-layout"),
+                .product(name: "MacComponent", package: "mac-component"),
             ],
             resources: [
                 .copy("Resources/drc.tcl"),

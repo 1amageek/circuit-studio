@@ -1,6 +1,14 @@
 {
-  "originHash" : "572f84e6b196cb4066185c69564f9ee55fb92788128d96b8ee9fadf8d7312cd8",
+  "originHash" : "c4560795ff36202507cd6dfa32cd971b745b75635033514638a6c59b8a6e83d2",
   "pins" : [
+    {
+      "identity" : "mac-component",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/mac-component.git",
+      "state" : {
+        "revision" : "d3aee65b8dd73a838bcfba124e7c1afe520b97bb"
+      }
+    },
     {
       "identity" : "swift-async-algorithms",
       "kind" : "remoteSourceControl",

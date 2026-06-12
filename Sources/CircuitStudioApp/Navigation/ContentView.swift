@@ -3,6 +3,7 @@ import CircuitStudioCore
 import SchematicEditor
 import WaveformViewer
 import LayoutEditor
+import MacComponent
 
 /// Main content area following Xcode's information architecture:
 /// Navigator (tabbed) | Editor (jump bar + content + optional debug area) | Inspector (tabbed)
@@ -30,12 +31,17 @@ public struct ContentView: View {
             NavigatorPane(appState: appState, services: services, project: project)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
         } detail: {
-            editorArea
-                .toolbar { toolbarContent }
-        }
-        .inspector(isPresented: $appState.showInspector) {
-            InspectorPane(appState: appState, services: services, project: project)
-                .inspectorColumnWidth(min: 220, ideal: 300, max: 420)
+            HSplitPane {
+                editorArea
+                if appState.showInspector {
+                    InspectorPane(appState: appState, services: services, project: project)
+                        .frame(minWidth: 220, maxWidth: 420)
+                }
+            }
+            .leadingPaneWidth(minimum: 300)
+            .trailingPaneWidth(minimum: 220)
+            .trailingPaneWidth(maximum: 420)
+            .toolbar { toolbarContent }
         }
         .onChange(of: appState.streamingWaveformVersion) { _, _ in
             if let waveform = appState.streamingWaveform {
