@@ -14,6 +14,10 @@ public struct SchematicEditorView: View {
                 .overlay(alignment: .topLeading) {
                     ComponentPaletteOverlay(viewModel: viewModel)
                 }
+                .overlay(alignment: .bottomLeading) {
+                    CanvasOptionsBar(viewModel: viewModel)
+                        .padding(12)
+                }
                 .overlay(alignment: .bottomTrailing) {
                     MiniMapView(viewModel: viewModel)
                         .padding(12)

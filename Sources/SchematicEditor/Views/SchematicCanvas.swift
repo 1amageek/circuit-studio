@@ -13,6 +13,11 @@ public struct SchematicCanvas: View {
     @State private var selectionRectLeftToRight: Bool = true
     @State private var hoverPoint: CGPoint?
 
+    /// Manual double-click detection: the unified drag gesture consumes
+    /// mouse events, so `onTapGesture(count: 2)` would conflict with it.
+    @State private var lastTapTime: Date = .distantPast
+    @State private var lastTapLocation: CGPoint = .zero
+
     /// Key focus must be claimed explicitly: the drag gesture consumes the
     /// mouse-down, so macOS never moves focus to the canvas on click, and
     /// `onKeyPress` (Delete, undo/copy/paste shortcuts) would never fire.
@@ -35,13 +40,15 @@ public struct SchematicCanvas: View {
 
     public var body: some View {
         Canvas { context, size in
-            GridRenderer.render(
-                in: &context,
-                size: size,
-                gridSize: viewModel.gridSize,
-                zoom: viewModel.zoom,
-                offset: viewModel.offset
-            )
+            if viewModel.showsGrid {
+                GridRenderer.render(
+                    in: &context,
+                    size: size,
+                    gridSize: viewModel.gridSize,
+                    zoom: viewModel.zoom,
+                    offset: viewModel.offset
+                )
+            }
 
             context.translateBy(x: viewModel.offset.x, y: viewModel.offset.y)
             context.scaleBy(x: viewModel.zoom, y: viewModel.zoom)
@@ -59,23 +66,21 @@ public struct SchematicCanvas: View {
                 JunctionRenderer.render(junction, in: &context, selected: selected)
             }
 
-            // In-progress wire (drag)
+            // In-progress wire (drag) — previews the L-shaped route addWire creates
             if let start = wireStart, let end = wireEnd {
-                var path = Path()
-                path.move(to: start)
-                path.addLine(to: end)
-                context.stroke(path, with: .color(.green.opacity(0.5)), lineWidth: 1.5)
+                context.stroke(
+                    wirePreviewPath(from: start, to: end),
+                    with: .color(.green.opacity(0.5)),
+                    lineWidth: 1.5
+                )
             }
 
             // Pending wire preview (two-click mode)
             if let start = viewModel.pendingWireStart, let hover = hoverPoint {
                 let canvasHover = screenToCanvas(hover)
                 let snapped = viewModel.snapToGrid(canvasHover)
-                var path = Path()
-                path.move(to: start)
-                path.addLine(to: snapped)
                 context.stroke(
-                    path,
+                    wirePreviewPath(from: start, to: snapped),
                     with: .color(.green.opacity(0.4)),
                     style: StrokeStyle(lineWidth: 1.5, dash: [6, 3])
                 )
@@ -88,7 +93,8 @@ public struct SchematicCanvas: View {
             for component in viewModel.document.components {
                 let selected = viewModel.document.selection.contains(component.id)
                 let highlighted = viewModel.highlightedIDs.contains(component.id)
-                if let kind = viewModel.catalog.device(for: component.deviceKindID) {
+                let kind = viewModel.catalog.device(for: component.deviceKindID)
+                if let kind {
                     SymbolRenderer.render(
                         kind,
                         in: &context,
@@ -104,9 +110,30 @@ public struct SchematicCanvas: View {
                 let label = Text(component.name).font(.caption)
                 context.draw(
                     context.resolve(label),
-                    at: CGPoint(x: component.position.x + 20, y: component.position.y),
+                    at: CGPoint(x: component.position.x + 20, y: component.position.y - 6),
                     anchor: .leading
                 )
+                if let kind,
+                   let value = ComponentValueText.annotation(for: component, kind: kind) {
+                    let valueLabel = Text(value)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    context.draw(
+                        context.resolve(valueLabel),
+                        at: CGPoint(x: component.position.x + 20, y: component.position.y + 7),
+                        anchor: .leading
+                    )
+                }
+            }
+
+            // Ghost preview of the part about to be placed
+            if case .place(let deviceKindID) = viewModel.tool,
+               let hover = hoverPoint,
+               let kind = viewModel.catalog.device(for: deviceKindID) {
+                let position = viewModel.snapToGrid(screenToCanvas(hover))
+                var ghost = context
+                ghost.opacity = 0.4
+                SymbolRenderer.render(kind, in: &ghost, at: position)
             }
 
             // Net labels
@@ -157,6 +184,56 @@ public struct SchematicCanvas: View {
         .focusEffectDisabled()
         .focused($isFocused)
         .onAppear { isFocused = true }
+        .popover(
+            isPresented: Binding(
+                get: { viewModel.quickEditTarget != nil },
+                set: { isPresented in
+                    if !isPresented { viewModel.quickEditTarget = nil }
+                }
+            ),
+            attachmentAnchor: .rect(.rect(quickEditAnchorRect)),
+            arrowEdge: .bottom
+        ) {
+            if let target = viewModel.quickEditTarget {
+                QuickPropertyEditor(viewModel: viewModel, targetID: target)
+            }
+        }
+    }
+
+    /// Screen-space rect of the quick-edit target, used to anchor its popover.
+    private var quickEditAnchorRect: CGRect {
+        guard let id = viewModel.quickEditTarget else { return .zero }
+
+        var canvasPoint: CGPoint?
+        if let component = viewModel.document.components.first(where: { $0.id == id }) {
+            canvasPoint = component.position
+        } else if let wire = viewModel.document.wires.first(where: { $0.id == id }) {
+            canvasPoint = CGPoint(
+                x: (wire.startPoint.x + wire.endPoint.x) / 2,
+                y: (wire.startPoint.y + wire.endPoint.y) / 2
+            )
+        } else if let label = viewModel.document.labels.first(where: { $0.id == id }) {
+            canvasPoint = label.position
+        }
+        guard let point = canvasPoint else { return .zero }
+
+        let screen = CGPoint(
+            x: point.x * viewModel.zoom + viewModel.offset.x,
+            y: point.y * viewModel.zoom + viewModel.offset.y
+        )
+        return CGRect(x: screen.x - 12, y: screen.y - 12, width: 24, height: 24)
+    }
+
+    /// Preview path mirroring the L-shaped route `addWire` will create.
+    private func wirePreviewPath(from start: CGPoint, to end: CGPoint) -> Path {
+        var path = Path()
+        path.move(to: start)
+        let corner = SchematicViewModel.manhattanCorner(from: start, to: end)
+        if corner != start && corner != end {
+            path.addLine(to: corner)
+        }
+        path.addLine(to: end)
+        return path
     }
 
     // MARK: - Translation helpers
@@ -231,6 +308,18 @@ public struct SchematicCanvas: View {
         case .space:
             viewModel.fitAll(canvasSize: viewModel.canvasSize)
             return .handled
+        case .upArrow, .downArrow, .leftArrow, .rightArrow:
+            guard !viewModel.document.selection.isEmpty else { return .ignored }
+            let step = viewModel.gridSize * (hasShift ? 5 : 1)
+            let delta: CGSize
+            switch keyPress.key {
+            case .upArrow: delta = CGSize(width: 0, height: -step)
+            case .downArrow: delta = CGSize(width: 0, height: step)
+            case .leftArrow: delta = CGSize(width: -step, height: 0)
+            default: delta = CGSize(width: step, height: 0)
+            }
+            viewModel.nudgeSelection(by: delta)
+            return .handled
         default:
             break
         }
@@ -256,6 +345,13 @@ public struct SchematicCanvas: View {
             return .handled
         case "l":
             viewModel.tool = .label
+            return .handled
+        case "z":
+            if viewModel.document.selection.isEmpty {
+                viewModel.fitAll(canvasSize: viewModel.canvasSize)
+            } else {
+                viewModel.zoomToSelection(canvasSize: viewModel.canvasSize)
+            }
             return .handled
         default:
             return .ignored
@@ -343,18 +439,36 @@ public struct SchematicCanvas: View {
         let canvasPoint = screenToCanvas(location)
         let shiftHeld = NSEvent.modifierFlags.contains(.shift)
 
+        let now = Date()
+        let isDoubleClick = now.timeIntervalSince(lastTapTime) < 0.4
+            && hypot(location.x - lastTapLocation.x, location.y - lastTapLocation.y) < 6
+        lastTapTime = now
+        lastTapLocation = location
+
         switch viewModel.tool {
         case .select:
             let hit = viewModel.hitTest(at: canvasPoint)
             switch hit {
-            case .component(let id), .wire(let id), .label(let id), .junction(let id):
+            case .component(let id), .wire(let id), .label(let id):
+                if isDoubleClick {
+                    viewModel.select(id)
+                    viewModel.quickEditTarget = id
+                } else if shiftHeld {
+                    viewModel.toggleSelection(id)
+                } else {
+                    viewModel.select(id)
+                }
+            case .junction(let id):
                 if shiftHeld {
                     viewModel.toggleSelection(id)
                 } else {
                     viewModel.select(id)
                 }
             case .pin(let componentID, _):
-                if shiftHeld {
+                if isDoubleClick {
+                    viewModel.select(componentID)
+                    viewModel.quickEditTarget = componentID
+                } else if shiftHeld {
                     viewModel.toggleSelection(componentID)
                 } else {
                     viewModel.select(componentID)
@@ -366,12 +480,12 @@ public struct SchematicCanvas: View {
             }
 
         case .place(let deviceKindID):
+            // Stay in place mode for repeated placement; Escape ends it.
             viewModel.recordForUndo()
             viewModel.placeComponent(deviceKindID: deviceKindID, at: canvasPoint)
             if let placed = viewModel.document.components.last {
                 viewModel.select(placed.id)
             }
-            viewModel.tool = .select
 
         case .wire:
             if let start = viewModel.pendingWireStart {

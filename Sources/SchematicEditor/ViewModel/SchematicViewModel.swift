@@ -32,8 +32,17 @@ public final class SchematicViewModel {
     public var gridSize: CGFloat = 10
     public var canvasSize: CGSize = .zero
 
+    /// Whether the background grid is drawn.
+    public var showsGrid: Bool = true
+
+    /// Whether points snap to the grid during placement, wiring, and moves.
+    public var snapsToGrid: Bool = true
+
     /// First click point for two-click wire placement. nil = not started.
     public var pendingWireStart: CGPoint?
+
+    /// Item targeted by the quick property editor (double-click). nil = closed.
+    public var quickEditTarget: UUID?
 
     private var componentCounters: [String: Int] = [:]
     private var dragStartPositions: [UUID: CGPoint] = [:]
@@ -417,21 +426,72 @@ public final class SchematicViewModel {
 
     public func fitAll(canvasSize: CGSize) {
         guard let bounds = contentBounds() else { return }
+        fit(bounds, canvasSize: canvasSize, maxZoom: 10.0)
+    }
 
+    /// Zooms and centers the viewport on the current selection.
+    /// The zoom cap is lower than `fitAll` so a single small part does not
+    /// fill the whole screen.
+    public func zoomToSelection(canvasSize: CGSize) {
+        guard let bounds = selectionBounds() else { return }
+        fit(bounds.insetBy(dx: -20, dy: -20), canvasSize: canvasSize, maxZoom: 4.0)
+    }
+
+    /// Bounding rect of the current selection in canvas coordinates.
+    /// Returns `nil` when nothing is selected.
+    public func selectionBounds() -> CGRect? {
+        let selected = document.selection
+        guard !selected.isEmpty else { return nil }
+
+        var minX = CGFloat.infinity
+        var minY = CGFloat.infinity
+        var maxX = -CGFloat.infinity
+        var maxY = -CGFloat.infinity
+
+        for comp in document.components where selected.contains(comp.id) {
+            let size = catalog.device(for: comp.deviceKindID)?.symbol.size ?? CGSize(width: 40, height: 40)
+            let half = max(size.width, size.height) / 2
+            minX = min(minX, comp.position.x - half)
+            minY = min(minY, comp.position.y - half)
+            maxX = max(maxX, comp.position.x + half)
+            maxY = max(maxY, comp.position.y + half)
+        }
+        for wire in document.wires where selected.contains(wire.id) {
+            minX = min(minX, min(wire.startPoint.x, wire.endPoint.x))
+            minY = min(minY, min(wire.startPoint.y, wire.endPoint.y))
+            maxX = max(maxX, max(wire.startPoint.x, wire.endPoint.x))
+            maxY = max(maxY, max(wire.startPoint.y, wire.endPoint.y))
+        }
+        for label in document.labels where selected.contains(label.id) {
+            minX = min(minX, label.position.x - 30)
+            minY = min(minY, label.position.y - 10)
+            maxX = max(maxX, label.position.x + 30)
+            maxY = max(maxY, label.position.y + 10)
+        }
+        for junction in document.junctions where selected.contains(junction.id) {
+            minX = min(minX, junction.position.x)
+            minY = min(minY, junction.position.y)
+            maxX = max(maxX, junction.position.x)
+            maxY = max(maxY, junction.position.y)
+        }
+
+        guard minX.isFinite, minY.isFinite, maxX >= minX, maxY >= minY else { return nil }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    private func fit(_ bounds: CGRect, canvasSize: CGSize, maxZoom: CGFloat) {
         let margin: CGFloat = 40
         let availableWidth = canvasSize.width - margin * 2
         let availableHeight = canvasSize.height - margin * 2
-        guard availableWidth > 0, availableHeight > 0 else { return }
+        guard availableWidth > 0, availableHeight > 0, bounds.width > 0, bounds.height > 0 else { return }
 
         let scaleX = availableWidth / bounds.width
         let scaleY = availableHeight / bounds.height
-        let newZoom = max(0.1, min(10.0, min(scaleX, scaleY)))
+        let newZoom = max(0.1, min(maxZoom, min(scaleX, scaleY)))
 
-        let centerX = bounds.midX
-        let centerY = bounds.midY
         offset = CGPoint(
-            x: canvasSize.width / 2 - centerX * newZoom,
-            y: canvasSize.height / 2 - centerY * newZoom
+            x: canvasSize.width / 2 - bounds.midX * newZoom,
+            y: canvasSize.height / 2 - bounds.midY * newZoom
         )
         zoom = newZoom
     }
@@ -482,21 +542,53 @@ public final class SchematicViewModel {
         document.components.append(placed)
     }
 
+    /// Adds a wire, splitting a diagonal request into an L-shaped pair of
+    /// axis-aligned segments — schematic wires are always orthogonal.
     public func addWire(from start: CGPoint, to end: CGPoint) {
         let snappedStart = snapToGrid(start)
         let snappedEnd = snapToGrid(end)
         let (startPinSnapped, startRef) = snapToPin(at: snappedStart)
         let (endPinSnapped, endRef) = snapToPin(at: snappedEnd)
 
-        let wire = Wire(
-            startPoint: startPinSnapped,
-            endPoint: endPinSnapped,
-            startPin: startRef,
-            endPin: endRef
-        )
-        document.wires.append(wire)
-        splitWiresAtEndpoints(of: wire)
+        let corner = Self.manhattanCorner(from: startPinSnapped, to: endPinSnapped)
+        if corner != startPinSnapped && corner != endPinSnapped {
+            let firstLeg = Wire(
+                startPoint: startPinSnapped,
+                endPoint: corner,
+                startPin: startRef,
+                endPin: nil
+            )
+            let secondLeg = Wire(
+                startPoint: corner,
+                endPoint: endPinSnapped,
+                startPin: nil,
+                endPin: endRef
+            )
+            document.wires.append(firstLeg)
+            document.wires.append(secondLeg)
+            splitWiresAtEndpoints(of: firstLeg)
+            splitWiresAtEndpoints(of: secondLeg)
+        } else {
+            let wire = Wire(
+                startPoint: startPinSnapped,
+                endPoint: endPinSnapped,
+                startPin: startRef,
+                endPin: endRef
+            )
+            document.wires.append(wire)
+            splitWiresAtEndpoints(of: wire)
+        }
         recomputeJunctions()
+    }
+
+    /// Corner of the L-shaped route between two points: the first leg runs
+    /// along the dominant axis of the displacement. Returns one of the
+    /// endpoints when the route is already axis-aligned.
+    public static func manhattanCorner(from start: CGPoint, to end: CGPoint) -> CGPoint {
+        if abs(end.x - start.x) >= abs(end.y - start.y) {
+            return CGPoint(x: end.x, y: start.y)
+        }
+        return CGPoint(x: start.x, y: end.y)
     }
 
     /// Split existing wires when a new wire's endpoint lands on the interior of a segment.
@@ -732,6 +824,15 @@ public final class SchematicViewModel {
         wireEndOffsets.removeAll()
     }
 
+    /// Moves the selection by a fixed offset (arrow-key nudge). Records one
+    /// undo step per call and keeps attached wires rubber-banded.
+    public func nudgeSelection(by delta: CGSize) {
+        guard !document.selection.isEmpty else { return }
+        moveSelection(by: delta)
+        commitMove()
+        recomputeJunctions()
+    }
+
     // MARK: - Delete
 
     public func deleteSelection() {
@@ -787,7 +888,8 @@ public final class SchematicViewModel {
     // MARK: - Grid Snapping
 
     public func snapToGrid(_ point: CGPoint) -> CGPoint {
-        CGPoint(
+        guard snapsToGrid else { return point }
+        return CGPoint(
             x: round(point.x / gridSize) * gridSize,
             y: round(point.y / gridSize) * gridSize
         )
