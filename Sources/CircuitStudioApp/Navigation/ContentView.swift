@@ -199,7 +199,7 @@ public struct ContentView: View {
             undo: { layoutViewModel.undo() },
             redo: { layoutViewModel.redo() },
             duplicate: { layoutViewModel.duplicateSelectedShapesByGridStep() },
-            delete: { layoutViewModel.deleteSelectedShapes() },
+            delete: { layoutViewModel.deleteSelection() },
             selectAll: { layoutViewModel.selectAllShapes() }
         )
     }
