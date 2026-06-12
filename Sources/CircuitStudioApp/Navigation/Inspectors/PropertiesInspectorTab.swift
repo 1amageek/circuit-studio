@@ -20,6 +20,12 @@ struct PropertiesInspectorTab: View {
             LayoutInspectorView(viewModel: project.layoutViewModel)
         case .integration:
             LayoutInspectorView(viewModel: project.layoutViewModel)
+        case .review:
+            ContentUnavailableView(
+                "Run review has no properties",
+                systemImage: "checkmark.seal",
+                description: Text("Decisions are recorded per stage in the review pane.")
+            )
         }
     }
 }

@@ -108,6 +108,8 @@ public struct CircuitStudioApp: App {
                 .keyboardShortcut("2", modifiers: [.command, .control])
             Button("Integration") { appState.workspace = .integration }
                 .keyboardShortcut("3", modifiers: [.command, .control])
+            Button("Review") { appState.workspace = .review }
+                .keyboardShortcut("4", modifiers: [.command, .control])
             Divider()
             Button("Visual Mode") { appState.schematicMode = .visual }
                 .keyboardShortcut("V", modifiers: [.command, .shift])

@@ -12,6 +12,9 @@ public enum Workspace: String, Hashable, Sendable, Codable {
     case layout
     /// Side-by-side schematic + layout for SDL/LVS workflows
     case integration
+    /// Manifest-backed run review: stages, gates, artifacts and
+    /// approval decisions over the .xcircuite ledger
+    case review
 }
 
 /// Sub-mode within the schematicCapture workspace.

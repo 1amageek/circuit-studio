@@ -45,6 +45,11 @@ struct EditorJumpBar: View {
             } label: {
                 Label("Integration", systemImage: "rectangle.split.2x1")
             }
+            Button {
+                appState.workspace = .review
+            } label: {
+                Label("Review", systemImage: "checkmark.seal")
+            }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: workspaceIcon)
@@ -115,6 +120,7 @@ struct EditorJumpBar: View {
         case .schematicCapture: return "square.grid.3x3"
         case .layout: return "square.dashed"
         case .integration: return "rectangle.split.2x1"
+        case .review: return "checkmark.seal"
         }
     }
 
@@ -123,6 +129,7 @@ struct EditorJumpBar: View {
         case .schematicCapture: return "Schematic"
         case .layout: return "Layout"
         case .integration: return "Integration"
+        case .review: return "Review"
         }
     }
 
@@ -155,6 +162,7 @@ struct EditorJumpBar: View {
         case .schematicCapture: return "Schematic"
         case .layout: return "Layout"
         case .integration: return "Schematic + Layout"
+        case .review: return "Run Review"
         }
     }
 
@@ -166,6 +174,7 @@ struct EditorJumpBar: View {
         case .schematicCapture: return "square.grid.3x3"
         case .layout: return "square.dashed"
         case .integration: return "rectangle.split.2x1"
+        case .review: return "checkmark.seal"
         }
     }
 }

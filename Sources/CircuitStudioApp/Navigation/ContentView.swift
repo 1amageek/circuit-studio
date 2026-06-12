@@ -101,6 +101,21 @@ public struct ContentView: View {
             layoutContent
         case .integration:
             integrationContent
+        case .review:
+            reviewContent
+        }
+    }
+
+    @ViewBuilder
+    private var reviewContent: some View {
+        if let projectRoot = appState.projectRootURL {
+            RunReviewView(projectRoot: projectRoot, reviewer: NSUserName())
+        } else {
+            ContentUnavailableView(
+                "Open a project to review runs",
+                systemImage: "checkmark.seal",
+                description: Text("The review cockpit reads .xcircuite/runs of the open project.")
+            )
         }
     }
 

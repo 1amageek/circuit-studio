@@ -14,6 +14,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../XcircuitePackage"),
+        .package(path: "../DesignFlowKernel"),
         .package(path: "../CoreSpice"),
         .package(path: "../semiconductor-layout"),
         .package(path: "../PEXEngine"),
@@ -45,6 +46,7 @@ let package = Package(
             name: "CircuitStudioApp",
             dependencies: [
                 .product(name: "XcircuitePackage", package: "XcircuitePackage"),
+                .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 "CircuitStudioCore",
                 "SchematicEditor",
                 "WaveformViewer",
@@ -86,6 +88,7 @@ let package = Package(
                 "SchematicEditor",
                 "WaveformViewer",
                 "CircuitStudioApp",
+                .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 .product(name: "OpenVAFSupport", package: "swift-openvaf"),
                 .product(name: "VerilogACompiler", package: "swift-openvaf"),
                 .product(name: "PEXEngine", package: "PEXEngine"),
