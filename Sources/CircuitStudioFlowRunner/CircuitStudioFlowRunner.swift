@@ -189,7 +189,9 @@ struct CircuitStudioFlowRunner {
           --signoff-lvs-log PATH
                            Load an existing clean LVS log instead of running the mock LVS command
           --approve-signoff
-                           Explicitly approve passing signoff reports for the PEX gate
+                           Approve passing signoff reports for the PEX gate. Recorded as an
+                           AUTOMATED approval (approval_kind=automated, approved_by=design-flow-command),
+                           distinct from human approvals recorded through the review cockpit
           --max-abs-delta VALUE
                            Fail the post-layout comparison gate when the maximum absolute delta exceeds VALUE
           --max-rel-delta VALUE

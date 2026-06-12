@@ -26,6 +26,19 @@ struct PhysicalVerificationServiceTests {
         #expect(report.violationsByKind["disconnectedOpen"] == 1)
     }
 
+    @Test func physicalRuleViolationsExcludeAnnotationScopeOpensOnly() {
+        let result = LayoutDRCResult(violations: [
+            LayoutViolation(kind: .minWidth, message: "M1 width"),
+            LayoutViolation(kind: .disconnectedOpen, message: "Open net"),
+            LayoutViolation(kind: .minSpacing, message: "M1 spacing"),
+        ])
+
+        let filtered = PhysicalVerificationService.physicalRuleViolations(in: result)
+
+        #expect(filtered.count == 2)
+        #expect(filtered.allSatisfy { $0.kind != .disconnectedOpen })
+    }
+
     @Test func lvsPassesWhenPhysicalInstancesAndNetsMatchDesignUnit() {
         let schematic = makeTwoResistorSchematic()
         let r1InstanceID = UUID()

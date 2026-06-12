@@ -48,7 +48,6 @@ struct TapeoutEvidenceBundleTests {
             claim(.drc, passed: true, artifact: drcArtifact),
             claim(.lvs, passed: true, artifact: lvsArtifact),
         ], gdsPath: nil)
-        #expect(bundle.passed)
         try bundle.verify(runDirectory: dir)
         let manifest = try bundle.jsonManifest()
         #expect(manifest.contains(#""schemaVersion" : 3"#))
@@ -76,7 +75,6 @@ struct TapeoutEvidenceBundleTests {
             claim(.functional, passed: true), claim(.timing, passed: true),
             claim(.drc, passed: false), claim(.lvs, passed: true),
         ], gdsPath: nil)
-        #expect(!bundle.passed)
         #expect(bundle.failing.map(\.axis) == [.drc])
         #expect(throws: TapeoutEvidenceBundle.VerificationError.claimFailed(axis: .drc, statement: "drc ok")) {
             try bundle.verify(requireArtifacts: false)
@@ -104,7 +102,6 @@ struct TapeoutEvidenceBundleTests {
         #expect(bundle.supportingClaims(for: .antenna).count == 1)
         #expect(bundle.signoffClaims(for: .antenna).isEmpty)
         #expect(bundle.claim(.antenna) == nil)
-        #expect(!bundle.passed)
         #expect(throws: TapeoutEvidenceBundle.VerificationError.missingAxis(.antenna)) {
             try bundle.verify(requiredAxes: [.antenna], requireArtifacts: false)
         }
@@ -117,7 +114,6 @@ struct TapeoutEvidenceBundleTests {
             claim(.antenna, passed: false, kind: .supportingEvidence),
         ], gdsPath: nil)
 
-        #expect(!bundle.passed)
         #expect(throws: TapeoutEvidenceBundle.VerificationError.claimFailed(axis: .antenna, statement: "antenna ok")) {
             try bundle.verify(requiredAxes: [.functional], requireArtifacts: false)
         }
@@ -221,7 +217,6 @@ struct TapeoutEvidenceBundleTests {
         let bundle = TapeoutEvidenceBundle(designName: "d", targetClockPeriod: nil,
                                            claims: [claim(.functional, passed: true), claim(.timing, passed: true)],
                                            gdsPath: nil)
-        #expect(!bundle.passed)
         #expect(throws: TapeoutEvidenceBundle.VerificationError.missingAxis(.drc)) {
             try bundle.verify(requiredAxes: [.functional, .timing, .drc, .lvs])
         }

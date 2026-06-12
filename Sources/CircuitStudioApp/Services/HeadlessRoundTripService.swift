@@ -368,10 +368,11 @@ public final class HeadlessRoundTripService {
                 error: error
             )
         }
+        let autoLayoutIssues = autoLayoutStageIssues(layoutOutput)
         stages.append(Stage(
             name: "auto-layout",
-            status: layoutOutput.unroutedNets.isEmpty ? .passed : .failed,
-            message: layoutOutput.unroutedNets.isEmpty ? nil : "Unrouted nets: \(layoutOutput.unroutedNets.joined(separator: ", "))",
+            status: autoLayoutIssues.isEmpty ? .passed : .failed,
+            message: autoLayoutIssues.isEmpty ? nil : autoLayoutIssues.joined(separator: "; "),
             durationSeconds: duration(since: autoLayoutStartedAt)
         ))
         do {
@@ -850,6 +851,20 @@ public final class HeadlessRoundTripService {
         return Self.orderedStageNames[(lastIndex + 1)...].compactMap { name in
             existingNames.contains(name) ? nil : Stage(name: name, status: .skipped)
         }
+    }
+
+    private func autoLayoutStageIssues(_ output: AutoLayoutOutput) -> [String] {
+        var issues: [String] = []
+        if !output.unroutedNets.isEmpty {
+            issues.append("Unrouted nets: \(output.unroutedNets.joined(separator: ", "))")
+        }
+        // Same violation scope as the pre-PEX DRC verdict: annotation-based
+        // connectivity opens are judged by extraction-based LVS instead.
+        let violations = PhysicalVerificationService.physicalRuleViolations(in: output.drcResult)
+        if !violations.isEmpty {
+            issues.append("DRC violations: \(violations.count)")
+        }
+        return issues
     }
 
     private func reconcileAutoLayoutStage(

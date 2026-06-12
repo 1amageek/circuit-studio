@@ -106,7 +106,6 @@ struct SpecToSiliconFlowTests {
         #expect(result.bundle.claim(.density)?.passed == true)
         #expect(result.bundle.claim(.antenna)?.passed == true)
 
-        #expect(result.bundle.passed)
         #expect(result.bundle.failing.isEmpty)
         try result.bundle.verify(
             requiredAxes: [.functional, .timing, .drc, .lvs, .antenna, .density, .ir, .em],

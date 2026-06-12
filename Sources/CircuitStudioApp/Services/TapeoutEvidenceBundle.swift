@@ -128,15 +128,6 @@ public struct TapeoutEvidenceBundle: Sendable, Codable, Hashable {
         self.gdsPath = gdsPath
     }
 
-    public var passed: Bool {
-        do {
-            try verify(requiredAxes: Self.defaultRequiredAxes, requireArtifacts: false)
-            return true
-        } catch {
-            return false
-        }
-    }
-
     public func closesPresentSignoffAxes() -> Bool {
         let axes = Set(claims.filter { $0.kind == .signoff }.map(\.axis))
         guard !axes.isEmpty else { return false }

@@ -104,6 +104,8 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("lvs_passed=\(result.verificationReport?.lvs.passed ?? false)")
             lines.append("external_signoff=\(signoffSource(result: result, context: context))")
             lines.append("signoff_approved=\(result.verificationReport?.externalSignoff?.approved ?? false)")
+            lines.append("signoff_approval_kind=\(result.verificationReport?.externalSignoff?.approvalKind?.rawValue ?? "")")
+            lines.append("signoff_approved_by=\(result.verificationReport?.externalSignoff?.approvedBy ?? "")")
         case .approveGate:
             lines.append("gate_approval=\(result.approvalRecord?.decision.rawValue ?? "")")
             lines.append("gate=\(result.approvalRecord?.gateID.rawValue ?? "")")
@@ -141,7 +143,12 @@ public enum FlowRunnerKeyValueFormatter {
         lines.append("pex_corner=\(result.pexCornerID ?? "")")
         lines.append("pex_elements=\(result.pexElementCount ?? 0)")
         lines.append("external_signoff=\(signoffSource(result: result, context: context))")
-        lines.append("signoff_approved=\(signoffApproved(result: result, context: context))")
+        let approved = signoffApproved(result: result, context: context)
+        lines.append("signoff_approved=\(approved)")
+        // The --approve-signoff flag is the only approval source on this path
+        // and the service records it as an automated approval; human approvals
+        // arrive through review/approval records, never through this command.
+        lines.append("signoff_approval_kind=\(approved ? ExternalSignoffReview.ApprovalKind.automated.rawValue : "")")
         lines.append("comparison_limits=\(result.comparisonLimitsConfigured == true ? "configured" : "none")")
     }
 
@@ -186,6 +193,8 @@ public enum FlowRunnerKeyValueFormatter {
         if let externalSignoff = review?.externalSignoff {
             lines.append("signoff_passed=\(externalSignoff.passed)")
             lines.append("signoff_approved=\(externalSignoff.approved)")
+            lines.append("signoff_approval_kind=\(externalSignoff.approvalKind?.rawValue ?? "")")
+            lines.append("signoff_approved_by=\(externalSignoff.approvedBy ?? "")")
         }
         lines.append("approval_count=\(review?.approvals.count ?? 0)")
         for approval in review?.approvals ?? [] {

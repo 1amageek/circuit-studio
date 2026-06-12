@@ -192,8 +192,16 @@ public struct PhysicalVerificationService: Sendable {
 
     public func runDRC(document: LayoutDocument, tech: LayoutTechDatabase) -> DRCVerificationReport {
         let result = LayoutDRCService().run(document: document, tech: tech)
-        let physicalRuleViolations = result.violations.filter { $0.kind != .disconnectedOpen }
-        return makeDRCReport(violations: physicalRuleViolations)
+        return makeDRCReport(violations: Self.physicalRuleViolations(in: result))
+    }
+
+    /// DRC violations that gate physical signoff. Annotation-based
+    /// connectivity opens are excluded: net connectivity is judged by
+    /// extraction-based LVS, which sees connections through unannotated
+    /// cell-member geometry (device terminal pads) that the annotation-scope
+    /// open check cannot.
+    public static func physicalRuleViolations(in result: LayoutDRCResult) -> [LayoutViolation] {
+        result.violations.filter { $0.kind != .disconnectedOpen }
     }
 
     public func makeDRCReport(violations: [LayoutViolation]) -> DRCVerificationReport {
