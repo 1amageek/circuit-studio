@@ -236,7 +236,7 @@ public final class NetlistParsingService: Sendable {
 
         case .transferFunction(let spec):
             return AnalysisSummary(
-                label: ".tf \(spec.output) \(spec.input)",
+                label: ".tf V(\(spec.output)) \(spec.input)",
                 type: "TF"
             )
 

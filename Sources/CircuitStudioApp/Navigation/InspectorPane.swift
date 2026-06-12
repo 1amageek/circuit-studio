@@ -25,7 +25,11 @@ struct InspectorPane: View {
         case .process:
             ProcessInspectorTab(appState: appState)
         case .analysis:
-            AnalysisInspectorTab(appState: appState)
+            AnalysisInspectorTab(
+                appState: appState,
+                project: project,
+                catalog: services.catalog
+            )
         case .waveform:
             WaveformInspectorTab(viewModel: project.waveformViewModel)
         }

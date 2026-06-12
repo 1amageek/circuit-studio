@@ -310,7 +310,8 @@ public struct NetlistGenerator: Sendable {
             }
             return ".noise v(\(spec.outputNode)) \(spec.inputSource) \(scaleStr) \(spec.numberOfPoints) \(formatEngineering(spec.startFrequency)) \(formatEngineering(spec.stopFrequency))"
         case .tf(let spec):
-            return ".tf \(spec.output) \(spec.input)"
+            // spec.output is a bare node name; the .tf card requires V(node).
+            return ".tf v(\(spec.output)) \(spec.input)"
         case .pz(let spec):
             return ".pz \(spec.inputNode) \(spec.inputReference) \(spec.outputNode) \(spec.outputReference) vol pz"
         }

@@ -403,6 +403,25 @@ struct NetlistGeneratorTests {
         #expect(netlist.contains(".end"))
     }
 
+    @Test func generateTFAnalysisEmitsParsableVOutputCard() async {
+        let document = SchematicDocument()
+        let testbench = Testbench(
+            name: "TF",
+            analysisCommands: [
+                .tf(TFSpec(output: "out", input: "V1")),
+            ]
+        )
+        let generator = NetlistGenerator()
+        let netlist = generator.generate(from: document, title: "TF Test", testbench: testbench)
+        #expect(netlist.contains(".tf v(out) V1"))
+
+        // Round-trip: the parser requires V(node) syntax, so the emitted
+        // card must come back as a TF analysis without diagnostics.
+        let info = await NetlistParsingService().parse(source: netlist, fileName: nil)
+        #expect(!info.hasErrors)
+        #expect(info.analyses.contains { $0.type == "TF" })
+    }
+
     @Test func generateControlledSourceNetlist() {
         let e1 = PlacedComponent(
             deviceKindID: "vcvs",
