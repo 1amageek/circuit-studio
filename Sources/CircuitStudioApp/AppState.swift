@@ -45,7 +45,6 @@ public enum InspectorTab: String, Hashable, Sendable, Codable, CaseIterable {
 /// Active tab in the debug area (bottom). Mirrors Xcode's debug area.
 public enum DebugAreaTab: String, Hashable, Sendable, Codable, CaseIterable {
     case console
-    case waveform
     case issues
 }
 
@@ -83,6 +82,8 @@ public final class AppState {
     // Pane visibility
     public var showInspector: Bool = false
     public var showDebugArea: Bool = false
+    /// Waveform pane split below the editor in the main content area.
+    public var showWaveformPane: Bool = false
 
     // Pane-tab selection
     public var navigatorTab: NavigatorTab = .project
@@ -133,7 +134,7 @@ public final class AppState {
             panels: WorkspaceConfig.PanelState(
                 inspector: showInspector,
                 console: showDebugArea && debugAreaTab == .console,
-                simulationResults: showDebugArea && debugAreaTab == .waveform
+                simulationResults: showWaveformPane
             )
         )
     }
@@ -151,10 +152,8 @@ public final class AppState {
         workspace = Workspace(rawValue: config.activeWorkspace) ?? .schematicCapture
         schematicMode = SchematicMode(rawValue: config.schematicMode) ?? .netlist
         showInspector = config.panels.inspector
-        if config.panels.simulationResults {
-            showDebugArea = true
-            debugAreaTab = .waveform
-        } else if config.panels.console {
+        showWaveformPane = config.panels.simulationResults
+        if config.panels.console {
             showDebugArea = true
             debugAreaTab = .console
         } else {
@@ -312,13 +311,14 @@ public final class AppState {
         isSimulating = false
     }
 
-    /// Switches the debug area to the waveform tab when a completed run
-    /// produced a plottable waveform. Runs without one (e.g. operating
-    /// point) and failed runs keep the console, where their output lives.
+    /// Brings up the waveform pane in the main editor area when a completed
+    /// run produced a plottable waveform, and puts away the debug area that
+    /// the run start opened. Runs without a waveform (e.g. operating point)
+    /// and failed runs keep the console, where their output lives.
     private func focusSimulationOutcome(_ result: SimulationResult) {
         guard (result.waveform?.pointCount ?? 0) > 1 else { return }
-        showDebugArea = true
-        debugAreaTab = .waveform
+        showWaveformPane = true
+        showDebugArea = false
     }
 
     /// Run simulation from a schematic document by generating a SPICE netlist.

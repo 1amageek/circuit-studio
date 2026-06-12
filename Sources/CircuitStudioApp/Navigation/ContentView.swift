@@ -106,7 +106,7 @@ public struct ContentView: View {
     private var workspaceContent: some View {
         switch appState.workspace {
         case .schematicCapture:
-            schematicEditorContent
+            schematicWorkspaceContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .layout:
             layoutContent
@@ -130,6 +130,22 @@ public struct ContentView: View {
         }
     }
 
+    /// Schematic workspace: the editor, with the waveform pane split below it
+    /// once a run has produced a result (edit -> run -> inspect in one view).
+    @ViewBuilder
+    private var schematicWorkspaceContent: some View {
+        if appState.showWaveformPane {
+            VSplitView {
+                schematicEditorContent
+                    .frame(minHeight: 200, maxHeight: .infinity)
+                waveformPane
+                    .frame(minHeight: 160, idealHeight: 280)
+            }
+        } else {
+            schematicEditorContent
+        }
+    }
+
     @ViewBuilder
     private var schematicEditorContent: some View {
         switch appState.schematicMode {
@@ -137,6 +153,24 @@ public struct ContentView: View {
             SchematicEditorView(viewModel: schematicViewModel)
         case .netlist:
             NetlistEditorView(appState: appState)
+        }
+    }
+
+    private var waveformPane: some View {
+        VStack(spacing: 0) {
+            PaneSectionHeader("Waveform") {
+                Button {
+                    appState.showWaveformPane = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Hide Waveform Pane")
+            }
+            WaveformResultView(viewModel: waveformViewModel)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

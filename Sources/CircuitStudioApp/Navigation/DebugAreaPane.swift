@@ -1,8 +1,8 @@
 import SwiftUI
-import WaveformViewer
 
-/// Bottom debug area with Xcode-style tab bar (Console / Waveform / Issues).
+/// Bottom debug area with Xcode-style tab bar (Console / Issues).
 /// Visibility is driven by `appState.showDebugArea`; the active tab is `appState.debugAreaTab`.
+/// Waveforms live in the main editor pane (`ContentView.waveformPane`), not here.
 struct DebugAreaPane: View {
     @Bindable var appState: AppState
     @Bindable var project: StudioSession
@@ -34,8 +34,6 @@ struct DebugAreaPane: View {
         switch appState.debugAreaTab {
         case .console:
             SimulationConsoleView(appState: appState)
-        case .waveform:
-            WaveformResultView(viewModel: project.waveformViewModel)
         case .issues:
             IssuesNavigatorView(appState: appState, project: project)
         }
@@ -43,7 +41,6 @@ struct DebugAreaPane: View {
 
     private static let tabItems: [PaneTabItem<DebugAreaTab>] = [
         .init(.console, systemImage: "terminal", help: "Console"),
-        .init(.waveform, systemImage: "waveform", help: "Waveform"),
         .init(.issues, systemImage: "exclamationmark.triangle", help: "Issues"),
     ]
 }
