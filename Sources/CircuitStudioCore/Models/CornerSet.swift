@@ -13,6 +13,24 @@ public struct CornerSet: Sendable, Identifiable, Codable, Hashable {
     }
 }
 
+extension CornerSet {
+    /// Built-in process-independent PVT corners used when no technology
+    /// (or a technology without corners) is loaded. Only temperature
+    /// varies across these corners: without foundry corner libraries
+    /// there is no process axis to sweep, and claiming one would be
+    /// misleading. The UI states this explicitly.
+    public static func genericPVT() -> CornerSet {
+        CornerSet(
+            name: "Generic PVT",
+            corners: [
+                Corner(name: "typical", temperature: 27.0),
+                Corner(name: "fast", temperature: -40.0),
+                Corner(name: "slow", temperature: 125.0),
+            ]
+        )
+    }
+}
+
 /// A single PVT corner.
 public struct Corner: Sendable, Identifiable, Codable, Hashable {
     public let id: UUID

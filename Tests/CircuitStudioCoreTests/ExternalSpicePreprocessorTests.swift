@@ -113,6 +113,110 @@ struct ExternalSpicePreprocessorTests {
       Issue.record("Expected simulation failure, got \(error)")
     }
   }
+
+  @Test("Process configuration temperature becomes a .temp card")
+  func processConfigurationTemperatureBecomesTempCard() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "CircuitStudioExternalSpicePreprocessorTempTests-\(UUID().uuidString)")
+    defer { removeCoreTestTemporaryDirectory(directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+    let preprocessor = ExternalSpicePreprocessor(openVAFCompiler: RecordingOpenVAFCompiler())
+    let prepared = try await preprocessor.prepare(
+      source: """
+        V1 in 0 DC 1
+        R1 in 0 1k
+        .tran 1n 10n
+        .end
+        """,
+      fileName: directory.appending(path: "input.cir").path,
+      processConfiguration: ProcessConfiguration(temperatureOverride: 85.0),
+      command: nil
+    )
+
+    let netlist = try String(contentsOf: prepared.netlistURL, encoding: .utf8)
+    #expect(netlist.contains(".temp 85.0"))
+  }
+
+  @Test("A stale .temp card is stripped when the configuration resolves a temperature")
+  func staleTempCardIsStrippedWhenConfigurationResolvesTemperature() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "CircuitStudioExternalSpicePreprocessorStaleTempTests-\(UUID().uuidString)")
+    defer { removeCoreTestTemporaryDirectory(directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+    let preprocessor = ExternalSpicePreprocessor(openVAFCompiler: RecordingOpenVAFCompiler())
+    let prepared = try await preprocessor.prepare(
+      source: """
+        V1 in 0 DC 1
+        R1 in 0 1k
+        .temp 27
+        .tran 1n 10n
+        .end
+        """,
+      fileName: directory.appending(path: "input.cir").path,
+      processConfiguration: ProcessConfiguration(temperatureOverride: 125.0),
+      command: nil
+    )
+
+    let netlist = try String(contentsOf: prepared.netlistURL, encoding: .utf8)
+    #expect(!netlist.contains(".temp 27"))
+    #expect(netlist.contains(".temp 125.0"))
+  }
+
+  @Test("Effective parameters become sorted .param cards")
+  func effectiveParametersBecomeSortedParamCards() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "CircuitStudioExternalSpicePreprocessorParamTests-\(UUID().uuidString)")
+    defer { removeCoreTestTemporaryDirectory(directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+    let preprocessor = ExternalSpicePreprocessor(openVAFCompiler: RecordingOpenVAFCompiler())
+    let prepared = try await preprocessor.prepare(
+      source: """
+        V1 in 0 DC 1
+        R1 in 0 1k
+        .tran 1n 10n
+        .end
+        """,
+      fileName: directory.appending(path: "input.cir").path,
+      processConfiguration: ProcessConfiguration(
+        parameterOverrides: ["vth": 0.4, "vdd": 1.8]
+      ),
+      command: nil
+    )
+
+    let netlist = try String(contentsOf: prepared.netlistURL, encoding: .utf8)
+    let vddRange = try #require(netlist.range(of: ".param vdd=1.8"))
+    let vthRange = try #require(netlist.range(of: ".param vth=0.4"))
+    #expect(vddRange.lowerBound < vthRange.lowerBound)
+  }
+
+  @Test("Without a configuration the source's own .temp card stands")
+  func withoutConfigurationSourceTempCardStands() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "CircuitStudioExternalSpicePreprocessorNoConfigTests-\(UUID().uuidString)")
+    defer { removeCoreTestTemporaryDirectory(directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+    let preprocessor = ExternalSpicePreprocessor(openVAFCompiler: RecordingOpenVAFCompiler())
+    let prepared = try await preprocessor.prepare(
+      source: """
+        V1 in 0 DC 1
+        R1 in 0 1k
+        .temp 27
+        .tran 1n 10n
+        .end
+        """,
+      fileName: directory.appending(path: "input.cir").path,
+      processConfiguration: nil,
+      command: nil
+    )
+
+    let netlist = try String(contentsOf: prepared.netlistURL, encoding: .utf8)
+    #expect(netlist.contains(".temp 27"))
+    #expect(netlist.components(separatedBy: ".temp").count == 2)
+  }
 }
 
 private actor RecordingOpenVAFCompiler: OpenVAFCompiler {

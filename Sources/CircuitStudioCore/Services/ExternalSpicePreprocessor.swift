@@ -127,6 +127,14 @@ public struct ExternalSpicePreprocessor: Sendable {
       }
     }
 
+    let overrides = processOverrideCards(for: processConfiguration)
+    if overrides.temperature != nil {
+      // The configuration's resolution is authoritative; a stale .temp card
+      // from the source must not override the selected corner.
+      processedLines = stripTemperatureCards(processedLines)
+    }
+    processedLines.append(contentsOf: overrides.lines)
+
     if let analysisCommand {
       processedLines.append(analysisLine(for: analysisCommand))
     } else if !containsAnalysis(lines: processedLines) {
@@ -219,6 +227,34 @@ public struct ExternalSpicePreprocessor: Sendable {
       }
     }
     return false
+  }
+
+  /// Resolves the temperature and global parameters the configuration
+  /// dictates into SPICE cards. No default temperature is fabricated:
+  /// nil means the netlist's own cards (or the engine default) stand.
+  private func processOverrideCards(
+    for configuration: ProcessConfiguration?
+  ) -> (temperature: Double?, lines: [String]) {
+    guard let configuration else { return (nil, []) }
+    let temperature = configuration.temperatureOverride
+      ?? configuration.effectiveCorner()?.temperature
+      ?? configuration.technology?.defaultTemperature
+    var lines: [String] = []
+    if let temperature {
+      lines.append(".temp \(temperature)")
+    }
+    let parameters = configuration.effectiveParameters()
+    for (name, value) in parameters.sorted(by: { $0.key < $1.key }) {
+      lines.append(".param \(name)=\(value)")
+    }
+    return (temperature, lines)
+  }
+
+  private func stripTemperatureCards(_ lines: [String]) -> [String] {
+    lines.filter { line in
+      let trimmed = line.trimmingCharacters(in: .whitespaces).lowercased()
+      return !(trimmed == ".temp" || trimmed.hasPrefix(".temp "))
+    }
   }
 
   private func extractPreOsdiPaths(

@@ -53,12 +53,13 @@ public struct ContentView: View {
                 waveformViewModel.updateStreaming(waveform: waveform)
             }
         }
-        .onChange(of: appState.isSimulating) { wasSimulating, isSimulating in
-            if wasSimulating, !isSimulating,
-               appState.simulationError == nil,
-               let waveform = appState.simulationResult?.waveform {
-                waveformViewModel.load(waveform: waveform)
-
+        .onChange(of: appState.focusedWaveformVersion) { _, _ in
+            guard let waveform = appState.focusedWaveform else { return }
+            waveformViewModel.load(waveform: waveform)
+            // Terminal-component trace names only match live runs of the open
+            // schematic; overlay/history traces carry corner suffixes that the
+            // filter would empty out.
+            if appState.focusedWaveformSource == .liveRun {
                 let resolver = TerminalResolver()
                 let extractor = NetExtractor()
                 let nets = extractor.extract(from: schematicViewModel.document)
@@ -523,16 +524,10 @@ public struct ContentView: View {
 
     private func runActiveSimulation() {
         Task {
-            switch appState.schematicMode {
-            case .visual:
-                await appState.runSchematicSimulation(
-                    document: schematicViewModel.document,
-                    analysisCommand: appState.selectedAnalysis,
-                    service: services.designFlowService
-                )
-            case .netlist:
-                await appState.runSimulation(service: services.designFlowService)
-            }
+            await appState.runActiveSimulation(
+                schematicDocument: schematicViewModel.document,
+                service: services.designFlowService
+            )
         }
     }
 

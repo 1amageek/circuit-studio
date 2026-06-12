@@ -16,6 +16,7 @@ struct ProcessInspectorTab: View {
             } else {
                 emptySection
             }
+            cornerMatrixSection
         }
         .formStyle(.grouped)
     }
@@ -75,7 +76,46 @@ struct ProcessInspectorTab: View {
         }
     }
 
+    private var cornerMatrixSection: some View {
+        Section("Corner Matrix") {
+            ForEach(appState.availableCorners) { corner in
+                Toggle(isOn: cornerSelectionBinding(corner.id)) {
+                    HStack {
+                        Text(corner.name)
+                        Spacer()
+                        Text(String(format: "%.4g°C", corner.temperature))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if appState.usesGenericCorners {
+                Text("No process corner library is loaded — these built-in corners vary temperature only.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !appState.selectedCornerIDs.isEmpty {
+                Text("Run (⌘R) executes every detected analysis on each selected corner.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     // MARK: - Bindings & actions
+
+    private func cornerSelectionBinding(_ id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { appState.selectedCornerIDs.contains(id) },
+            set: { isSelected in
+                if isSelected {
+                    appState.selectedCornerIDs.insert(id)
+                } else {
+                    appState.selectedCornerIDs.remove(id)
+                }
+            }
+        )
+    }
 
     private var temperatureOverrideBinding: Binding<String> {
         Binding(

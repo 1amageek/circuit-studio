@@ -553,6 +553,28 @@ public struct DesignFlowService: Sendable {
         )
     }
 
+    /// Returns every analysis the SPICE source declares, in declaration order.
+    public func detectAnalyses(
+        source: String,
+        fileName: String?,
+        processConfiguration: ProcessConfiguration?
+    ) async throws -> [AnalysisCommand] {
+        try await simulationService.detectAnalyses(
+            source: source,
+            fileName: fileName,
+            processConfiguration: processConfiguration
+        )
+    }
+
+    /// Runs an analysis × corner matrix and returns one record per cell.
+    public func runAnalysisMatrix(
+        _ request: AnalysisMatrixRequest,
+        onRecordFinished: (@Sendable (AnalysisRunRecord) -> Void)? = nil
+    ) async -> [AnalysisRunRecord] {
+        await AnalysisMatrixRunner(simulationService: simulationService)
+            .run(request, onRecordFinished: onRecordFinished)
+    }
+
     public func runSchematicSimulation(
         _ request: DesignFlowSchematicSimulationRequest
     ) async throws -> DesignFlowSchematicSimulationResult {

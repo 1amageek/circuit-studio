@@ -48,6 +48,15 @@ public enum DebugAreaTab: String, Hashable, Sendable, Codable, CaseIterable {
     case issues
 }
 
+/// Where the waveform shown in the waveform pane came from. The
+/// terminal-component trace filter only applies to live runs, whose trace
+/// names match the open schematic.
+public enum FocusedWaveformSource: Sendable {
+    case liveRun
+    case overlay
+    case history
+}
+
 /// A single entry in the simulation console.
 public struct ConsoleEntry: Identifiable, Sendable {
     public enum Kind: Sendable {
@@ -122,6 +131,42 @@ public final class AppState {
     /// Incremented each time `streamingWaveform` is updated, for observation.
     public var streamingWaveformVersion: Int = 0
 
+    // Corner matrix
+    /// One stable generic PVT instance per session — `CornerSet.genericPVT()`
+    /// mints fresh corner UUIDs on every call, so selection must reference
+    /// a single stored set.
+    public let genericCornerSet: CornerSet = .genericPVT()
+    /// Corners (by ID, within `availableCorners`) selected for matrix runs.
+    public var selectedCornerIDs: Set<UUID> = []
+    /// Completed matrix batches, oldest first, retained for browsing.
+    public var runHistory: [AnalysisRunBatch] = []
+
+    // Focused waveform (what the waveform pane shows)
+    public var focusedWaveform: WaveformData?
+    public var focusedWaveformSource: FocusedWaveformSource = .liveRun
+    /// Incremented each time `focusedWaveform` is set, for observation.
+    public var focusedWaveformVersion: Int = 0
+
+    /// Corners offered for matrix runs: the loaded technology's corners,
+    /// or the built-in generic PVT set when no technology defines any.
+    public var availableCorners: [Corner] {
+        if let corners = processConfiguration.technology?.cornerSet.corners, !corners.isEmpty {
+            return corners
+        }
+        return genericCornerSet.corners
+    }
+
+    /// True when no technology corner library is loaded and the generic
+    /// (temperature-only) corners are in effect.
+    public var usesGenericCorners: Bool {
+        (processConfiguration.technology?.cornerSet.corners.isEmpty ?? true)
+    }
+
+    /// The selected corners in `availableCorners` order.
+    public var selectedCorners: [Corner] {
+        availableCorners.filter { selectedCornerIDs.contains($0.id) }
+    }
+
     // Console
     public var consoleEntries: [ConsoleEntry] = []
 
@@ -150,7 +195,8 @@ public final class AppState {
     public func simulationConfig() -> SimulationConfig {
         SimulationConfig(
             selectedAnalysis: selectedAnalysis,
-            processConfiguration: processConfiguration
+            processConfiguration: processConfiguration,
+            matrixCornerNames: selectedCorners.map(\.name)
         )
     }
 
@@ -172,6 +218,10 @@ public final class AppState {
     public func apply(_ config: SimulationConfig) {
         selectedAnalysis = config.selectedAnalysis
         processConfiguration = config.processConfiguration
+        // Resolve by name after the configuration is in place, because
+        // availableCorners depends on the restored technology.
+        let names = Set(config.matrixCornerNames)
+        selectedCornerIDs = Set(availableCorners.filter { names.contains($0.name) }.map(\.id))
     }
 
     // MARK: - Console
@@ -321,14 +371,29 @@ public final class AppState {
         isSimulating = false
     }
 
+    /// Routes a waveform to the waveform pane. With `reveal`, also brings the
+    /// pane up and puts away the debug area that a run start opened.
+    public func focusWaveform(
+        _ waveform: WaveformData,
+        source: FocusedWaveformSource,
+        reveal: Bool = true
+    ) {
+        focusedWaveform = waveform
+        focusedWaveformSource = source
+        focusedWaveformVersion += 1
+        if reveal {
+            showWaveformPane = true
+            showDebugArea = false
+        }
+    }
+
     /// Brings up the waveform pane in the main editor area when a completed
     /// run produced a plottable waveform, and puts away the debug area that
     /// the run start opened. Runs without a waveform (e.g. operating point)
     /// and failed runs keep the console, where their output lives.
     private func focusSimulationOutcome(_ result: SimulationResult) {
-        guard (result.waveform?.pointCount ?? 0) > 1 else { return }
-        showWaveformPane = true
-        showDebugArea = false
+        guard let waveform = result.waveform else { return }
+        focusWaveform(waveform, source: .liveRun, reveal: waveform.pointCount > 1)
     }
 
     /// Run simulation from a schematic document by generating a SPICE netlist.
@@ -352,18 +417,7 @@ public final class AppState {
             analysisCommands: [analysisCommand]
         )
         let process = processConfiguration.isEmpty ? nil : processConfiguration
-        let analysisName: String = {
-            switch analysisCommand {
-            case .op: return "Operating Point"
-            case .tran: return "Transient"
-            case .ac: return "AC"
-            case .dcSweep: return "DC Sweep"
-            case .noise: return "Noise"
-            case .tf: return "Transfer Function"
-            case .pz: return "Pole-Zero"
-            }
-        }()
-        log("Running \(analysisName) analysis...")
+        log("Running \(analysisCommand.displayName) analysis...")
 
         // Bridge streaming callbacks from background queue to MainActor
         let (stream, continuation) = AsyncStream<WaveformData>.makeStream()
@@ -402,6 +456,198 @@ public final class AppState {
         streamingWaveform = nil
         simulationStatus = nil
         isSimulating = false
+    }
+
+    // MARK: - Matrix Runs
+
+    /// The single entry point behind Run (⌘R): decides between a legacy
+    /// single run and an analysis × corner matrix based on the current
+    /// editor mode, the analyses the source declares, and the selected
+    /// corners.
+    public func runActiveSimulation(
+        schematicDocument: SchematicDocument,
+        service: DesignFlowService
+    ) async {
+        switch schematicMode {
+        case .visual:
+            let corners = selectedCorners
+            guard !corners.isEmpty else {
+                await runSchematicSimulation(
+                    document: schematicDocument,
+                    analysisCommand: selectedAnalysis,
+                    service: service
+                )
+                return
+            }
+            // Generate once with the base configuration: each matrix cell's
+            // corner configuration wins over any netlist .temp card in both
+            // simulation paths, so the shared netlist stays corner-neutral.
+            let testbench = Testbench(name: "Quick", analysisCommands: [selectedAnalysis])
+            let netlist = service.generateNetlist(DesignFlowNetlistRequest(
+                schematic: schematicDocument,
+                testbench: testbench,
+                processConfiguration: processConfiguration.isEmpty ? nil : processConfiguration
+            ))
+            await runMatrix(
+                source: netlist,
+                fileName: "schematic.cir",
+                analyses: [selectedAnalysis],
+                service: service
+            )
+
+        case .netlist:
+            guard !spiceSource.isEmpty else {
+                simulationError = "No SPICE source loaded"
+                return
+            }
+            let detected: [AnalysisCommand]
+            do {
+                detected = try await service.detectAnalyses(
+                    source: spiceSource,
+                    fileName: spiceFileName,
+                    processConfiguration: processConfiguration.isEmpty ? nil : processConfiguration
+                )
+            } catch {
+                simulationError = error.localizedDescription
+                log(error.localizedDescription, kind: .error)
+                return
+            }
+            let analyses = detected.isEmpty ? [.op] : detected
+            if selectedCorners.isEmpty && analyses.count <= 1 {
+                await runSimulation(service: service)
+                return
+            }
+            await runMatrix(
+                source: spiceSource,
+                fileName: spiceFileName,
+                analyses: analyses,
+                service: service
+            )
+        }
+    }
+
+    /// Runs every analysis on every selected corner and retains the batch
+    /// in `runHistory`.
+    public func runMatrix(
+        source: String,
+        fileName: String?,
+        analyses: [AnalysisCommand],
+        service: DesignFlowService
+    ) async {
+        isSimulating = true
+        simulationError = nil
+        streamingWaveform = nil
+        clearConsole()
+        showDebugArea = true
+        debugAreaTab = .console
+
+        let start = Date()
+        let corners = selectedCorners
+        let runCount = analyses.count * max(corners.count, 1)
+        if corners.isEmpty {
+            log("Running \(analyses.count) analyses (\(runCount) runs)...")
+        } else {
+            log("Running \(analyses.count) analyses × \(corners.count) corners (\(runCount) runs)...")
+        }
+
+        let request = AnalysisMatrixRequest(
+            source: source,
+            fileName: fileName,
+            baseConfiguration: processConfiguration.isEmpty ? nil : processConfiguration,
+            corners: corners,
+            analyses: analyses
+        )
+
+        // Bridge per-record callbacks from the runner to MainActor logging.
+        let (stream, continuation) = AsyncStream<AnalysisRunRecord>.makeStream()
+        let updateTask = Task {
+            for await record in stream {
+                self.appendRecordLog(record)
+            }
+        }
+
+        let records = await service.runAnalysisMatrix(request) { record in
+            continuation.yield(record)
+        }
+        continuation.finish()
+        _ = await updateTask.value
+
+        let batch = AnalysisRunBatch(startedAt: start, records: records)
+        runHistory.append(batch)
+
+        let elapsed = String(format: "%.2f", Date().timeIntervalSince(start))
+        let completed = records.filter { $0.status == .completed }
+        let failed = records.filter { $0.status == .failed }
+        let cancelled = records.filter { $0.status == .cancelled }
+        if !cancelled.isEmpty {
+            log("Cancelled after \(completed.count)/\(records.count) runs (\(elapsed)s)", kind: .warning)
+        } else if !failed.isEmpty {
+            log("Completed with \(failed.count) failures out of \(records.count) runs (\(elapsed)s)", kind: .warning)
+            simulationError = failed.first?.failureReason
+        } else {
+            log("Completed \(records.count) runs (\(elapsed)s)", kind: .success)
+        }
+
+        simulationResult = records.last(where: { $0.status == .completed })?.result
+        focusBatchOutcome(batch)
+
+        simulationStatus = nil
+        isSimulating = false
+    }
+
+    private func appendRecordLog(_ record: AnalysisRunRecord) {
+        let corner = record.cornerName.map { " [\($0)]" } ?? ""
+        let temperature = record.temperature.map { String(format: " %.4g°C", $0) } ?? ""
+        let label = "\(record.analysis.mnemonic)\(corner)\(temperature)"
+        switch record.status {
+        case .completed:
+            log("✓ \(label)", kind: .success)
+        case .failed:
+            log("✗ \(label): \(record.failureReason ?? "Unknown failure")", kind: .error)
+        case .cancelled:
+            log("⊘ \(label): \(record.failureReason ?? "Cancelled")", kind: .warning)
+        case .pending, .running:
+            log("\(label): \(record.status.rawValue)")
+        }
+    }
+
+    /// Picks what the waveform pane should show after a batch: a corner
+    /// overlay when an analysis completed on 2+ corners, otherwise the first
+    /// plottable single result. Matrix results focus as `.history`/`.overlay`
+    /// so the live-run terminal filter never empties their traces.
+    private func focusBatchOutcome(_ batch: AnalysisRunBatch) {
+        var analysisOrder: [AnalysisCommand] = []
+        var recordsByAnalysis: [AnalysisCommand: [AnalysisRunRecord]] = [:]
+        for record in batch.records where record.status == .completed {
+            guard let waveform = record.result?.waveform, waveform.pointCount > 0 else { continue }
+            if recordsByAnalysis[record.analysis] == nil {
+                analysisOrder.append(record.analysis)
+            }
+            recordsByAnalysis[record.analysis, default: []].append(record)
+        }
+
+        for analysis in analysisOrder {
+            let records = recordsByAnalysis[analysis] ?? []
+            let overlayable = records.filter { $0.cornerName != nil }
+            if overlayable.count >= 2 {
+                let sources = overlayable.compactMap { record -> CornerOverlayBuilder.Source? in
+                    guard let cornerName = record.cornerName,
+                          let waveform = record.result?.waveform else { return nil }
+                    return CornerOverlayBuilder.Source(label: cornerName, waveform: waveform)
+                }
+                do {
+                    let overlay = try CornerOverlayBuilder().build(sources: sources)
+                    focusWaveform(overlay, source: .overlay)
+                    return
+                } catch {
+                    log("Corner overlay failed: \(error.localizedDescription)", kind: .warning)
+                }
+            }
+            if let waveform = records.first?.result?.waveform, waveform.pointCount > 1 {
+                focusWaveform(waveform, source: .history)
+                return
+            }
+        }
     }
 
     /// Run a specific analysis command.

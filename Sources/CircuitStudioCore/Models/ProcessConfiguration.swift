@@ -54,6 +54,34 @@ public struct ProcessConfiguration: Sendable, Codable, Hashable {
         && resolveIncludes == false
     }
 
+    /// A copy of this configuration with the given corner's PVT conditions
+    /// made authoritative — used to expand one base configuration into a
+    /// corner matrix.
+    ///
+    /// A corner that belongs to the loaded technology is selected by ID so
+    /// its parameter and library-section overrides apply through the normal
+    /// resolution path; any manual temperature override is cleared because
+    /// the matrix dictates per-corner temperature. A corner outside the
+    /// technology (the built-in generic PVT set) is applied directly as a
+    /// temperature override plus merged parameter overrides; manual
+    /// parameter overrides keep priority, matching `effectiveParameters()`.
+    public func selecting(corner: Corner) -> ProcessConfiguration {
+        var copy = self
+        if technology?.corner(id: corner.id) != nil {
+            copy.cornerID = corner.id
+            copy.temperatureOverride = nil
+        } else {
+            copy.cornerID = nil
+            copy.temperatureOverride = corner.temperature
+            var merged = corner.parameterOverrides
+            for (name, value) in parameterOverrides {
+                merged[name] = value
+            }
+            copy.parameterOverrides = merged
+        }
+        return copy
+    }
+
     public func effectiveCorner() -> Corner? {
         guard let technology else { return nil }
         if let cornerID {

@@ -878,16 +878,43 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
 
     // MARK: - Analysis Detection from Parsed Netlist
 
+    /// Parses the source and returns every analysis command the netlist
+    /// declares, in declaration order. Analyses CoreSpice cannot map
+    /// (Monte Carlo, sensitivity, Fourier) are skipped.
+    public func detectAnalyses(
+        source: String,
+        fileName: String?,
+        processConfiguration: ProcessConfiguration? = nil
+    ) async throws -> [AnalysisCommand] {
+        let parseResult = await parseNetlist(
+            source: source,
+            fileName: fileName,
+            processConfiguration: processConfiguration
+        )
+        let netlist: ParsedNetlist
+        do {
+            netlist = try parseResult.get()
+        } catch {
+            throw StudioError.parseFailure("\(error)")
+        }
+        return detectAnalyses(in: netlist)
+    }
+
     private func detectAnalysis(in netlist: ParsedNetlist) -> AnalysisCommand? {
+        detectAnalyses(in: netlist).first
+    }
+
+    private func detectAnalyses(in netlist: ParsedNetlist) -> [AnalysisCommand] {
+        var commands: [AnalysisCommand] = []
         for analysis in netlist.analyses {
             switch analysis {
             case .op:
-                return .op
+                commands.append(.op)
 
             case .transient(let spec):
                 let stop = spec.stopTime.numericValue ?? 1e-6
                 let step = spec.stepTime?.numericValue
-                return .tran(TranSpec(stopTime: stop, stepTime: step))
+                commands.append(.tran(TranSpec(stopTime: stop, stepTime: step)))
 
             case .ac(let spec):
                 let scale: ACScale
@@ -896,23 +923,23 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 case .octave: scale = .octave
                 case .linear: scale = .linear
                 }
-                return .ac(ACSpec(
+                commands.append(.ac(ACSpec(
                     scaleType: scale,
                     numberOfPoints: spec.numberOfPoints,
                     startFrequency: spec.startFrequency.numericValue ?? 1.0,
                     stopFrequency: spec.stopFrequency.numericValue ?? 1e6
-                ))
+                )))
 
             case .dc(let spec):
                 let start = spec.startValue.numericValue ?? 0
                 let stop = spec.stopValue.numericValue ?? 0
                 let step = spec.stepValue.numericValue ?? ((stop - start) / 10.0)
-                return .dcSweep(DCSweepSpec(
+                commands.append(.dcSweep(DCSweepSpec(
                     source: spec.source,
                     startValue: start,
                     stopValue: stop,
                     stepValue: step
-                ))
+                )))
 
             case .noise(let spec):
                 let scale: ACScale
@@ -921,7 +948,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 case .octave: scale = .octave
                 case .linear: scale = .linear
                 }
-                return .noise(NoiseSpec(
+                commands.append(.noise(NoiseSpec(
                     outputNode: spec.outputNode,
                     referenceNode: spec.referenceNode,
                     inputSource: spec.inputSource,
@@ -929,24 +956,24 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                     numberOfPoints: spec.numberOfPoints,
                     startFrequency: spec.startFrequency.numericValue ?? 1.0,
                     stopFrequency: spec.stopFrequency.numericValue ?? 1e6
-                ))
+                )))
 
             case .transferFunction(let spec):
-                return .tf(TFSpec(output: spec.output, input: spec.input))
+                commands.append(.tf(TFSpec(output: spec.output, input: spec.input)))
 
             case .poleZero(let spec):
-                return .pz(PZSpec(
+                commands.append(.pz(PZSpec(
                     inputNode: spec.inputNode,
                     inputReference: spec.inputReference,
                     outputNode: spec.outputNode,
                     outputReference: spec.outputReference
-                ))
+                )))
 
             case .monteCarlo, .sensitivity, .fourier:
                 continue
             }
         }
-        return nil
+        return commands
     }
 
     // MARK: - Event Emission

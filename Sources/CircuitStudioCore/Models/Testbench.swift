@@ -34,6 +34,34 @@ public enum AnalysisCommand: Sendable, Codable, Hashable {
     case pz(PZSpec)
 }
 
+extension AnalysisCommand {
+    /// Human-readable analysis name for UI display.
+    public var displayName: String {
+        switch self {
+        case .op: return "Operating Point"
+        case .ac: return "AC"
+        case .tran: return "Transient"
+        case .dcSweep: return "DC Sweep"
+        case .noise: return "Noise"
+        case .tf: return "Transfer Function"
+        case .pz: return "Pole-Zero"
+        }
+    }
+
+    /// Short uppercase tag for compact UI rows.
+    public var mnemonic: String {
+        switch self {
+        case .op: return "OP"
+        case .ac: return "AC"
+        case .tran: return "TRAN"
+        case .dcSweep: return "DC"
+        case .noise: return "NOISE"
+        case .tf: return "TF"
+        case .pz: return "PZ"
+        }
+    }
+}
+
 /// AC analysis specification.
 public struct ACSpec: Sendable, Codable, Hashable {
     public var scaleType: ACScale
