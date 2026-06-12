@@ -33,6 +33,14 @@ public struct ProjectService: Sendable {
         try ensurePEXProjectFiles(forProjectAt: directory)
     }
 
+    /// Seeds a project with template content (sample netlist, schematic
+    /// placement and simulation config) so it opens as a working example.
+    func installTemplate(_ content: ProjectTemplateContent, forProjectAt projectRoot: URL) throws {
+        try saveNetlist(content.netlist, named: content.netlistFileName, inProjectAt: projectRoot)
+        try saveSchematicPlacement(content.schematicPlacement, forProjectAt: projectRoot)
+        try saveSimulationConfig(content.simulationConfig, forProjectAt: projectRoot)
+    }
+
     /// Returns `true` if the directory contains a `.xcircuite/` folder.
     func isProject(_ directory: URL) -> Bool {
         packageStore.isPackage(at: directory)

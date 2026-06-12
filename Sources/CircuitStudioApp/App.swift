@@ -241,6 +241,10 @@ public struct CircuitStudioApp: App {
                 withIntermediateDirectories: true
             )
             try services.projectService.createProject(at: url)
+            try services.projectService.installTemplate(
+                NewProjectTemplate.cmosInverter(),
+                forProjectAt: url
+            )
 
             let root = try services.fileSystemService.scanDirectory(at: url)
             appState.projectRootURL = url
@@ -251,7 +255,13 @@ public struct CircuitStudioApp: App {
             appState.simulationResult = nil
             appState.simulationError = nil
 
-            appState.log("Created project at \(url.lastPathComponent)", kind: .success)
+            loadProjectConfig(from: url)
+            autoLoadNetlist(from: url)
+
+            appState.log(
+                "Created project at \(url.lastPathComponent) with the CMOS inverter sample",
+                kind: .success
+            )
         } catch {
             appState.log("Failed to create project: \(error.localizedDescription)", kind: .error)
         }
