@@ -145,9 +145,12 @@ public struct ContentView: View {
         if project.designUnit == nil {
             layoutEmptyState
         } else {
-            LayoutEditorView(viewModel: layoutViewModel)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onAppear { layoutViewModel.fitAll() }
+            VStack(spacing: 0) {
+                integrationStatusBanners
+                LayoutEditorView(viewModel: layoutViewModel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onAppear { layoutViewModel.fitAll() }
+            }
         }
     }
 
@@ -168,6 +171,7 @@ public struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!canGenerateLayout)
+                .help(generateLayoutHelp)
 
                 if !canGenerateLayout {
                     Text("Draw components and wires in the Schematic workspace first.")
@@ -304,7 +308,7 @@ public struct ContentView: View {
                     Label("Generate Layout", systemImage: "wand.and.stars")
                 }
                 .disabled(!canGenerateLayout)
-                .help("Generate Layout from Schematic (⇧⌘G)")
+                .help(generateLayoutHelp)
             }
         }
 
@@ -364,6 +368,7 @@ public struct ContentView: View {
                 Label("Stop", systemImage: "stop.fill")
             }
             .keyboardShortcut(".", modifiers: .command)
+            .help("Stop the running simulation (⌘.)")
         } else {
             Button {
                 runActiveSimulation()
@@ -372,6 +377,7 @@ public struct ContentView: View {
             }
             .disabled(runButtonDisabled)
             .keyboardShortcut("r", modifiers: .command)
+            .help("Simulate the schematic with the selected analysis (⌘R)")
         }
     }
 
@@ -381,6 +387,14 @@ public struct ContentView: View {
     private var canGenerateLayout: Bool {
         !schematicViewModel.document.components.isEmpty
             && !schematicViewModel.document.wires.isEmpty
+    }
+
+    /// Tooltip explaining what layout generation does, or why it is disabled.
+    private var generateLayoutHelp: String {
+        if canGenerateLayout {
+            return "Automatically place and route the schematic components into a physical layout, then run DRC (⇧⌘G)"
+        }
+        return "Layout generation needs a schematic with components and wires. Draw the circuit in the Schematic workspace first."
     }
 
     private var runButtonDisabled: Bool {

@@ -101,9 +101,9 @@ public final class StudioSession {
                 tech: techDatabase
             ))
 
-            // Update layout editor
-            layoutViewModel.editor = LayoutDocumentEditor(document: output.document)
-            layoutViewModel.tech = output.tech
+            // Update layout editor — loadDocument re-syncs the active cell,
+            // render index, and live verification with the new document.
+            layoutViewModel.loadDocument(output.document, tech: output.tech)
             layoutViewModel.violations = output.drcResult.violations
 
             // Update cross-probe mappings
