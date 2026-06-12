@@ -239,12 +239,11 @@ public struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            workspacePicker
-        }
-
         ToolbarItem(placement: .principal) {
-            simulationStatusBadge
+            HStack(spacing: 12) {
+                workspacePicker
+                simulationStatusBadge
+            }
         }
 
         ToolbarItem(placement: .primaryAction) {
@@ -272,16 +271,13 @@ public struct ContentView: View {
 
     private var workspacePicker: some View {
         Picker("Workspace", selection: $appState.workspace) {
-            Label("Schematic", systemImage: "square.grid.3x3")
-                .tag(Workspace.schematicCapture)
-            Label("Layout", systemImage: "square.dashed")
-                .tag(Workspace.layout)
-            Label("Integration", systemImage: "rectangle.split.2x1")
-                .tag(Workspace.integration)
-            Label("Review", systemImage: "checkmark.seal")
-                .tag(Workspace.review)
+            Text("Schematic").tag(Workspace.schematicCapture)
+            Text("Layout").tag(Workspace.layout)
+            Text("Integration").tag(Workspace.integration)
+            Text("Review").tag(Workspace.review)
         }
-        .pickerStyle(.menu)
+        .pickerStyle(.segmented)
+        .fixedSize()
         .help("Switch Workspace")
     }
 
