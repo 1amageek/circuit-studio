@@ -13,6 +13,11 @@ public struct SchematicCanvas: View {
     @State private var selectionRectLeftToRight: Bool = true
     @State private var hoverPoint: CGPoint?
 
+    /// Key focus must be claimed explicitly: the drag gesture consumes the
+    /// mouse-down, so macOS never moves focus to the canvas on click, and
+    /// `onKeyPress` (Delete, undo/copy/paste shortcuts) would never fire.
+    @FocusState private var isFocused: Bool
+
     /// Minimum screen-space movement to distinguish drag from tap.
     private let dragThreshold: CGFloat = 3
 
@@ -148,6 +153,10 @@ public struct SchematicCanvas: View {
         .onKeyPress(phases: .down) { keyPress in
             handleKeyPress(keyPress)
         }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($isFocused)
+        .onAppear { isFocused = true }
     }
 
     // MARK: - Translation helpers
@@ -262,6 +271,9 @@ public struct SchematicCanvas: View {
     private var unifiedDragGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // The gesture swallows the mouse-down, so claim key focus
+                // here — clicking the canvas must make keyboard editing work.
+                if !isFocused { isFocused = true }
                 // Ignore micro-movements until the user crosses the drag threshold.
                 guard isDrag(value) else { return }
 
