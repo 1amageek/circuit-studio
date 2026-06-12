@@ -299,6 +299,7 @@ public final class AppState {
             simulationResult = result
             let elapsed = String(format: "%.2f", Date().timeIntervalSince(start))
             log("Completed (\(elapsed)s)", kind: .success)
+            focusSimulationOutcome(result)
         } catch {
             continuation.finish()
             updateTask.cancel()
@@ -309,6 +310,15 @@ public final class AppState {
         streamingWaveform = nil
         simulationStatus = nil
         isSimulating = false
+    }
+
+    /// Switches the debug area to the waveform tab when a completed run
+    /// produced a plottable waveform. Runs without one (e.g. operating
+    /// point) and failed runs keep the console, where their output lives.
+    private func focusSimulationOutcome(_ result: SimulationResult) {
+        guard (result.waveform?.pointCount ?? 0) > 1 else { return }
+        showDebugArea = true
+        debugAreaTab = .waveform
     }
 
     /// Run simulation from a schematic document by generating a SPICE netlist.
@@ -371,6 +381,7 @@ public final class AppState {
             simulationResult = flowResult.simulationResult
             let elapsed = String(format: "%.2f", Date().timeIntervalSince(start))
             log("Completed (\(elapsed)s)", kind: .success)
+            focusSimulationOutcome(flowResult.simulationResult)
         } catch {
             continuation.finish()
             updateTask.cancel()
@@ -409,6 +420,7 @@ public final class AppState {
             simulationResult = result
             let elapsed = String(format: "%.2f", Date().timeIntervalSince(start))
             log("Completed (\(elapsed)s)", kind: .success)
+            focusSimulationOutcome(result)
         } catch {
             log(error.localizedDescription, kind: .error)
             simulationError = error.localizedDescription
