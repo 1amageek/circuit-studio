@@ -881,6 +881,13 @@ struct HeadlessRoundTripServiceTests {
             return RoundTripOutput(result: result, projectRoot: root)
         } catch {
             recordRoundTripFailure(projectRoot: root, runID: runID)
+            do {
+                let preserved = URL(filePath: "/tmp/rt-fail-\(runID)-\(UUID().uuidString)")
+                try FileManager.default.copyItem(at: root, to: preserved)
+                Issue.record("Preserved failing project at \(preserved.path)")
+            } catch {
+                Issue.record("Could not preserve failing project: \(error)")
+            }
             removeTemporaryRoot(root)
             throw error
         }
