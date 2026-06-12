@@ -239,6 +239,10 @@ public struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            workspacePicker
+        }
+
         ToolbarItem(placement: .principal) {
             simulationStatusBadge
         }
@@ -264,6 +268,21 @@ public struct ContentView: View {
             .keyboardShortcut("0", modifiers: [.command, .option])
             .help("Show/Hide Inspector")
         }
+    }
+
+    private var workspacePicker: some View {
+        Picker("Workspace", selection: $appState.workspace) {
+            Label("Schematic", systemImage: "square.grid.3x3")
+                .tag(Workspace.schematicCapture)
+            Label("Layout", systemImage: "square.dashed")
+                .tag(Workspace.layout)
+            Label("Integration", systemImage: "rectangle.split.2x1")
+                .tag(Workspace.integration)
+            Label("Review", systemImage: "checkmark.seal")
+                .tag(Workspace.review)
+        }
+        .pickerStyle(.menu)
+        .help("Switch Workspace")
     }
 
     @ViewBuilder
