@@ -151,9 +151,57 @@ public struct ContentView: View {
         switch appState.schematicMode {
         case .visual:
             SchematicEditorView(viewModel: schematicViewModel)
+                .focusedValue(\.editorCommands, schematicEditorCommands)
         case .netlist:
             NetlistEditorView(appState: appState)
         }
+    }
+
+    // MARK: - Edit Menu Commands
+
+    /// Edit-menu operations for the schematic canvas. The view model's
+    /// mutating operations do not record undo themselves, so each mutating
+    /// command snapshots the document first, matching the canvas key handlers.
+    private var schematicEditorCommands: EditorCommands {
+        EditorCommands(
+            canUndo: schematicViewModel.canUndo,
+            canRedo: schematicViewModel.canRedo,
+            undo: { schematicViewModel.undo() },
+            redo: { schematicViewModel.redo() },
+            cut: {
+                schematicViewModel.recordForUndo()
+                schematicViewModel.cutSelection()
+            },
+            copy: { schematicViewModel.copySelection() },
+            paste: {
+                schematicViewModel.recordForUndo()
+                schematicViewModel.paste(at: nil)
+            },
+            duplicate: {
+                schematicViewModel.recordForUndo()
+                schematicViewModel.duplicate()
+            },
+            delete: {
+                schematicViewModel.recordForUndo()
+                schematicViewModel.deleteSelection()
+            },
+            selectAll: { schematicViewModel.selectAll() }
+        )
+    }
+
+    /// Edit-menu operations for the layout canvas. Cut/copy/paste stay nil —
+    /// the layout editor has no pasteboard support yet, so the menu items
+    /// show as disabled while this editor has focus.
+    private var layoutEditorCommands: EditorCommands {
+        EditorCommands(
+            canUndo: layoutViewModel.canUndo,
+            canRedo: layoutViewModel.canRedo,
+            undo: { layoutViewModel.undo() },
+            redo: { layoutViewModel.redo() },
+            duplicate: { layoutViewModel.duplicateSelectedShapesByGridStep() },
+            delete: { layoutViewModel.deleteSelectedShapes() },
+            selectAll: { layoutViewModel.selectAllShapes() }
+        )
     }
 
     private var waveformPane: some View {
@@ -182,6 +230,7 @@ public struct ContentView: View {
             VStack(spacing: 0) {
                 integrationStatusBanners
                 LayoutEditorView(viewModel: layoutViewModel)
+                    .focusedValue(\.editorCommands, layoutEditorCommands)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onAppear { layoutViewModel.fitAll() }
             }
@@ -228,8 +277,10 @@ public struct ContentView: View {
             integrationStatusBanners
             HSplitView {
                 SchematicEditorView(viewModel: schematicViewModel)
+                    .focusedValue(\.editorCommands, schematicEditorCommands)
                     .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
                 LayoutEditorView(viewModel: layoutViewModel)
+                    .focusedValue(\.editorCommands, layoutEditorCommands)
                     .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
                     .onAppear { layoutViewModel.fitAll() }
             }

@@ -25,6 +25,7 @@ public struct CircuitStudioApp: App {
         .defaultSize(width: 1200, height: 700)
         .commands {
             fileCommands
+            EditMenuCommands()
             viewCommands
             workspaceCommands
             simulationCommands
