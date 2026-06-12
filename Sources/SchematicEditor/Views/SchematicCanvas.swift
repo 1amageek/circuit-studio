@@ -177,10 +177,14 @@ public struct SchematicCanvas: View {
             }
         }
         .background(scrollEventOverlay)
+        .focusable()
+        // Key events dispatch from the focused view outward, so this
+        // handler must wrap `.focusable()`; applied inside it, the
+        // focused node sits above the handler and no key (Delete,
+        // shortcuts) ever reaches it.
         .onKeyPress(phases: .down) { keyPress in
             handleKeyPress(keyPress)
         }
-        .focusable()
         .focusEffectDisabled()
         .focused($isFocused)
         .onAppear { isFocused = true }
