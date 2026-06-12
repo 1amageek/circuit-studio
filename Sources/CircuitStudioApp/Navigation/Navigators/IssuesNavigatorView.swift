@@ -30,7 +30,21 @@ struct IssuesNavigatorView: View {
         }
     }
 
+    @ViewBuilder
     private func issueRow(_ row: IssueRow) -> some View {
+        if let action = row.action {
+            Button(action: action) {
+                issueRowContent(row)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Show in layout")
+        } else {
+            issueRowContent(row)
+        }
+    }
+
+    private func issueRowContent(_ row: IssueRow) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: row.icon)
                 .foregroundStyle(row.tint)
@@ -56,6 +70,7 @@ struct IssuesNavigatorView: View {
         let title: String
         let detail: String?
         let group: String
+        var action: (() -> Void)? = nil
     }
 
     private struct IssueGroup {
@@ -96,7 +111,8 @@ struct IssuesNavigatorView: View {
                 tint: .orange,
                 title: v.message,
                 detail: v.layer.map { "Layer \($0.name)" },
-                group: "DRC"
+                group: "DRC",
+                action: { showInLayout(v) }
             ))
         }
 
@@ -123,6 +139,14 @@ struct IssuesNavigatorView: View {
         }
 
         return result
+    }
+
+    /// Brings the layout on screen and zooms to the violation region.
+    private func showInLayout(_ violation: LayoutViolation) {
+        if appState.workspace != .layout && appState.workspace != .integration {
+            appState.workspace = .layout
+        }
+        project.layoutViewModel.focusViolation(violation)
     }
 
     private var groupedRows: [IssueGroup] {

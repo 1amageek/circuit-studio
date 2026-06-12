@@ -50,6 +50,10 @@ public struct CircuitStudioApp: App {
             Button("Save") { saveAction() }
                 .keyboardShortcut("s")
                 .disabled(appState.spiceSource.isEmpty && appState.projectRootURL == nil)
+            Divider()
+            Button("Export Waveform...") { project.waveformViewModel.exportWaveform() }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(project.waveformViewModel.waveformData == nil)
         }
     }
 
@@ -273,6 +277,7 @@ public struct CircuitStudioApp: App {
             appState.projectRootURL = url
             appState.projectRoot = root
             appState.spiceSource = ""
+            appState.lastSavedSpiceSource = ""
             appState.spiceFileName = nil
             appState.selectedFileURL = nil
             appState.simulationResult = nil
@@ -403,7 +408,9 @@ public struct CircuitStudioApp: App {
         do {
             let placement = try services.projectService.loadSchematicPlacement(forProjectAt: projectRoot)
             project.apply(placement)
+            project.markSchematicSaved()
             appState.spiceSource = placement.sourceNetlist
+            appState.lastSavedSpiceSource = placement.sourceNetlist
         } catch {
             // Not an error — placement may not exist yet
         }
@@ -478,6 +485,8 @@ public struct CircuitStudioApp: App {
                 )
             }
 
+            appState.lastSavedSpiceSource = appState.spiceSource
+            project.markSchematicSaved()
             appState.log("Project saved", kind: .success)
         } catch {
             appState.log("Save failed: \(error.localizedDescription)", kind: .error)

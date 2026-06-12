@@ -32,7 +32,25 @@ public final class StudioSession {
 
     // Design metadata
     public var designName: String = "Untitled"
-    public var isNetlistDirty: Bool = false
+
+    /// Schematic hash as of the last project open or save; nil = never persisted.
+    public var lastSavedSchematicHash: Int?
+
+    /// True when the schematic differs from the last opened/saved state.
+    /// A never-persisted schematic counts as dirty once it has content.
+    public var isSchematicDirty: Bool {
+        let current = DesignUnit.schematicHash(for: schematicViewModel.document)
+        guard let saved = lastSavedSchematicHash else {
+            return !schematicViewModel.document.components.isEmpty
+                || !schematicViewModel.document.wires.isEmpty
+        }
+        return current != saved
+    }
+
+    /// Records the current schematic as the saved baseline.
+    public func markSchematicSaved() {
+        lastSavedSchematicHash = DesignUnit.schematicHash(for: schematicViewModel.document)
+    }
 
     /// True when the schematic has changed since the last layout generation.
     public var isLayoutStale: Bool {

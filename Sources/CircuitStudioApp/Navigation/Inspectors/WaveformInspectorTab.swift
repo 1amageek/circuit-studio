@@ -18,6 +18,7 @@ struct WaveformInspectorTab: View {
                 if viewModel.isComplex {
                     modeSection
                 }
+                exportSection
                 if let error = viewModel.exportError {
                     errorSection(error)
                 }
@@ -38,6 +39,15 @@ struct WaveformInspectorTab: View {
     private var modeSection: some View {
         Section("Mode") {
             LabeledContent("Type", value: "Complex (AC)")
+        }
+    }
+
+    private var exportSection: some View {
+        Section("Export") {
+            Button("Export Waveform...") {
+                viewModel.exportWaveform()
+            }
+            .help("Save the waveform data as CSV or SPICE RAW")
         }
     }
 

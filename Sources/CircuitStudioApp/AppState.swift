@@ -98,6 +98,13 @@ public final class AppState {
     // SPICE source
     public var spiceSource: String = ""
     public var spiceFileName: String?
+    /// Source content as of the last load or save — the dirty baseline.
+    public var lastSavedSpiceSource: String = ""
+
+    /// True when the SPICE source differs from the last loaded/saved content.
+    public var isNetlistDirty: Bool {
+        spiceSource != lastSavedSpiceSource
+    }
 
     // Simulation
     public var isSimulating: Bool = false
@@ -191,6 +198,7 @@ public final class AppState {
     public func loadSPICEFile(url: URL) throws {
         let source = try String(contentsOf: url, encoding: .utf8)
         spiceSource = source
+        lastSavedSpiceSource = source
         spiceFileName = url.lastPathComponent
         selectedFileURL = url
         simulationResult = nil
@@ -229,6 +237,7 @@ public final class AppState {
     public func saveSPICEFile() throws {
         if let url = selectedFileURL {
             try spiceSource.write(to: url, atomically: true, encoding: .utf8)
+            lastSavedSpiceSource = spiceSource
             log("Saved \(url.lastPathComponent)", kind: .success)
         } else {
             saveSPICEFileAs()
@@ -247,6 +256,7 @@ public final class AppState {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try spiceSource.write(to: url, atomically: true, encoding: .utf8)
+            lastSavedSpiceSource = spiceSource
             selectedFileURL = url
             spiceFileName = url.lastPathComponent
             log("Saved \(url.lastPathComponent)", kind: .success)

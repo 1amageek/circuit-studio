@@ -374,6 +374,7 @@ public struct ContentView: View {
         ToolbarItem(placement: .principal) {
             HStack(spacing: 12) {
                 workspacePicker
+                documentTitleLabel
                 simulationStatusBadge
             }
         }
@@ -414,6 +415,30 @@ public struct ContentView: View {
             .keyboardShortcut("0", modifiers: [.command, .option])
             .help("Show/Hide Inspector")
         }
+    }
+
+    /// Document name with an Xcode-style edited marker when there are
+    /// unsaved netlist or schematic changes.
+    private var documentTitleLabel: some View {
+        let isDirty = appState.isNetlistDirty || project.isSchematicDirty
+        return HStack(spacing: 4) {
+            Text(documentTitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            if isDirty {
+                Text("— Edited")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .help(isDirty ? "Unsaved changes — press Cmd-S to save" : "All changes saved")
+        .accessibilityLabel(isDirty ? "\(documentTitle), edited" : documentTitle)
+    }
+
+    private var documentTitle: String {
+        appState.projectRootURL?.lastPathComponent
+            ?? appState.spiceFileName
+            ?? project.designName
     }
 
     private var workspacePicker: some View {
