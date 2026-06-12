@@ -44,10 +44,32 @@ public struct CircuitStudioApp: App {
                 .keyboardShortcut("o")
             Button("Open Folder...") { openFolder() }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
+            openRecentMenu
             Divider()
             Button("Save") { saveAction() }
                 .keyboardShortcut("s")
                 .disabled(appState.spiceSource.isEmpty && appState.projectRootURL == nil)
+        }
+    }
+
+    private var openRecentMenu: some View {
+        Menu("Open Recent") {
+            ForEach(services.recentDocumentsStore.documents) { document in
+                Button(document.displayName) { openRecent(document) }
+                    .help(document.abbreviatedPath)
+            }
+            Divider()
+            Button("Clear Menu") {
+                do {
+                    try services.recentDocumentsStore.clear()
+                } catch {
+                    appState.log(
+                        "Failed to clear recent documents: \(error.localizedDescription)",
+                        kind: .error
+                    )
+                }
+            }
+            .disabled(services.recentDocumentsStore.documents.isEmpty)
         }
     }
 
@@ -257,6 +279,7 @@ public struct CircuitStudioApp: App {
 
             loadProjectConfig(from: url)
             autoLoadNetlist(from: url)
+            noteRecent(url, kind: .projectFolder)
 
             appState.log(
                 "Created project at \(url.lastPathComponent) with the CMOS inverter sample",
@@ -280,6 +303,7 @@ public struct CircuitStudioApp: App {
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 try appState.loadSPICEFile(url: url)
+                noteRecent(url, kind: .netlistFile)
             } catch {
                 appState.simulationError = "Failed to load file: \(error.localizedDescription)"
             }
@@ -295,17 +319,69 @@ public struct CircuitStudioApp: App {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         do {
-            let root = try services.fileSystemService.scanDirectory(at: url)
-            appState.projectRootURL = url
-            appState.projectRoot = root
-
-            if services.projectService.isProject(url) {
-                loadProjectConfig(from: url)
-            }
-
-            autoLoadNetlist(from: url)
+            try openProjectFolder(at: url)
+            noteRecent(url, kind: .projectFolder)
         } catch {
             appState.simulationError = "Failed to open folder: \(error.localizedDescription)"
+        }
+    }
+
+    private func openProjectFolder(at url: URL) throws {
+        let root = try services.fileSystemService.scanDirectory(at: url)
+        appState.projectRootURL = url
+        appState.projectRoot = root
+
+        if services.projectService.isProject(url) {
+            loadProjectConfig(from: url)
+        }
+
+        autoLoadNetlist(from: url)
+    }
+
+    // MARK: - Open Recent
+
+    private func openRecent(_ document: RecentDocument) {
+        do {
+            let url = try services.recentDocumentsStore.beginAccess(to: document)
+            switch document.kind {
+            case .projectFolder:
+                try openProjectFolder(at: url)
+            case .netlistFile:
+                try appState.loadSPICEFile(url: url)
+            }
+            noteRecent(url, kind: document.kind)
+        } catch {
+            appState.log(
+                "Failed to open \(document.displayName): \(error.localizedDescription)",
+                kind: .error
+            )
+            removeRecent(document)
+        }
+    }
+
+    private func noteRecent(_ url: URL, kind: RecentDocument.Kind) {
+        do {
+            try services.recentDocumentsStore.noteOpened(url, kind: kind)
+        } catch {
+            appState.log(
+                "Could not add \(url.lastPathComponent) to Open Recent: \(error.localizedDescription)",
+                kind: .warning
+            )
+        }
+    }
+
+    private func removeRecent(_ document: RecentDocument) {
+        do {
+            try services.recentDocumentsStore.remove(document)
+            appState.log(
+                "Removed \(document.displayName) from Open Recent",
+                kind: .warning
+            )
+        } catch {
+            appState.log(
+                "Could not update Open Recent: \(error.localizedDescription)",
+                kind: .warning
+            )
         }
     }
 

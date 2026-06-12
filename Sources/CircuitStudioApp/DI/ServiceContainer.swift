@@ -12,6 +12,7 @@ public final class ServiceContainer {
     public let netlistParsingService: NetlistParsingService
     public let projectService: ProjectService
     public let pexCommandService: PEXCommandService
+    public let recentDocumentsStore: RecentDocumentsStore
 
     public init() {
         let catalog = DeviceCatalog.standard()
@@ -28,5 +29,6 @@ public final class ServiceContainer {
         self.netlistParsingService = NetlistParsingService()
         self.projectService = ProjectService()
         self.pexCommandService = PEXCommandService()
+        self.recentDocumentsStore = RecentDocumentsStore()
     }
 }
