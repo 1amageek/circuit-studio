@@ -22,6 +22,11 @@ public struct ContentView: View {
         self.project = project
     }
 
+    /// Fixed inspector width: HSplitPane enforces min/max only during divider
+    /// drags, so a fixed required width is the only way to keep the pane stable
+    /// when it is shown or hidden.
+    private static let inspectorWidth: CGFloat = 300
+
     private var schematicViewModel: SchematicViewModel { project.schematicViewModel }
     private var layoutViewModel: LayoutEditorViewModel { project.layoutViewModel }
     private var waveformViewModel: WaveformViewModel { project.waveformViewModel }
@@ -35,12 +40,12 @@ public struct ContentView: View {
                 editorArea
                 if appState.showInspector {
                     InspectorPane(appState: appState, services: services, project: project)
-                        .frame(minWidth: 220, maxWidth: 420)
+                        .frame(width: Self.inspectorWidth)
                 }
             }
             .leadingPaneWidth(minimum: 300)
-            .trailingPaneWidth(minimum: 220)
-            .trailingPaneWidth(maximum: 420)
+            .trailingPaneWidth(minimum: Self.inspectorWidth)
+            .trailingPaneWidth(maximum: Self.inspectorWidth)
             .toolbar { toolbarContent }
         }
         .onChange(of: appState.streamingWaveformVersion) { _, _ in
@@ -135,10 +140,48 @@ public struct ContentView: View {
         }
     }
 
+    @ViewBuilder
     private var layoutContent: some View {
-        LayoutEditorView(viewModel: layoutViewModel)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onAppear { layoutViewModel.fitAll() }
+        if project.designUnit == nil {
+            layoutEmptyState
+        } else {
+            LayoutEditorView(viewModel: layoutViewModel)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear { layoutViewModel.fitAll() }
+        }
+    }
+
+    private var layoutEmptyState: some View {
+        ContentUnavailableView {
+            Label("No Layout", systemImage: "square.dashed")
+        } description: {
+            Text("Generate a layout from the schematic to start physical design.")
+        } actions: {
+            VStack(spacing: 8) {
+                Button {
+                    project.generateLayout(
+                        service: services.designFlowService,
+                        catalog: services.catalog
+                    )
+                } label: {
+                    Label("Generate from Schematic", systemImage: "wand.and.stars")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canGenerateLayout)
+
+                if !canGenerateLayout {
+                    Text("Draw components and wires in the Schematic workspace first.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let error = project.layoutGenerationError {
+                    Label(error, systemImage: "xmark.octagon.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -250,6 +293,21 @@ public struct ContentView: View {
             runOrStopButton
         }
 
+        if appState.workspace == .layout || appState.workspace == .integration {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    project.generateLayout(
+                        service: services.designFlowService,
+                        catalog: services.catalog
+                    )
+                } label: {
+                    Label("Generate Layout", systemImage: "wand.and.stars")
+                }
+                .disabled(!canGenerateLayout)
+                .help("Generate Layout from Schematic (⇧⌘G)")
+            }
+        }
+
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
                 appState.showDebugArea.toggle()
@@ -318,6 +376,12 @@ public struct ContentView: View {
     }
 
     // MARK: - Run Logic
+
+    /// Mirrors the menu command's enablement in App.swift.
+    private var canGenerateLayout: Bool {
+        !schematicViewModel.document.components.isEmpty
+            && !schematicViewModel.document.wires.isEmpty
+    }
 
     private var runButtonDisabled: Bool {
         guard appState.workspace == .schematicCapture else { return true }
