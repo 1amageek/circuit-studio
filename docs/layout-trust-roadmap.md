@@ -118,6 +118,13 @@ The service boundaries are protocol-backed (`LayoutOwnershipResolving`,
 `NetAwareLayoutEvaluating`, `LayoutTrustEvaluating`, and `LayoutTrustArtifactWriting`)
 so tests and future engines can replace one layer without changing the others.
 
+Module ownership follows the layout engine boundary:
+
+| Module | Owns |
+|---|---|
+| `CircuitPhysicalDesign` | Ownership policy, ownership resolution, net-aware physical topology evaluation, and the structured `LayoutTrustReport`. |
+| `CircuitStudioApp` | Run-directory artifact publishing, CLI/API command orchestration, logs, and UI presentation of the trust result. |
+
 The generated artifact set is:
 
 | Artifact | Producer | Consumer |

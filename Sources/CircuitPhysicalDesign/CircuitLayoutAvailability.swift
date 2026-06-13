@@ -1,7 +1,8 @@
 import Foundation
 import CircuitStudioCore
+import LayoutEngine
 
-enum LayoutGenerationFailureCode: String, Sendable, Codable, Equatable {
+public enum CircuitLayoutAvailabilityFailureCode: String, Sendable, Codable, Equatable {
     case none
     case missingMaterializedSchematic
     case netlistMaterializationFailed
@@ -13,50 +14,34 @@ enum LayoutGenerationFailureCode: String, Sendable, Codable, Equatable {
     case noPlaceableComponents
 }
 
-struct LayoutGenerationAvailability: Sendable, Codable, Equatable {
-    let isAvailable: Bool
-    let code: LayoutGenerationFailureCode
-    let reason: String?
-    let help: String
+public struct CircuitLayoutAvailability: Sendable, Codable, Equatable {
+    public let isAvailable: Bool
+    public let code: CircuitLayoutAvailabilityFailureCode
+    public let reason: String?
+    public let help: String
 
-    static func evaluate(
+    public init(
+        isAvailable: Bool,
+        code: CircuitLayoutAvailabilityFailureCode,
+        reason: String?,
+        help: String
+    ) {
+        self.isAvailable = isAvailable
+        self.code = code
+        self.reason = reason
+        self.help = help
+    }
+
+    public static func evaluate(
         document: SchematicDocument,
         catalog: DeviceCatalog,
-        activeCellName: String? = nil,
-        source: LayoutGenerationSourceSnapshot? = nil
-    ) -> LayoutGenerationAvailability {
+        deviceCellEngines: any DeviceCellEngineProviding = CircuitPhysicalDesignDefaults.layoutEngineCatalog(),
+        activeCellName: String? = nil
+    ) -> CircuitLayoutAvailability {
         let cellName = activeCellName ?? "active cell"
         let cellDescription = "Cell '\(cellName)'"
 
         guard !document.components.isEmpty else {
-            if let source {
-                let loadedNetlistName = source.topNetlist.exists
-                    ? (source.topNetlist.fileName ?? "top.cir")
-                    : (source.selectedFile.fileName ?? "SPICE netlist")
-                if let materialization = source.netlistMaterialization,
-                   materialization.status == .failed {
-                    return unavailable(
-                        code: .netlistMaterializationFailed,
-                        "\(cellDescription) has no materialized schematic because \(loadedNetlistName) could not be imported: \(materialization.message ?? "unknown failure").",
-                        help: "Fix the SPICE import issue or create cells/\(cellName)/schematic.json before generating layout."
-                    )
-                }
-                if source.topNetlist.exists, !source.activeCellSchematic.exists {
-                    return unavailable(
-                        code: .missingMaterializedSchematic,
-                        "\(loadedNetlistName) is loaded, but cells/\(cellName)/schematic.json is missing.",
-                        help: "Layout generation needs a materialized schematic cell. The project opened with a SPICE netlist but no visual schematic cell."
-                    )
-                }
-                if source.projectRoot.path == nil, source.selectedFile.exists {
-                    return unavailable(
-                        code: .missingMaterializedSchematic,
-                        "\(loadedNetlistName) is loaded, but no schematic has been materialized.",
-                        help: "Layout generation needs a materialized schematic cell before physical design can start."
-                    )
-                }
-            }
-
             return unavailable(
                 code: .emptySchematic,
                 "\(cellDescription) has no schematic components.",
@@ -94,7 +79,8 @@ struct LayoutGenerationAvailability: Sendable, Codable, Equatable {
 
         let unsupportedPhysicalComponents = document.components.filter { component in
             guard let kind = catalog.device(for: component.deviceKindID) else { return false }
-            return requiresLayoutGenerator(kind) && !hasLayoutGenerator(kind)
+            return requiresLayoutGenerator(kind)
+                && !hasLayoutGenerator(kind, deviceCellEngines: deviceCellEngines)
         }
         if !unsupportedPhysicalComponents.isEmpty {
             let component = unsupportedPhysicalComponents[0]
@@ -107,7 +93,7 @@ struct LayoutGenerationAvailability: Sendable, Codable, Equatable {
 
         let placeableComponents = document.components.filter { component in
             guard let kind = catalog.device(for: component.deviceKindID) else { return false }
-            return hasLayoutGenerator(kind)
+            return hasLayoutGenerator(kind, deviceCellEngines: deviceCellEngines)
         }
         guard !placeableComponents.isEmpty else {
             return unavailable(
@@ -118,7 +104,7 @@ struct LayoutGenerationAvailability: Sendable, Codable, Equatable {
         }
 
         if document.wires.isEmpty {
-            return LayoutGenerationAvailability(
+            return CircuitLayoutAvailability(
                 isAvailable: true,
                 code: .none,
                 reason: nil,
@@ -126,7 +112,7 @@ struct LayoutGenerationAvailability: Sendable, Codable, Equatable {
             )
         }
 
-        return LayoutGenerationAvailability(
+        return CircuitLayoutAvailability(
             isAvailable: true,
             code: .none,
             reason: nil,
@@ -135,14 +121,14 @@ struct LayoutGenerationAvailability: Sendable, Codable, Equatable {
     }
 
     private static func unavailable(
-        code: LayoutGenerationFailureCode,
+        code: CircuitLayoutAvailabilityFailureCode,
         _ reason: String,
         help: String
-    ) -> LayoutGenerationAvailability {
-        LayoutGenerationAvailability(isAvailable: false, code: code, reason: reason, help: reason + " " + help)
+    ) -> CircuitLayoutAvailability {
+        CircuitLayoutAvailability(isAvailable: false, code: code, reason: reason, help: reason + " " + help)
     }
 
-    static func duplicatedComponentNames(in components: [PlacedComponent]) -> [String] {
+    public static func duplicatedComponentNames(in components: [PlacedComponent]) -> [String] {
         var counts: [String: Int] = [:]
         for component in components {
             counts[component.name, default: 0] += 1
@@ -161,7 +147,7 @@ struct LayoutGenerationAvailability: Sendable, Codable, Equatable {
         return names
     }
 
-    static func requiresLayoutGenerator(_ kind: DeviceKind) -> Bool {
+    public static func requiresLayoutGenerator(_ kind: DeviceKind) -> Bool {
         switch kind.category {
         case .passive, .semiconductor:
             return true
@@ -170,20 +156,20 @@ struct LayoutGenerationAvailability: Sendable, Codable, Equatable {
         }
     }
 
-    static func hasLayoutGenerator(_ kind: DeviceKind) -> Bool {
-        if let modelType = kind.modelType, modelType == "NMOS" || modelType == "PMOS" {
-            return true
-        }
-        switch kind.spicePrefix {
-        case "R", "C", "M":
-            return true
-        default:
-            return false
-        }
+    public static func hasLayoutGenerator(
+        _ kind: DeviceKind,
+        deviceCellEngines: any DeviceCellEngineProviding = CircuitPhysicalDesignDefaults.layoutEngineCatalog()
+    ) -> Bool {
+        deviceCellEngines.deviceCellGenerator(
+            canonicalDeviceKindID: PhysicalDeviceMapper.canonicalDeviceKindID(kind)
+        ) != nil
     }
 
-    static func hasLayoutGenerator(_ kind: DeviceKind?) -> Bool {
+    public static func hasLayoutGenerator(
+        _ kind: DeviceKind?,
+        deviceCellEngines: any DeviceCellEngineProviding = CircuitPhysicalDesignDefaults.layoutEngineCatalog()
+    ) -> Bool {
         guard let kind else { return false }
-        return hasLayoutGenerator(kind)
+        return hasLayoutGenerator(kind, deviceCellEngines: deviceCellEngines)
     }
 }

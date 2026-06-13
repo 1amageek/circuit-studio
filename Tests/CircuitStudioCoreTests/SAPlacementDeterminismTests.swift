@@ -1,4 +1,5 @@
 import Foundation
+import CircuitPhysicalDesign
 import Testing
 import SchematicEditor
 import CircuitStudioCore
@@ -18,7 +19,7 @@ struct SAPlacementDeterminismTests {
         var summaries: Set<String> = []
         for _ in 0..<5 {
             let document = SchematicPreview.cmosInverterViewModel().document
-            let output = try AutoLayoutService().generate(
+            let output = try CircuitLayoutSynthesizer().generate(
                 from: document,
                 catalog: .standard(),
                 placementStrategy: .optimized

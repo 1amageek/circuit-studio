@@ -1,4 +1,5 @@
 import Foundation
+import CircuitPhysicalDesign
 
 public struct DesignFlowVerificationReport: Sendable, Hashable, Codable {
     public let status: String

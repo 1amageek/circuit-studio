@@ -3,26 +3,11 @@ import CircuitStudioCore
 import LayoutCore
 import LayoutTech
 import LayoutAutoGen
+import LayoutEngine
 import LayoutVerify
 
-/// Placement algorithm strategy.
-public enum PlacementStrategy: Sendable {
-    /// Greedy row-based placement (fast, lower quality).
-    case greedy
-    /// Simulated annealing optimization (slower, higher quality).
-    case optimized
-}
-
-/// Routing algorithm strategy.
-public enum RoutingStrategy: Sendable {
-    /// Simple Manhattan MST routing.
-    case simple
-    /// Steiner tree routing with congestion-aware rip-up/reroute.
-    case steiner
-}
-
-/// Output of the auto-layout generation pipeline.
-public struct AutoLayoutOutput: Sendable {
+/// Output of the circuit-to-layout synthesis pipeline.
+public struct CircuitLayoutSynthesisOutput: Sendable {
     public let document: LayoutDocument
     public let tech: LayoutTechDatabase
     public let designUnit: DesignUnit
@@ -39,31 +24,29 @@ public struct AutoLayoutOutput: Sendable {
     public let antennaMitigationFailures: [String]
 }
 
-/// Orchestrates the full auto-layout pipeline: net extraction → cell generation → placement → routing → DRC.
-@MainActor
-public final class AutoLayoutService {
+/// Orchestrates circuit-to-layout synthesis: net extraction → cell generation → placement → routing → DRC.
+public final class CircuitLayoutSynthesizer {
     private let defaultTech: LayoutTechDatabase
+    private let layoutEngineCatalog: any LayoutEngineCataloging
     private var cellCache: DeviceCellCache
-    private let mosfetGen: MOSFETCellGenerator
-    private let resistorGen: ResistorCellGenerator
-    private let capacitorGen: CapacitorCellGenerator
 
-    public init(tech: LayoutTechDatabase = .sampleProcess()) {
+    public init(
+        tech: LayoutTechDatabase = .sampleProcess(),
+        layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog()
+    ) {
         self.defaultTech = tech
+        self.layoutEngineCatalog = layoutEngineCatalog
         self.cellCache = DeviceCellCache()
-        self.mosfetGen = MOSFETCellGenerator()
-        self.resistorGen = ResistorCellGenerator()
-        self.capacitorGen = CapacitorCellGenerator()
     }
 
     public func generate(
         from document: SchematicDocument,
         catalog: DeviceCatalog,
         tech overrideTech: LayoutTechDatabase? = nil,
-        placementStrategy: PlacementStrategy = .greedy,
-        routingStrategy: RoutingStrategy = .simple,
+        placementStrategy: PlacementEngineSelection = .greedy,
+        routingStrategy: RoutingEngineSelection = .simple,
         constraints: [LayoutConstraint] = []
-    ) throws -> AutoLayoutOutput {
+    ) throws -> CircuitLayoutSynthesisOutput {
         let tech = ensureContactDefinitions(overrideTech ?? defaultTech)
 
         // 1. Extract nets
@@ -79,18 +62,18 @@ public final class AutoLayoutService {
         // does not exist yet — fail before producing a partial layout.
         let cellInstances = document.components.filter { $0.cellName != nil }
         guard cellInstances.isEmpty else {
-            throw AutoLayoutError.hierarchicalCellsUnsupported(
+            throw CircuitLayoutSynthesisError.hierarchicalCellsUnsupported(
                 instanceNames: cellInstances.map(\.name)
             )
         }
         let duplicateNames = duplicatedComponentNames(in: document.components)
         guard duplicateNames.isEmpty else {
-            throw AutoLayoutError.duplicateComponentNames(duplicateNames)
+            throw CircuitLayoutSynthesisError.duplicateComponentNames(duplicateNames)
         }
 
         for component in document.components {
             guard let kind = catalog.device(for: component.deviceKindID) else {
-                throw AutoLayoutError.unknownDeviceKind(
+                throw CircuitLayoutSynthesisError.unknownDeviceKind(
                     instanceName: component.name,
                     deviceKindID: component.deviceKindID
                 )
@@ -103,15 +86,15 @@ public final class AutoLayoutService {
                 continue
             }
 
-            let generator = resolveGenerator(for: kind)
+            let deviceKindForGen = PhysicalDeviceMapper.canonicalDeviceKindID(kind)
+            let generator = layoutEngineCatalog.deviceCellGenerator(canonicalDeviceKindID: deviceKindForGen)
             guard let gen = generator else {
-                throw AutoLayoutError.unsupportedLayoutDevice(
+                throw CircuitLayoutSynthesisError.unsupportedLayoutDevice(
                     instanceName: component.name,
                     deviceKindID: component.deviceKindID
                 )
             }
 
-            let deviceKindForGen = classifyDeviceKindID(kind)
             let layoutParams = convertParametersToMicrometers(
                 component.parameters, kind: kind
             )
@@ -128,37 +111,27 @@ public final class AutoLayoutService {
             instances.append(PlacementInstance(
                 id: component.id,
                 cell: cell,
-                deviceType: classifyDeviceType(kind),
+                deviceType: PhysicalDeviceMapper.deviceType(kind),
                 name: component.name
             ))
         }
         guard !instances.isEmpty else {
-            throw AutoLayoutError.noPlaceableComponents
+            throw CircuitLayoutSynthesisError.noPlaceableComponents
         }
 
         // 3. Build placement nets
         let placementNets = buildPlacementNets(nets: nets, instanceIDs: Set(instances.map(\.id)))
 
         // 4. Place
-        let placement: PlacementResult
-        switch placementStrategy {
-        case .greedy:
-            placement = try RowBasedPlacementEngine().place(
-                instances: instances,
-                nets: placementNets,
-                tech: tech
-            )
-        case .optimized:
-            let saEngine = SAPlacementEngine(
-                configuration: .init(initialTemperature: 1000, coolingRate: 0.97, minTemperature: 0.1),
-                constraints: constraints
-            )
-            placement = try saEngine.place(
-                instances: instances,
-                nets: placementNets,
-                tech: tech
-            )
-        }
+        let placementEngine = try layoutEngineCatalog.makePlacementEngine(
+            for: placementStrategy,
+            constraints: constraints
+        )
+        let placement = try placementEngine.place(
+            instances: instances,
+            nets: placementNets,
+            tech: tech
+        )
 
         // 5. Build routing nets with absolute pin positions
         let routingNets = buildRoutingNets(
@@ -173,13 +146,8 @@ public final class AutoLayoutService {
         // violations attributed to routed nets trigger rip-up and reroute
         // against the kept routes; whatever survives the budget is carried
         // into the reported DRC result instead of being dropped.
-        let engine: any RoutingEngine
-        switch routingStrategy {
-        case .simple:
-            engine = SimpleRoutingEngine()
-        case .steiner:
-            engine = SteinerRoutingEngine()
-        }
+        let engine = try layoutEngineCatalog.makeRoutingEngine(for: routingStrategy)
+        let verifier = try layoutEngineCatalog.makePostRouteVerifier(tech: tech)
         let outcome = try DRCDrivenRoutingLoop().run(
             nets: routingNets,
             placements: placement.placements,
@@ -187,10 +155,10 @@ public final class AutoLayoutService {
             obstructions: placement.powerRails,
             tech: tech,
             engine: engine,
-            verifier: DRCPostRouteVerifier(tech: tech),
+            verifier: verifier,
             assemble: { routing in
                 self.assembleDocument(
-                    name: "AutoLayout",
+                    name: "CircuitLayoutSynthesis",
                     cells: cells,
                     instances: instances,
                     placement: placement,
@@ -242,7 +210,7 @@ public final class AutoLayoutService {
         }
         evaluator.injectDRC(violations: drcViolations, into: &metrics)
 
-        return AutoLayoutOutput(
+        return CircuitLayoutSynthesisOutput(
             document: layoutDoc,
             tech: tech,
             designUnit: designUnit,
@@ -427,59 +395,6 @@ public final class AutoLayoutService {
         }
 
         return result
-    }
-
-    // MARK: - Generator Resolution
-
-    private func resolveGenerator(for kind: DeviceKind) -> (any DeviceCellGenerator)? {
-        if let modelType = kind.modelType {
-            switch modelType {
-            case "NMOS", "PMOS":
-                return mosfetGen
-            default:
-                break
-            }
-        }
-
-        switch kind.spicePrefix {
-        case "R":
-            return resistorGen
-        case "C":
-            return capacitorGen
-        case "M":
-            return mosfetGen
-        default:
-            return nil
-        }
-    }
-
-    private func classifyDeviceKindID(_ kind: DeviceKind) -> String {
-        if let modelType = kind.modelType {
-            switch modelType {
-            case "NMOS": return "nmos"
-            case "PMOS": return "pmos"
-            default: break
-            }
-        }
-        switch kind.spicePrefix {
-        case "R": return "resistor"
-        case "C": return "capacitor"
-        case "M":
-            return kind.modelType == "PMOS" ? "pmos" : "nmos"
-        default:
-            return kind.id
-        }
-    }
-
-    private func classifyDeviceType(_ kind: DeviceKind) -> DeviceType {
-        if let modelType = kind.modelType {
-            switch modelType {
-            case "NMOS": return .nmos
-            case "PMOS": return .pmos
-            default: break
-            }
-        }
-        return .passive
     }
 
     private func duplicatedComponentNames(in components: [PlacedComponent]) -> [String] {

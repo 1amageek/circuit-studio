@@ -53,12 +53,6 @@ public struct LayoutTrustReport: Sendable, Hashable, Codable {
     }
 }
 
-extension LayoutTrustReport: ArtifactPayloadValidating {
-    public func validateForPersistence() throws {
-        _ = try JSONEncoder().encode(self)
-    }
-}
-
 extension LayoutTrustReport {
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

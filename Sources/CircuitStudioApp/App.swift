@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import CircuitStudioCore
+import CircuitPhysicalDesign
 import WaveformViewer
 import SchematicEditor
 import LayoutEditor
@@ -252,7 +253,7 @@ public struct CircuitStudioApp: App {
         }
     }
 
-    private var layoutGenerationAvailability: LayoutGenerationAvailability {
+    private var layoutGenerationAvailability: CircuitLayoutAvailability {
         makeLayoutGenerationPreflightReport(context: "menu").availability
     }
 
@@ -275,6 +276,7 @@ public struct CircuitStudioApp: App {
             selectedFileURL: appState.selectedFileURL,
             projectService: services.projectService,
             catalog: services.catalog,
+            layoutEngineCatalog: services.designFlowService.layoutEngineCatalog,
             workspace: appState.workspace.rawValue,
             netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
                 appState.netlistSchematicMaterializationState

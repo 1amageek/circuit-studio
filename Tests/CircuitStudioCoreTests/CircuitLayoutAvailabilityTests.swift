@@ -1,11 +1,12 @@
 import CoreGraphics
 import Foundation
+import CircuitPhysicalDesign
 import Testing
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 
-@Suite("Layout Generation Availability")
-struct LayoutGenerationAvailabilityTests {
+@Suite("Circuit Layout Availability")
+struct CircuitLayoutAvailabilityTests {
 
     @Test func componentWithoutWiresIsAvailable() {
         let document = SchematicDocument(components: [
@@ -17,7 +18,7 @@ struct LayoutGenerationAvailabilityTests {
             ),
         ])
 
-        let availability = LayoutGenerationAvailability.evaluate(
+        let availability = CircuitLayoutAvailability.evaluate(
             document: document,
             catalog: .standard(),
             activeCellName: "TOP"
@@ -29,7 +30,7 @@ struct LayoutGenerationAvailabilityTests {
     }
 
     @Test func emptySchematicReportsReason() {
-        let availability = LayoutGenerationAvailability.evaluate(
+        let availability = CircuitLayoutAvailability.evaluate(
             document: SchematicDocument(),
             catalog: .standard(),
             activeCellName: "TOP"
@@ -54,7 +55,7 @@ struct LayoutGenerationAvailabilityTests {
             ),
         ])
 
-        let availability = LayoutGenerationAvailability.evaluate(
+        let availability = CircuitLayoutAvailability.evaluate(
             document: document,
             catalog: .standard(),
             activeCellName: "TOP"
@@ -74,7 +75,7 @@ struct LayoutGenerationAvailabilityTests {
             ),
         ])
 
-        let availability = LayoutGenerationAvailability.evaluate(
+        let availability = CircuitLayoutAvailability.evaluate(
             document: document,
             catalog: .standard(),
             activeCellName: "TOP"
@@ -154,6 +155,50 @@ struct LayoutGenerationAvailabilityTests {
         #expect(report.jsonMessage().contains("\"activeCell\":\"Top\""))
     }
 
+    @Test @MainActor func diagnosticMessageIncludesPathResolutionFailures() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "LayoutGenerationPathResolution-\(UUID().uuidString)")
+        defer { removeTemporaryDirectory(root) }
+        let projectService = ProjectService()
+        try projectService.createProject(at: root)
+
+        let invalidCell = CellWorkspace(name: "1Invalid")
+        let source = LayoutGenerationSourceSnapshot.capture(
+            projectRootURL: root,
+            selectedFileURL: nil,
+            activeCellName: invalidCell.name,
+            projectService: projectService,
+            netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
+                status: .none,
+                message: nil
+            )
+        )
+        let snapshot = LayoutGenerationCellSnapshot.capture(
+            cell: invalidCell,
+            topCellName: invalidCell.name,
+            activeCellName: invalidCell.name,
+            source: source,
+            projectRootURL: root,
+            projectService: projectService,
+            catalog: .standard()
+        )
+        let report = LayoutGenerationPreflightReport(
+            context: "test",
+            workspace: "layout",
+            topCell: invalidCell.name,
+            activeCell: invalidCell.name,
+            source: source,
+            activeCellSummary: snapshot,
+            cells: [snapshot]
+        )
+        let message = report.diagnosticMessage()
+
+        #expect(snapshot.pathResolutionFailures.count == 2)
+        #expect(message.contains("activeCellPathResolutionFailures=["))
+        #expect(message.contains("Cell name '1Invalid' is not a valid SPICE identifier"))
+        #expect(report.jsonMessage().contains("\"pathResolutionFailures\""))
+    }
+
     @Test @MainActor func topCirWithoutMaterializedSchematicReportsSpecificReason() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "LayoutGenerationTopCirOnly-\(UUID().uuidString)")
@@ -205,7 +250,7 @@ struct LayoutGenerationAvailabilityTests {
             activeCell: result.activeCellName
         )
 
-        let availability = LayoutGenerationAvailability.evaluate(
+        let availability = CircuitLayoutAvailability.evaluate(
             document: project.schematicViewModel.document,
             catalog: .standard(),
             activeCellName: project.activeCellName
@@ -293,8 +338,8 @@ struct LayoutGenerationAvailabilityTests {
             ),
         ])
 
-        #expect(throws: AutoLayoutError.duplicateComponentNames(["R1"])) {
-            try AutoLayoutService().generate(from: document, catalog: .standard())
+        #expect(throws: CircuitLayoutSynthesisError.duplicateComponentNames(["R1"])) {
+            try CircuitLayoutSynthesizer().generate(from: document, catalog: .standard())
         }
     }
 
@@ -308,7 +353,7 @@ struct LayoutGenerationAvailabilityTests {
             ),
         ])
 
-        let output = try AutoLayoutService().generate(from: document, catalog: .standard())
+        let output = try CircuitLayoutSynthesizer().generate(from: document, catalog: .standard())
 
         #expect(output.layoutContainsPlacedInstances)
         #expect(output.unroutedNets.isEmpty)
@@ -316,7 +361,7 @@ struct LayoutGenerationAvailabilityTests {
         #expect(output.designUnit.netNameToLayoutNet.isEmpty)
     }
 
-    @Test @MainActor func sourceOnlyAutoLayoutThrowsNoPlaceableComponents() throws {
+    @Test @MainActor func sourceOnlyCircuitLayoutThrowsNoPlaceableComponents() throws {
         let document = SchematicDocument(components: [
             PlacedComponent(
                 deviceKindID: "vsource",
@@ -331,13 +376,13 @@ struct LayoutGenerationAvailabilityTests {
             ),
         ])
 
-        #expect(throws: AutoLayoutError.noPlaceableComponents) {
-            try AutoLayoutService().generate(from: document, catalog: .standard())
+        #expect(throws: CircuitLayoutSynthesisError.noPlaceableComponents) {
+            try CircuitLayoutSynthesizer().generate(from: document, catalog: .standard())
         }
     }
 }
 
-private extension AutoLayoutOutput {
+private extension CircuitLayoutSynthesisOutput {
     var layoutContainsPlacedInstances: Bool {
         document.cells.contains { !$0.instances.isEmpty }
     }

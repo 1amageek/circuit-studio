@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "CircuitStudioCore", targets: ["CircuitStudioCore"]),
         .library(name: "SchematicEditor", targets: ["SchematicEditor"]),
         .library(name: "WaveformViewer", targets: ["WaveformViewer"]),
+        .library(name: "CircuitPhysicalDesign", targets: ["CircuitPhysicalDesign"]),
         .library(name: "CircuitStudioApp", targets: ["CircuitStudioApp"]),
         .executable(name: "circuit-studio-flow-runner", targets: ["CircuitStudioFlowRunner"]),
         .executable(name: "signoff", targets: ["SignoffRunner"]),
@@ -47,11 +48,23 @@ let package = Package(
             dependencies: ["CircuitStudioCore"]
         ),
         .target(
+            name: "CircuitPhysicalDesign",
+            dependencies: [
+                "CircuitStudioCore",
+                .product(name: "LayoutAutoGen", package: "semiconductor-layout"),
+                .product(name: "LayoutCore", package: "semiconductor-layout"),
+                .product(name: "LayoutTech", package: "semiconductor-layout"),
+                .product(name: "LayoutVerify", package: "semiconductor-layout"),
+                .product(name: "LayoutEngine", package: "semiconductor-layout"),
+            ]
+        ),
+        .target(
             name: "CircuitStudioApp",
             dependencies: [
                 .product(name: "XcircuitePackage", package: "XcircuitePackage"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 "CircuitStudioCore",
+                "CircuitPhysicalDesign",
                 "SchematicEditor",
                 "WaveformViewer",
                 .product(name: "LayoutEditor", package: "semiconductor-layout"),
@@ -60,6 +73,7 @@ let package = Package(
                 .product(name: "LayoutTech", package: "semiconductor-layout"),
                 .product(name: "LayoutIO", package: "semiconductor-layout"),
                 .product(name: "LayoutVerify", package: "semiconductor-layout"),
+                .product(name: "LayoutEngine", package: "semiconductor-layout"),
                 .product(name: "MacComponent", package: "mac-component"),
             ],
             resources: [
@@ -90,11 +104,13 @@ let package = Package(
             name: "CircuitStudioCoreTests",
             dependencies: [
                 "CircuitStudioCore",
+                "CircuitPhysicalDesign",
                 "SchematicEditor",
                 "WaveformViewer",
                 "CircuitStudioApp",
                 .product(name: "LayoutEditor", package: "semiconductor-layout"),
                 .product(name: "LayoutCore", package: "semiconductor-layout"),
+                .product(name: "LayoutEngine", package: "semiconductor-layout"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 .product(name: "OpenVAFSupport", package: "swift-openvaf"),
                 .product(name: "VerilogACompiler", package: "swift-openvaf"),
@@ -109,6 +125,18 @@ let package = Package(
                 .copy("Fixtures/pex"),
                 .copy("Fixtures/magic"),
                 .copy("Fixtures/lvs"),
+            ]
+        ),
+        .testTarget(
+            name: "CircuitPhysicalDesignTests",
+            dependencies: [
+                "CircuitPhysicalDesign",
+                "CircuitStudioCore",
+                .product(name: "LayoutAutoGen", package: "semiconductor-layout"),
+                .product(name: "LayoutCore", package: "semiconductor-layout"),
+                .product(name: "LayoutEngine", package: "semiconductor-layout"),
+                .product(name: "LayoutTech", package: "semiconductor-layout"),
+                .product(name: "LayoutVerify", package: "semiconductor-layout"),
             ]
         ),
     ]

@@ -1,7 +1,7 @@
 import Foundation
 
-/// Errors raised by the auto-layout pipeline before any geometry is produced.
-public enum AutoLayoutError: Error, Equatable, LocalizedError {
+/// Errors raised by circuit-to-layout synthesis before any geometry is produced.
+public enum CircuitLayoutSynthesisError: Error, Equatable, LocalizedError {
     /// The schematic instantiates a project cell. Hierarchical layout
     /// generation (block instantiation + interface pin placement) is not
     /// implemented yet, and silently flattening or skipping the instance
@@ -35,7 +35,7 @@ public enum AutoLayoutError: Error, Equatable, LocalizedError {
                 + "'\(deviceKindID)' — the catalog cannot resolve a layout generator for it."
         case .unsupportedLayoutDevice(let instanceName, let deviceKindID):
             return "Component '\(instanceName)' uses device kind '\(deviceKindID)', "
-                + "but automatic layout has no cell generator for that physical device."
+                + "but physical layout synthesis has no cell generator for that physical device."
         case .noPlaceableComponents:
             return "The schematic has no components that produce physical layout geometry."
         }

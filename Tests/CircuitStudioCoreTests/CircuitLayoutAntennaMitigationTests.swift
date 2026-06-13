@@ -1,4 +1,5 @@
 import Foundation
+import CircuitPhysicalDesign
 import Testing
 import LayoutCore
 import LayoutTech
@@ -6,18 +7,18 @@ import LayoutTech
 @testable import CircuitStudioCore
 @testable import SchematicEditor
 
-/// End-to-end antenna mitigation through the auto-layout pipeline: the
+/// End-to-end antenna mitigation through the circuit layout synthesis pipeline: the
 /// post-route DRC finds staged antenna violations, the jumper pass repairs
 /// them, and the rerun DRC plus LVS prove the repair is real.
-@Suite("AutoLayout Antenna Mitigation")
-struct AutoLayoutAntennaMitigationTests {
+@Suite("Circuit Layout Antenna Mitigation")
+struct CircuitLayoutAntennaMitigationTests {
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func defaultProcessNeedsNoJumpersOnInverter() throws {
         let schematic = SchematicPreview.cmosInverterViewModel().document
 
-        let output = try AutoLayoutService().generate(
+        let output = try CircuitLayoutSynthesizer().generate(
             from: schematic,
             catalog: .standard()
         )
@@ -41,7 +42,7 @@ struct AutoLayoutAntennaMitigationTests {
             LayoutAntennaRule(layerID: LayoutLayerID(name: "M2", purpose: "drawing"), maxRatio: 2.0),
         ]
 
-        let output = try AutoLayoutService().generate(
+        let output = try CircuitLayoutSynthesizer().generate(
             from: schematic,
             catalog: .standard(),
             tech: tech
@@ -64,7 +65,7 @@ struct AutoLayoutAntennaMitigationTests {
         // layer so every violation is jumperable.
         let tech = techWithThirdMetal(maxRatio: 2.0)
 
-        let output = try AutoLayoutService().generate(
+        let output = try CircuitLayoutSynthesizer().generate(
             from: schematic,
             catalog: .standard(),
             tech: tech

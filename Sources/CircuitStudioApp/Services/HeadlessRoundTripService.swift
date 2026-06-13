@@ -1,8 +1,10 @@
 import Foundation
 import CircuitStudioCore
+import CircuitPhysicalDesign
 import CoreSpiceWaveform
 import LayoutCore
 import LayoutTech
+import LayoutEngine
 
 @MainActor
 public final class HeadlessRoundTripService {
@@ -216,7 +218,13 @@ public final class HeadlessRoundTripService {
         }
     }
 
-    public init() {}
+    private let layoutEngineCatalog: any LayoutEngineCataloging
+
+    public init(
+        layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog()
+    ) {
+        self.layoutEngineCatalog = layoutEngineCatalog
+    }
 
     public func run(
         schematic: SchematicDocument,
@@ -344,10 +352,12 @@ public final class HeadlessRoundTripService {
             )
         }
 
-        let layoutOutput: AutoLayoutOutput
-        let autoLayoutStartedAt = Date()
+        let layoutOutput: CircuitLayoutSynthesisOutput
+        let layoutSynthesisStartedAt = Date()
         do {
-            layoutOutput = try AutoLayoutService().generate(
+            layoutOutput = try CircuitLayoutSynthesizer(
+                layoutEngineCatalog: layoutEngineCatalog
+            ).generate(
                 from: schematic,
                 catalog: configuration.catalog,
                 tech: configuration.layoutTech,
@@ -358,7 +368,7 @@ public final class HeadlessRoundTripService {
                 name: "auto-layout",
                 status: .failed,
                 message: error.localizedDescription,
-                durationSeconds: duration(since: autoLayoutStartedAt)
+                durationSeconds: duration(since: layoutSynthesisStartedAt)
             ))
             try failRun(
                 configuration: configuration,
@@ -368,15 +378,15 @@ public final class HeadlessRoundTripService {
                 error: error
             )
         }
-        let autoLayoutIssues = autoLayoutStageIssues(layoutOutput)
+        let layoutSynthesisIssues = layoutSynthesisStageIssues(layoutOutput)
         stages.append(Stage(
             name: "auto-layout",
-            status: autoLayoutIssues.isEmpty ? .passed : .failed,
-            message: autoLayoutIssues.isEmpty ? nil : autoLayoutIssues.joined(separator: "; "),
-            durationSeconds: duration(since: autoLayoutStartedAt)
+            status: layoutSynthesisIssues.isEmpty ? .passed : .failed,
+            message: layoutSynthesisIssues.isEmpty ? nil : layoutSynthesisIssues.joined(separator: "; "),
+            durationSeconds: duration(since: layoutSynthesisStartedAt)
         ))
         do {
-            try persistAutoLayoutArtifacts(
+            try persistLayoutSynthesisArtifacts(
                 layoutOutput,
                 runDirectory: runDirectory,
                 artifacts: &artifacts
@@ -470,7 +480,7 @@ public final class HeadlessRoundTripService {
             catalog: configuration.catalog,
             externalSignoff: externalSignoff
         )
-        reconcileAutoLayoutStage(stages: &stages, verification: verification)
+        reconcileLayoutSynthesisStage(stages: &stages, verification: verification)
         do {
             try persistPrePEXVerificationArtifact(
                 verification,
@@ -853,7 +863,7 @@ public final class HeadlessRoundTripService {
         }
     }
 
-    private func autoLayoutStageIssues(_ output: AutoLayoutOutput) -> [String] {
+    private func layoutSynthesisStageIssues(_ output: CircuitLayoutSynthesisOutput) -> [String] {
         var issues: [String] = []
         if !output.unroutedNets.isEmpty {
             issues.append("Unrouted nets: \(output.unroutedNets.joined(separator: ", "))")
@@ -867,7 +877,7 @@ public final class HeadlessRoundTripService {
         return issues
     }
 
-    private func reconcileAutoLayoutStage(
+    private func reconcileLayoutSynthesisStage(
         stages: inout [Stage],
         verification: PhysicalVerificationReport
     ) {
@@ -997,8 +1007,8 @@ public final class HeadlessRoundTripService {
         artifacts.append(try artifact(kind: "\(prefix)-waveform", url: waveformURL, runDirectory: runDirectory))
     }
 
-    private func persistAutoLayoutArtifacts(
-        _ output: AutoLayoutOutput,
+    private func persistLayoutSynthesisArtifacts(
+        _ output: CircuitLayoutSynthesisOutput,
         runDirectory: URL,
         artifacts: inout [Artifact]
     ) throws {

@@ -1,5 +1,6 @@
 import SwiftUI
 import CircuitStudioCore
+import CircuitPhysicalDesign
 import SchematicEditor
 import LayoutEditor
 import LayoutCore
@@ -137,9 +138,10 @@ public final class CellWorkspace: Identifiable {
         unroutedNets = []
         skippedComponents = []
 
-        let availability = LayoutGenerationAvailability.evaluate(
+        let availability = CircuitLayoutAvailability.evaluate(
             document: schematicViewModel.document,
             catalog: catalog,
+            deviceCellEngines: service.layoutEngineCatalog,
             activeCellName: name
         )
         guard availability.isAvailable else {

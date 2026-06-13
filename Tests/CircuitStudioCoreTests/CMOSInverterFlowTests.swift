@@ -1,4 +1,5 @@
 import Foundation
+import CircuitPhysicalDesign
 import Testing
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
@@ -38,7 +39,7 @@ struct CMOSInverterFlowTests {
         #expect(preLayoutResult.status == .completed)
         #expect((preLayoutResult.waveform?.pointCount ?? 0) > 50)
 
-        let layoutOutput = try AutoLayoutService().generate(
+        let layoutOutput = try CircuitLayoutSynthesizer().generate(
             from: schematic,
             catalog: .standard()
         )

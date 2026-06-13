@@ -1,4 +1,5 @@
 import Foundation
+import CircuitPhysicalDesign
 import CoreGraphics
 import Testing
 import CoreSpiceWaveform
@@ -692,15 +693,15 @@ struct HierarchicalSimulationTests {
     }
 }
 
-// MARK: - Auto layout guard
+// MARK: - Circuit layout guard
 
-@Suite("Auto Layout Hierarchy Guard")
-struct AutoLayoutHierarchyTests {
+@Suite("Circuit Layout Hierarchy Guard")
+struct CircuitLayoutHierarchyTests {
 
     @Test @MainActor func cellInstancesAreRejectedExplicitly() throws {
         let document = try makeHierarchicalTop(inv: makeInverterCell())
-        #expect(throws: AutoLayoutError.hierarchicalCellsUnsupported(instanceNames: ["X1"])) {
-            try AutoLayoutService().generate(from: document, catalog: .standard())
+        #expect(throws: CircuitLayoutSynthesisError.hierarchicalCellsUnsupported(instanceNames: ["X1"])) {
+            try CircuitLayoutSynthesizer().generate(from: document, catalog: .standard())
         }
     }
 
@@ -708,7 +709,7 @@ struct AutoLayoutHierarchyTests {
         // A leaf cell body (ports + devices) must lay out the devices and
         // ignore the boundary ports rather than failing or placing them.
         let document = makeInverterCell().schematic
-        let output = try AutoLayoutService().generate(from: document, catalog: .standard())
+        let output = try CircuitLayoutSynthesizer().generate(from: document, catalog: .standard())
         #expect(output.designUnit.componentToInstance.count == 2)
         #expect(!output.skippedComponents.contains("A"))
     }

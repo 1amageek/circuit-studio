@@ -139,6 +139,7 @@ public struct LayoutPersistenceService {
             selectedFileURL: appState.selectedFileURL,
             projectService: projectService,
             catalog: catalog,
+            layoutEngineCatalog: designFlow.layoutEngineCatalog,
             workspace: appState.workspace.rawValue,
             netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
                 appState.netlistSchematicMaterializationState

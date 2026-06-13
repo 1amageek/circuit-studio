@@ -1,5 +1,6 @@
 import SwiftUI
 import CircuitStudioCore
+import CircuitPhysicalDesign
 import SchematicEditor
 import WaveformViewer
 import LayoutEditor
@@ -86,10 +87,10 @@ public struct ContentView: View {
                 appState.scheduleNetlistParse(service: services.netlistParsingService)
             }
             wireCellDescent()
-            logLayoutGenerationAvailability(context: "content-appear")
+            logCircuitLayoutAvailability(context: "content-appear")
         }
         .onChange(of: layoutGenerationLogSignature) { _, _ in
-            logLayoutGenerationAvailability(context: "state-changed")
+            logCircuitLayoutAvailability(context: "state-changed")
         }
         .sheet(isPresented: $appState.isNewCellSheetPresented) {
             NewCellSheet(appState: appState, project: project)
@@ -323,7 +324,7 @@ public struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            logLayoutGenerationAvailability(context: "layout-empty-state")
+            logCircuitLayoutAvailability(context: "layout-empty-state")
         }
     }
 
@@ -562,7 +563,7 @@ public struct ContentView: View {
         makeLayoutGenerationPreflightReport(context: "ui")
     }
 
-    private var layoutGenerationAvailability: LayoutGenerationAvailability {
+    private var layoutGenerationAvailability: CircuitLayoutAvailability {
         layoutGenerationPreflightReport.availability
     }
 
@@ -588,6 +589,7 @@ public struct ContentView: View {
             selectedFileURL: appState.selectedFileURL,
             projectService: services.projectService,
             catalog: services.catalog,
+            layoutEngineCatalog: services.designFlowService.layoutEngineCatalog,
             workspace: appState.workspace.rawValue,
             netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
                 appState.netlistSchematicMaterializationState
@@ -595,7 +597,7 @@ public struct ContentView: View {
         )
     }
 
-    private func logLayoutGenerationAvailability(context: String) {
+    private func logCircuitLayoutAvailability(context: String) {
         guard appState.workspace == .layout || appState.workspace == .integration else { return }
         let signature = layoutGenerationLogSignature
         guard signature != lastLayoutGenerationLogSignature else { return }

@@ -1,5 +1,7 @@
 import Foundation
 import CircuitStudioCore
+import CircuitPhysicalDesign
+import LayoutEngine
 
 struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
     let context: String
@@ -10,7 +12,7 @@ struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
     let activeCellSummary: LayoutGenerationCellSnapshot
     let cells: [LayoutGenerationCellSnapshot]
 
-    var availability: LayoutGenerationAvailability {
+    var availability: CircuitLayoutAvailability {
         activeCellSummary.availability
     }
 
@@ -32,6 +34,8 @@ struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
             "\(source.activeCellSchematic.exists)",
             source.netlistMaterialization?.status.rawValue ?? "none",
             source.netlistMaterialization?.message ?? "none",
+            source.pathResolutionFailures.map { "\($0.key)=\($0.message)" }.joined(separator: "|"),
+            activeCellSummary.pathResolutionFailures.map { "\($0.key)=\($0.message)" }.joined(separator: "|"),
             cells.map { "\($0.name):\($0.components):\($0.wires):\($0.labels):\($0.layoutHasContent)" }
                 .joined(separator: "|"),
         ].joined(separator: "|")
@@ -45,6 +49,7 @@ struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
         selectedFileURL: URL?,
         projectService: ProjectService,
         catalog: DeviceCatalog,
+        layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog(),
         workspace: String,
         netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot?
     ) -> LayoutGenerationPreflightReport {
@@ -63,7 +68,8 @@ struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
                 source: source,
                 projectRootURL: projectRootURL,
                 projectService: projectService,
-                catalog: catalog
+                catalog: catalog,
+                layoutEngineCatalog: layoutEngineCatalog
             )
         }
         let active = cells.first { $0.isActive }
@@ -74,7 +80,8 @@ struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
                 source: source,
                 projectRootURL: projectRootURL,
                 projectService: projectService,
-                catalog: catalog
+                catalog: catalog,
+                layoutEngineCatalog: layoutEngineCatalog
             )
         return LayoutGenerationPreflightReport(
             context: context,
@@ -103,6 +110,8 @@ struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
             "activeSchematic=\(source.activeCellSchematic.displayPath)(exists=\(source.activeCellSchematic.exists))",
             "netlistMaterialization=\(source.netlistMaterialization?.status.rawValue ?? "none")",
             "netlistMaterializationMessage=\(source.netlistMaterialization?.message ?? "none")",
+            "sourcePathResolutionFailures=\(formatPathResolutionFailures(source.pathResolutionFailures))",
+            "activeCellPathResolutionFailures=\(formatPathResolutionFailures(activeCellSummary.pathResolutionFailures))",
             "topCell='\(topCell)'",
             "activeCell='\(activeCell)'",
             "components=\(activeCellSummary.components)",
@@ -119,10 +128,22 @@ struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
     func jsonMessage() -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(self),
-              let string = String(data: data, encoding: .utf8) else {
-            return diagnosticMessage()
+        do {
+            let data = try encoder.encode(self)
+            guard let string = String(data: data, encoding: .utf8) else {
+                return diagnosticMessage() + "; jsonEncodingError=encoded data is not valid UTF-8"
+            }
+            return string
+        } catch {
+            return diagnosticMessage() + "; jsonEncodingError=\(error.localizedDescription)"
         }
-        return string
+    }
+
+    private func formatPathResolutionFailures(
+        _ failures: [LayoutGenerationPathResolutionFailure]
+    ) -> String {
+        guard !failures.isEmpty else { return "[]" }
+        let entries = failures.map { "\($0.key): \($0.message)" }
+        return "[" + entries.joined(separator: ", ") + "]"
     }
 }

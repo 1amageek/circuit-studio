@@ -1,8 +1,10 @@
 import Foundation
 import CircuitStudioCore
+import CircuitPhysicalDesign
 import CoreSpiceWaveform
 import LayoutCore
 import LayoutTech
+import LayoutEngine
 
 public struct DesignFlowSPICESimulationRequest: Sendable {
     public let source: String
@@ -84,16 +86,16 @@ public struct DesignFlowLayoutGenerationRequest: Sendable {
     public let schematic: SchematicDocument
     public let catalog: DeviceCatalog
     public let tech: LayoutTechDatabase?
-    public let placementStrategy: PlacementStrategy
-    public let routingStrategy: RoutingStrategy
+    public let placementStrategy: PlacementEngineSelection
+    public let routingStrategy: RoutingEngineSelection
     public let constraints: [LayoutConstraint]
 
     public init(
         schematic: SchematicDocument,
         catalog: DeviceCatalog = .standard(),
         tech: LayoutTechDatabase? = nil,
-        placementStrategy: PlacementStrategy = .greedy,
-        routingStrategy: RoutingStrategy = .simple,
+        placementStrategy: PlacementEngineSelection = .greedy,
+        routingStrategy: RoutingEngineSelection = .simple,
         constraints: [LayoutConstraint] = []
     ) {
         self.schematic = schematic
@@ -493,17 +495,20 @@ public struct DesignFlowService: Sendable {
     private let netlistGenerator: NetlistGenerator
     private let layoutTrustEvaluator: any LayoutTrustEvaluating
     private let layoutTrustArtifactWriter: any LayoutTrustArtifactWriting
+    public let layoutEngineCatalog: any LayoutEngineCataloging
 
     public init(
         simulationService: SimulationService = SimulationService(),
         netlistGenerator: NetlistGenerator = NetlistGenerator(),
         layoutTrustEvaluator: any LayoutTrustEvaluating = LayoutTrustEvaluationService(),
-        layoutTrustArtifactWriter: any LayoutTrustArtifactWriting = LayoutTrustArtifactWriter()
+        layoutTrustArtifactWriter: any LayoutTrustArtifactWriting = LayoutTrustArtifactWriter(),
+        layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog()
     ) {
         self.simulationService = simulationService
         self.netlistGenerator = netlistGenerator
         self.layoutTrustEvaluator = layoutTrustEvaluator
         self.layoutTrustArtifactWriter = layoutTrustArtifactWriter
+        self.layoutEngineCatalog = layoutEngineCatalog
     }
 
     public var activeSimulationJobID: UUID? {
@@ -601,8 +606,8 @@ public struct DesignFlowService: Sendable {
     @MainActor
     public func generateLayout(
         _ request: DesignFlowLayoutGenerationRequest
-    ) throws -> AutoLayoutOutput {
-        try AutoLayoutService().generate(
+    ) throws -> CircuitLayoutSynthesisOutput {
+        try CircuitLayoutSynthesizer(layoutEngineCatalog: layoutEngineCatalog).generate(
             from: request.schematic,
             catalog: request.catalog,
             tech: request.tech,
@@ -663,7 +668,9 @@ public struct DesignFlowService: Sendable {
     public func runRoundTrip(
         _ request: DesignFlowRoundTripRequest
     ) async throws -> HeadlessRoundTripService.Result {
-        try await HeadlessRoundTripService().run(
+        try await HeadlessRoundTripService(
+            layoutEngineCatalog: layoutEngineCatalog
+        ).run(
             schematic: request.schematic,
             configuration: request.configuration
         )

@@ -1,4 +1,5 @@
 import Foundation
+import CircuitPhysicalDesign
 import LayoutCore
 import Testing
 @testable import CircuitStudioApp

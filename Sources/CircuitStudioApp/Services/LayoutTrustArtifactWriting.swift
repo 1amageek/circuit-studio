@@ -1,4 +1,5 @@
 import Foundation
+import CircuitPhysicalDesign
 import LayoutCore
 
 public protocol LayoutTrustArtifactWriting: Sendable {

@@ -1,4 +1,5 @@
 import Foundation
+import CircuitPhysicalDesign
 import LayoutCore
 
 /// A grid maze router for inter-block global routing. It lays a uniform routing grid over
