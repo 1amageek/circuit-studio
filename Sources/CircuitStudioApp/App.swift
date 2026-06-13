@@ -483,7 +483,7 @@ public struct CircuitStudioApp: App {
         }
     }
 
-    /// Rebuilds the session's cell set from `cells/` and the project
+    /// Rebuilds the session's cell set from `cells/` and the studio session
     /// manifest. A project without cells resets the session to a single
     /// empty cell so content from a previously open project never leaks in.
     private func loadCells(from projectRoot: URL) {
@@ -503,7 +503,7 @@ public struct CircuitStudioApp: App {
                 loaded.append((name: name, schematic: document))
             }
 
-            let manifest = try services.projectService.loadProjectManifestIfPresent(forProjectAt: projectRoot)
+            let manifest = try services.projectService.loadStudioSessionManifestIfPresent(forProjectAt: projectRoot)
             var topCell = manifest?.topCell ?? cellNames[0]
             if !cellNames.contains(topCell) {
                 appState.log(
@@ -572,23 +572,23 @@ public struct CircuitStudioApp: App {
         }
 
         let topCellName: String
+        let materializationWarning: String?
         if let projectRoot {
             guard services.projectService.isProject(projectRoot),
                   appState.selectedFileURL == services.projectService.topNetlistURL(inProjectAt: projectRoot) else {
                 return
             }
-            do {
-                topCellName = try services.projectService
-                    .loadProjectManifestIfPresent(forProjectAt: projectRoot)?
-                    .topCell ?? project.topCellName
-            } catch {
-                appState.netlistSchematicMaterializationState = .failed(
-                    "Could not read project manifest before SPICE materialization: \(error.localizedDescription)"
-                )
-                return
-            }
+            let resolution = NetlistMaterializationTopCellResolver(
+                projectService: services.projectService
+            ).resolveTopCellName(
+                forProjectAt: projectRoot,
+                fallbackTopCellName: project.topCellName
+            )
+            topCellName = resolution.topCellName
+            materializationWarning = resolution.warning
         } else {
             topCellName = project.topCellName
+            materializationWarning = nil
         }
 
         do {
@@ -604,11 +604,17 @@ public struct CircuitStudioApp: App {
                 activeCell: result.activeCellName
             )
             let sourceName = appState.spiceFileName ?? "SPICE netlist"
-            appState.netlistSchematicMaterializationState = .succeeded(
-                "Materialized \(result.sourceDescription) from \(sourceName) into cell '\(result.topCellName)'."
-            )
+            var message = "Materialized \(result.sourceDescription) from \(sourceName) into cell '\(result.topCellName)'."
+            if let materializationWarning {
+                message += " \(materializationWarning)"
+            }
+            appState.netlistSchematicMaterializationState = .succeeded(message)
         } catch {
-            appState.netlistSchematicMaterializationState = .failed(error.localizedDescription)
+            var message = error.localizedDescription
+            if let materializationWarning {
+                message = "\(materializationWarning) \(message)"
+            }
+            appState.netlistSchematicMaterializationState = .failed(message)
         }
     }
 
@@ -662,8 +668,8 @@ public struct CircuitStudioApp: App {
                     forProjectAt: projectRoot
                 )
             }
-            try services.projectService.saveProjectManifest(
-                ProjectManifest(
+            try services.projectService.saveStudioSessionManifest(
+                StudioSessionManifest(
                     topCell: project.topCellName,
                     activeCell: project.activeCellName
                 ),

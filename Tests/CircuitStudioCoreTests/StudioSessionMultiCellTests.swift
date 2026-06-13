@@ -269,7 +269,7 @@ struct StudioSessionPersistenceRoundTripTests {
         let service = ProjectService()
 
         // Author a two-cell project where Top instantiates Leaf, and the
-        // active cell differs from the top cell so the manifest matters.
+        // active cell differs from the top cell so the session manifest matters.
         let project = StudioSession()                       // Top
         try project.addCell(named: "Leaf")                  // active Leaf
         project.schematicViewModel.document = twoPortCellSchematic()
@@ -278,7 +278,7 @@ struct StudioSessionPersistenceRoundTripTests {
         try project.setTopCell(named: StudioSession.defaultCellName)
         try project.activateCell(named: "Leaf")
 
-        // Save: mirror App.saveProject's per-cell schematic + manifest writes.
+        // Save: mirror App.saveProject's per-cell schematic + session manifest writes.
         for workspace in project.cells {
             try service.saveCellSchematic(
                 workspace.schematicViewModel.document,
@@ -286,19 +286,19 @@ struct StudioSessionPersistenceRoundTripTests {
                 forProjectAt: root
             )
         }
-        try service.saveProjectManifest(
-            ProjectManifest(topCell: project.topCellName, activeCell: project.activeCellName),
+        try service.saveStudioSessionManifest(
+            StudioSessionManifest(topCell: project.topCellName, activeCell: project.activeCellName),
             forProjectAt: root
         )
 
-        // Reopen: mirror App.loadCells — list, load each, read manifest,
+        // Reopen: mirror App.loadCells — list, load each, read session manifest,
         // then rebuild through replaceCells.
         let cellNames = try service.listCellNames(forProjectAt: root)
         var loaded: [(name: String, schematic: SchematicDocument)] = []
         for name in cellNames {
             loaded.append((name: name, schematic: try service.loadCellSchematic(cellName: name, forProjectAt: root)))
         }
-        let manifest = try #require(try service.loadProjectManifestIfPresent(forProjectAt: root))
+        let manifest = try #require(try service.loadStudioSessionManifestIfPresent(forProjectAt: root))
 
         let reopened = StudioSession()
         try reopened.replaceCells(loaded, topCell: manifest.topCell, activeCell: manifest.activeCell)

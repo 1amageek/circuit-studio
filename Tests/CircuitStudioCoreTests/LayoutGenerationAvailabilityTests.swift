@@ -88,14 +88,18 @@ struct LayoutGenerationAvailabilityTests {
     @Test @MainActor func diagnosticMessageContainsProjectAndCellContext() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "LayoutGenerationDiagnostics-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryDirectory(root) }
         let metadataDirectory = root.appending(path: ".xcircuite")
         let topCellDirectory = root.appending(path: "cells").appending(path: "Top")
         let leafCellDirectory = root.appending(path: "cells").appending(path: "Leaf")
-        try FileManager.default.createDirectory(at: metadataDirectory, withIntermediateDirectories: true)
+        let projectService = ProjectService()
+        try projectService.createProject(at: root)
         try FileManager.default.createDirectory(at: topCellDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: leafCellDirectory, withIntermediateDirectories: true)
-        try Data("{}".utf8).write(to: metadataDirectory.appending(path: "project.json"))
+        try projectService.saveStudioSessionManifest(
+            StudioSessionManifest(topCell: "Top", activeCell: "Top"),
+            forProjectAt: root
+        )
         try Data("* test\n".utf8).write(to: root.appending(path: "top.cir"))
         try Data("{}".utf8).write(to: topCellDirectory.appending(path: "schematic.json"))
         try Data("{}".utf8).write(to: leafCellDirectory.appending(path: "schematic.json"))
@@ -117,7 +121,7 @@ struct LayoutGenerationAvailabilityTests {
             project: project,
             projectRootURL: root,
             selectedFileURL: root.appending(path: "top.cir"),
-            projectService: ProjectService(),
+            projectService: projectService,
             catalog: .standard(),
             workspace: "layout",
             netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
@@ -132,11 +136,13 @@ struct LayoutGenerationAvailabilityTests {
         #expect(message.contains("code=emptySchematic"))
         #expect(message.contains("projectRoot=\(root.path(percentEncoded: false))(exists=true)"))
         #expect(message.contains("selectedFile=\(root.appending(path: "top.cir").path(percentEncoded: false))(exists=true)"))
-        #expect(message.contains("manifest=\(metadataDirectory.appending(path: "project.json").path(percentEncoded: false))(exists=true)"))
+        #expect(message.contains("xcircuiteManifest=\(metadataDirectory.appending(path: "project.json").path(percentEncoded: false))(exists=true)"))
+        #expect(message.contains("studioSessionManifest=\(metadataDirectory.appending(path: "studio-session.json").path(percentEncoded: false))(exists=true)"))
         #expect(message.contains("cellsDirectory=\(root.appending(path: "cells").path(percentEncoded: false))(exists=true)"))
         #expect(message.contains("topCir=\(root.appending(path: "top.cir").path(percentEncoded: false))(exists=true)"))
         #expect(message.contains("topCell='Top'"))
         #expect(message.contains("activeCell='Top'"))
+        #expect(message.contains("netlistMaterializationMessage=none"))
         #expect(message.contains("enabled=false"))
         #expect(message.contains("components=0"))
         #expect(message.contains("wires=0"))
@@ -151,12 +157,9 @@ struct LayoutGenerationAvailabilityTests {
     @Test @MainActor func topCirWithoutMaterializedSchematicReportsSpecificReason() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "LayoutGenerationTopCirOnly-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(
-            at: root.appending(path: ".xcircuite"),
-            withIntermediateDirectories: true
-        )
-        try Data("{}".utf8).write(to: root.appending(path: ".xcircuite/project.json"))
+        defer { removeTemporaryDirectory(root) }
+        let projectService = ProjectService()
+        try projectService.createProject(at: root)
         try Data("R1 in out 1k\n.end\n".utf8).write(to: root.appending(path: "top.cir"))
 
         let project = StudioSession()
@@ -165,7 +168,7 @@ struct LayoutGenerationAvailabilityTests {
             project: project,
             projectRootURL: root,
             selectedFileURL: root.appending(path: "top.cir"),
-            projectService: ProjectService(),
+            projectService: projectService,
             catalog: .standard(),
             workspace: "layout",
             netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
@@ -212,6 +215,66 @@ struct LayoutGenerationAvailabilityTests {
         #expect(availability.isAvailable)
         #expect(project.schematicViewModel.document.components.map(\.name).sorted() == ["c1", "r1", "v1"])
         #expect(Set(nets.map(\.name)) == Set(["0", "in", "out"]))
+    }
+
+    @Test @MainActor func invalidStudioSessionManifestDoesNotBlockTopCirMaterialization() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "LayoutGenerationInvalidSessionManifest-\(UUID().uuidString)")
+        defer { removeTemporaryDirectory(root) }
+
+        let projectService = ProjectService()
+        try projectService.createProject(at: root)
+        try Data("{}".utf8).write(to: try projectService.studioSessionManifestURL(inProjectAt: root))
+        try Data("R1 in out 1k\n.end\n".utf8).write(to: root.appending(path: "top.cir"))
+
+        let resolution = NetlistMaterializationTopCellResolver(
+            projectService: projectService
+        ).resolveTopCellName(
+            forProjectAt: root,
+            fallbackTopCellName: "Top"
+        )
+
+        #expect(resolution.topCellName == "Top")
+        #expect(resolution.warning?.contains("Could not read studio session manifest") == true)
+
+        let source = """
+        * resistor divider
+        V1 in 0 5
+        R1 in out 1k
+        C1 out 0 2p
+        .end
+        """
+        let result = try await SPICESchematicImporter().importTopLevel(
+            source: source,
+            fileName: "top.cir",
+            topCellName: resolution.topCellName,
+            catalog: .standard()
+        )
+        let project = StudioSession()
+        try project.replaceCells(
+            result.cells.map { ($0.name, $0.schematic) },
+            topCell: result.topCellName,
+            activeCell: result.activeCellName
+        )
+
+        let report = LayoutGenerationPreflightReport.make(
+            context: "test",
+            project: project,
+            projectRootURL: root,
+            selectedFileURL: root.appending(path: "top.cir"),
+            projectService: projectService,
+            catalog: .standard(),
+            workspace: "layout",
+            netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
+                status: .succeeded,
+                message: resolution.warning
+            )
+        )
+
+        #expect(report.availability.isAvailable)
+        #expect(report.source.studioSessionManifest.exists)
+        #expect(report.source.xcircuiteProjectManifest.exists)
+        #expect(report.diagnosticMessage().contains("Could not read studio session manifest"))
     }
 
     @Test @MainActor func duplicateComponentNamesThrowBeforeLayoutGeneration() throws {
@@ -277,5 +340,13 @@ struct LayoutGenerationAvailabilityTests {
 private extension AutoLayoutOutput {
     var layoutContainsPlacedInstances: Bool {
         document.cells.contains { !$0.instances.isEmpty }
+    }
+}
+
+private func removeTemporaryDirectory(_ url: URL) {
+    do {
+        try FileManager.default.removeItem(at: url)
+    } catch {
+        Issue.record("Failed to remove temporary directory: \(error)")
     }
 }

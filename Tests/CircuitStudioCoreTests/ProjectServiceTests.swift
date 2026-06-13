@@ -16,10 +16,18 @@ struct ProjectServiceTests {
         #expect(service.isProject(root))
         #expect(fileExists(".xcircuite/project.json", in: root))
         #expect(fileExists(".xcircuite/workspace.json", in: root))
+        #expect(!fileExists(".xcircuite/studio-session.json", in: root))
         #expect(fileExists(".xcircuite/pex.json", in: root))
         #expect(fileExists(".xcircuite/pex/runs", in: root, isDirectory: true))
         #expect(fileExists("pex.toml", in: root))
         #expect(fileExists("tech.json", in: root))
+
+        let packageManifest = try String(
+            contentsOf: root.appending(path: ".xcircuite/project.json"),
+            encoding: .utf8
+        )
+        #expect(packageManifest.contains("\"schemaVersion\""))
+        #expect(packageManifest.contains("\"identity\""))
 
         let workspace = try service.loadWorkspaceConfig(forProjectAt: root)
         #expect(workspace.version == 1)
@@ -47,13 +55,13 @@ struct ProjectServiceTests {
         )
         try service.saveWorkspaceConfig(workspace, forProjectAt: root)
 
-        // Two cells plus a manifest designating the hierarchy root.
+        // Two cells plus a studio session manifest designating the hierarchy root.
         let topDoc = SchematicDocument(labels: [NetLabel(name: "OUT", position: .zero)])
         let leafDoc = SchematicDocument(labels: [NetLabel(name: "Y", position: .zero)])
         try service.saveCellSchematic(topDoc, cellName: "Amp", forProjectAt: root)
         try service.saveCellSchematic(leafDoc, cellName: "Buffer", forProjectAt: root)
-        try service.saveProjectManifest(
-            ProjectManifest(topCell: "Amp", activeCell: "Buffer"),
+        try service.saveStudioSessionManifest(
+            StudioSessionManifest(topCell: "Amp", activeCell: "Buffer"),
             forProjectAt: root
         )
 
@@ -75,14 +83,60 @@ struct ProjectServiceTests {
         let loadedTop = try service.loadCellSchematic(cellName: "Amp", forProjectAt: root)
         #expect(loadedTop.labels.map(\.name) == ["OUT"])
 
-        let manifest = try #require(try service.loadProjectManifestIfPresent(forProjectAt: root))
+        let manifest = try #require(try service.loadStudioSessionManifestIfPresent(forProjectAt: root))
         #expect(manifest.version == 1)
         #expect(manifest.topCell == "Amp")
         #expect(manifest.activeCell == "Buffer")
 
+        let packageManifest = try String(
+            contentsOf: root.appending(path: ".xcircuite/project.json"),
+            encoding: .utf8
+        )
+        #expect(packageManifest.contains("\"topDesignName\" : \"Amp\""))
+        #expect(packageManifest.contains("\"schemaVersion\""))
+
         let loadedSimulation = try service.loadSimulationConfig(forProjectAt: root)
         #expect(loadedSimulation.version == 1)
         #expect(loadedSimulation.selectedAnalysis == .tran(TranSpec(stopTime: 1e-6, stepTime: 1e-9)))
+    }
+
+    @Test func legacyStudioSessionManifestIsReadAndMigratedAwayFromProjectManifest() throws {
+        let root = try makeTemporaryProjectRoot("legacy-manifest")
+        defer { removeTemporaryProjectRoot(root) }
+
+        let metadataDirectory = root.appending(path: ".xcircuite")
+        try FileManager.default.createDirectory(at: metadataDirectory, withIntermediateDirectories: true)
+        try Data(
+            """
+            {
+              "activeCell" : "Leaf",
+              "topCell" : "LegacyTop",
+              "version" : 1
+            }
+            """.utf8
+        ).write(to: metadataDirectory.appending(path: "project.json"))
+
+        let service = ProjectService()
+        let legacy = try #require(try service.loadStudioSessionManifestIfPresent(forProjectAt: root))
+        #expect(legacy.topCell == "LegacyTop")
+        #expect(legacy.activeCell == "Leaf")
+
+        try service.saveStudioSessionManifest(
+            StudioSessionManifest(topCell: "LegacyTop", activeCell: "Leaf"),
+            forProjectAt: root
+        )
+
+        let migrated = try #require(try service.loadStudioSessionManifestIfPresent(forProjectAt: root))
+        #expect(migrated.topCell == "LegacyTop")
+        #expect(migrated.activeCell == "Leaf")
+
+        let packageManifest = try String(
+            contentsOf: metadataDirectory.appending(path: "project.json"),
+            encoding: .utf8
+        )
+        #expect(packageManifest.contains("\"schemaVersion\""))
+        #expect(packageManifest.contains("\"topDesignName\" : \"LegacyTop\""))
+        #expect(fileExists(".xcircuite/studio-session.json", in: root))
     }
 
     @Test func savePEXProjectConfigWritesJSONAndTOML() throws {

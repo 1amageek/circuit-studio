@@ -46,7 +46,7 @@ struct NewProjectTemplateTests {
         #expect(savedNetlist == content.netlist)
 
         // Every template cell lands under cells/<name>/schematic.json, and the
-        // manifest records the top/active designation.
+        // studio session manifest records the top/active designation.
         let cellNames = try service.listCellNames(forProjectAt: root)
         #expect(cellNames == content.cells.map(\.name).sorted())
 
@@ -57,9 +57,10 @@ struct NewProjectTemplateTests {
         )
         #expect(savedTop.components.count == topCell.schematic.components.count)
 
-        let manifest = try #require(try service.loadProjectManifestIfPresent(forProjectAt: root))
+        let manifest = try #require(try service.loadStudioSessionManifestIfPresent(forProjectAt: root))
         #expect(manifest.topCell == content.topCellName)
         #expect(manifest.activeCell == content.activeCellName)
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: ".xcircuite/studio-session.json").path))
 
         let simulation = try service.loadSimulationConfig(forProjectAt: root)
         #expect(simulation.selectedAnalysis == content.simulationConfig.selectedAnalysis)

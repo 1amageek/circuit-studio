@@ -13,10 +13,10 @@ public struct ProjectTemplateContent: Sendable {
     /// The design cells installed under `cells/`, schematics included.
     public let cells: [DesignCell]
 
-    /// Name of the hierarchy root recorded in the project manifest.
+    /// Name of the hierarchy root recorded in the studio session manifest.
     public let topCellName: String
 
-    /// Name of the initially active cell recorded in the project manifest.
+    /// Name of the initially active cell recorded in the studio session manifest.
     public let activeCellName: String
 
     /// Simulation settings matching the analysis embedded in the netlist.
