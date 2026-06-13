@@ -54,7 +54,7 @@ public enum CellSymbolFactory {
             let pin = CGPoint(x: -halfW - pinStub, y: y)
             commands.append(.line(from: pin, to: CGPoint(x: -halfW, y: y)))
             commands.append(.text(port.name, at: CGPoint(x: -halfW + 4, y: y), fontSize: 7))
-            portDefinitions.append(PortDefinition(id: port.name, displayName: port.name, position: pin))
+            portDefinitions.append(PortDefinition(id: port.id, displayName: port.name, position: pin))
         }
 
         for (row, port) in rightPorts.enumerated() {
@@ -62,7 +62,7 @@ public enum CellSymbolFactory {
             let pin = CGPoint(x: halfW + pinStub, y: y)
             commands.append(.line(from: CGPoint(x: halfW, y: y), to: pin))
             commands.append(.text(port.name, at: CGPoint(x: halfW - 4, y: y), fontSize: 7))
-            portDefinitions.append(PortDefinition(id: port.name, displayName: port.name, position: pin))
+            portDefinitions.append(PortDefinition(id: port.id, displayName: port.name, position: pin))
         }
 
         for (column, port) in topPorts.enumerated() {
@@ -70,7 +70,7 @@ public enum CellSymbolFactory {
             let pin = CGPoint(x: x, y: -halfH - pinStub)
             commands.append(.line(from: pin, to: CGPoint(x: x, y: -halfH)))
             commands.append(.text(port.name, at: CGPoint(x: x, y: -halfH + 8), fontSize: 7))
-            portDefinitions.append(PortDefinition(id: port.name, displayName: port.name, position: pin))
+            portDefinitions.append(PortDefinition(id: port.id, displayName: port.name, position: pin))
         }
 
         for (column, port) in bottomPorts.enumerated() {
@@ -78,7 +78,7 @@ public enum CellSymbolFactory {
             let pin = CGPoint(x: x, y: halfH + pinStub)
             commands.append(.line(from: CGPoint(x: x, y: halfH), to: pin))
             commands.append(.text(port.name, at: CGPoint(x: x, y: halfH - 8), fontSize: 7))
-            portDefinitions.append(PortDefinition(id: port.name, displayName: port.name, position: pin))
+            portDefinitions.append(PortDefinition(id: port.id, displayName: port.name, position: pin))
         }
 
         let symbol = SymbolDefinition(

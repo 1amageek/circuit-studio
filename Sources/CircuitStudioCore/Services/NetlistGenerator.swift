@@ -15,6 +15,11 @@ public enum NetlistGenerationError: Error, Equatable, LocalizedError {
     /// A subcircuit instance must be named with an X prefix so SPICE
     /// recognizes the element type.
     case invalidSubcircuitInstanceName(String)
+    /// Two emitted components in the same body share an instance name.
+    /// `cellName` is nil for the top-level body, set inside a `.subckt`.
+    /// SPICE instance names must be unique within their scope, so this is
+    /// rejected rather than emitted as an ambiguous netlist.
+    case duplicateInstanceName(cellName: String?, instanceName: String)
 
     public var errorDescription: String? {
         switch self {
@@ -29,6 +34,9 @@ public enum NetlistGenerationError: Error, Equatable, LocalizedError {
             return "Cell instantiation cycle: \(path.joined(separator: " → "))."
         case .invalidSubcircuitInstanceName(let name):
             return "Cell instance '\(name)' must be named with an 'X' prefix (SPICE subcircuit element)."
+        case .duplicateInstanceName(let cellName, let instanceName):
+            let location = cellName.map { "cell '\($0)'" } ?? "the top-level schematic"
+            return "Duplicate instance name '\(instanceName)' in \(location). Component names must be unique within a schematic."
         }
     }
 }
@@ -199,6 +207,21 @@ public struct NetlistGenerator: Sendable {
             }
         }
 
+        // Reject duplicate instance names before emitting any line: SPICE
+        // instance names must be unique within their scope, and a duplicate
+        // would otherwise be written as an ambiguous, silently-wrong netlist.
+        var emittedNames: Set<String> = []
+        for component in document.components {
+            guard component.deviceKindID != "ground",
+                  PortDirection(deviceKindID: component.deviceKindID) == nil else { continue }
+            guard emittedNames.insert(component.name).inserted else {
+                throw NetlistGenerationError.duplicateInstanceName(
+                    cellName: cellName,
+                    instanceName: component.name
+                )
+            }
+        }
+
         var lines: [String] = []
 
         for component in document.components {
@@ -216,7 +239,11 @@ public struct NetlistGenerator: Sendable {
                     throw NetlistGenerationError.invalidSubcircuitInstanceName(component.name)
                 }
                 let nodeNames = interface.ports.map { port -> String in
-                    let key = "\(component.id):\(port.name)"
+                    // Connectivity is keyed by the port's stable id (the child
+                    // port-marker component UUID) — the same id the parent wire
+                    // stored — so a child-port rename never misroutes the net.
+                    // The name still labels the unconnected-pin placeholder.
+                    let key = "\(component.id):\(port.id)"
                     return pinNetMap[key] ?? "nc_\(component.name)_\(port.name)"
                 }
                 var parts = [component.name]

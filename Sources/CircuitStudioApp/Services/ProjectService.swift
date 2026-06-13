@@ -166,6 +166,17 @@ public struct ProjectService: Sendable {
         return try readJSON(SimulationConfig.self, from: url)
     }
 
+    /// Returns nil when the project has no simulation config yet. A present
+    /// but unreadable config throws so corruption surfaces instead of the
+    /// app silently opening with default analysis settings.
+    func loadSimulationConfigIfPresent(forProjectAt projectRoot: URL) throws -> SimulationConfig? {
+        let url = try configurationFileURL(named: "simulation.json", inProjectAt: projectRoot)
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+            return nil
+        }
+        return try readJSON(SimulationConfig.self, from: url)
+    }
+
     // MARK: - PEX Config
 
     /// Ensures all PEX-related files and directories exist.
@@ -225,6 +236,23 @@ public struct ProjectService: Sendable {
     func loadPEXProjectConfig(forProjectAt projectRoot: URL) throws -> PEXProjectConfig {
         let url = try pexConfigurationURL(inProjectAt: projectRoot)
         return try readJSON(PEXProjectConfig.self, from: url)
+    }
+
+    /// Points the PEX and tapeout flows at `topCell` by name. OASIS carries
+    /// no inherent top cell, so this name must track the exported layout's
+    /// actual top cell. Self-bootstraps a default config when the project has
+    /// none yet, and is a no-op when the name already matches.
+    func updatePEXTopCell(_ topCell: String, forProjectAt projectRoot: URL) throws {
+        let configURL = try pexConfigurationURL(inProjectAt: projectRoot)
+        var config: PEXProjectConfig
+        if FileManager.default.fileExists(atPath: configURL.path(percentEncoded: false)) {
+            config = try loadPEXProjectConfig(forProjectAt: projectRoot)
+        } else {
+            config = PEXProjectConfig()
+        }
+        guard config.topCell != topCell else { return }
+        config.topCell = topCell
+        try savePEXProjectConfig(config, forProjectAt: projectRoot)
     }
 
     func pexTOMLURL(inProjectAt projectRoot: URL) -> URL {
@@ -289,6 +317,23 @@ public struct ProjectService: Sendable {
         } catch {
             throw StudioError.projectSaveFailed(
                 "Failed to save layout: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    /// Removes a file at the project root. Used to prune interchange
+    /// artifacts such as `top.oas` when their source layout is cleared.
+    /// Removing a file that is not present is a no-op.
+    func removeProjectRootFile(named fileName: String, forProjectAt projectRoot: URL) throws {
+        let url = projectRoot.appending(path: fileName)
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+            return
+        }
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            throw StudioError.projectSaveFailed(
+                "Failed to remove '\(fileName)': \(error.localizedDescription)"
             )
         }
     }

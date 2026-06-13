@@ -106,8 +106,11 @@ public final class CellWorkspace: Identifiable {
         if let unit {
             crossProbe.instanceMapping = unit.componentToInstance
             crossProbe.netMapping = unit.netNameToLayoutNet
+            // Inverting a map can collide if two components share a layout
+            // instance; keep the first deterministically rather than trapping.
             crossProbe.instanceToComponent = Dictionary(
-                uniqueKeysWithValues: unit.componentToInstance.map { ($0.value, $0.key) }
+                unit.componentToInstance.map { ($0.value, $0.key) },
+                uniquingKeysWith: { first, _ in first }
             )
         } else {
             crossProbe.instanceMapping = [:]
@@ -148,8 +151,11 @@ public final class CellWorkspace: Identifiable {
 
             crossProbe.instanceMapping = output.designUnit.componentToInstance
             crossProbe.netMapping = output.designUnit.netNameToLayoutNet
+            // Inverting a map can collide if two components share a layout
+            // instance; keep the first deterministically rather than trapping.
             crossProbe.instanceToComponent = Dictionary(
-                uniqueKeysWithValues: output.designUnit.componentToInstance.map { ($0.value, $0.key) }
+                output.designUnit.componentToInstance.map { ($0.value, $0.key) },
+                uniquingKeysWith: { first, _ in first }
             )
 
             designUnit = output.designUnit

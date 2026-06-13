@@ -28,6 +28,21 @@ private func net(
     return wires
 }
 
+/// The stable connectivity id of a cell port — the UUID of its port-marker
+/// component, which `CellInterface.derive` exposes as `CellPort.id`. Parent
+/// wires must reference this, not the editable port name, so a child-port
+/// rename never misroutes the net. The cell passed here must be the very
+/// same instance later registered in the library, since each builder call
+/// mints fresh port-marker UUIDs.
+private func cellPortID(_ cell: DesignCell, _ portName: String) throws -> String {
+    let interface = try CellInterface.derive(from: cell.schematic)
+    let port = try #require(
+        interface.ports.first { $0.name == portName },
+        "cell \(cell.name) has no port named \(portName)"
+    )
+    return port.id
+}
+
 /// A CMOS inverter cell with ports A (in), Y (out), VDD (power), VSS (ground).
 private func makeInverterCell() -> DesignCell {
     let portA = PlacedComponent(deviceKindID: "port_input", name: "A", position: .zero)
@@ -66,11 +81,12 @@ private let pulseParameters: [String: Double] = [
 ]
 
 /// Top-level testbench instantiating the INV cell: pulse input, DC supply,
-/// capacitive load, global ground.
-private func makeHierarchicalTop() -> SchematicDocument {
+/// capacitive load, global ground. The inverter is passed in so X1's pins
+/// reference the same port-marker UUIDs the library cell exposes.
+private func makeHierarchicalTop(inv: DesignCell) throws -> SchematicDocument {
     let x1 = PlacedComponent(
-        deviceKindID: DeviceCatalog.cellKindID(for: "INV"),
-        name: "X1", position: .zero, cellName: "INV"
+        deviceKindID: DeviceCatalog.cellKindID(for: inv.name),
+        name: "X1", position: .zero, cellName: inv.name
     )
     let vdd = PlacedComponent(deviceKindID: "vsource", name: "V1", position: .zero, parameters: ["dc": 3.3])
     let vin = PlacedComponent(deviceKindID: "vsource", name: "V2", position: .zero, parameters: pulseParameters)
@@ -78,10 +94,10 @@ private func makeHierarchicalTop() -> SchematicDocument {
     let gnd = PlacedComponent(deviceKindID: "ground", name: "GND1", position: .zero)
 
     var wires: [Wire] = []
-    wires += net(0, [(vin.id, "pos"), (x1.id, "A")], name: "in")
-    wires += net(1, [(x1.id, "Y"), (cload.id, "pos")], name: "out")
-    wires += net(2, [(vdd.id, "pos"), (x1.id, "VDD")], name: "vdd")
-    wires += net(3, [(vdd.id, "neg"), (vin.id, "neg"), (x1.id, "VSS"), (cload.id, "neg"), (gnd.id, "gnd")])
+    wires += net(0, [(vin.id, "pos"), (x1.id, try cellPortID(inv, "A"))], name: "in")
+    wires += net(1, [(x1.id, try cellPortID(inv, "Y")), (cload.id, "pos")], name: "out")
+    wires += net(2, [(vdd.id, "pos"), (x1.id, try cellPortID(inv, "VDD"))], name: "vdd")
+    wires += net(3, [(vdd.id, "neg"), (vin.id, "neg"), (x1.id, try cellPortID(inv, "VSS")), (cload.id, "neg"), (gnd.id, "gnd")])
 
     return SchematicDocument(
         components: [x1, vdd, vin, cload, gnd],
@@ -114,6 +130,26 @@ private func makeFlatTop() -> SchematicDocument {
         components: [mp, mn, vdd, vin, cload, gnd],
         wires: wires
     )
+}
+
+/// A two-port "RC" cell (input → resistor → output) built with explicit
+/// port-marker UUIDs. Two builds with different `inputName` but identical
+/// `inputID`/`outputID` model exactly what a child-port rename produces:
+/// the SPICE name changes while the stable port id stays put.
+private func makeRenamableCell(
+    inputName: String,
+    inputID: UUID,
+    outputID: UUID
+) -> DesignCell {
+    let portIn = PlacedComponent(id: inputID, deviceKindID: "port_input", name: inputName, position: .zero)
+    let portOut = PlacedComponent(id: outputID, deviceKindID: "port_output", name: "Q", position: .zero)
+    let r = PlacedComponent(deviceKindID: "resistor", name: "R1", position: .zero, parameters: ["r": 1000])
+    var wires: [Wire] = []
+    wires += net(0, [(portIn.id, "pin"), (r.id, "pos")])
+    wires += net(1, [(portOut.id, "pin"), (r.id, "neg")])
+    return DesignCell(name: "RC", schematic: SchematicDocument(
+        components: [portIn, portOut, r], wires: wires
+    ))
 }
 
 // MARK: - CellInterface
@@ -273,6 +309,35 @@ struct CellLibraryTests {
             try library.validate()
         }
     }
+
+    @Test func cellLookupIsCaseInsensitive() {
+        // SPICE subckt names and the on-disk cells/<name>/ directory are both
+        // case-insensitive, so a lookup must fold case yet return the cell's
+        // canonical spelling.
+        let library = CellLibrary(cells: [cell("INV", instantiating: [])])
+        #expect(library.cell(named: "inv")?.name == "INV")
+        #expect(library.cell(named: "Inv")?.name == "INV")
+    }
+
+    @Test func duplicateCellNameIsCaseInsensitive() {
+        let library = CellLibrary(cells: [
+            cell("INV", instantiating: []),
+            cell("inv", instantiating: []),
+        ])
+        #expect(throws: CellLibraryError.duplicateCellName("inv")) {
+            try library.validate()
+        }
+    }
+
+    @Test func referenceResolvesCaseInsensitively() throws {
+        // Top instantiates "INV"; the cell is defined as "inv". Emission must
+        // resolve the reference and order the dependency by canonical name.
+        let library = CellLibrary(cells: [
+            cell("Top", instantiating: ["INV"]),
+            cell("inv", instantiating: []),
+        ])
+        #expect(try library.orderedDependencies(of: "Top") == ["inv"])
+    }
 }
 
 // MARK: - Catalog integration
@@ -290,7 +355,14 @@ struct CellCatalogTests {
         #expect(kind?.category == .cell)
         #expect(kind?.spicePrefix == "X")
         #expect(kind?.cellName == "INV")
-        #expect(kind?.portDefinitions.map(\.id) == ["A", "Y", "VDD", "VSS"])
+        // Names appear in display order; the ids are now the stable
+        // port-marker UUIDs (decoupled from the names), so they must be
+        // unique, non-empty, and real UUIDs rather than the SPICE names.
+        #expect(kind?.portDefinitions.map(\.displayName) == ["A", "Y", "VDD", "VSS"])
+        let portIDs = kind?.portDefinitions.map(\.id) ?? []
+        #expect(portIDs.count == 4)
+        #expect(Set(portIDs).count == 4)
+        #expect(portIDs.allSatisfy { UUID(uuidString: $0) != nil })
     }
 
     @Test func activeCellAndAncestorsAreExcluded() {
@@ -339,9 +411,10 @@ struct CellCatalogTests {
 struct HierarchicalNetlistTests {
 
     @Test func emitsSubcktWithCanonicalPorts() throws {
-        let library = CellLibrary(cells: [makeInverterCell()])
+        let inv = makeInverterCell()
+        let library = CellLibrary(cells: [inv])
         let netlist = try NetlistGenerator().generate(
-            from: makeHierarchicalTop(),
+            from: try makeHierarchicalTop(inv: inv),
             library: library,
             title: "Hierarchical Inverter",
             testbench: inverterTestbench
@@ -359,6 +432,7 @@ struct HierarchicalNetlistTests {
 
     @Test func nestedCellsEmitDeepestFirst() throws {
         // BUF instantiates INV twice; the netlist must define INV before BUF.
+        let inv = makeInverterCell()
         let portA = PlacedComponent(deviceKindID: "port_input", name: "A", position: .zero)
         let portY = PlacedComponent(deviceKindID: "port_output", name: "Y", position: .zero)
         let portVdd = PlacedComponent(deviceKindID: "port_power", name: "VDD", position: .zero)
@@ -372,11 +446,11 @@ struct HierarchicalNetlistTests {
             name: "X2", position: .zero, cellName: "INV"
         )
         var wires: [Wire] = []
-        wires += net(0, [(portA.id, "pin"), (x1.id, "A")])
-        wires += net(1, [(x1.id, "Y"), (x2.id, "A")])
-        wires += net(2, [(x2.id, "Y"), (portY.id, "pin")])
-        wires += net(3, [(portVdd.id, "pin"), (x1.id, "VDD"), (x2.id, "VDD")])
-        wires += net(4, [(portVss.id, "pin"), (x1.id, "VSS"), (x2.id, "VSS")])
+        wires += net(0, [(portA.id, "pin"), (x1.id, try cellPortID(inv, "A"))])
+        wires += net(1, [(x1.id, try cellPortID(inv, "Y")), (x2.id, try cellPortID(inv, "A"))])
+        wires += net(2, [(x2.id, try cellPortID(inv, "Y")), (portY.id, "pin")])
+        wires += net(3, [(portVdd.id, "pin"), (x1.id, try cellPortID(inv, "VDD")), (x2.id, try cellPortID(inv, "VDD"))])
+        wires += net(4, [(portVss.id, "pin"), (x1.id, try cellPortID(inv, "VSS")), (x2.id, try cellPortID(inv, "VSS"))])
         let buf = DesignCell(name: "BUF", schematic: SchematicDocument(
             components: [portA, portY, portVdd, portVss, x1, x2],
             wires: wires
@@ -389,13 +463,13 @@ struct HierarchicalNetlistTests {
         let vdd = PlacedComponent(deviceKindID: "vsource", name: "V1", position: .zero, parameters: ["dc": 3.3])
         let gnd = PlacedComponent(deviceKindID: "ground", name: "GND1", position: .zero)
         var topWires: [Wire] = []
-        topWires += net(0, [(xb.id, "A")], name: "in")
-        topWires += net(1, [(xb.id, "Y")], name: "out")
-        topWires += net(2, [(vdd.id, "pos"), (xb.id, "VDD")], name: "vdd")
-        topWires += net(3, [(vdd.id, "neg"), (xb.id, "VSS"), (gnd.id, "gnd")])
+        topWires += net(0, [(xb.id, try cellPortID(buf, "A"))], name: "in")
+        topWires += net(1, [(xb.id, try cellPortID(buf, "Y"))], name: "out")
+        topWires += net(2, [(vdd.id, "pos"), (xb.id, try cellPortID(buf, "VDD"))], name: "vdd")
+        topWires += net(3, [(vdd.id, "neg"), (xb.id, try cellPortID(buf, "VSS")), (gnd.id, "gnd")])
         let top = SchematicDocument(components: [xb, vdd, gnd], wires: topWires)
 
-        let library = CellLibrary(cells: [buf, makeInverterCell()])
+        let library = CellLibrary(cells: [buf, inv])
         let netlist = try NetlistGenerator().generate(from: top, library: library, title: "Nested")
 
         let invRange = try #require(netlist.range(of: ".subckt INV"))
@@ -489,6 +563,53 @@ struct HierarchicalNetlistTests {
             try NetlistGenerator().generate(from: document)
         }
     }
+
+    @Test func childPortRenameKeepsParentWiringConnected() throws {
+        // The trust proof for stable pin ids: a parent wires X1 to a child
+        // port by the port's stable id. Renaming that child port changes the
+        // `.subckt` node name but must leave X1's connection intact — no
+        // unconnected-pin placeholder, same net on the X line.
+        let inID = UUID()
+        let outID = UUID()
+        let original = makeRenamableCell(inputName: "P", inputID: inID, outputID: outID)
+        let renamed = makeRenamableCell(inputName: "IN", inputID: inID, outputID: outID)
+
+        let x1 = PlacedComponent(
+            deviceKindID: DeviceCatalog.cellKindID(for: "RC"),
+            name: "X1", position: .zero, cellName: "RC"
+        )
+        var wires: [Wire] = []
+        wires += net(0, [(x1.id, inID.uuidString)], name: "drive")
+        wires += net(1, [(x1.id, outID.uuidString)], name: "sense")
+        let top = SchematicDocument(components: [x1], wires: wires)
+
+        let beforeRename = try NetlistGenerator().generate(
+            from: top, library: CellLibrary(cells: [original]), title: "Before"
+        )
+        #expect(beforeRename.contains(".subckt RC P Q"))
+        #expect(beforeRename.contains("X1 drive sense RC"))
+
+        let afterRename = try NetlistGenerator().generate(
+            from: top, library: CellLibrary(cells: [renamed]), title: "After"
+        )
+        // The port's SPICE name changed on the .subckt line ...
+        #expect(afterRename.contains(".subckt RC IN Q"))
+        // ... but the parent wiring is untouched: same X line, no placeholder.
+        #expect(afterRename.contains("X1 drive sense RC"))
+        #expect(!afterRename.contains("nc_X1"))
+    }
+
+    @Test func duplicateInstanceNameThrows() {
+        // Two emitted devices sharing an instance name would write an
+        // ambiguous netlist; generation must reject it instead.
+        let r1 = PlacedComponent(deviceKindID: "resistor", name: "R1", position: .zero, parameters: ["r": 1000])
+        let r2 = PlacedComponent(deviceKindID: "resistor", name: "R1", position: .zero, parameters: ["r": 2000])
+        let document = SchematicDocument(components: [r1, r2], wires: [])
+
+        #expect(throws: NetlistGenerationError.duplicateInstanceName(cellName: nil, instanceName: "R1")) {
+            try NetlistGenerator().generate(from: document)
+        }
+    }
 }
 
 // MARK: - Simulation equivalence
@@ -500,9 +621,10 @@ struct HierarchicalSimulationTests {
     /// simulated through a `.subckt` and flat must produce the same physics.
     @Test(.timeLimit(.minutes(2)))
     func hierarchicalInverterMatchesFlat() async throws {
-        let library = CellLibrary(cells: [makeInverterCell()])
+        let inv = makeInverterCell()
+        let library = CellLibrary(cells: [inv])
         let hierarchicalNetlist = try NetlistGenerator().generate(
-            from: makeHierarchicalTop(),
+            from: try makeHierarchicalTop(inv: inv),
             library: library,
             title: "Hierarchical",
             testbench: inverterTestbench
@@ -551,8 +673,8 @@ struct HierarchicalSimulationTests {
 @Suite("Auto Layout Hierarchy Guard")
 struct AutoLayoutHierarchyTests {
 
-    @Test @MainActor func cellInstancesAreRejectedExplicitly() {
-        let document = makeHierarchicalTop()
+    @Test @MainActor func cellInstancesAreRejectedExplicitly() throws {
+        let document = try makeHierarchicalTop(inv: makeInverterCell())
         #expect(throws: AutoLayoutError.hierarchicalCellsUnsupported(instanceNames: ["X1"])) {
             try AutoLayoutService().generate(from: document, catalog: .standard())
         }

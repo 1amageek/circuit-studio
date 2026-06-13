@@ -43,8 +43,16 @@ public struct CellLibrary: Sendable {
         self.topCellName = topCellName
     }
 
+    /// Case-folded identity key for a cell name. SPICE subcircuit names are
+    /// case-insensitive, and the on-disk `cells/<name>/` directory lives on a
+    /// case-insensitive file system, so "INV" and "inv" denote one cell.
+    public static func identityKey(_ name: String) -> String {
+        name.lowercased()
+    }
+
     public func cell(named name: String) -> DesignCell? {
-        cells.first { $0.name == name }
+        let key = Self.identityKey(name)
+        return cells.first { Self.identityKey($0.name) == key }
     }
 
     public var cellNames: [String] {
@@ -58,7 +66,7 @@ public struct CellLibrary: Sendable {
             guard CellInterface.isValidSPICEName(cell.name) else {
                 throw CellLibraryError.invalidCellName(cell.name)
             }
-            guard seen.insert(cell.name).inserted else {
+            guard seen.insert(Self.identityKey(cell.name)).inserted else {
                 throw CellLibraryError.duplicateCellName(cell.name)
             }
         }
@@ -85,21 +93,25 @@ public struct CellLibrary: Sendable {
         var stack: [String] = []
 
         func visit(_ current: String) throws {
-            if let cycleStart = stack.firstIndex(of: current) {
+            let key = Self.identityKey(current)
+            if let cycleStart = stack.firstIndex(where: { Self.identityKey($0) == key }) {
                 throw CellLibraryError.dependencyCycle(Array(stack[cycleStart...]) + [current])
             }
-            if visited.contains(current) { return }
+            if visited.contains(key) { return }
             guard let cell = cell(named: current) else {
                 let parent = stack.last ?? name
                 throw CellLibraryError.unknownCellReference(parent: parent, child: current)
             }
-            stack.append(current)
+            // Record the canonical defined name, not the reference spelling,
+            // so emission order and cycle paths stay independent of how a
+            // parent happened to capitalize the instance's cell name.
+            stack.append(cell.name)
             for child in cell.referencedCellNames {
                 try visit(child)
             }
             stack.removeLast()
-            visited.insert(current)
-            ordered.append(current)
+            visited.insert(key)
+            ordered.append(cell.name)
         }
 
         try visit(name)
@@ -110,11 +122,13 @@ public struct CellLibrary: Sendable {
     /// True when `candidate` is `target` or transitively instantiates it —
     /// placing `candidate` inside `target` would then create a cycle.
     public func reaches(from candidate: String, to target: String) -> Bool {
+        let targetKey = Self.identityKey(target)
         var visited: Set<String> = []
         var queue: [String] = [candidate]
         while let current = queue.popLast() {
-            guard visited.insert(current).inserted else { continue }
-            if current == target { return true }
+            let key = Self.identityKey(current)
+            guard visited.insert(key).inserted else { continue }
+            if key == targetKey { return true }
             guard let cell = cell(named: current) else { continue }
             queue.append(contentsOf: cell.referencedCellNames)
         }

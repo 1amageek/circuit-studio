@@ -54,6 +54,15 @@ public struct LayoutPersistenceService {
                 to: Self.interchangeFileName,
                 inProjectAt: projectRoot
             )
+            // OASIS carries no inherent top cell; the PEX and tapeout flows
+            // select one by name. Keep that name in step with the document's
+            // actual top cell, or extraction would run against the wrong cell.
+            let topCellName = document.topCellID
+                .flatMap { document.cell(withID: $0)?.name }
+                ?? document.cells.first?.name
+            if let topCellName {
+                try projectService.updatePEXTopCell(topCellName, forProjectAt: projectRoot)
+            }
         }
         workspace.markLayoutSaved()
     }
@@ -70,6 +79,18 @@ public struct LayoutPersistenceService {
                     cellName: workspace.name,
                     forProjectAt: projectRoot
                 )
+                // The top cell's cleared layout makes the project-root OASIS
+                // interchange artifact stale; prune it so a later flow cannot
+                // consume geometry the editor no longer holds.
+                if workspace.name == project.topCellName {
+                    try projectService.removeProjectRootFile(
+                        named: Self.interchangeFileName,
+                        forProjectAt: projectRoot
+                    )
+                }
+                // Record the emptied layout as the saved baseline, otherwise
+                // the workspace reports itself dirty forever after a clear.
+                workspace.markLayoutSaved()
             }
         }
     }

@@ -139,7 +139,8 @@ public final class StudioSession {
     }
 
     public func cell(named name: String) -> CellWorkspace? {
-        cells.first { $0.name == name }
+        let key = CellLibrary.identityKey(name)
+        return cells.first { CellLibrary.identityKey($0.name) == key }
     }
 
     // MARK: - Cell Operations
@@ -150,7 +151,8 @@ public final class StudioSession {
         guard CellInterface.isValidSPICEName(name) else {
             throw StudioSessionError.invalidCellName(name)
         }
-        guard !cells.contains(where: { $0.name.lowercased() == name.lowercased() }) else {
+        let key = CellLibrary.identityKey(name)
+        guard !cells.contains(where: { CellLibrary.identityKey($0.name) == key }) else {
             throw StudioSessionError.duplicateCellName(name)
         }
         let workspace = CellWorkspace(
@@ -166,19 +168,23 @@ public final class StudioSession {
     /// Removes a cell. The top cell, the last remaining cell, and cells
     /// still instantiated by others are protected by typed errors.
     public func removeCell(named name: String) throws {
-        guard let index = cells.firstIndex(where: { $0.name == name }) else {
+        let key = CellLibrary.identityKey(name)
+        guard let index = cells.firstIndex(where: { CellLibrary.identityKey($0.name) == key }) else {
             throw StudioSessionError.unknownCell(name)
         }
         guard cells.count > 1 else {
             throw StudioSessionError.cannotRemoveLastCell
         }
-        guard name != topCellName else {
+        guard key != CellLibrary.identityKey(topCellName) else {
             throw StudioSessionError.cannotRemoveTopCell(name)
         }
         let referencedBy = cells
-            .filter { $0.name != name }
+            .filter { CellLibrary.identityKey($0.name) != key }
             .filter { workspace in
-                workspace.schematicViewModel.document.components.contains { $0.cellName == name }
+                workspace.schematicViewModel.document.components.contains { component in
+                    guard let cellName = component.cellName else { return false }
+                    return CellLibrary.identityKey(cellName) == key
+                }
             }
             .map(\.name)
         guard referencedBy.isEmpty else {
@@ -206,10 +212,12 @@ public final class StudioSession {
     /// Designates the hierarchy root — the cell that `top.cir`, `top.oas`,
     /// and the tapeout flow are generated from.
     public func setTopCell(named name: String) throws {
-        guard cell(named: name) != nil else {
+        guard let workspace = cell(named: name) else {
             throw StudioSessionError.unknownCell(name)
         }
-        topCellName = name
+        // Store the canonical cell name so topCellName always equals a real
+        // cell's name verbatim, keeping case-sensitive comparisons correct.
+        topCellName = workspace.name
     }
 
     /// Replaces the whole cell set — the project-open path. The previous
@@ -220,10 +228,12 @@ public final class StudioSession {
         topCell: String,
         activeCell activeName: String
     ) throws {
-        guard newCells.contains(where: { $0.name == topCell }) else {
+        let topKey = CellLibrary.identityKey(topCell)
+        let activeKey = CellLibrary.identityKey(activeName)
+        guard newCells.contains(where: { CellLibrary.identityKey($0.name) == topKey }) else {
             throw StudioSessionError.unknownCell(topCell)
         }
-        guard newCells.contains(where: { $0.name == activeName }) else {
+        guard newCells.contains(where: { CellLibrary.identityKey($0.name) == activeKey }) else {
             throw StudioSessionError.unknownCell(activeName)
         }
         let library = CellLibrary(
@@ -243,9 +253,12 @@ public final class StudioSession {
             return workspace
         }
         cells = workspaces
-        topCellName = topCell
-        // Guarded above: activeName is in newCells.
-        activeCell = workspaces.first { $0.name == activeName } ?? workspaces[0]
+        // Canonicalize: topCellName always equals a real cell's name, so
+        // case-sensitive comparisons against it (such as layout persistence
+        // selecting the top cell) stay correct.
+        topCellName = workspaces.first { CellLibrary.identityKey($0.name) == topKey }?.name ?? topCell
+        // Guarded above: activeName matches a cell case-insensitively.
+        activeCell = workspaces.first { CellLibrary.identityKey($0.name) == activeKey } ?? workspaces[0]
         rebuildCatalogs()
     }
 

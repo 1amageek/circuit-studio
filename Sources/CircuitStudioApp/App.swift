@@ -424,10 +424,13 @@ public struct CircuitStudioApp: App {
         loadCells(from: projectRoot)
 
         do {
-            let config = try services.projectService.loadSimulationConfig(forProjectAt: projectRoot)
-            appState.apply(config)
+            if let config = try services.projectService.loadSimulationConfigIfPresent(forProjectAt: projectRoot) {
+                appState.apply(config)
+            }
         } catch {
-            // Not an error — config may not exist yet
+            // Absent config is fine (returns nil); a present but unreadable
+            // one is corruption and must surface, not be swallowed.
+            appState.log("Could not load simulation config: \(error.localizedDescription)", kind: .error)
         }
 
         var restoredLayouts: [String] = []
@@ -458,11 +461,7 @@ public struct CircuitStudioApp: App {
         do {
             let cellNames = try services.projectService.listCellNames(forProjectAt: projectRoot)
             guard !cellNames.isEmpty else {
-                try project.replaceCells(
-                    [(name: StudioSession.defaultCellName, schematic: SchematicDocument())],
-                    topCell: StudioSession.defaultCellName,
-                    activeCell: StudioSession.defaultCellName
-                )
+                resetToDefaultCell()
                 return
             }
 
@@ -495,7 +494,29 @@ public struct CircuitStudioApp: App {
 
             try project.replaceCells(loaded, topCell: topCell, activeCell: activeCell)
         } catch {
+            // A failed load must not leave the previously open project's
+            // cells in the session; reset to a single empty cell so no
+            // content leaks across projects.
             appState.log("Could not load project cells: \(error.localizedDescription)", kind: .error)
+            resetToDefaultCell()
+        }
+    }
+
+    /// Resets the session to a single empty default cell, so content from a
+    /// previously open project never leaks into the current one. Used both
+    /// when a project has no cells and when loading its cells fails.
+    private func resetToDefaultCell() {
+        do {
+            try project.replaceCells(
+                [(name: StudioSession.defaultCellName, schematic: SchematicDocument())],
+                topCell: StudioSession.defaultCellName,
+                activeCell: StudioSession.defaultCellName
+            )
+        } catch {
+            appState.log(
+                "Could not reset to a default cell: \(error.localizedDescription)",
+                kind: .error
+            )
         }
     }
 

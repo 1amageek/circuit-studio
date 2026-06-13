@@ -78,7 +78,7 @@ public struct CellInterface: Sendable, Equatable {
             guard seenNames.insert(name).inserted else {
                 throw CellInterfaceError.duplicatePortName(name)
             }
-            ports.append(CellPort(name: name, direction: direction))
+            ports.append(CellPort(id: component.id.uuidString, name: name, direction: direction))
             portComponentIDs[component.id] = name
         }
 
