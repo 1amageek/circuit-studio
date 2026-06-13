@@ -205,17 +205,11 @@ public struct CircuitStudioApp: App {
 
     private func runActiveSimulation() {
         Task { @MainActor in
-            switch appState.schematicMode {
-            case .visual:
-                await appState.runSchematicSimulation(
-                    document: project.schematicViewModel.document,
-                    library: project.cellLibrary,
-                    analysisCommand: appState.selectedAnalysis,
-                    service: services.designFlowService
-                )
-            case .netlist:
-                await appState.runSimulation(service: services.designFlowService)
-            }
+            await appState.runActiveSimulation(
+                schematicDocument: project.schematicViewModel.document,
+                library: project.cellLibrary,
+                service: services.designFlowService
+            )
         }
     }
 
@@ -263,7 +257,10 @@ public struct CircuitStudioApp: App {
     }
 
     private var runPEXDisabled: Bool {
-        appState.isRunningPEX || appState.projectRootURL == nil || project.designUnit == nil
+        appState.isRunningPEX
+            || appState.projectRootURL == nil
+            || project.topCell?.designUnit == nil
+            || project.topCell?.layoutHasContent != true
     }
 
     // MARK: - File Operations
@@ -292,12 +289,7 @@ public struct CircuitStudioApp: App {
             let root = try services.fileSystemService.scanDirectory(at: url)
             appState.projectRootURL = url
             appState.projectRoot = root
-            appState.spiceSource = ""
-            appState.lastSavedSpiceSource = ""
-            appState.spiceFileName = nil
-            appState.selectedFileURL = nil
-            appState.simulationResult = nil
-            appState.simulationError = nil
+            appState.clearSPICEFile()
 
             loadProjectConfig(from: url)
             autoLoadNetlist(from: url)
@@ -522,12 +514,15 @@ public struct CircuitStudioApp: App {
 
     private func autoLoadNetlist(from projectRoot: URL) {
         let topCir = projectRoot.appending(path: "top.cir")
-        if FileManager.default.fileExists(atPath: topCir.path(percentEncoded: false)) {
-            do {
-                try appState.loadSPICEFile(url: topCir)
-            } catch {
-                appState.log("Failed to load top.cir: \(error.localizedDescription)", kind: .warning)
-            }
+        guard FileManager.default.fileExists(atPath: topCir.path(percentEncoded: false)) else {
+            appState.clearSPICEFile()
+            return
+        }
+        do {
+            try appState.loadSPICEFile(url: topCir)
+        } catch {
+            appState.clearSPICEFile()
+            appState.log("Failed to load top.cir: \(error.localizedDescription)", kind: .warning)
         }
     }
 
@@ -680,12 +675,12 @@ public struct CircuitStudioApp: App {
             appState.log("Open a project folder before running PEX.", kind: .warning)
             return
         }
-        guard project.designUnit != nil else {
-            appState.log("Generate layout before running PEX.", kind: .warning)
+        guard let topCell = project.topCell else {
+            appState.log("Project top cell '\(project.topCellName)' is missing.", kind: .error)
             return
         }
-        guard !appState.spiceSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            appState.log("Netlist is empty.", kind: .warning)
+        guard topCell.designUnit != nil, topCell.layoutHasContent else {
+            appState.log("Generate the top-cell layout before running PEX.", kind: .warning)
             return
         }
 
@@ -697,16 +692,23 @@ public struct CircuitStudioApp: App {
 
         do {
             try services.projectService.ensurePEXProjectFiles(forProjectAt: projectRoot)
+            let baseNetlist = try generateTopCellNetlist()
+            let topLayoutDocument = topCell.layoutViewModel.editor.document
+            let topLayoutCellName = topLayoutDocument.topCellID
+                .flatMap { topLayoutDocument.cell(withID: $0)?.name }
+                ?? topLayoutDocument.cells.first?.name
+                ?? project.topCellName
+            try services.projectService.updatePEXTopCell(topLayoutCellName, forProjectAt: projectRoot)
             let config = try services.projectService.loadPEXProjectConfig(forProjectAt: projectRoot)
 
             try services.projectService.saveNetlist(
-                appState.spiceSource,
+                baseNetlist,
                 toProjectRelativePath: config.inputs.netlist,
                 inProjectAt: projectRoot
             )
             try services.projectService.saveLayout(
-                document: project.layoutViewModel.editor.document,
-                tech: project.layoutViewModel.tech,
+                document: topLayoutDocument,
+                tech: topCell.layoutViewModel.tech,
                 toProjectRelativePath: config.inputs.layout,
                 inProjectAt: projectRoot
             )
@@ -735,7 +737,7 @@ public struct CircuitStudioApp: App {
 
             let postNetlistURL = try writePostPEXNetlist(
                 projectRoot: projectRoot,
-                baseNetlist: appState.spiceSource,
+                baseNetlist: baseNetlist,
                 parasitics: extraction.ir
             )
             appState.pexOutputNetlistURL = postNetlistURL
@@ -746,6 +748,17 @@ public struct CircuitStudioApp: App {
         } catch {
             appState.log("PEX failed: \(error.localizedDescription)", kind: .error)
         }
+    }
+
+    private func generateTopCellNetlist() throws -> String {
+        guard let topCell = project.topCell else {
+            throw StudioError.projectSaveFailed("Project top cell '\(project.topCellName)' is missing.")
+        }
+        return try services.designFlowService.generateNetlist(DesignFlowNetlistRequest(
+            schematic: topCell.schematicViewModel.document,
+            library: project.cellLibrary,
+            title: "\(project.topCellName) PEX"
+        ))
     }
 
     private func writePostPEXNetlist(

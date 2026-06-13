@@ -52,6 +52,11 @@ public enum NetlistGenerationError: Error, Equatable, LocalizedError {
 public struct NetlistGenerator: Sendable {
     public let catalog: DeviceCatalog
 
+    private struct ResolvedCellInterface {
+        let cellName: String
+        let interface: CellInterface
+    }
+
     public init(catalog: DeviceCatalog = .standard()) {
         self.catalog = catalog
     }
@@ -71,15 +76,18 @@ public struct NetlistGenerator: Sendable {
     ) throws -> String {
         let dependencies = try collectDependencies(of: document, in: library)
 
-        var interfaces: [String: CellInterface] = [:]
+        var interfaces: [String: ResolvedCellInterface] = [:]
         for name in dependencies {
             guard let cell = library.cell(named: name) else {
                 throw NetlistGenerationError.unknownCellReference(parentCell: nil, cellName: name)
             }
             do {
-                interfaces[name] = try CellInterface.derive(from: cell.schematic)
+                interfaces[CellLibrary.identityKey(cell.name)] = ResolvedCellInterface(
+                    cellName: cell.name,
+                    interface: try CellInterface.derive(from: cell.schematic)
+                )
             } catch let error as CellInterfaceError {
-                throw NetlistGenerationError.invalidCellInterface(cellName: name, underlying: error)
+                throw NetlistGenerationError.invalidCellInterface(cellName: cell.name, underlying: error)
             }
         }
 
@@ -99,19 +107,19 @@ public struct NetlistGenerator: Sendable {
         // already defined when read top to bottom.
         for name in dependencies {
             guard let cell = library.cell(named: name),
-                  let interface = interfaces[name] else {
+                  let resolved = interfaces[CellLibrary.identityKey(cell.name)] else {
                 throw NetlistGenerationError.unknownCellReference(parentCell: nil, cellName: name)
             }
-            let portList = interface.ports.map(\.name).joined(separator: " ")
-            lines.append(".subckt \(name) \(portList)")
+            let portList = resolved.interface.ports.map(\.name).joined(separator: " ")
+            lines.append(".subckt \(resolved.cellName) \(portList)")
             lines.append(contentsOf: try emitBody(
                 of: cell.schematic,
-                cellName: name,
+                cellName: resolved.cellName,
                 interfaces: interfaces,
                 modelCards: &modelCards,
                 generatedModels: &generatedModels
             ))
-            lines.append(".ends \(name)")
+            lines.append(".ends \(resolved.cellName)")
             lines.append("")
         }
 
@@ -158,20 +166,21 @@ public struct NetlistGenerator: Sendable {
         var stack: [String] = []
 
         func visit(_ name: String, parentCell: String?) throws {
-            if let cycleStart = stack.firstIndex(of: name) {
+            let key = CellLibrary.identityKey(name)
+            if let cycleStart = stack.firstIndex(where: { CellLibrary.identityKey($0) == key }) {
                 throw NetlistGenerationError.dependencyCycle(Array(stack[cycleStart...]) + [name])
             }
-            if visited.contains(name) { return }
+            if visited.contains(key) { return }
             guard let cell = library.cell(named: name) else {
                 throw NetlistGenerationError.unknownCellReference(parentCell: parentCell, cellName: name)
             }
-            stack.append(name)
+            stack.append(cell.name)
             for child in cell.referencedCellNames {
-                try visit(child, parentCell: name)
+                try visit(child, parentCell: cell.name)
             }
             stack.removeLast()
-            visited.insert(name)
-            ordered.append(name)
+            visited.insert(key)
+            ordered.append(cell.name)
         }
 
         for component in document.components {
@@ -191,7 +200,7 @@ public struct NetlistGenerator: Sendable {
     private func emitBody(
         of document: SchematicDocument,
         cellName: String?,
-        interfaces: [String: CellInterface],
+        interfaces: [String: ResolvedCellInterface],
         modelCards: inout [String],
         generatedModels: inout Set<String>
     ) throws -> [String] {
@@ -229,7 +238,7 @@ public struct NetlistGenerator: Sendable {
                   PortDirection(deviceKindID: component.deviceKindID) == nil else { continue }
 
             if let childCellName = component.cellName {
-                guard let interface = interfaces[childCellName] else {
+                guard let resolved = interfaces[CellLibrary.identityKey(childCellName)] else {
                     throw NetlistGenerationError.unknownCellReference(
                         parentCell: cellName,
                         cellName: childCellName
@@ -238,7 +247,7 @@ public struct NetlistGenerator: Sendable {
                 guard component.name.uppercased().hasPrefix("X") else {
                     throw NetlistGenerationError.invalidSubcircuitInstanceName(component.name)
                 }
-                let nodeNames = interface.ports.map { port -> String in
+                let nodeNames = resolved.interface.ports.map { port -> String in
                     // Connectivity is keyed by the port's stable id (the child
                     // port-marker component UUID) — the same id the parent wire
                     // stored — so a child-port rename never misroutes the net.
@@ -248,7 +257,7 @@ public struct NetlistGenerator: Sendable {
                 }
                 var parts = [component.name]
                 parts.append(contentsOf: nodeNames)
-                parts.append(childCellName)
+                parts.append(resolved.cellName)
                 lines.append(parts.joined(separator: " "))
                 continue
             }

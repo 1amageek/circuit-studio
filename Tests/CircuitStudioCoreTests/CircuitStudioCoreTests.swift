@@ -48,6 +48,26 @@ struct DesignModelTests {
         #expect(values.first == 0)
         #expect(values.last == 1.0)
     }
+
+    @Test func decodeMigratesLegacyTerminalToBidirectionalPort() throws {
+        let terminal = PlacedComponent(deviceKindID: "terminal", name: "IN", position: .zero)
+        let legacy = SchematicDocument(
+            components: [terminal],
+            wires: [
+                Wire(
+                    startPoint: .zero,
+                    endPoint: CGPoint(x: 10, y: 0),
+                    startPin: PinReference(componentID: terminal.id, portID: "pin")
+                ),
+            ]
+        )
+
+        let data = try JSONEncoder().encode(legacy)
+        let decoded = try JSONDecoder().decode(SchematicDocument.self, from: data)
+
+        #expect(decoded.components.first?.deviceKindID == PortDirection.bidirectional.deviceKindID)
+        #expect(decoded.wires.first?.startPin?.portID == "pin")
+    }
 }
 
 @Suite("Device Catalog Tests")

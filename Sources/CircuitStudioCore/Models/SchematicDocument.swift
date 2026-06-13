@@ -83,9 +83,17 @@ public struct SchematicDocument: Sendable, Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         components = try container.decode([PlacedComponent].self, forKey: .components)
+            .map(Self.migratingLegacyComponent)
         wires = try container.decode([Wire].self, forKey: .wires)
         labels = try container.decode([NetLabel].self, forKey: .labels)
         junctions = try container.decode([Junction].self, forKey: .junctions)
         selection = []
+    }
+
+    private static func migratingLegacyComponent(_ component: PlacedComponent) -> PlacedComponent {
+        guard component.deviceKindID == "terminal" else { return component }
+        var migrated = component
+        migrated.deviceKindID = PortDirection.bidirectional.deviceKindID
+        return migrated
     }
 }

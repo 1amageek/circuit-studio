@@ -82,6 +82,7 @@ public final class StudioSession {
     // MARK: - Active-Cell Forwarding
 
     public var activeCellName: String { activeCell.name }
+    public var topCell: CellWorkspace? { cell(named: topCellName) }
 
     public var schematicViewModel: SchematicViewModel { activeCell.schematicViewModel }
     public var layoutViewModel: LayoutEditorViewModel { activeCell.layoutViewModel }

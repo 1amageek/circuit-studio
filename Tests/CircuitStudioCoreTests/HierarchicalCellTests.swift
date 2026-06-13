@@ -479,6 +479,30 @@ struct HierarchicalNetlistTests {
         #expect(netlist.contains("XB1 in out vdd 0 BUF"))
     }
 
+    @Test func caseVariantCellReferencesEmitOneCanonicalSubckt() throws {
+        var inv = makeInverterCell()
+        inv.name = "inv"
+        let x1 = PlacedComponent(
+            deviceKindID: DeviceCatalog.cellKindID(for: "INV"),
+            name: "X1", position: .zero, cellName: "INV"
+        )
+        let x2 = PlacedComponent(
+            deviceKindID: DeviceCatalog.cellKindID(for: "inv"),
+            name: "X2", position: .zero, cellName: "inv"
+        )
+        let top = SchematicDocument(components: [x1, x2], wires: [])
+
+        let netlist = try NetlistGenerator().generate(
+            from: top,
+            library: CellLibrary(cells: [inv]),
+            title: "Case Folded"
+        )
+
+        #expect(netlist.components(separatedBy: ".subckt inv").count == 2)
+        #expect(netlist.contains("X1 nc_X1_A nc_X1_Y nc_X1_VDD nc_X1_VSS inv"))
+        #expect(netlist.contains("X2 nc_X2_A nc_X2_Y nc_X2_VDD nc_X2_VSS inv"))
+    }
+
     @Test func unknownCellReferenceThrows() {
         let ghost = PlacedComponent(
             deviceKindID: DeviceCatalog.cellKindID(for: "GHOST"),

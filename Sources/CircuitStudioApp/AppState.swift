@@ -259,6 +259,19 @@ public final class AppState {
         simulationError = nil
     }
 
+    /// Clears the loaded SPICE file and its parse/simulation state.
+    public func clearSPICEFile() {
+        parseTask?.cancel()
+        parseTask = nil
+        spiceSource = ""
+        lastSavedSpiceSource = ""
+        spiceFileName = nil
+        selectedFileURL = nil
+        netlistInfo = nil
+        simulationResult = nil
+        simulationError = nil
+    }
+
     // MARK: - Live Parsing
 
     /// Schedule a debounced parse of the current SPICE source.

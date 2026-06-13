@@ -38,6 +38,35 @@ struct DirtyStateTests {
         #expect(appState.isNetlistDirty)
     }
 
+    @Test func clearSPICEFileClearsSelectionAndDirtyBaseline() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dirty-test-\(UUID().uuidString).cir")
+        try "* loaded netlist\n.end\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { removeCoreTestTemporaryDirectory(url) }
+
+        let appState = AppState()
+        try appState.loadSPICEFile(url: url)
+        appState.spiceSource += "* unsaved"
+        appState.netlistInfo = NetlistInfo(
+            title: nil,
+            components: [],
+            nodes: [],
+            analyses: [],
+            models: [],
+            diagnostics: [],
+            hasErrors: false
+        )
+
+        appState.clearSPICEFile()
+
+        #expect(appState.spiceSource.isEmpty)
+        #expect(appState.lastSavedSpiceSource.isEmpty)
+        #expect(appState.spiceFileName == nil)
+        #expect(appState.selectedFileURL == nil)
+        #expect(appState.netlistInfo == nil)
+        #expect(!appState.isNetlistDirty)
+    }
+
     @Test func saveSPICEFileResetsDirtyBaseline() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("dirty-test-\(UUID().uuidString).cir")
