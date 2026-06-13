@@ -100,6 +100,8 @@ public struct ComponentPalette: View {
         case .semiconductor: return "memorychip"
         case .controlled: return "diamond"
         case .special: return "minus"
+        case .port: return "arrow.right.square"
+        case .cell: return "cpu"
         }
     }
 
@@ -110,6 +112,8 @@ public struct ComponentPalette: View {
         case .semiconductor: return "Semi"
         case .controlled: return "Ctrl"
         case .special: return "Special"
+        case .port: return "Ports"
+        case .cell: return "Cells"
         }
     }
 }

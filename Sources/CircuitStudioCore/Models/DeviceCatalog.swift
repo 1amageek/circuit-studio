@@ -62,4 +62,81 @@ public struct DeviceCatalog: Sendable {
         }
         return catalog
     }
+
+    // MARK: - Project Cells
+
+    /// Device-kind ID for a placed instance of the named project cell.
+    public static func cellKindID(for cellName: String) -> String {
+        "cell.\(cellName)"
+    }
+
+    /// A cell that could not be offered in the palette, with the reason.
+    public struct CellCatalogIssue: Sendable {
+        public let cellName: String
+        public let reason: String
+
+        public init(cellName: String, reason: String) {
+            self.cellName = cellName
+            self.reason = reason
+        }
+    }
+
+    /// Result of folding a cell library into a catalog: the extended
+    /// catalog plus the cells that had to be excluded and why. Issues are
+    /// returned, not swallowed — the caller decides how to surface them.
+    public struct CellCatalogBuildResult: Sendable {
+        public let catalog: DeviceCatalog
+        public let issues: [CellCatalogIssue]
+
+        public init(catalog: DeviceCatalog, issues: [CellCatalogIssue]) {
+            self.catalog = catalog
+            self.issues = issues
+        }
+    }
+
+    /// Returns a copy of this catalog extended with a device kind per
+    /// placeable library cell.
+    ///
+    /// `activeCellName` and every cell that transitively instantiates it
+    /// are excluded — placing them would create a hierarchy cycle. Cells
+    /// whose interface fails to derive are excluded and reported as issues.
+    public func includingCells(
+        from library: CellLibrary,
+        activeCellName: String?
+    ) -> CellCatalogBuildResult {
+        var catalog = self
+        var issues: [CellCatalogIssue] = []
+
+        for cell in library.cells {
+            if let active = activeCellName, library.reaches(from: cell.name, to: active) {
+                continue
+            }
+            let interface: CellInterface
+            do {
+                interface = try CellInterface.derive(from: cell.schematic)
+            } catch {
+                issues.append(CellCatalogIssue(
+                    cellName: cell.name,
+                    reason: error.localizedDescription
+                ))
+                continue
+            }
+            let (symbol, portDefinitions) = CellSymbolFactory.make(
+                cellName: cell.name,
+                interface: interface
+            )
+            catalog.register(DeviceKind(
+                id: Self.cellKindID(for: cell.name),
+                displayName: cell.name,
+                category: .cell,
+                spicePrefix: "X",
+                portDefinitions: portDefinitions,
+                parameterSchema: [],
+                symbol: symbol,
+                cellName: cell.name
+            ))
+        }
+
+        return CellCatalogBuildResult(catalog: catalog, issues: issues)
+    }
 }

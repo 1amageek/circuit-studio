@@ -340,7 +340,7 @@ struct NetExtractorTests {
 @Suite("Netlist Generator Tests")
 struct NetlistGeneratorTests {
 
-    @Test func generateSimpleNetlist() {
+    @Test func generateSimpleNetlist() throws {
         let v1 = PlacedComponent(deviceKindID: "vsource", name: "V1", position: .zero, parameters: ["dc": 5])
         let r1 = PlacedComponent(deviceKindID: "resistor", name: "R1", position: CGPoint(x: 100, y: 0), parameters: ["r": 1000])
         let gnd = PlacedComponent(deviceKindID: "ground", name: "GND1", position: CGPoint(x: 50, y: 100))
@@ -369,13 +369,13 @@ struct NetlistGeneratorTests {
             wires: [wireVR, wireRGnd, wireVGnd]
         )
         let generator = NetlistGenerator()
-        let netlist = generator.generate(from: document, title: "Test Circuit")
+        let netlist = try generator.generate(from: document, title: "Test Circuit")
         #expect(netlist.contains("V1"))
         #expect(netlist.contains("R1"))
         #expect(netlist.contains(".end"))
     }
 
-    @Test func generateWithAnalysis() {
+    @Test func generateWithAnalysis() throws {
         let document = SchematicDocument()
         let testbench = Testbench(
             name: "AC",
@@ -384,12 +384,12 @@ struct NetlistGeneratorTests {
             ]
         )
         let generator = NetlistGenerator()
-        let netlist = generator.generate(from: document, title: "AC Test", testbench: testbench)
+        let netlist = try generator.generate(from: document, title: "AC Test", testbench: testbench)
         #expect(netlist.contains(".ac dec"))
         #expect(netlist.contains(".end"))
     }
 
-    @Test func generateTranAnalysis() {
+    @Test func generateTranAnalysis() throws {
         let document = SchematicDocument()
         let testbench = Testbench(
             name: "Tran",
@@ -398,12 +398,12 @@ struct NetlistGeneratorTests {
             ]
         )
         let generator = NetlistGenerator()
-        let netlist = generator.generate(from: document, title: "Tran Test", testbench: testbench)
+        let netlist = try generator.generate(from: document, title: "Tran Test", testbench: testbench)
         #expect(netlist.contains(".tran"))
         #expect(netlist.contains(".end"))
     }
 
-    @Test func generateTFAnalysisEmitsParsableVOutputCard() async {
+    @Test func generateTFAnalysisEmitsParsableVOutputCard() async throws {
         let document = SchematicDocument()
         let testbench = Testbench(
             name: "TF",
@@ -412,7 +412,7 @@ struct NetlistGeneratorTests {
             ]
         )
         let generator = NetlistGenerator()
-        let netlist = generator.generate(from: document, title: "TF Test", testbench: testbench)
+        let netlist = try generator.generate(from: document, title: "TF Test", testbench: testbench)
         #expect(netlist.contains(".tf v(out) V1"))
 
         // Round-trip: the parser requires V(node) syntax, so the emitted
@@ -422,7 +422,7 @@ struct NetlistGeneratorTests {
         #expect(info.analyses.contains { $0.type == "TF" })
     }
 
-    @Test func generateControlledSourceNetlist() {
+    @Test func generateControlledSourceNetlist() throws {
         let e1 = PlacedComponent(
             deviceKindID: "vcvs",
             name: "E1",
@@ -431,7 +431,7 @@ struct NetlistGeneratorTests {
         )
         let document = SchematicDocument(components: [e1])
         let generator = NetlistGenerator()
-        let netlist = generator.generate(from: document, title: "VCVS Test")
+        let netlist = try generator.generate(from: document, title: "VCVS Test")
 
         // VCVS should output bare gain value, not "e=10"
         #expect(netlist.contains("E1"))
@@ -439,7 +439,7 @@ struct NetlistGeneratorTests {
         #expect(!netlist.contains("e=10"))
     }
 
-    @Test func generateMOSFETNetlist() {
+    @Test func generateMOSFETNetlist() throws {
         let m1 = PlacedComponent(
             deviceKindID: "nmos_l1",
             name: "M1",
@@ -448,7 +448,7 @@ struct NetlistGeneratorTests {
         )
         let document = SchematicDocument(components: [m1])
         let generator = NetlistGenerator()
-        let netlist = generator.generate(from: document, title: "MOSFET Test")
+        let netlist = try generator.generate(from: document, title: "MOSFET Test")
 
         // Instance line should have model name and W=, L= instance params
         #expect(netlist.contains("M1"))
@@ -462,7 +462,7 @@ struct NetlistGeneratorTests {
         #expect(netlist.contains("kp="))
     }
 
-    @Test func generateDiodeNetlist() {
+    @Test func generateDiodeNetlist() throws {
         let d1 = PlacedComponent(
             deviceKindID: "diode",
             name: "D1",
@@ -471,14 +471,14 @@ struct NetlistGeneratorTests {
         )
         let document = SchematicDocument(components: [d1])
         let generator = NetlistGenerator()
-        let netlist = generator.generate(from: document, title: "Diode Test")
+        let netlist = try generator.generate(from: document, title: "Diode Test")
 
         #expect(netlist.contains("D1"))
         #expect(netlist.contains("D_D1"))
         #expect(netlist.contains(".model D_D1 D"))
     }
 
-    @Test func generateBJTNetlist() {
+    @Test func generateBJTNetlist() throws {
         let q1 = PlacedComponent(
             deviceKindID: "npn",
             name: "Q1",
@@ -487,7 +487,7 @@ struct NetlistGeneratorTests {
         )
         let document = SchematicDocument(components: [q1])
         let generator = NetlistGenerator()
-        let netlist = generator.generate(from: document, title: "BJT Test")
+        let netlist = try generator.generate(from: document, title: "BJT Test")
 
         #expect(netlist.contains("Q1"))
         #expect(netlist.contains("NPN_Q1"))

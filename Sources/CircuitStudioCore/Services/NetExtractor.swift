@@ -147,7 +147,33 @@ public struct NetExtractor: Sendable {
             nets.append(ExtractedNet(name: name, connections: value.pins))
         }
 
-        // Check for ground components — any pin connected to a ground component gets net name "0"
+        // Port components name the net their pin touches. The port name is
+        // the cell's interface contract, so it wins over labels and
+        // auto-names. With several ports on one net (an interface error
+        // caught by CellInterface.derive), the alphabetical minimum keeps
+        // extraction deterministic.
+        var portNames: [UUID: String] = [:]
+        for component in document.components
+        where PortDirection(deviceKindID: component.deviceKindID) != nil {
+            let name = component.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+            portNames[component.id] = name
+        }
+        if !portNames.isEmpty {
+            for i in nets.indices {
+                let names = nets[i].connections
+                    .compactMap { portNames[$0.componentID] }
+                    .sorted()
+                if let portName = names.first {
+                    nets[i] = ExtractedNet(name: portName, connections: nets[i].connections)
+                }
+            }
+        }
+
+        // Check for ground components — any pin connected to a ground component gets net name "0".
+        // Global ground outranks port naming: a port tied to ground is
+        // rejected later by interface validation, but the netlist must
+        // never lose node 0.
         let groundIDs = Set(document.components.filter { $0.deviceKindID == "ground" }.map(\.id))
         for i in nets.indices {
             if nets[i].connections.contains(where: { groundIDs.contains($0.componentID) }) {

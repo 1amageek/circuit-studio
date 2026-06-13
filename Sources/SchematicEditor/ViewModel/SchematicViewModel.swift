@@ -25,7 +25,7 @@ public enum HitResult: Sendable {
 @MainActor
 public final class SchematicViewModel {
     public var document: SchematicDocument = SchematicDocument()
-    public let catalog: DeviceCatalog
+    public private(set) var catalog: DeviceCatalog
     public var zoom: CGFloat = 1.0
     public var offset: CGPoint = .zero
     public var tool: EditTool = .select
@@ -64,6 +64,13 @@ public final class SchematicViewModel {
 
     public init(catalog: DeviceCatalog = .standard()) {
         self.catalog = catalog
+    }
+
+    /// Replaces the device catalog, e.g. after project cells are added,
+    /// removed, or re-derived. Existing placements keep their IDs; views
+    /// resolve kinds against the new catalog on the next render.
+    public func updateCatalog(_ newCatalog: DeviceCatalog) {
+        catalog = newCatalog
     }
 
     // MARK: - Validation
@@ -537,7 +544,8 @@ public final class SchematicViewModel {
             name: name,
             position: snapped,
             parameters: defaults,
-            modelPresetID: presetID
+            modelPresetID: presetID,
+            cellName: catalog.device(for: deviceKindID)?.cellName
         )
         document.components.append(placed)
     }

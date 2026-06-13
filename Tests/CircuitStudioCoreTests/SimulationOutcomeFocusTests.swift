@@ -13,7 +13,7 @@ struct SimulationOutcomeFocusTests {
     @Test(.timeLimit(.minutes(2)))
     func completedTransientRunShowsWaveformPane() async throws {
         let appState = AppState()
-        appState.spiceSource = NewProjectTemplate.cmosInverter().netlist
+        appState.spiceSource = try NewProjectTemplate.cmosInverter().netlist
         appState.spiceFileName = "top.cir"
 
         let service = DesignFlowService(

@@ -22,7 +22,7 @@ struct CMOSInverterFlowTests {
                 .tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9)),
             ]
         )
-        let baseNetlist = NetlistGenerator().generate(
+        let baseNetlist = try NetlistGenerator().generate(
             from: schematic,
             title: "CMOS inverter flow",
             testbench: testbench

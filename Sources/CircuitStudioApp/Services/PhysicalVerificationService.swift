@@ -381,6 +381,7 @@ public struct PhysicalVerificationService: Sendable {
             return kind.category != .special
                 && kind.category != .source
                 && kind.category != .controlled
+                && kind.category != .port
         }
     }
 

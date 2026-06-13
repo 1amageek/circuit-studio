@@ -21,6 +21,10 @@ public struct PlacedComponent: Sendable, Identifiable, Codable {
     public var modelPresetID: String?
     /// External model name override. When set, uses this model instead of presets.
     public var modelName: String?
+    /// Name of the project cell this component instantiates. `nil` for
+    /// primitive devices. Serialized so the design hierarchy is explicit in
+    /// the schematic file rather than encoded in `deviceKindID`.
+    public var cellName: String?
 
     public init(
         id: UUID = UUID(),
@@ -32,7 +36,8 @@ public struct PlacedComponent: Sendable, Identifiable, Codable {
         mirrorY: Bool = false,
         parameters: [String: Double] = [:],
         modelPresetID: String? = nil,
-        modelName: String? = nil
+        modelName: String? = nil,
+        cellName: String? = nil
     ) {
         self.id = id
         self.deviceKindID = deviceKindID
@@ -44,6 +49,7 @@ public struct PlacedComponent: Sendable, Identifiable, Codable {
         self.parameters = parameters
         self.modelPresetID = modelPresetID
         self.modelName = modelName
+        self.cellName = cellName
     }
 }
 

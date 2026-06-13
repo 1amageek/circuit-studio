@@ -1,7 +1,46 @@
 import Foundation
 
-/// Generates SPICE netlists directly from a SchematicDocument.
-/// Replaces the old NetlistService by eliminating the intermediate Design model.
+/// Errors raised while generating a netlist from a schematic hierarchy.
+public enum NetlistGenerationError: Error, Equatable, LocalizedError {
+    /// A component's device kind does not exist in the catalog.
+    case unknownDeviceKind(instanceName: String, deviceKindID: String)
+    /// A component instantiates a cell that the library does not contain.
+    /// `parentCell` is nil when the reference sits in the document being
+    /// generated rather than in a library cell.
+    case unknownCellReference(parentCell: String?, cellName: String)
+    /// A referenced cell's interface failed to derive.
+    case invalidCellInterface(cellName: String, underlying: CellInterfaceError)
+    /// Cell instantiations form a cycle.
+    case dependencyCycle([String])
+    /// A subcircuit instance must be named with an X prefix so SPICE
+    /// recognizes the element type.
+    case invalidSubcircuitInstanceName(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unknownDeviceKind(let instanceName, let deviceKindID):
+            return "Component '\(instanceName)' uses unknown device kind '\(deviceKindID)'."
+        case .unknownCellReference(let parentCell, let cellName):
+            let location = parentCell.map { "Cell '\($0)'" } ?? "The schematic"
+            return "\(location) instantiates '\(cellName)', which does not exist in the project."
+        case .invalidCellInterface(let cellName, let underlying):
+            return "Cell '\(cellName)' has an invalid interface: \(underlying.localizedDescription)"
+        case .dependencyCycle(let path):
+            return "Cell instantiation cycle: \(path.joined(separator: " → "))."
+        case .invalidSubcircuitInstanceName(let name):
+            return "Cell instance '\(name)' must be named with an 'X' prefix (SPICE subcircuit element)."
+        }
+    }
+}
+
+/// Generates SPICE netlists from a schematic document and the cell library
+/// it draws subcircuits from.
+///
+/// Cells referenced by the document (and their transitive dependencies)
+/// are emitted as `.subckt` definitions, deepest-first; the document's own
+/// components form the top-level body. CoreSpice expands subcircuits
+/// natively during lowering, so the same hierarchical netlist serves
+/// display, simulation, and interchange.
 public struct NetlistGenerator: Sendable {
     public let catalog: DeviceCatalog
 
@@ -10,21 +49,29 @@ public struct NetlistGenerator: Sendable {
     }
 
     /// Generate a SPICE netlist from a schematic document.
+    ///
+    /// - Parameters:
+    ///   - document: The top-level schematic (the active cell's body).
+    ///   - library: Cells available for instantiation. The default empty
+    ///     library means any cell instance in the document is an error.
     public func generate(
         from document: SchematicDocument,
+        library: CellLibrary = CellLibrary(),
         title: String = "Untitled",
         testbench: Testbench? = nil,
         processConfiguration: ProcessConfiguration? = nil
-    ) -> String {
-        let extractor = NetExtractor()
-        let nets = extractor.extract(from: document)
+    ) throws -> String {
+        let dependencies = try collectDependencies(of: document, in: library)
 
-        // Build component-pin-to-netname map
-        var pinNetMap: [String: String] = [:]  // "componentID:portID" -> netName
-        for net in nets {
-            for conn in net.connections {
-                let key = "\(conn.componentID):\(conn.portID)"
-                pinNetMap[key] = net.name
+        var interfaces: [String: CellInterface] = [:]
+        for name in dependencies {
+            guard let cell = library.cell(named: name) else {
+                throw NetlistGenerationError.unknownCellReference(parentCell: nil, cellName: name)
+            }
+            do {
+                interfaces[name] = try CellInterface.derive(from: cell.schematic)
+            } catch let error as CellInterfaceError {
+                throw NetlistGenerationError.invalidCellInterface(cellName: name, underlying: error)
             }
         }
 
@@ -40,11 +87,151 @@ public struct NetlistGenerator: Sendable {
             appendProcessHeader(processConfiguration, to: &lines)
         }
 
-        // Components
+        // Subcircuit definitions, deepest-first so every reference is
+        // already defined when read top to bottom.
+        for name in dependencies {
+            guard let cell = library.cell(named: name),
+                  let interface = interfaces[name] else {
+                throw NetlistGenerationError.unknownCellReference(parentCell: nil, cellName: name)
+            }
+            let portList = interface.ports.map(\.name).joined(separator: " ")
+            lines.append(".subckt \(name) \(portList)")
+            lines.append(contentsOf: try emitBody(
+                of: cell.schematic,
+                cellName: name,
+                interfaces: interfaces,
+                modelCards: &modelCards,
+                generatedModels: &generatedModels
+            ))
+            lines.append(".ends \(name)")
+            lines.append("")
+        }
+
+        // Top-level body
+        let body = try emitBody(
+            of: document,
+            cellName: nil,
+            interfaces: interfaces,
+            modelCards: &modelCards,
+            generatedModels: &generatedModels
+        )
+        lines.append(contentsOf: body)
+        if !body.isEmpty {
+            lines.append("")
+        }
+
+        // Model cards are global: subcircuit bodies reference them by name.
+        if !modelCards.isEmpty {
+            lines.append(contentsOf: modelCards)
+            lines.append("")
+        }
+
+        // Testbench analysis commands
+        if let testbench {
+            for command in testbench.analysisCommands {
+                lines.append(analysisLine(command))
+            }
+            lines.append("")
+        }
+
+        lines.append(".end")
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Hierarchy
+
+    /// Cells the document transitively instantiates, deepest-first.
+    private func collectDependencies(
+        of document: SchematicDocument,
+        in library: CellLibrary
+    ) throws -> [String] {
+        var ordered: [String] = []
+        var visited: Set<String> = []
+        var stack: [String] = []
+
+        func visit(_ name: String, parentCell: String?) throws {
+            if let cycleStart = stack.firstIndex(of: name) {
+                throw NetlistGenerationError.dependencyCycle(Array(stack[cycleStart...]) + [name])
+            }
+            if visited.contains(name) { return }
+            guard let cell = library.cell(named: name) else {
+                throw NetlistGenerationError.unknownCellReference(parentCell: parentCell, cellName: name)
+            }
+            stack.append(name)
+            for child in cell.referencedCellNames {
+                try visit(child, parentCell: name)
+            }
+            stack.removeLast()
+            visited.insert(name)
+            ordered.append(name)
+        }
+
+        for component in document.components {
+            if let child = component.cellName {
+                try visit(child, parentCell: nil)
+            }
+        }
+        return ordered
+    }
+
+    // MARK: - Body Emission
+
+    /// Emits the element lines for one schematic body. `cellName` is nil
+    /// for the top-level document and set for `.subckt` bodies, where it
+    /// namespaces custom model-card names (model cards are global in
+    /// SPICE, instance names are not).
+    private func emitBody(
+        of document: SchematicDocument,
+        cellName: String?,
+        interfaces: [String: CellInterface],
+        modelCards: inout [String],
+        generatedModels: inout Set<String>
+    ) throws -> [String] {
+        let extractor = NetExtractor()
+        let nets = extractor.extract(from: document)
+
+        // Build component-pin-to-netname map
+        var pinNetMap: [String: String] = [:]  // "componentID:portID" -> netName
+        for net in nets {
+            for conn in net.connections {
+                let key = "\(conn.componentID):\(conn.portID)"
+                pinNetMap[key] = net.name
+            }
+        }
+
+        var lines: [String] = []
+
         for component in document.components {
             guard component.deviceKindID != "ground",
-                  component.deviceKindID != "terminal" else { continue }
-            guard let kind = catalog.device(for: component.deviceKindID) else { continue }
+                  PortDirection(deviceKindID: component.deviceKindID) == nil else { continue }
+
+            if let childCellName = component.cellName {
+                guard let interface = interfaces[childCellName] else {
+                    throw NetlistGenerationError.unknownCellReference(
+                        parentCell: cellName,
+                        cellName: childCellName
+                    )
+                }
+                guard component.name.uppercased().hasPrefix("X") else {
+                    throw NetlistGenerationError.invalidSubcircuitInstanceName(component.name)
+                }
+                let nodeNames = interface.ports.map { port -> String in
+                    let key = "\(component.id):\(port.name)"
+                    return pinNetMap[key] ?? "nc_\(component.name)_\(port.name)"
+                }
+                var parts = [component.name]
+                parts.append(contentsOf: nodeNames)
+                parts.append(childCellName)
+                lines.append(parts.joined(separator: " "))
+                continue
+            }
+
+            guard let kind = catalog.device(for: component.deviceKindID) else {
+                throw NetlistGenerationError.unknownDeviceKind(
+                    instanceName: component.name,
+                    deviceKindID: component.deviceKindID
+                )
+            }
 
             let nodeNames = kind.portDefinitions.map { port -> String in
                 let key = "\(component.id):\(port.id)"
@@ -77,8 +264,15 @@ public struct NetlistGenerator: Sendable {
                     resolvedModelParams = merged
                     usesExternalModel = false
                 } else {
-                    // Custom mode: per-instance model card
-                    modelName = "\(modelType)_\(component.name)"
+                    // Custom mode: per-instance model card. Inside a cell the
+                    // name carries the cell prefix — model cards are global,
+                    // so identical instance names in two cells must not
+                    // collide.
+                    if let cellName {
+                        modelName = "\(modelType)_\(cellName)_\(component.name)"
+                    } else {
+                        modelName = "\(modelType)_\(component.name)"
+                    }
                     var params: [String: Double] = [:]
                     for schema in kind.parameterSchema where schema.isModelParameter {
                         if let value = component.parameters[schema.id] {
@@ -130,28 +324,7 @@ public struct NetlistGenerator: Sendable {
             }
         }
 
-        if !document.components.isEmpty {
-            lines.append("")
-        }
-
-        // Model cards
-        if !modelCards.isEmpty {
-            for card in modelCards {
-                lines.append(card)
-            }
-            lines.append("")
-        }
-
-        // Testbench analysis commands
-        if let testbench {
-            for command in testbench.analysisCommands {
-                lines.append(analysisLine(command))
-            }
-            lines.append("")
-        }
-
-        lines.append(".end")
-        return lines.joined(separator: "\n")
+        return lines
     }
 
     // MARK: - Process Header

@@ -25,6 +25,7 @@ public struct DesignFlowSPICESimulationRequest: Sendable {
 
 public struct DesignFlowSchematicSimulationRequest: Sendable {
     public let schematic: SchematicDocument
+    public let library: CellLibrary
     public let title: String?
     public let testbench: Testbench
     public let processConfiguration: ProcessConfiguration?
@@ -32,12 +33,14 @@ public struct DesignFlowSchematicSimulationRequest: Sendable {
 
     public init(
         schematic: SchematicDocument,
+        library: CellLibrary = CellLibrary(),
         title: String? = nil,
         testbench: Testbench,
         processConfiguration: ProcessConfiguration? = nil,
         onWaveformUpdate: (@Sendable (WaveformData) -> Void)? = nil
     ) {
         self.schematic = schematic
+        self.library = library
         self.title = title
         self.testbench = testbench
         self.processConfiguration = processConfiguration
@@ -57,17 +60,20 @@ public struct DesignFlowSchematicSimulationResult: Sendable {
 
 public struct DesignFlowNetlistRequest: Sendable {
     public let schematic: SchematicDocument
+    public let library: CellLibrary
     public let title: String?
     public let testbench: Testbench?
     public let processConfiguration: ProcessConfiguration?
 
     public init(
         schematic: SchematicDocument,
+        library: CellLibrary = CellLibrary(),
         title: String? = nil,
         testbench: Testbench? = nil,
         processConfiguration: ProcessConfiguration? = nil
     ) {
         self.schematic = schematic
+        self.library = library
         self.title = title
         self.testbench = testbench
         self.processConfiguration = processConfiguration
@@ -524,18 +530,13 @@ public struct DesignFlowService: Sendable {
         )
     }
 
-    public func generateNetlist(_ request: DesignFlowNetlistRequest) -> String {
-        if let testbench = request.testbench {
-            return netlistGenerator.generate(
-                from: request.schematic,
-                title: request.title ?? "Schematic",
-                testbench: testbench,
-                processConfiguration: request.processConfiguration
-            )
-        }
-        return netlistGenerator.generate(
+    public func generateNetlist(_ request: DesignFlowNetlistRequest) throws -> String {
+        try netlistGenerator.generate(
             from: request.schematic,
-            title: request.title ?? "Schematic"
+            library: request.library,
+            title: request.title ?? "Schematic",
+            testbench: request.testbench,
+            processConfiguration: request.processConfiguration
         )
     }
 
@@ -578,8 +579,9 @@ public struct DesignFlowService: Sendable {
     public func runSchematicSimulation(
         _ request: DesignFlowSchematicSimulationRequest
     ) async throws -> DesignFlowSchematicSimulationResult {
-        let netlist = generateNetlist(DesignFlowNetlistRequest(
+        let netlist = try generateNetlist(DesignFlowNetlistRequest(
             schematic: request.schematic,
+            library: request.library,
             title: request.title ?? "Schematic Simulation",
             testbench: request.testbench,
             processConfiguration: request.processConfiguration
@@ -809,7 +811,7 @@ public struct DesignFlowService: Sendable {
         case .generateFixtureNetlist:
             let fixture = try fixture(for: command)
             let package = try technologyPackage(for: command)
-            let netlist = generateNetlist(DesignFlowNetlistRequest(
+            let netlist = try generateNetlist(DesignFlowNetlistRequest(
                 schematic: fixture.schematic,
                 title: fixture.title,
                 testbench: fixture.testbench,
@@ -844,7 +846,7 @@ public struct DesignFlowService: Sendable {
         case .generateDesignNetlist:
             let design = try design(for: command)
             let package = try technologyPackage(for: command)
-            let netlist = generateNetlist(DesignFlowNetlistRequest(
+            let netlist = try generateNetlist(DesignFlowNetlistRequest(
                 schematic: design.schematic,
                 title: design.title,
                 testbench: design.testbench,

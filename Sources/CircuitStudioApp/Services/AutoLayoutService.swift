@@ -75,10 +75,24 @@ public final class AutoLayoutService {
         var componentToCellID: [UUID: UUID] = [:]
         var skipped: [String] = []
 
+        // Project-cell instances need hierarchical layout generation, which
+        // does not exist yet — fail before producing a partial layout.
+        let cellInstances = document.components.filter { $0.cellName != nil }
+        guard cellInstances.isEmpty else {
+            throw AutoLayoutError.hierarchicalCellsUnsupported(
+                instanceNames: cellInstances.map(\.name)
+            )
+        }
+
         for component in document.components {
-            guard let kind = catalog.device(for: component.deviceKindID) else { continue }
-            // Skip reference devices (ground, VDD, terminals)
-            guard kind.category != .special else { continue }
+            guard let kind = catalog.device(for: component.deviceKindID) else {
+                throw AutoLayoutError.unknownDeviceKind(
+                    instanceName: component.name,
+                    deviceKindID: component.deviceKindID
+                )
+            }
+            // Skip reference devices (ground, VDD) and boundary ports — no geometry
+            guard kind.category != .special, kind.category != .port else { continue }
             // Skip sources/controlled sources (no physical layout)
             guard kind.category != .source, kind.category != .controlled else {
                 skipped.append(component.name)

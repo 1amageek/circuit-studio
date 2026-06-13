@@ -115,7 +115,7 @@ public struct SpecDrivenDesignLoop: Sendable {
 
         for index in 0..<maxIterations {
             let built = try design.build(catalog: catalog)
-            let netlist = netlistGenerator.generate(
+            let netlist = try netlistGenerator.generate(
                 from: built.schematic, title: built.title, testbench: built.testbench
             )
             let result = try await simulation.runSPICE(

@@ -274,7 +274,7 @@ public final class HeadlessRoundTripService {
         }
 
         let netlistGenerationStartedAt = Date()
-        let baseNetlist = NetlistGenerator().generate(
+        let baseNetlist = try NetlistGenerator().generate(
             from: schematic,
             title: configuration.title,
             testbench: configuration.testbench,

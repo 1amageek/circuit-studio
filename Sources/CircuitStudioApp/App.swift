@@ -279,7 +279,7 @@ public struct CircuitStudioApp: App {
             )
             try services.projectService.createProject(at: url)
             try services.projectService.installTemplate(
-                NewProjectTemplate.cmosInverter(),
+                try NewProjectTemplate.cmosInverter(),
                 forProjectAt: url
             )
 

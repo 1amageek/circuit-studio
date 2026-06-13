@@ -399,6 +399,7 @@ public final class AppState {
     /// Run simulation from a schematic document by generating a SPICE netlist.
     public func runSchematicSimulation(
         document: SchematicDocument,
+        library: CellLibrary = CellLibrary(),
         analysisCommand: AnalysisCommand,
         service: DesignFlowService
     ) async {
@@ -435,6 +436,7 @@ public final class AppState {
         do {
             let flowResult = try await service.runSchematicSimulation(DesignFlowSchematicSimulationRequest(
                 schematic: document,
+                library: library,
                 testbench: testbench,
                 processConfiguration: process,
                 onWaveformUpdate: handler
@@ -466,6 +468,7 @@ public final class AppState {
     /// corners.
     public func runActiveSimulation(
         schematicDocument: SchematicDocument,
+        library: CellLibrary = CellLibrary(),
         service: DesignFlowService
     ) async {
         switch schematicMode {
@@ -474,6 +477,7 @@ public final class AppState {
             guard !corners.isEmpty else {
                 await runSchematicSimulation(
                     document: schematicDocument,
+                    library: library,
                     analysisCommand: selectedAnalysis,
                     service: service
                 )
@@ -483,11 +487,19 @@ public final class AppState {
             // corner configuration wins over any netlist .temp card in both
             // simulation paths, so the shared netlist stays corner-neutral.
             let testbench = Testbench(name: "Quick", analysisCommands: [selectedAnalysis])
-            let netlist = service.generateNetlist(DesignFlowNetlistRequest(
-                schematic: schematicDocument,
-                testbench: testbench,
-                processConfiguration: processConfiguration.isEmpty ? nil : processConfiguration
-            ))
+            let netlist: String
+            do {
+                netlist = try service.generateNetlist(DesignFlowNetlistRequest(
+                    schematic: schematicDocument,
+                    library: library,
+                    testbench: testbench,
+                    processConfiguration: processConfiguration.isEmpty ? nil : processConfiguration
+                ))
+            } catch {
+                simulationError = error.localizedDescription
+                log(error.localizedDescription, kind: .error)
+                return
+            }
             await runMatrix(
                 source: netlist,
                 fileName: "schematic.cir",

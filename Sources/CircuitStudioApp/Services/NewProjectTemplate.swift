@@ -18,13 +18,13 @@ public enum NewProjectTemplate {
     ///
     /// The schematic carries explicit per-instance model parameters, so the
     /// generated netlist simulates without any external PDK or model library.
-    public static func cmosInverter() -> ProjectTemplateContent {
+    public static func cmosInverter() throws -> ProjectTemplateContent {
         let document = SchematicPreview.cmosInverterViewModel().document
         let testbench = Testbench(
             name: "Transient",
             analysisCommands: [.tran(transientSpec)]
         )
-        let generated = NetlistGenerator().generate(
+        let generated = try NetlistGenerator().generate(
             from: document,
             title: "CMOS Inverter",
             testbench: testbench

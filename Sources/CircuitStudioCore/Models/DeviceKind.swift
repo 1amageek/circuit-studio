@@ -18,6 +18,10 @@ public enum DeviceCategory: String, Sendable, CaseIterable {
     case semiconductor
     case controlled
     case special
+    /// Directional cell-boundary ports (input, output, power, ...).
+    case port
+    /// Project cells placed as hierarchical instances.
+    case cell
 }
 
 /// A port (pin) definition on a device, with position in symbol-local coordinates.
@@ -106,6 +110,10 @@ public struct DeviceKind: Sendable, Identifiable {
     public let parameterSchema: [ParameterSchema]
     /// Visual symbol definition.
     public let symbol: SymbolDefinition
+    /// Project cell this kind instantiates. Nil for primitive devices.
+    /// Placement copies this into `PlacedComponent.cellName` so the
+    /// hierarchy is explicit in the serialized schematic.
+    public let cellName: String?
 
     public init(
         id: String,
@@ -115,7 +123,8 @@ public struct DeviceKind: Sendable, Identifiable {
         modelType: String? = nil,
         portDefinitions: [PortDefinition],
         parameterSchema: [ParameterSchema],
-        symbol: SymbolDefinition
+        symbol: SymbolDefinition,
+        cellName: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -125,5 +134,6 @@ public struct DeviceKind: Sendable, Identifiable {
         self.portDefinitions = portDefinitions
         self.parameterSchema = parameterSchema
         self.symbol = symbol
+        self.cellName = cellName
     }
 }

@@ -12,7 +12,8 @@ public enum BuiltInDevices {
             vcvs, vccs, ccvs, cccs,
             diode, npn, pnp,
             nmosL1, pmosL1, nmosL2, pmosL2, nmosL3, pmosL3,
-            ground, terminal,
+            ground,
+            portInput, portOutput, portInout, portPower, portGround,
         ]
     }
 
@@ -634,31 +635,128 @@ public enum BuiltInDevices {
         )
     )
 
-    /// A user-placed terminal marking a named connection point on the schematic.
-    ///
-    /// The component's instance name (e.g. "IN", "OUT", "VDD") serves as the
-    /// terminal label. Terminals are not emitted into the SPICE netlist; they
-    /// exist purely as schematic-level annotations and probe targets.
-    public static let terminal = DeviceKind(
-        id: "terminal",
-        displayName: "Terminal",
-        category: .special,
-        spicePrefix: "PORT",
+    // MARK: - Ports
+    //
+    // Directional cell-boundary markers. A port component's instance name
+    // (e.g. "IN", "OUT", "VDD") names the net it touches, becomes a node on
+    // the cell's `.subckt` line, and doubles as a probe target. Ports emit
+    // no SPICE element themselves.
+
+    /// Single-pin definition shared by every port kind. The pin id is
+    /// uniform so interface derivation can address it without a catalog.
+    private static func portPin() -> [PortDefinition] {
+        [PortDefinition(id: "pin", displayName: "Pin", position: CGPoint(x: -10, y: 0))]
+    }
+
+    public static let portInput = DeviceKind(
+        id: PortDirection.input.deviceKindID,
+        displayName: "Input Port",
+        category: .port,
+        spicePrefix: "IN",
+        portDefinitions: portPin(),
+        parameterSchema: [],
+        symbol: SymbolDefinition(
+            shape: .custom([
+                // Lead from pin (left) into the flag
+                .line(from: CGPoint(x: -10, y: 0), to: CGPoint(x: -2, y: 0)),
+                // Right-pointing flag: signal flows into the circuit
+                .polygon([
+                    CGPoint(x: -2, y: -6), CGPoint(x: 8, y: -6),
+                    CGPoint(x: 14, y: 0), CGPoint(x: 8, y: 6),
+                    CGPoint(x: -2, y: 6),
+                ]),
+            ]),
+            size: CGSize(width: 24, height: 12),
+            iconName: "arrow.right.square"
+        )
+    )
+
+    public static let portOutput = DeviceKind(
+        id: PortDirection.output.deviceKindID,
+        displayName: "Output Port",
+        category: .port,
+        spicePrefix: "OUT",
+        portDefinitions: portPin(),
+        parameterSchema: [],
+        symbol: SymbolDefinition(
+            shape: .custom([
+                .line(from: CGPoint(x: -10, y: 0), to: CGPoint(x: -2, y: 0)),
+                // Flag with a pointed tail: signal flows out of the circuit
+                .polygon([
+                    CGPoint(x: 4, y: -6), CGPoint(x: 14, y: -6),
+                    CGPoint(x: 14, y: 6), CGPoint(x: 4, y: 6),
+                    CGPoint(x: -2, y: 0),
+                ]),
+            ]),
+            size: CGSize(width: 24, height: 12),
+            iconName: "arrow.right.square.fill"
+        )
+    )
+
+    public static let portInout = DeviceKind(
+        id: PortDirection.bidirectional.deviceKindID,
+        displayName: "Bidirectional Port",
+        category: .port,
+        spicePrefix: "IO",
+        portDefinitions: portPin(),
+        parameterSchema: [],
+        symbol: SymbolDefinition(
+            shape: .custom([
+                .line(from: CGPoint(x: -10, y: 0), to: CGPoint(x: -2, y: 0)),
+                // Double-pointed flag: signal flows both ways
+                .polygon([
+                    CGPoint(x: -2, y: 0), CGPoint(x: 4, y: -6),
+                    CGPoint(x: 10, y: -6), CGPoint(x: 16, y: 0),
+                    CGPoint(x: 10, y: 6), CGPoint(x: 4, y: 6),
+                ]),
+            ]),
+            size: CGSize(width: 26, height: 12),
+            iconName: "arrow.left.arrow.right.square"
+        )
+    )
+
+    public static let portPower = DeviceKind(
+        id: PortDirection.power.deviceKindID,
+        displayName: "Power Port",
+        category: .port,
+        spicePrefix: "VDD",
+        portDefinitions: [
+            PortDefinition(id: "pin", displayName: "Pin", position: CGPoint(x: 0, y: 10)),
+        ],
+        parameterSchema: [],
+        symbol: SymbolDefinition(
+            shape: .custom([
+                // Lead from pin (bottom) up to the rail bar
+                .line(from: CGPoint(x: 0, y: 10), to: CGPoint(x: 0, y: 0)),
+                .line(from: CGPoint(x: -8, y: 0), to: CGPoint(x: 8, y: 0)),
+                // Upward arrow head above the bar
+                .line(from: CGPoint(x: -4, y: -4), to: CGPoint(x: 0, y: -8)),
+                .line(from: CGPoint(x: 4, y: -4), to: CGPoint(x: 0, y: -8)),
+            ]),
+            size: CGSize(width: 16, height: 18),
+            iconName: "bolt.square"
+        )
+    )
+
+    public static let portGround = DeviceKind(
+        id: PortDirection.ground.deviceKindID,
+        displayName: "Ground Port",
+        category: .port,
+        spicePrefix: "VSS",
         portDefinitions: [
             PortDefinition(id: "pin", displayName: "Pin", position: CGPoint(x: 0, y: -10)),
         ],
         parameterSchema: [],
         symbol: SymbolDefinition(
             shape: .custom([
-                // Lead from pin (top) down to triangle base
-                .line(from: CGPoint(x: 0, y: -10), to: CGPoint(x: 0, y: -2)),
-                // Downward-pointing triangle (port flag)
-                .line(from: CGPoint(x: -7, y: -2), to: CGPoint(x: 7, y: -2)),
-                .line(from: CGPoint(x: -7, y: -2), to: CGPoint(x: 0, y: 8)),
-                .line(from: CGPoint(x: 7, y: -2), to: CGPoint(x: 0, y: 8)),
+                // Lead from pin (top) down to the rail bar — unlike the
+                // global ground symbol, this names a cell port, not node 0.
+                .line(from: CGPoint(x: 0, y: -10), to: CGPoint(x: 0, y: 0)),
+                .line(from: CGPoint(x: -8, y: 0), to: CGPoint(x: 8, y: 0)),
+                .line(from: CGPoint(x: -4, y: 4), to: CGPoint(x: 4, y: 4)),
             ]),
-            size: CGSize(width: 14, height: 18),
-            iconName: "arrowtriangle.down.fill"
+            size: CGSize(width: 16, height: 16),
+            iconName: "bolt.square.fill"
         )
     )
 }

@@ -28,7 +28,7 @@ struct VirtualPDKTests {
         #expect(params["u0"] == 0.05)
 
         let generator = NetlistGenerator()
-        let source = generator.generate(
+        let source = try generator.generate(
             from: SchematicDocument(),
             title: "VirtualPDK",
             testbench: nil,

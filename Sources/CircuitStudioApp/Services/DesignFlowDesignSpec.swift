@@ -678,7 +678,9 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
     }
 
     private func validateComponentNamePrefix(_ name: String, kind: DeviceKind) throws {
-        guard kind.category != .special else {
+        // Reference devices have no SPICE card; port names are the cell's
+        // interface contract, free-form by design.
+        guard kind.category != .special, kind.category != .port else {
             return
         }
         let expectedPrefix = kind.spicePrefix.uppercased()

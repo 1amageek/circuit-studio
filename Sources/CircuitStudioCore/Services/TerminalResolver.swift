@@ -1,10 +1,10 @@
 import Foundation
 
-/// A PORT component resolved to its SPICE variable name.
+/// A port component resolved to its SPICE variable name.
 public struct ResolvedTerminal: Sendable {
-    /// The component ID of the PORT component.
+    /// The component ID of the port component.
     public let componentID: UUID
-    /// The PORT component's instance name (e.g. "Vout").
+    /// The port component's instance name (e.g. "Vout").
     public let label: String
     /// The SPICE variable name (e.g. "V(net3)").
     public let variableName: String
@@ -16,17 +16,19 @@ public struct ResolvedTerminal: Sendable {
     }
 }
 
-/// Resolves Terminal (PORT) components in a schematic to SPICE variable names.
+/// Resolves port components in a schematic to SPICE variable names.
 ///
-/// PORT components are user-placed measurement points. Each PORT's pin connects
-/// to a net, and the resolver maps that to V(netName) for the waveform viewer.
+/// Ports mark the cell boundary and double as measurement points. Each
+/// port's pin connects to a net, and the resolver maps that to V(netName)
+/// for the waveform viewer. Since net extraction names a port's net after
+/// the port itself, the variable is typically V(portName).
 public struct TerminalResolver: Sendable {
 
     public init() {}
 
-    /// Resolve all PORT components to SPICE variable names.
+    /// Resolve all port components to SPICE variable names.
     ///
-    /// Skips PORT components whose pin is not connected to any net.
+    /// Skips port components whose pin is not connected to any net.
     public func resolve(
         document: SchematicDocument,
         nets: [ExtractedNet],
@@ -43,10 +45,10 @@ public struct TerminalResolver: Sendable {
         var results: [ResolvedTerminal] = []
 
         for component in document.components {
-            guard component.deviceKindID == "terminal" else { continue }
+            guard PortDirection(deviceKindID: component.deviceKindID) != nil else { continue }
             guard let kind = catalog.device(for: component.deviceKindID) else { continue }
 
-            // Find the net connected to the PORT's pin
+            // Find the net connected to the port's pin
             guard let port = kind.portDefinitions.first else { continue }
             let key = "\(component.id):\(port.id)"
             guard let netName = pinNetMap[key] else { continue }

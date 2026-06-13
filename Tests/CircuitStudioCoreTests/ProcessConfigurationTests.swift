@@ -30,7 +30,7 @@ struct ProcessConfigurationTests {
         #expect(merged["tox"] == 3e-9)
     }
 
-    @Test func netlistHeaderIncludesLibrariesParamsAndTemp() {
+    @Test func netlistHeaderIncludesLibrariesParamsAndTemp() throws {
         let library = ProcessLibrary(
             name: "Models",
             path: "models.lib",
@@ -62,7 +62,7 @@ struct ProcessConfigurationTests {
         )
 
         let generator = NetlistGenerator()
-        let source = generator.generate(
+        let source = try generator.generate(
             from: SchematicDocument(),
             title: "Test",
             testbench: nil,

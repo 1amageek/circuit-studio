@@ -9,7 +9,7 @@ struct NewProjectTemplateTests {
     @Test
     @MainActor
     func templateContentIsConsistent() throws {
-        let content = NewProjectTemplate.cmosInverter()
+        let content = try NewProjectTemplate.cmosInverter()
 
         #expect(content.netlistFileName == "top.cir")
         #expect(content.netlist == content.schematicPlacement.sourceNetlist)
@@ -34,7 +34,7 @@ struct NewProjectTemplateTests {
         let service = ProjectService()
         try service.createProject(at: root)
 
-        let content = NewProjectTemplate.cmosInverter()
+        let content = try NewProjectTemplate.cmosInverter()
         try service.installTemplate(content, forProjectAt: root)
 
         let netlistURL = root.appending(path: content.netlistFileName)
@@ -55,7 +55,7 @@ struct NewProjectTemplateTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func templateNetlistSimulatesToCompletion() async throws {
-        let content = NewProjectTemplate.cmosInverter()
+        let content = try NewProjectTemplate.cmosInverter()
 
         let result = try await SimulationService().runSPICE(
             source: content.netlist,
