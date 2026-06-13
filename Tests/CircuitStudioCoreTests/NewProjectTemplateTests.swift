@@ -12,13 +12,17 @@ struct NewProjectTemplateTests {
         let content = try NewProjectTemplate.cmosInverter()
 
         #expect(content.netlistFileName == "top.cir")
-        #expect(content.netlist == content.schematicPlacement.sourceNetlist)
         #expect(content.netlist.hasPrefix("* Welcome to Circuit Studio!"))
         #expect(content.netlist.contains("MP1"))
         #expect(content.netlist.contains("MN1"))
         #expect(content.netlist.contains(".tran"))
         #expect(content.netlist.contains(".end"))
-        #expect(!content.schematicPlacement.document.components.isEmpty)
+
+        // The template seeds exactly the top cell, which carries the drawn
+        // schematic.
+        #expect(content.topCellName == content.activeCellName)
+        let topCell = try #require(content.cells.first { $0.name == content.topCellName })
+        #expect(!topCell.schematic.components.isEmpty)
         #expect(
             content.simulationConfig.selectedAnalysis
                 == .tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9))
@@ -41,12 +45,21 @@ struct NewProjectTemplateTests {
         let savedNetlist = try String(contentsOf: netlistURL, encoding: .utf8)
         #expect(savedNetlist == content.netlist)
 
-        let placement = try service.loadSchematicPlacement(forProjectAt: root)
-        #expect(placement.sourceNetlist == content.netlist)
-        #expect(
-            placement.document.components.count
-                == content.schematicPlacement.document.components.count
+        // Every template cell lands under cells/<name>/schematic.json, and the
+        // manifest records the top/active designation.
+        let cellNames = try service.listCellNames(forProjectAt: root)
+        #expect(cellNames == content.cells.map(\.name).sorted())
+
+        let topCell = try #require(content.cells.first { $0.name == content.topCellName })
+        let savedTop = try service.loadCellSchematic(
+            cellName: content.topCellName,
+            forProjectAt: root
         )
+        #expect(savedTop.components.count == topCell.schematic.components.count)
+
+        let manifest = try #require(try service.loadProjectManifestIfPresent(forProjectAt: root))
+        #expect(manifest.topCell == content.topCellName)
+        #expect(manifest.activeCell == content.activeCellName)
 
         let simulation = try service.loadSimulationConfig(forProjectAt: root)
         #expect(simulation.selectedAnalysis == content.simulationConfig.selectedAnalysis)

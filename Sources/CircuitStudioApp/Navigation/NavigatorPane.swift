@@ -28,6 +28,8 @@ struct NavigatorPane: View {
                 appState: appState,
                 fileSystemService: services.fileSystemService
             )
+        case .cells:
+            CellsNavigatorView(appState: appState, project: project)
         case .schematic:
             SchematicNavigatorView(viewModel: project.schematicViewModel)
         case .layout:
@@ -41,6 +43,7 @@ struct NavigatorPane: View {
 
     private static let tabItems: [PaneTabItem<NavigatorTab>] = [
         .init(.project, systemImage: "folder", help: "Project"),
+        .init(.cells, systemImage: "square.stack.3d.up", help: "Cells"),
         .init(.schematic, systemImage: "square.grid.3x3", help: "Schematic"),
         .init(.layout, systemImage: "square.dashed", help: "Layout"),
         .init(.issues, systemImage: "exclamationmark.triangle", help: "Issues"),

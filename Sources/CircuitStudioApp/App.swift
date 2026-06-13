@@ -41,8 +41,10 @@ public struct CircuitStudioApp: App {
     @CommandsBuilder
     private var fileCommands: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Project...") { newProject() }
+            Button("New Cell...") { appState.isNewCellSheetPresented = true }
                 .keyboardShortcut("n")
+            Button("New Project...") { newProject() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             Divider()
             Button("Open...") { openSPICEFile() }
                 .keyboardShortcut("o")
@@ -112,6 +114,7 @@ public struct CircuitStudioApp: App {
     private func navigatorTabTitle(_ tab: NavigatorTab) -> String {
         switch tab {
         case .project: return "Project Navigator"
+        case .cells: return "Cells Navigator"
         case .schematic: return "Schematic Navigator"
         case .layout: return "Layout Navigator"
         case .issues: return "Issues Navigator"
@@ -122,10 +125,11 @@ public struct CircuitStudioApp: App {
     private func navigatorTabShortcut(_ tab: NavigatorTab) -> KeyEquivalent {
         switch tab {
         case .project: return "1"
-        case .schematic: return "2"
-        case .layout: return "3"
-        case .issues: return "4"
-        case .simulation: return "5"
+        case .cells: return "2"
+        case .schematic: return "3"
+        case .layout: return "4"
+        case .issues: return "5"
+        case .simulation: return "6"
         }
     }
 
@@ -143,11 +147,12 @@ public struct CircuitStudioApp: App {
             Button("Review") { appState.workspace = .review }
                 .keyboardShortcut("4", modifiers: [.command, .control])
             Divider()
+            // ⌃⌘ to leave ⇧⌘N free for File > New Project.
             Button("Visual Mode") { appState.schematicMode = .visual }
-                .keyboardShortcut("V", modifiers: [.command, .shift])
+                .keyboardShortcut("v", modifiers: [.command, .control])
                 .disabled(appState.workspace != .schematicCapture)
             Button("Netlist Mode") { appState.schematicMode = .netlist }
-                .keyboardShortcut("N", modifiers: [.command, .shift])
+                .keyboardShortcut("n", modifiers: [.command, .control])
                 .disabled(appState.workspace != .schematicCapture)
         }
     }
@@ -204,6 +209,7 @@ public struct CircuitStudioApp: App {
             case .visual:
                 await appState.runSchematicSimulation(
                     document: project.schematicViewModel.document,
+                    library: project.cellLibrary,
                     analysisCommand: appState.selectedAnalysis,
                     service: services.designFlowService
                 )
@@ -415,15 +421,7 @@ public struct CircuitStudioApp: App {
             appState.log("Could not load workspace config: \(error.localizedDescription)", kind: .warning)
         }
 
-        do {
-            let placement = try services.projectService.loadSchematicPlacement(forProjectAt: projectRoot)
-            project.apply(placement)
-            project.markSchematicSaved()
-            appState.spiceSource = placement.sourceNetlist
-            appState.lastSavedSpiceSource = placement.sourceNetlist
-        } catch {
-            // Not an error — placement may not exist yet
-        }
+        loadCells(from: projectRoot)
 
         do {
             let config = try services.projectService.loadSimulationConfig(forProjectAt: projectRoot)
@@ -432,18 +430,72 @@ public struct CircuitStudioApp: App {
             // Not an error — config may not exist yet
         }
 
-        do {
-            if try services.layoutPersistenceService.restoreLayout(
-                into: project,
-                fromProjectAt: projectRoot
-            ) {
-                appState.log("Restored layout from project", kind: .info)
+        var restoredLayouts: [String] = []
+        for workspace in project.cells {
+            do {
+                if try services.layoutPersistenceService.restoreLayout(
+                    into: workspace,
+                    fromProjectAt: projectRoot
+                ) {
+                    restoredLayouts.append(workspace.name)
+                }
+            } catch {
+                appState.log(
+                    "Could not restore the saved layout of \(workspace.name): \(error.localizedDescription)",
+                    kind: .warning
+                )
             }
+        }
+        if !restoredLayouts.isEmpty {
+            appState.log("Restored layout: \(restoredLayouts.joined(separator: ", "))", kind: .info)
+        }
+    }
+
+    /// Rebuilds the session's cell set from `cells/` and the project
+    /// manifest. A project without cells resets the session to a single
+    /// empty cell so content from a previously open project never leaks in.
+    private func loadCells(from projectRoot: URL) {
+        do {
+            let cellNames = try services.projectService.listCellNames(forProjectAt: projectRoot)
+            guard !cellNames.isEmpty else {
+                try project.replaceCells(
+                    [(name: StudioSession.defaultCellName, schematic: SchematicDocument())],
+                    topCell: StudioSession.defaultCellName,
+                    activeCell: StudioSession.defaultCellName
+                )
+                return
+            }
+
+            var loaded: [(name: String, schematic: SchematicDocument)] = []
+            for name in cellNames {
+                let document = try services.projectService.loadCellSchematic(
+                    cellName: name,
+                    forProjectAt: projectRoot
+                )
+                loaded.append((name: name, schematic: document))
+            }
+
+            let manifest = try services.projectService.loadProjectManifestIfPresent(forProjectAt: projectRoot)
+            var topCell = manifest?.topCell ?? cellNames[0]
+            if !cellNames.contains(topCell) {
+                appState.log(
+                    "Manifest top cell '\(topCell)' does not exist; using '\(cellNames[0])'",
+                    kind: .warning
+                )
+                topCell = cellNames[0]
+            }
+            var activeCell = manifest?.activeCell ?? topCell
+            if !cellNames.contains(activeCell) {
+                appState.log(
+                    "Manifest active cell '\(activeCell)' does not exist; using '\(topCell)'",
+                    kind: .warning
+                )
+                activeCell = topCell
+            }
+
+            try project.replaceCells(loaded, topCell: topCell, activeCell: activeCell)
         } catch {
-            appState.log(
-                "Could not restore the saved layout: \(error.localizedDescription)",
-                kind: .warning
-            )
+            appState.log("Could not load project cells: \(error.localizedDescription)", kind: .error)
         }
     }
 
@@ -465,7 +517,7 @@ public struct CircuitStudioApp: App {
     /// instead of silently discarding work.
     private func wireTerminationGuard() {
         appDelegate.hasUnsavedChanges = {
-            appState.isNetlistDirty || project.isSchematicDirty || project.isLayoutDirty
+            appState.isNetlistDirty || project.hasUnsavedChanges
         }
         appDelegate.performSave = { saveAction() }
     }
@@ -491,8 +543,28 @@ public struct CircuitStudioApp: App {
                 forProjectAt: projectRoot
             )
 
-            try services.projectService.saveSchematicPlacement(
-                project.schematicPlacement(sourceNetlist: appState.spiceSource),
+            // Mirror the session's cell set onto disk: prune directories of
+            // removed cells, then write every cell's schematic.
+            let onDiskCells = try services.projectService.listCellNames(forProjectAt: projectRoot)
+            let sessionCellNames = Set(project.cells.map(\.name))
+            for stale in onDiskCells where !sessionCellNames.contains(stale) {
+                try services.projectService.removeCellDirectory(
+                    cellName: stale,
+                    forProjectAt: projectRoot
+                )
+            }
+            for workspace in project.cells {
+                try services.projectService.saveCellSchematic(
+                    workspace.schematicViewModel.document,
+                    cellName: workspace.name,
+                    forProjectAt: projectRoot
+                )
+            }
+            try services.projectService.saveProjectManifest(
+                ProjectManifest(
+                    topCell: project.topCellName,
+                    activeCell: project.activeCellName
+                ),
                 forProjectAt: projectRoot
             )
 
@@ -510,15 +582,15 @@ public struct CircuitStudioApp: App {
                 )
             }
 
-            if project.layoutHasContent {
-                try services.layoutPersistenceService.persistLayout(
-                    of: project,
-                    toProjectAt: projectRoot
-                )
-            }
+            try services.layoutPersistenceService.persistAllLayouts(
+                of: project,
+                toProjectAt: projectRoot
+            )
 
             appState.lastSavedSpiceSource = appState.spiceSource
-            project.markSchematicSaved()
+            for workspace in project.cells {
+                workspace.markSchematicSaved()
+            }
             appState.log("Project saved", kind: .success)
         } catch {
             appState.log("Save failed: \(error.localizedDescription)", kind: .error)

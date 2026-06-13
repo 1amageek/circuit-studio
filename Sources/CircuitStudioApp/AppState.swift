@@ -28,6 +28,7 @@ public enum SchematicMode: String, Hashable, Sendable, Codable {
 /// Active tab in the navigator (left sidebar). Mirrors Xcode's navigator pattern.
 public enum NavigatorTab: String, Hashable, Sendable, Codable, CaseIterable {
     case project
+    case cells
     case schematic
     case layout
     case issues
@@ -93,6 +94,9 @@ public final class AppState {
     public var showDebugArea: Bool = false
     /// Waveform pane split below the editor in the main content area.
     public var showWaveformPane: Bool = false
+
+    /// New Cell sheet (File > New Cell…), presented by ContentView.
+    public var isNewCellSheetPresented: Bool = false
 
     // Pane-tab selection
     public var navigatorTab: NavigatorTab = .project

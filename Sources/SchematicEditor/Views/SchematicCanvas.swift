@@ -439,6 +439,18 @@ public struct SchematicCanvas: View {
 
     // MARK: - Tap Handling
 
+    /// Routes a double-click on a placed cell instance to the descend
+    /// handler. Returns false when the target is not a cell instance (or
+    /// no handler is attached) so the caller opens quick edit instead.
+    private func descendIntoCellInstance(componentID: UUID) -> Bool {
+        guard let handler = viewModel.cellInstanceDescendHandler,
+              let cellName = viewModel.document.components
+                  .first(where: { $0.id == componentID })?.cellName
+        else { return false }
+        handler(cellName)
+        return true
+    }
+
     private func handleTap(at location: CGPoint) {
         let canvasPoint = screenToCanvas(location)
         let shiftHeld = NSEvent.modifierFlags.contains(.shift)
@@ -456,7 +468,9 @@ public struct SchematicCanvas: View {
             case .component(let id), .wire(let id), .label(let id):
                 if isDoubleClick {
                     viewModel.select(id)
-                    viewModel.quickEditTarget = id
+                    if !descendIntoCellInstance(componentID: id) {
+                        viewModel.quickEditTarget = id
+                    }
                 } else if shiftHeld {
                     viewModel.toggleSelection(id)
                 } else {
@@ -471,7 +485,9 @@ public struct SchematicCanvas: View {
             case .pin(let componentID, _):
                 if isDoubleClick {
                     viewModel.select(componentID)
-                    viewModel.quickEditTarget = componentID
+                    if !descendIntoCellInstance(componentID: componentID) {
+                        viewModel.quickEditTarget = componentID
+                    }
                 } else if shiftHeld {
                     viewModel.toggleSelection(componentID)
                 } else {

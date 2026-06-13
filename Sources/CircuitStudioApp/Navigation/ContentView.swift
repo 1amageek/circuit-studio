@@ -84,6 +84,30 @@ public struct ContentView: View {
             if !appState.spiceSource.isEmpty {
                 appState.scheduleNetlistParse(service: services.netlistParsingService)
             }
+            wireCellDescent()
+        }
+        .sheet(isPresented: $appState.isNewCellSheetPresented) {
+            NewCellSheet(appState: appState, project: project)
+        }
+    }
+
+    /// Routes a double-click on a placed cell instance to opening that cell:
+    /// the schematic canvas reports the instance's cell name, and the session
+    /// switches every editor pane to it. A dangling reference surfaces as a
+    /// logged error rather than silently doing nothing.
+    private func wireCellDescent() {
+        project.cellDescendAction = { cellName in
+            do {
+                try project.activateCell(named: cellName)
+                appState.workspace = .schematicCapture
+                appState.schematicMode = .visual
+                appState.navigatorTab = .schematic
+            } catch {
+                appState.log(
+                    "Could not open cell '\(cellName)': \(error.localizedDescription)",
+                    kind: .error
+                )
+            }
         }
     }
 
@@ -449,7 +473,7 @@ public struct ContentView: View {
     /// Document name with an Xcode-style edited marker when there are
     /// unsaved netlist or schematic changes.
     private var documentTitleLabel: some View {
-        let isDirty = appState.isNetlistDirty || project.isSchematicDirty || project.isLayoutDirty
+        let isDirty = appState.isNetlistDirty || project.hasUnsavedChanges
         return HStack(spacing: 4) {
             Text(documentTitle)
                 .font(.callout)
@@ -554,6 +578,7 @@ public struct ContentView: View {
         Task {
             await appState.runActiveSimulation(
                 schematicDocument: schematicViewModel.document,
+                library: project.cellLibrary,
                 service: services.designFlowService
             )
         }

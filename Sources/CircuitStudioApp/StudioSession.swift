@@ -8,23 +8,47 @@ import LayoutTech
 import LayoutIO
 import LayoutVerify
 
-/// Human app session that owns editor ViewModels and shared UI state.
+/// Human app session for one project: a library of design cells, each with
+/// its own editors, plus the shared state — waveform viewer, technology,
+/// and the active-cell pointer that drives every editor pane.
+///
+/// Cells reference each other by name (`PlacedComponent.cellName`), forming
+/// the hierarchy that netlist generation emits as `.subckt` blocks. The
+/// session keeps every cell's palette catalog in sync with the library so
+/// a cell can always place its siblings — except itself and its ancestors,
+/// which would create a cycle.
 @Observable
 @MainActor
 public final class StudioSession {
-    // Editor ViewModels
-    public let schematicViewModel: SchematicViewModel
-    public let layoutViewModel: LayoutEditorViewModel
+    /// Default name of the first cell in a fresh session.
+    public static let defaultCellName = "Top"
+
+    // MARK: - Cells
+
+    public private(set) var cells: [CellWorkspace]
+    public private(set) var activeCell: CellWorkspace
+    public private(set) var topCellName: String
+
+    /// Palette/symbol catalog before project cells are folded in.
+    public let baseCatalog: DeviceCatalog
+
+    /// Cells excluded from palettes because their interface failed to
+    /// derive, with reasons. Refreshed on every catalog rebuild.
+    public private(set) var catalogIssues: [DeviceCatalog.CellCatalogIssue] = []
+
+    /// Invoked when the user double-clicks a placed cell instance to
+    /// descend into that cell. Attached to every cell's schematic editor.
+    public var cellDescendAction: ((String) -> Void)? {
+        didSet {
+            for cell in cells {
+                cell.schematicViewModel.cellInstanceDescendHandler = cellDescendAction
+            }
+        }
+    }
+
+    // MARK: - Shared State
+
     public let waveformViewModel: WaveformViewModel
-
-    // Cross-probe
-    public let crossProbe: CrossProbeService
-
-    // Auto-layout
-    public var designUnit: DesignUnit?
-    public var layoutGenerationError: String?
-    public var unroutedNets: [String] = []
-    public var skippedComponents: [String] = []
 
     // Technology database (nil = use sampleProcess default)
     public var techDatabase: LayoutTechDatabase?
@@ -33,61 +57,218 @@ public final class StudioSession {
     // Design metadata
     public var designName: String = "Untitled"
 
-    /// Schematic hash as of the last project open or save; nil = never persisted.
-    public var lastSavedSchematicHash: Int?
+    // MARK: - Init
 
-    /// True when the schematic differs from the last opened/saved state.
-    /// A never-persisted schematic counts as dirty once it has content.
-    public var isSchematicDirty: Bool {
-        let current = DesignUnit.schematicHash(for: schematicViewModel.document)
-        guard let saved = lastSavedSchematicHash else {
-            return !schematicViewModel.document.components.isEmpty
-                || !schematicViewModel.document.wires.isEmpty
-        }
-        return current != saved
-    }
-
-    /// Records the current schematic as the saved baseline.
-    public func markSchematicSaved() {
-        lastSavedSchematicHash = DesignUnit.schematicHash(for: schematicViewModel.document)
-    }
-
-    /// True when the schematic has changed since the last layout generation.
-    public var isLayoutStale: Bool {
-        guard let unit = designUnit else { return false }
-        let currentHash = DesignUnit.schematicHash(for: schematicViewModel.document)
-        return unit.schematicHash != currentHash
-    }
-
-    /// True when any cell carries geometry, vias, or instances.
-    public var layoutHasContent: Bool {
-        layoutViewModel.editor.document.cells.contains { cell in
-            !cell.shapes.isEmpty || !cell.vias.isEmpty || !cell.instances.isEmpty
-        }
-    }
-
-    /// True when the layout differs from its last persisted state.
-    /// A never-persisted layout counts as dirty once it has content.
-    public var isLayoutDirty: Bool {
-        guard layoutViewModel.editor.isPersisted else { return layoutHasContent }
-        return layoutViewModel.editor.hasUnsavedChanges
-    }
-
-    /// Records the current layout as the saved baseline.
-    public func markLayoutSaved() {
-        layoutViewModel.editor.markSaved()
-    }
-
+    /// Creates a session with a single cell. The base catalog is taken from
+    /// the provided schematic view model so preconfigured editors keep
+    /// their device set.
     public init(
         schematicViewModel: SchematicViewModel = SchematicViewModel(),
         layoutViewModel: LayoutEditorViewModel = LayoutEditorViewModel(),
         waveformViewModel: WaveformViewModel = WaveformViewModel()
     ) {
-        self.schematicViewModel = schematicViewModel
-        self.layoutViewModel = layoutViewModel
+        let first = CellWorkspace(
+            name: Self.defaultCellName,
+            schematicViewModel: schematicViewModel,
+            layoutViewModel: layoutViewModel
+        )
+        self.cells = [first]
+        self.activeCell = first
+        self.topCellName = first.name
+        self.baseCatalog = schematicViewModel.catalog
         self.waveformViewModel = waveformViewModel
-        self.crossProbe = CrossProbeService()
     }
+
+    // MARK: - Active-Cell Forwarding
+
+    public var activeCellName: String { activeCell.name }
+
+    public var schematicViewModel: SchematicViewModel { activeCell.schematicViewModel }
+    public var layoutViewModel: LayoutEditorViewModel { activeCell.layoutViewModel }
+    public var crossProbe: CrossProbeService { activeCell.crossProbe }
+
+    public var designUnit: DesignUnit? {
+        get { activeCell.designUnit }
+        set { activeCell.designUnit = newValue }
+    }
+
+    public var layoutGenerationError: String? {
+        get { activeCell.layoutGenerationError }
+        set { activeCell.layoutGenerationError = newValue }
+    }
+
+    public var unroutedNets: [String] {
+        get { activeCell.unroutedNets }
+        set { activeCell.unroutedNets = newValue }
+    }
+
+    public var skippedComponents: [String] {
+        get { activeCell.skippedComponents }
+        set { activeCell.skippedComponents = newValue }
+    }
+
+    public var lastSavedSchematicHash: Int? {
+        get { activeCell.lastSavedSchematicHash }
+        set { activeCell.lastSavedSchematicHash = newValue }
+    }
+
+    public var isSchematicDirty: Bool { activeCell.isSchematicDirty }
+    public var isLayoutStale: Bool { activeCell.isLayoutStale }
+    public var layoutHasContent: Bool { activeCell.layoutHasContent }
+    public var isLayoutDirty: Bool { activeCell.isLayoutDirty }
+
+    public func markSchematicSaved() { activeCell.markSchematicSaved() }
+    public func markLayoutSaved() { activeCell.markLayoutSaved() }
+
+    /// True when any cell in the project has unsaved schematic or layout
+    /// changes — the quit-guard and title-bar dirty signal.
+    public var hasUnsavedChanges: Bool {
+        cells.contains { $0.hasUnsavedChanges }
+    }
+
+    // MARK: - Cell Library
+
+    /// The current cell library: every cell's live schematic document plus
+    /// the top-cell designation. This is what netlist generation, palette
+    /// building, and persistence consume.
+    public var cellLibrary: CellLibrary {
+        CellLibrary(
+            cells: cells.map { DesignCell(name: $0.name, schematic: $0.schematicViewModel.document) },
+            topCellName: topCellName
+        )
+    }
+
+    public func cell(named name: String) -> CellWorkspace? {
+        cells.first { $0.name == name }
+    }
+
+    // MARK: - Cell Operations
+
+    /// Adds an empty cell and makes it active — the IDE "new file" gesture.
+    public func addCell(named rawName: String) throws {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard CellInterface.isValidSPICEName(name) else {
+            throw StudioSessionError.invalidCellName(name)
+        }
+        guard !cells.contains(where: { $0.name.lowercased() == name.lowercased() }) else {
+            throw StudioSessionError.duplicateCellName(name)
+        }
+        let workspace = CellWorkspace(
+            name: name,
+            schematicViewModel: SchematicViewModel(catalog: baseCatalog)
+        )
+        workspace.schematicViewModel.cellInstanceDescendHandler = cellDescendAction
+        cells.append(workspace)
+        activeCell = workspace
+        rebuildCatalogs()
+    }
+
+    /// Removes a cell. The top cell, the last remaining cell, and cells
+    /// still instantiated by others are protected by typed errors.
+    public func removeCell(named name: String) throws {
+        guard let index = cells.firstIndex(where: { $0.name == name }) else {
+            throw StudioSessionError.unknownCell(name)
+        }
+        guard cells.count > 1 else {
+            throw StudioSessionError.cannotRemoveLastCell
+        }
+        guard name != topCellName else {
+            throw StudioSessionError.cannotRemoveTopCell(name)
+        }
+        let referencedBy = cells
+            .filter { $0.name != name }
+            .filter { workspace in
+                workspace.schematicViewModel.document.components.contains { $0.cellName == name }
+            }
+            .map(\.name)
+        guard referencedBy.isEmpty else {
+            throw StudioSessionError.cellInUse(cell: name, referencedBy: referencedBy)
+        }
+
+        let removed = cells.remove(at: index)
+        if activeCell === removed {
+            // The top cell always survives removal (guarded above).
+            try activateCell(named: topCellName)
+        }
+        rebuildCatalogs()
+    }
+
+    /// Switches editing to the named cell and refreshes its palette so
+    /// interface changes made in other cells are visible immediately.
+    public func activateCell(named name: String) throws {
+        guard let workspace = cell(named: name) else {
+            throw StudioSessionError.unknownCell(name)
+        }
+        activeCell = workspace
+        rebuildCatalogs()
+    }
+
+    /// Designates the hierarchy root — the cell that `top.cir`, `top.oas`,
+    /// and the tapeout flow are generated from.
+    public func setTopCell(named name: String) throws {
+        guard cell(named: name) != nil else {
+            throw StudioSessionError.unknownCell(name)
+        }
+        topCellName = name
+    }
+
+    /// Replaces the whole cell set — the project-open path. The previous
+    /// session content is discarded. Throws when the top or active cell is
+    /// not in the new set, or the library fails validation.
+    public func replaceCells(
+        _ newCells: [(name: String, schematic: SchematicDocument)],
+        topCell: String,
+        activeCell activeName: String
+    ) throws {
+        guard newCells.contains(where: { $0.name == topCell }) else {
+            throw StudioSessionError.unknownCell(topCell)
+        }
+        guard newCells.contains(where: { $0.name == activeName }) else {
+            throw StudioSessionError.unknownCell(activeName)
+        }
+        let library = CellLibrary(
+            cells: newCells.map { DesignCell(name: $0.name, schematic: $0.schematic) },
+            topCellName: topCell
+        )
+        try library.validate()
+
+        let workspaces = newCells.map { entry -> CellWorkspace in
+            let workspace = CellWorkspace(
+                name: entry.name,
+                schematicViewModel: SchematicViewModel(catalog: baseCatalog)
+            )
+            workspace.schematicViewModel.document = entry.schematic
+            workspace.schematicViewModel.cellInstanceDescendHandler = cellDescendAction
+            workspace.markSchematicSaved()
+            return workspace
+        }
+        cells = workspaces
+        topCellName = topCell
+        // Guarded above: activeName is in newCells.
+        activeCell = workspaces.first { $0.name == activeName } ?? workspaces[0]
+        rebuildCatalogs()
+    }
+
+    /// Rebuilds every cell's palette catalog from the current library.
+    /// Each cell sees all siblings except itself and its ancestors (cycle
+    /// prevention). Interface failures are collected, not swallowed.
+    public func rebuildCatalogs() {
+        let library = cellLibrary
+        var issues: [DeviceCatalog.CellCatalogIssue] = []
+        for workspace in cells {
+            let result = baseCatalog.includingCells(
+                from: library,
+                activeCellName: workspace.name
+            )
+            workspace.schematicViewModel.updateCatalog(result.catalog)
+            if workspace === activeCell {
+                issues = result.issues
+            }
+        }
+        catalogIssues = issues
+    }
+
+    // MARK: - Technology
 
     /// Loads a technology file and converts it to a LayoutTechDatabase.
     ///
@@ -99,50 +280,18 @@ public final class StudioSession {
         techName = url.deletingPathExtension().lastPathComponent
     }
 
-    // MARK: - Project Config Extraction / Restoration
+    // MARK: - Layout
 
-    /// Extracts schematic placement for persistence.
-    public func schematicPlacement(sourceNetlist: String) -> SchematicPlacement {
-        SchematicPlacement(
-            sourceNetlist: sourceNetlist,
-            document: schematicViewModel.document
-        )
-    }
-
-    /// Restores schematic state from a persisted placement.
-    public func apply(_ placement: SchematicPlacement) {
-        schematicViewModel.document = placement.document
-    }
-
-    /// Restores persisted layout editor state: the document, its technology,
-    /// and the schematic-to-layout binding that powers cross-probe and
-    /// staleness tracking. Marks the restored layout as the saved baseline.
+    /// Restores persisted layout state into the active cell.
     public func applyLayout(
         document: LayoutDocument,
         tech: LayoutTechDatabase,
         designUnit unit: DesignUnit?
     ) {
-        layoutViewModel.loadDocument(document, tech: tech)
-        designUnit = unit
-        if let unit {
-            crossProbe.instanceMapping = unit.componentToInstance
-            crossProbe.netMapping = unit.netNameToLayoutNet
-            crossProbe.instanceToComponent = Dictionary(
-                uniqueKeysWithValues: unit.componentToInstance.map { ($0.value, $0.key) }
-            )
-        } else {
-            crossProbe.instanceMapping = [:]
-            crossProbe.netMapping = [:]
-            crossProbe.instanceToComponent = [:]
-        }
-        layoutViewModel.fitAll()
-        markLayoutSaved()
+        activeCell.applyLayout(document: document, tech: tech, designUnit: unit)
     }
 
-    /// Generates physical layout from the current schematic document.
-    ///
-    /// Requires a valid schematic with components and wires.
-    /// Updates layoutViewModel, crossProbe mappings, and designUnit on success.
+    /// Generates physical layout for the active cell.
     public func generateLayout(catalog: DeviceCatalog) {
         generateLayout(
             service: DesignFlowService(netlistGenerator: NetlistGenerator(catalog: catalog)),
@@ -150,43 +299,11 @@ public final class StudioSession {
         )
     }
 
-    /// Generates physical layout through the shared design-flow API.
+    /// Generates physical layout for the active cell through the shared
+    /// design-flow API.
     public func generateLayout(service: DesignFlowService, catalog: DeviceCatalog) {
-        layoutGenerationError = nil
-        unroutedNets = []
-        skippedComponents = []
-
-        do {
-            let output = try service.generateLayout(DesignFlowLayoutGenerationRequest(
-                schematic: schematicViewModel.document,
-                catalog: catalog,
-                tech: techDatabase
-            ))
-
-            // Update layout editor — loadDocument re-syncs the active cell,
-            // render index, and live verification with the new document.
-            layoutViewModel.loadDocument(output.document, tech: output.tech)
-            layoutViewModel.violations = output.drcResult.violations
-
-            // Update cross-probe mappings
-            crossProbe.instanceMapping = output.designUnit.componentToInstance
-            crossProbe.netMapping = output.designUnit.netNameToLayoutNet
-            crossProbe.instanceToComponent = Dictionary(
-                uniqueKeysWithValues: output.designUnit.componentToInstance.map { ($0.value, $0.key) }
-            )
-
-            // Store binding
-            designUnit = output.designUnit
-            unroutedNets = output.unroutedNets
-            skippedComponents = output.skippedComponents
-
-            // Auto-fit layout to visible canvas area
-            layoutViewModel.fitAll()
-        } catch {
-            layoutGenerationError = error.localizedDescription
-        }
+        activeCell.generateLayout(service: service, catalog: catalog, tech: techDatabase)
     }
-
 }
 
 #if DEBUG

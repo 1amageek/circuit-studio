@@ -33,7 +33,7 @@ struct ProjectServiceTests {
         #expect(pex.options.strictValidation)
     }
 
-    @Test func saveAndLoadWorkspacePlacementAndSimulationConfigs() throws {
+    @Test func saveAndLoadWorkspaceCellsAndSimulationConfigs() throws {
         let root = try makeTemporaryProjectRoot("configs")
         defer { removeTemporaryProjectRoot(root) }
 
@@ -47,8 +47,15 @@ struct ProjectServiceTests {
         )
         try service.saveWorkspaceConfig(workspace, forProjectAt: root)
 
-        let placement = SchematicPlacement(sourceNetlist: "amp.cir")
-        try service.saveSchematicPlacement(placement, forProjectAt: root)
+        // Two cells plus a manifest designating the hierarchy root.
+        let topDoc = SchematicDocument(labels: [NetLabel(name: "OUT", position: .zero)])
+        let leafDoc = SchematicDocument(labels: [NetLabel(name: "Y", position: .zero)])
+        try service.saveCellSchematic(topDoc, cellName: "Amp", forProjectAt: root)
+        try service.saveCellSchematic(leafDoc, cellName: "Buffer", forProjectAt: root)
+        try service.saveProjectManifest(
+            ProjectManifest(topCell: "Amp", activeCell: "Buffer"),
+            forProjectAt: root
+        )
 
         let simulation = SimulationConfig(
             selectedAnalysis: .tran(TranSpec(stopTime: 1e-6, stepTime: 1e-9))
@@ -62,9 +69,16 @@ struct ProjectServiceTests {
         #expect(loadedWorkspace.panels.console)
         #expect(!loadedWorkspace.panels.simulationResults)
 
-        let loadedPlacement = try service.loadSchematicPlacement(forProjectAt: root)
-        #expect(loadedPlacement.version == 1)
-        #expect(loadedPlacement.sourceNetlist == "amp.cir")
+        let cellNames = try service.listCellNames(forProjectAt: root)
+        #expect(cellNames == ["Amp", "Buffer"])
+
+        let loadedTop = try service.loadCellSchematic(cellName: "Amp", forProjectAt: root)
+        #expect(loadedTop.labels.map(\.name) == ["OUT"])
+
+        let manifest = try #require(try service.loadProjectManifestIfPresent(forProjectAt: root))
+        #expect(manifest.version == 1)
+        #expect(manifest.topCell == "Amp")
+        #expect(manifest.activeCell == "Buffer")
 
         let loadedSimulation = try service.loadSimulationConfig(forProjectAt: root)
         #expect(loadedSimulation.version == 1)

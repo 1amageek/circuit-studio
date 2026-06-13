@@ -53,6 +53,11 @@ public final class SchematicViewModel {
     /// IDs highlighted by cross-probe from another editor (orange).
     public var highlightedIDs: Set<UUID> = []
 
+    /// Invoked with the cell name when the user double-clicks a placed cell
+    /// instance. When set, double-click descends into the cell instead of
+    /// opening the quick-edit popover.
+    public var cellInstanceDescendHandler: ((String) -> Void)?
+
     public var diagnostics: [Diagnostic] = []
 
     public var hasErrors: Bool {

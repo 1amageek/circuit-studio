@@ -10,8 +10,14 @@ public struct ProjectTemplateContent: Sendable {
     /// The sample SPICE netlist, runnable as-is by the in-app simulator.
     public let netlist: String
 
-    /// The drawn schematic matching the netlist, shown in the schematic editor.
-    public let schematicPlacement: SchematicPlacement
+    /// The design cells installed under `cells/`, schematics included.
+    public let cells: [DesignCell]
+
+    /// Name of the hierarchy root recorded in the project manifest.
+    public let topCellName: String
+
+    /// Name of the initially active cell recorded in the project manifest.
+    public let activeCellName: String
 
     /// Simulation settings matching the analysis embedded in the netlist.
     public let simulationConfig: SimulationConfig
@@ -19,12 +25,16 @@ public struct ProjectTemplateContent: Sendable {
     public init(
         netlistFileName: String,
         netlist: String,
-        schematicPlacement: SchematicPlacement,
+        cells: [DesignCell],
+        topCellName: String,
+        activeCellName: String,
         simulationConfig: SimulationConfig
     ) {
         self.netlistFileName = netlistFileName
         self.netlist = netlist
-        self.schematicPlacement = schematicPlacement
+        self.cells = cells
+        self.topCellName = topCellName
+        self.activeCellName = activeCellName
         self.simulationConfig = simulationConfig
     }
 }

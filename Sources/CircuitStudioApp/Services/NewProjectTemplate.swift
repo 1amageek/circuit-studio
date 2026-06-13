@@ -30,13 +30,13 @@ public enum NewProjectTemplate {
             testbench: testbench
         )
         let netlist = guideHeader + generated
+        let topCellName = StudioSession.defaultCellName
         return ProjectTemplateContent(
             netlistFileName: "top.cir",
             netlist: netlist,
-            schematicPlacement: SchematicPlacement(
-                sourceNetlist: netlist,
-                document: document
-            ),
+            cells: [DesignCell(name: topCellName, schematic: document)],
+            topCellName: topCellName,
+            activeCellName: topCellName,
             simulationConfig: SimulationConfig(selectedAnalysis: .tran(transientSpec))
         )
     }

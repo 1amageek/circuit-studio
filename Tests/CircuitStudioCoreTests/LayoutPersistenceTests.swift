@@ -36,48 +36,53 @@ struct LayoutProjectArtifactTests {
         let service = ProjectService()
 
         let project = makeGeneratedSession()
+        let cell = project.activeCellName
         let document = project.layoutViewModel.editor.document
         let tech = project.layoutViewModel.tech
         let unit = try #require(project.designUnit)
 
-        try service.saveLayoutDocument(document, forProjectAt: root)
+        try service.saveCellLayoutDocument(document, cellName: cell, forProjectAt: root)
         try service.saveLayoutTech(tech, forProjectAt: root)
-        try service.saveDesignUnit(unit, forProjectAt: root)
+        try service.saveCellDesignUnit(unit, cellName: cell, forProjectAt: root)
 
-        #expect(try service.loadLayoutDocument(forProjectAt: root) == document)
+        #expect(try service.loadCellLayoutDocument(cellName: cell, forProjectAt: root) == document)
         #expect(try service.loadLayoutTech(forProjectAt: root) == tech)
 
-        let loadedUnit = try #require(try service.loadDesignUnitIfPresent(forProjectAt: root))
+        let loadedUnit = try #require(
+            try service.loadCellDesignUnitIfPresent(cellName: cell, forProjectAt: root)
+        )
         #expect(loadedUnit.componentToInstance == unit.componentToInstance)
         #expect(loadedUnit.netNameToLayoutNet == unit.netNameToLayoutNet)
         #expect(loadedUnit.deviceKindToCell == unit.deviceKindToCell)
         #expect(loadedUnit.schematicHash == unit.schematicHash)
     }
 
-    @Test("A project without a saved layout reports none")
+    @Test("A cell without a saved layout reports none")
     func emptyProjectHasNoLayout() throws {
         let root = try makeTemporaryProject()
         defer { try? FileManager.default.removeItem(at: root) }
         let service = ProjectService()
 
-        #expect(!service.hasLayoutDocument(forProjectAt: root))
-        #expect(try service.loadDesignUnitIfPresent(forProjectAt: root) == nil)
+        let cell = StudioSession.defaultCellName
+        #expect(!service.hasCellLayoutDocument(cellName: cell, forProjectAt: root))
+        #expect(try service.loadCellDesignUnitIfPresent(cellName: cell, forProjectAt: root) == nil)
     }
 
-    @Test("removeDesignUnit clears a persisted binding and tolerates absence")
+    @Test("removeCellDesignUnit clears a persisted binding and tolerates absence")
     func removeDesignUnit() throws {
         let root = try makeTemporaryProject()
         defer { try? FileManager.default.removeItem(at: root) }
         let service = ProjectService()
+        let cell = StudioSession.defaultCellName
 
         // Removing a binding that was never written must not throw.
-        try service.removeDesignUnit(forProjectAt: root)
+        try service.removeCellDesignUnit(cellName: cell, forProjectAt: root)
 
-        try service.saveDesignUnit(DesignUnit(schematicHash: 42), forProjectAt: root)
-        #expect(try service.loadDesignUnitIfPresent(forProjectAt: root) != nil)
+        try service.saveCellDesignUnit(DesignUnit(schematicHash: 42), cellName: cell, forProjectAt: root)
+        #expect(try service.loadCellDesignUnitIfPresent(cellName: cell, forProjectAt: root) != nil)
 
-        try service.removeDesignUnit(forProjectAt: root)
-        #expect(try service.loadDesignUnitIfPresent(forProjectAt: root) == nil)
+        try service.removeCellDesignUnit(cellName: cell, forProjectAt: root)
+        #expect(try service.loadCellDesignUnitIfPresent(cellName: cell, forProjectAt: root) == nil)
     }
 }
 
@@ -146,10 +151,10 @@ struct LayoutPersistRestoreTests {
         let persistence = LayoutPersistenceService(projectService: projectService)
 
         let project = makeGeneratedSession()
-        try persistence.persistLayout(of: project, toProjectAt: root)
+        try persistence.persistLayout(of: project.activeCell, in: project, toProjectAt: root)
 
-        #expect(projectService.hasLayoutDocument(forProjectAt: root))
-        #expect(try projectService.loadDesignUnitIfPresent(forProjectAt: root) != nil)
+        #expect(projectService.hasCellLayoutDocument(cellName: project.activeCellName, forProjectAt: root))
+        #expect(try projectService.loadCellDesignUnitIfPresent(cellName: project.activeCellName, forProjectAt: root) != nil)
         let oasPath = root.appending(path: LayoutPersistenceService.interchangeFileName)
         #expect(FileManager.default.fileExists(atPath: oasPath.path(percentEncoded: false)))
         #expect(!project.isLayoutDirty)
@@ -163,16 +168,16 @@ struct LayoutPersistRestoreTests {
         let persistence = LayoutPersistenceService(projectService: projectService)
 
         let generated = makeGeneratedSession()
-        try persistence.persistLayout(of: generated, toProjectAt: root)
-        #expect(try projectService.loadDesignUnitIfPresent(forProjectAt: root) != nil)
+        try persistence.persistLayout(of: generated.activeCell, in: generated, toProjectAt: root)
+        #expect(try projectService.loadCellDesignUnitIfPresent(cellName: generated.activeCellName, forProjectAt: root) != nil)
 
         let unbound = StudioSession()
         unbound.layoutViewModel.addRectangle(
             from: LayoutPoint(x: 0, y: 0),
             to: LayoutPoint(x: 100, y: 100)
         )
-        try persistence.persistLayout(of: unbound, toProjectAt: root)
-        #expect(try projectService.loadDesignUnitIfPresent(forProjectAt: root) == nil)
+        try persistence.persistLayout(of: unbound.activeCell, in: unbound, toProjectAt: root)
+        #expect(try projectService.loadCellDesignUnitIfPresent(cellName: unbound.activeCellName, forProjectAt: root) == nil)
     }
 
     @Test("Restore rebuilds the document, binding, and cross-probe, and reads clean")
@@ -182,10 +187,10 @@ struct LayoutPersistRestoreTests {
         let persistence = LayoutPersistenceService(projectService: ProjectService())
 
         let saved = makeGeneratedSession()
-        try persistence.persistLayout(of: saved, toProjectAt: root)
+        try persistence.persistLayout(of: saved.activeCell, in: saved, toProjectAt: root)
 
         let reopened = StudioSession()
-        let restored = try persistence.restoreLayout(into: reopened, fromProjectAt: root)
+        let restored = try persistence.restoreLayout(into: reopened.activeCell, fromProjectAt: root)
         #expect(restored)
 
         #expect(reopened.layoutViewModel.editor.document == saved.layoutViewModel.editor.document)
@@ -215,7 +220,7 @@ struct LayoutPersistRestoreTests {
         let persistence = LayoutPersistenceService(projectService: ProjectService())
 
         let project = StudioSession()
-        #expect(try !persistence.restoreLayout(into: project, fromProjectAt: root))
+        #expect(try !persistence.restoreLayout(into: project.activeCell, fromProjectAt: root))
         #expect(!project.layoutHasContent)
         #expect(project.designUnit == nil)
     }
@@ -241,7 +246,7 @@ struct LayoutPersistRestoreTests {
         )
 
         #expect(project.layoutGenerationError == nil)
-        #expect(projectService.hasLayoutDocument(forProjectAt: root))
+        #expect(projectService.hasCellLayoutDocument(cellName: project.activeCellName, forProjectAt: root))
         #expect(!project.isLayoutDirty, "Generation with an open project lands on disk")
     }
 
@@ -282,14 +287,14 @@ struct LayoutPersistenceWiringTests {
 
     @Test func appRestoresLayoutOnProjectOpenAndPersistsOnSave() throws {
         let app = try source("Sources/CircuitStudioApp/App.swift")
-        #expect(app.contains("restoreLayout("), "Opening a project must restore the saved layout")
-        #expect(app.contains("persistLayout("), "Cmd-S must persist the layout artifacts")
+        #expect(app.contains("restoreLayout("), "Opening a project must restore every cell's saved layout")
+        #expect(app.contains("persistAllLayouts("), "Cmd-S must persist every cell's layout artifacts")
         #expect(app.contains("wireTerminationGuard()"), "Quitting with unsaved changes must prompt")
     }
 
     @Test func contentViewSurfacesLayoutStateAndUsesThePersistingGenerate() throws {
         let contentView = try source("Sources/CircuitStudioApp/Navigation/ContentView.swift")
-        #expect(contentView.contains("project.isLayoutDirty"), "Edited badge must include layout changes")
+        #expect(contentView.contains("project.hasUnsavedChanges"), "Edited badge must include layout and schematic changes across cells")
         #expect(contentView.contains("!project.layoutHasContent"), "Layout pane must show any loaded layout, not only generated ones")
     }
 

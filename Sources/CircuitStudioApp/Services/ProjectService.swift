@@ -12,9 +12,12 @@ public struct ProjectService: Sendable {
     private static let pexDirectoryName = "pex"
     private static let pexRunsDirectoryName = "runs"
     private static let pexTOMLFileName = "pex.toml"
-    private static let layoutDocumentFileName = "layout.json"
+    private static let projectManifestFileName = "project.json"
     private static let layoutTechFileName = "layout-tech.json"
-    private static let designUnitFileName = "design-unit.json"
+    private static let cellsDirectoryName = "cells"
+    private static let cellSchematicFileName = "schematic.json"
+    private static let cellLayoutFileName = "layout.json"
+    private static let cellDesignUnitFileName = "design-unit.json"
 
     private let packageStore: XcircuitePackageStore
 
@@ -36,11 +39,17 @@ public struct ProjectService: Sendable {
         try ensurePEXProjectFiles(forProjectAt: directory)
     }
 
-    /// Seeds a project with template content (sample netlist, schematic
-    /// placement and simulation config) so it opens as a working example.
+    /// Seeds a project with template content (sample netlist, design cells,
+    /// and simulation config) so it opens as a working example.
     func installTemplate(_ content: ProjectTemplateContent, forProjectAt projectRoot: URL) throws {
         try saveNetlist(content.netlist, named: content.netlistFileName, inProjectAt: projectRoot)
-        try saveSchematicPlacement(content.schematicPlacement, forProjectAt: projectRoot)
+        for cell in content.cells {
+            try saveCellSchematic(cell.schematic, cellName: cell.name, forProjectAt: projectRoot)
+        }
+        try saveProjectManifest(
+            ProjectManifest(topCell: content.topCellName, activeCell: content.activeCellName),
+            forProjectAt: projectRoot
+        )
         try saveSimulationConfig(content.simulationConfig, forProjectAt: projectRoot)
     }
 
@@ -61,16 +70,88 @@ public struct ProjectService: Sendable {
         return try readJSON(WorkspaceConfig.self, from: url)
     }
 
-    // MARK: - Schematic Placement
+    // MARK: - Project Manifest
 
-    func saveSchematicPlacement(_ placement: SchematicPlacement, forProjectAt projectRoot: URL) throws {
-        let url = try configurationFileURL(named: "schematic-placement.json", inProjectAt: projectRoot)
-        try writeJSON(placement, to: url, forProjectAt: projectRoot)
+    func saveProjectManifest(_ manifest: ProjectManifest, forProjectAt projectRoot: URL) throws {
+        let url = try configurationFileURL(named: Self.projectManifestFileName, inProjectAt: projectRoot)
+        try writeJSON(manifest, to: url, forProjectAt: projectRoot)
     }
 
-    func loadSchematicPlacement(forProjectAt projectRoot: URL) throws -> SchematicPlacement {
-        let url = try configurationFileURL(named: "schematic-placement.json", inProjectAt: projectRoot)
-        return try readJSON(SchematicPlacement.self, from: url)
+    /// Returns nil when the project has no manifest yet. A present but
+    /// unreadable manifest throws so corruption surfaces instead of the
+    /// project silently opening with a default structure.
+    func loadProjectManifestIfPresent(forProjectAt projectRoot: URL) throws -> ProjectManifest? {
+        let url = try configurationFileURL(named: Self.projectManifestFileName, inProjectAt: projectRoot)
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+            return nil
+        }
+        return try readJSON(ProjectManifest.self, from: url)
+    }
+
+    // MARK: - Cells
+
+    /// `cells/` at the project root — one subdirectory per design cell.
+    func cellsDirectoryURL(inProjectAt projectRoot: URL) -> URL {
+        projectRoot.appending(path: Self.cellsDirectoryName)
+    }
+
+    /// Names of all cells persisted in the project, sorted. A cell exists
+    /// when `cells/<name>/schematic.json` does.
+    func listCellNames(forProjectAt projectRoot: URL) throws -> [String] {
+        let cellsDirectory = cellsDirectoryURL(inProjectAt: projectRoot)
+        guard FileManager.default.fileExists(atPath: cellsDirectory.path(percentEncoded: false)) else {
+            return []
+        }
+        let entries: [URL]
+        do {
+            entries = try FileManager.default.contentsOfDirectory(
+                at: cellsDirectory,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            )
+        } catch {
+            throw StudioError.projectLoadFailed(
+                "Failed to scan cells directory: \(error.localizedDescription)"
+            )
+        }
+        return entries
+            .filter { url in
+                let schematic = url.appending(path: Self.cellSchematicFileName)
+                return FileManager.default.fileExists(atPath: schematic.path(percentEncoded: false))
+            }
+            .map(\.lastPathComponent)
+            .sorted()
+    }
+
+    func saveCellSchematic(
+        _ document: SchematicDocument,
+        cellName: String,
+        forProjectAt projectRoot: URL
+    ) throws {
+        let url = try cellFileURL(Self.cellSchematicFileName, cellName: cellName, inProjectAt: projectRoot)
+        try packageStore.ensureDirectory(at: url.deletingLastPathComponent())
+        try writeJSON(document, to: url, forProjectAt: projectRoot)
+    }
+
+    func loadCellSchematic(cellName: String, forProjectAt projectRoot: URL) throws -> SchematicDocument {
+        let url = try cellFileURL(Self.cellSchematicFileName, cellName: cellName, inProjectAt: projectRoot)
+        return try readJSON(SchematicDocument.self, from: url)
+    }
+
+    /// Deletes a cell's directory and everything in it. Removing a cell
+    /// that is not on disk is a no-op — the in-memory cell simply was
+    /// never saved.
+    func removeCellDirectory(cellName: String, forProjectAt projectRoot: URL) throws {
+        let directory = try cellDirectoryURL(cellName: cellName, inProjectAt: projectRoot)
+        guard FileManager.default.fileExists(atPath: directory.path(percentEncoded: false)) else {
+            return
+        }
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            throw StudioError.projectSaveFailed(
+                "Failed to delete cell '\(cellName)': \(error.localizedDescription)"
+            )
+        }
     }
 
     // MARK: - Simulation Config
@@ -212,31 +293,55 @@ public struct ProjectService: Sendable {
         }
     }
 
-    // MARK: - Layout Editor State
+    // MARK: - Per-Cell Layout Editor State
 
-    /// Saves the native layout document — the full-fidelity editor state.
-    /// Interchange formats like OASIS carry mask geometry only and drop
-    /// element IDs, nets, and pins, which the design-unit binding and live
-    /// verification depend on.
-    func saveLayoutDocument(_ document: LayoutDocument, forProjectAt projectRoot: URL) throws {
-        let url = try configurationFileURL(named: Self.layoutDocumentFileName, inProjectAt: projectRoot)
+    /// Saves a cell's native layout document — the full-fidelity editor
+    /// state. Interchange formats like OASIS carry mask geometry only and
+    /// drop element IDs, nets, and pins, which the design-unit binding and
+    /// live verification depend on.
+    func saveCellLayoutDocument(
+        _ document: LayoutDocument,
+        cellName: String,
+        forProjectAt projectRoot: URL
+    ) throws {
+        let url = try cellFileURL(Self.cellLayoutFileName, cellName: cellName, inProjectAt: projectRoot)
+        try packageStore.ensureDirectory(at: url.deletingLastPathComponent())
         try writeJSON(document, to: url, forProjectAt: projectRoot)
     }
 
-    /// Returns `true` when the project has a persisted layout document.
-    func hasLayoutDocument(forProjectAt projectRoot: URL) -> Bool {
+    /// Returns `true` when the cell has a persisted layout document.
+    func hasCellLayoutDocument(cellName: String, forProjectAt projectRoot: URL) -> Bool {
         do {
-            let url = try configurationFileURL(named: Self.layoutDocumentFileName, inProjectAt: projectRoot)
+            let url = try cellFileURL(Self.cellLayoutFileName, cellName: cellName, inProjectAt: projectRoot)
             return FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
         } catch {
-            // No package directory means no persisted layout.
+            // An invalid cell name cannot have been persisted.
             return false
         }
     }
 
-    func loadLayoutDocument(forProjectAt projectRoot: URL) throws -> LayoutDocument {
-        let url = try configurationFileURL(named: Self.layoutDocumentFileName, inProjectAt: projectRoot)
+    func loadCellLayoutDocument(cellName: String, forProjectAt projectRoot: URL) throws -> LayoutDocument {
+        let url = try cellFileURL(Self.cellLayoutFileName, cellName: cellName, inProjectAt: projectRoot)
         return try readJSON(LayoutDocument.self, from: url)
+    }
+
+    /// Removes a cell's persisted layout artifacts (document + design
+    /// unit). Called when the cell's layout is emptied so stale artifacts
+    /// cannot resurface on next open.
+    func removeCellLayoutArtifacts(cellName: String, forProjectAt projectRoot: URL) throws {
+        for fileName in [Self.cellLayoutFileName, Self.cellDesignUnitFileName] {
+            let url = try cellFileURL(fileName, cellName: cellName, inProjectAt: projectRoot)
+            guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+                continue
+            }
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                throw StudioError.projectSaveFailed(
+                    "Failed to remove \(fileName) of cell '\(cellName)': \(error.localizedDescription)"
+                )
+            }
+        }
     }
 
     func saveLayoutTech(_ tech: LayoutTechDatabase, forProjectAt projectRoot: URL) throws {
@@ -249,26 +354,27 @@ public struct ProjectService: Sendable {
         return try readJSON(LayoutTechDatabase.self, from: url)
     }
 
-    func saveDesignUnit(_ unit: DesignUnit, forProjectAt projectRoot: URL) throws {
-        let url = try configurationFileURL(named: Self.designUnitFileName, inProjectAt: projectRoot)
+    func saveCellDesignUnit(_ unit: DesignUnit, cellName: String, forProjectAt projectRoot: URL) throws {
+        let url = try cellFileURL(Self.cellDesignUnitFileName, cellName: cellName, inProjectAt: projectRoot)
+        try packageStore.ensureDirectory(at: url.deletingLastPathComponent())
         try writeJSON(unit, to: url, forProjectAt: projectRoot)
     }
 
-    /// Returns nil when no design unit has been persisted. A present but
-    /// unreadable file throws so corruption surfaces instead of silently
-    /// degrading to an unbound layout.
-    func loadDesignUnitIfPresent(forProjectAt projectRoot: URL) throws -> DesignUnit? {
-        let url = try configurationFileURL(named: Self.designUnitFileName, inProjectAt: projectRoot)
+    /// Returns nil when no design unit has been persisted for the cell. A
+    /// present but unreadable file throws so corruption surfaces instead of
+    /// silently degrading to an unbound layout.
+    func loadCellDesignUnitIfPresent(cellName: String, forProjectAt projectRoot: URL) throws -> DesignUnit? {
+        let url = try cellFileURL(Self.cellDesignUnitFileName, cellName: cellName, inProjectAt: projectRoot)
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
             return nil
         }
         return try readJSON(DesignUnit.self, from: url)
     }
 
-    /// Removes the persisted design-unit binding. Called when the layout is
-    /// saved without one so a stale binding cannot resurface on next open.
-    func removeDesignUnit(forProjectAt projectRoot: URL) throws {
-        let url = try configurationFileURL(named: Self.designUnitFileName, inProjectAt: projectRoot)
+    /// Removes a cell's persisted design-unit binding. Called when the
+    /// layout is saved without one so a stale binding cannot resurface.
+    func removeCellDesignUnit(cellName: String, forProjectAt projectRoot: URL) throws {
+        let url = try cellFileURL(Self.cellDesignUnitFileName, cellName: cellName, inProjectAt: projectRoot)
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
             return
         }
@@ -276,12 +382,29 @@ public struct ProjectService: Sendable {
             try FileManager.default.removeItem(at: url)
         } catch {
             throw StudioError.projectSaveFailed(
-                "Failed to remove design unit: \(error.localizedDescription)"
+                "Failed to remove design unit of cell '\(cellName)': \(error.localizedDescription)"
             )
         }
     }
 
     // MARK: - Private
+
+    /// Resolves `cells/<cellName>/`, validating the name first — cell names
+    /// are SPICE identifiers, which also guarantees a safe path component.
+    private func cellDirectoryURL(cellName: String, inProjectAt projectRoot: URL) throws -> URL {
+        guard CellInterface.isValidSPICEName(cellName) else {
+            throw CellLibraryError.invalidCellName(cellName)
+        }
+        return cellsDirectoryURL(inProjectAt: projectRoot).appending(path: cellName)
+    }
+
+    private func cellFileURL(
+        _ fileName: String,
+        cellName: String,
+        inProjectAt projectRoot: URL
+    ) throws -> URL {
+        try cellDirectoryURL(cellName: cellName, inProjectAt: projectRoot).appending(path: fileName)
+    }
 
     private func configurationFileURL(named fileName: String, inProjectAt projectRoot: URL) throws -> URL {
         try packageStore.configurationURL(named: fileName, inProjectAt: projectRoot)
