@@ -229,6 +229,7 @@ public struct CircuitStudioApp: App {
             }
             .keyboardShortcut("g", modifiers: [.command, .shift])
             .disabled(!canGenerateLayout)
+            .help(layoutGenerationAvailability.help)
 
             Button("Run DRC") {
                 project.layoutViewModel.runDRC()
@@ -251,9 +252,12 @@ public struct CircuitStudioApp: App {
         }
     }
 
+    private var layoutGenerationAvailability: LayoutGenerationAvailability {
+        makeLayoutGenerationPreflightReport(context: "menu").availability
+    }
+
     private var canGenerateLayout: Bool {
-        !project.schematicViewModel.document.components.isEmpty
-            && !project.schematicViewModel.document.wires.isEmpty
+        layoutGenerationAvailability.isAvailable
     }
 
     private var runPEXDisabled: Bool {
@@ -261,6 +265,21 @@ public struct CircuitStudioApp: App {
             || appState.projectRootURL == nil
             || project.topCell?.designUnit == nil
             || project.topCell?.layoutHasContent != true
+    }
+
+    private func makeLayoutGenerationPreflightReport(context: String) -> LayoutGenerationPreflightReport {
+        LayoutGenerationPreflightReport.make(
+            context: context,
+            project: project,
+            projectRootURL: appState.projectRootURL,
+            selectedFileURL: appState.selectedFileURL,
+            projectService: services.projectService,
+            catalog: services.catalog,
+            workspace: appState.workspace.rawValue,
+            netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
+                appState.netlistSchematicMaterializationState
+            )
+        )
     }
 
     // MARK: - File Operations
@@ -317,6 +336,12 @@ public struct CircuitStudioApp: App {
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 try appState.loadSPICEFile(url: url)
+                Task { @MainActor in
+                    await materializeLoadedNetlistIfNeeded(from: nil)
+                    LayoutGenerationDiagnosticsLogger.log(
+                        report: makeLayoutGenerationPreflightReport(context: "netlist-open")
+                    )
+                }
                 noteRecent(url, kind: .netlistFile)
             } catch {
                 appState.simulationError = "Failed to load file: \(error.localizedDescription)"
@@ -350,6 +375,12 @@ public struct CircuitStudioApp: App {
         }
 
         autoLoadNetlist(from: url)
+        Task { @MainActor in
+            await materializeLoadedNetlistIfNeeded(from: url)
+            LayoutGenerationDiagnosticsLogger.log(
+                report: makeLayoutGenerationPreflightReport(context: "project-open")
+            )
+        }
     }
 
     // MARK: - Open Recent
@@ -362,6 +393,12 @@ public struct CircuitStudioApp: App {
                 try openProjectFolder(at: url)
             case .netlistFile:
                 try appState.loadSPICEFile(url: url)
+                Task { @MainActor in
+                    await materializeLoadedNetlistIfNeeded(from: nil)
+                    LayoutGenerationDiagnosticsLogger.log(
+                        report: makeLayoutGenerationPreflightReport(context: "netlist-open")
+                    )
+                }
             }
             noteRecent(url, kind: document.kind)
         } catch {
@@ -513,7 +550,7 @@ public struct CircuitStudioApp: App {
     }
 
     private func autoLoadNetlist(from projectRoot: URL) {
-        let topCir = projectRoot.appending(path: "top.cir")
+        let topCir = services.projectService.topNetlistURL(inProjectAt: projectRoot)
         guard FileManager.default.fileExists(atPath: topCir.path(percentEncoded: false)) else {
             appState.clearSPICEFile()
             return
@@ -523,6 +560,55 @@ public struct CircuitStudioApp: App {
         } catch {
             appState.clearSPICEFile()
             appState.log("Failed to load top.cir: \(error.localizedDescription)", kind: .warning)
+        }
+    }
+
+    private func materializeLoadedNetlistIfNeeded(from projectRoot: URL?) async {
+        guard !appState.spiceSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              project.schematicViewModel.document.components.isEmpty,
+              project.schematicViewModel.document.wires.isEmpty,
+              project.schematicViewModel.document.labels.isEmpty else {
+            return
+        }
+
+        let topCellName: String
+        if let projectRoot {
+            guard services.projectService.isProject(projectRoot),
+                  appState.selectedFileURL == services.projectService.topNetlistURL(inProjectAt: projectRoot) else {
+                return
+            }
+            do {
+                topCellName = try services.projectService
+                    .loadProjectManifestIfPresent(forProjectAt: projectRoot)?
+                    .topCell ?? project.topCellName
+            } catch {
+                appState.netlistSchematicMaterializationState = .failed(
+                    "Could not read project manifest before SPICE materialization: \(error.localizedDescription)"
+                )
+                return
+            }
+        } else {
+            topCellName = project.topCellName
+        }
+
+        do {
+            let result = try await SPICESchematicImporter().importTopLevel(
+                source: appState.spiceSource,
+                fileName: appState.spiceFileName,
+                topCellName: topCellName,
+                catalog: services.catalog
+            )
+            try project.replaceCells(
+                result.cells.map { ($0.name, $0.schematic) },
+                topCell: result.topCellName,
+                activeCell: result.activeCellName
+            )
+            let sourceName = appState.spiceFileName ?? "SPICE netlist"
+            appState.netlistSchematicMaterializationState = .succeeded(
+                "Materialized \(result.sourceDescription) from \(sourceName) into cell '\(result.topCellName)'."
+            )
+        } catch {
+            appState.netlistSchematicMaterializationState = .failed(error.localizedDescription)
         }
     }
 

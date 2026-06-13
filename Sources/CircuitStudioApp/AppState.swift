@@ -49,6 +49,13 @@ public enum DebugAreaTab: String, Hashable, Sendable, Codable, CaseIterable {
     case issues
 }
 
+/// In-memory status of deriving a visual schematic from the loaded SPICE deck.
+public enum NetlistSchematicMaterializationState: Sendable, Equatable {
+    case none
+    case succeeded(String)
+    case failed(String)
+}
+
 /// Where the waveform shown in the waveform pane came from. The
 /// terminal-component trace filter only applies to live runs, whose trace
 /// names match the open schematic.
@@ -113,6 +120,7 @@ public final class AppState {
     public var spiceFileName: String?
     /// Source content as of the last load or save — the dirty baseline.
     public var lastSavedSpiceSource: String = ""
+    public var netlistSchematicMaterializationState: NetlistSchematicMaterializationState = .none
 
     /// True when the SPICE source differs from the last loaded/saved content.
     public var isNetlistDirty: Bool {
@@ -255,6 +263,7 @@ public final class AppState {
         lastSavedSpiceSource = source
         spiceFileName = url.lastPathComponent
         selectedFileURL = url
+        netlistSchematicMaterializationState = .none
         simulationResult = nil
         simulationError = nil
     }
@@ -267,6 +276,7 @@ public final class AppState {
         lastSavedSpiceSource = ""
         spiceFileName = nil
         selectedFileURL = nil
+        netlistSchematicMaterializationState = .none
         netlistInfo = nil
         simulationResult = nil
         simulationError = nil

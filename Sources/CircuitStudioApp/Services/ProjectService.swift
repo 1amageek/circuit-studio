@@ -72,8 +72,12 @@ public struct ProjectService: Sendable {
 
     // MARK: - Project Manifest
 
+    func projectManifestURL(inProjectAt projectRoot: URL) throws -> URL {
+        try configurationFileURL(named: Self.projectManifestFileName, inProjectAt: projectRoot)
+    }
+
     func saveProjectManifest(_ manifest: ProjectManifest, forProjectAt projectRoot: URL) throws {
-        let url = try configurationFileURL(named: Self.projectManifestFileName, inProjectAt: projectRoot)
+        let url = try projectManifestURL(inProjectAt: projectRoot)
         try writeJSON(manifest, to: url, forProjectAt: projectRoot)
     }
 
@@ -81,7 +85,7 @@ public struct ProjectService: Sendable {
     /// unreadable manifest throws so corruption surfaces instead of the
     /// project silently opening with a default structure.
     func loadProjectManifestIfPresent(forProjectAt projectRoot: URL) throws -> ProjectManifest? {
-        let url = try configurationFileURL(named: Self.projectManifestFileName, inProjectAt: projectRoot)
+        let url = try projectManifestURL(inProjectAt: projectRoot)
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
             return nil
         }
@@ -93,6 +97,14 @@ public struct ProjectService: Sendable {
     /// `cells/` at the project root — one subdirectory per design cell.
     func cellsDirectoryURL(inProjectAt projectRoot: URL) -> URL {
         projectRoot.appending(path: Self.cellsDirectoryName)
+    }
+
+    func cellSchematicURL(cellName: String, inProjectAt projectRoot: URL) throws -> URL {
+        try cellFileURL(Self.cellSchematicFileName, cellName: cellName, inProjectAt: projectRoot)
+    }
+
+    func cellLayoutDocumentURL(cellName: String, inProjectAt projectRoot: URL) throws -> URL {
+        try cellFileURL(Self.cellLayoutFileName, cellName: cellName, inProjectAt: projectRoot)
     }
 
     /// Names of all cells persisted in the project, sorted. A cell exists
@@ -127,13 +139,13 @@ public struct ProjectService: Sendable {
         cellName: String,
         forProjectAt projectRoot: URL
     ) throws {
-        let url = try cellFileURL(Self.cellSchematicFileName, cellName: cellName, inProjectAt: projectRoot)
+        let url = try cellSchematicURL(cellName: cellName, inProjectAt: projectRoot)
         try packageStore.ensureDirectory(at: url.deletingLastPathComponent())
         try writeJSON(document, to: url, forProjectAt: projectRoot)
     }
 
     func loadCellSchematic(cellName: String, forProjectAt projectRoot: URL) throws -> SchematicDocument {
-        let url = try cellFileURL(Self.cellSchematicFileName, cellName: cellName, inProjectAt: projectRoot)
+        let url = try cellSchematicURL(cellName: cellName, inProjectAt: projectRoot)
         return try readJSON(SchematicDocument.self, from: url)
     }
 
@@ -271,6 +283,10 @@ public struct ProjectService: Sendable {
         try packageStore.writeText(spice, to: url)
     }
 
+    func topNetlistURL(inProjectAt projectRoot: URL) -> URL {
+        projectRoot.appending(path: "top.cir")
+    }
+
     /// Saves a SPICE netlist string to a project-relative path.
     func saveNetlist(
         _ spice: String,
@@ -349,7 +365,7 @@ public struct ProjectService: Sendable {
         cellName: String,
         forProjectAt projectRoot: URL
     ) throws {
-        let url = try cellFileURL(Self.cellLayoutFileName, cellName: cellName, inProjectAt: projectRoot)
+        let url = try cellLayoutDocumentURL(cellName: cellName, inProjectAt: projectRoot)
         try packageStore.ensureDirectory(at: url.deletingLastPathComponent())
         try writeJSON(document, to: url, forProjectAt: projectRoot)
     }
@@ -357,7 +373,7 @@ public struct ProjectService: Sendable {
     /// Returns `true` when the cell has a persisted layout document.
     func hasCellLayoutDocument(cellName: String, forProjectAt projectRoot: URL) -> Bool {
         do {
-            let url = try cellFileURL(Self.cellLayoutFileName, cellName: cellName, inProjectAt: projectRoot)
+            let url = try cellLayoutDocumentURL(cellName: cellName, inProjectAt: projectRoot)
             return FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
         } catch {
             // An invalid cell name cannot have been persisted.
@@ -366,7 +382,7 @@ public struct ProjectService: Sendable {
     }
 
     func loadCellLayoutDocument(cellName: String, forProjectAt projectRoot: URL) throws -> LayoutDocument {
-        let url = try cellFileURL(Self.cellLayoutFileName, cellName: cellName, inProjectAt: projectRoot)
+        let url = try cellLayoutDocumentURL(cellName: cellName, inProjectAt: projectRoot)
         return try readJSON(LayoutDocument.self, from: url)
     }
 

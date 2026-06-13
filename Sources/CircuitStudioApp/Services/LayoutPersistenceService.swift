@@ -132,6 +132,19 @@ public struct LayoutPersistenceService {
         designFlow: DesignFlowService,
         catalog: DeviceCatalog
     ) {
+        let report = LayoutGenerationPreflightReport.make(
+            context: "generate-command",
+            project: project,
+            projectRootURL: appState.projectRootURL,
+            selectedFileURL: appState.selectedFileURL,
+            projectService: projectService,
+            catalog: catalog,
+            workspace: appState.workspace.rawValue,
+            netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
+                appState.netlistSchematicMaterializationState
+            )
+        )
+        LayoutGenerationDiagnosticsLogger.log(report: report)
         project.generateLayout(service: designFlow, catalog: catalog)
         guard project.layoutGenerationError == nil else { return }
         guard let projectRoot = appState.projectRootURL else { return }

@@ -83,6 +83,10 @@ public final class AutoLayoutService {
                 instanceNames: cellInstances.map(\.name)
             )
         }
+        let duplicateNames = duplicatedComponentNames(in: document.components)
+        guard duplicateNames.isEmpty else {
+            throw AutoLayoutError.duplicateComponentNames(duplicateNames)
+        }
 
         for component in document.components {
             guard let kind = catalog.device(for: component.deviceKindID) else {
@@ -101,8 +105,10 @@ public final class AutoLayoutService {
 
             let generator = resolveGenerator(for: kind)
             guard let gen = generator else {
-                skipped.append(component.name)
-                continue
+                throw AutoLayoutError.unsupportedLayoutDevice(
+                    instanceName: component.name,
+                    deviceKindID: component.deviceKindID
+                )
             }
 
             let deviceKindForGen = classifyDeviceKindID(kind)
@@ -125,6 +131,9 @@ public final class AutoLayoutService {
                 deviceType: classifyDeviceType(kind),
                 name: component.name
             ))
+        }
+        guard !instances.isEmpty else {
+            throw AutoLayoutError.noPlaceableComponents
         }
 
         // 3. Build placement nets
@@ -471,6 +480,17 @@ public final class AutoLayoutService {
             }
         }
         return .passive
+    }
+
+    private func duplicatedComponentNames(in components: [PlacedComponent]) -> [String] {
+        var counts: [String: Int] = [:]
+        for component in components {
+            counts[component.name, default: 0] += 1
+        }
+        return counts
+            .filter { $0.value > 1 }
+            .map(\.key)
+            .sorted()
     }
 
     // MARK: - Parameter Unit Conversion

@@ -137,6 +137,16 @@ public final class CellWorkspace: Identifiable {
         unroutedNets = []
         skippedComponents = []
 
+        let availability = LayoutGenerationAvailability.evaluate(
+            document: schematicViewModel.document,
+            catalog: catalog,
+            activeCellName: name
+        )
+        guard availability.isAvailable else {
+            layoutGenerationError = availability.reason
+            return
+        }
+
         do {
             let output = try service.generateLayout(DesignFlowLayoutGenerationRequest(
                 schematic: schematicViewModel.document,

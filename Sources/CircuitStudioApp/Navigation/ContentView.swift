@@ -31,6 +31,7 @@ public struct ContentView: View {
     /// router stands down in that state so the focused canvas keeps handling
     /// Delete itself (including mid-drawing vertex retraction).
     @FocusedValue(\.editorCommands) private var focusedEditorCommands
+    @State private var lastLayoutGenerationLogSignature: String?
 
     private var schematicViewModel: SchematicViewModel { project.schematicViewModel }
     private var layoutViewModel: LayoutEditorViewModel { project.layoutViewModel }
@@ -85,6 +86,10 @@ public struct ContentView: View {
                 appState.scheduleNetlistParse(service: services.netlistParsingService)
             }
             wireCellDescent()
+            logLayoutGenerationAvailability(context: "content-appear")
+        }
+        .onChange(of: layoutGenerationLogSignature) { _, _ in
+            logLayoutGenerationAvailability(context: "state-changed")
         }
         .sheet(isPresented: $appState.isNewCellSheetPresented) {
             NewCellSheet(appState: appState, project: project)
@@ -302,10 +307,12 @@ public struct ContentView: View {
                 .disabled(!canGenerateLayout)
                 .help(generateLayoutHelp)
 
-                if !canGenerateLayout {
-                    Text("Draw components and wires in the Schematic workspace first.")
+                if let reason = layoutGenerationAvailability.reason {
+                    Text(reason)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
                 }
                 if let error = project.layoutGenerationError {
                     Label(error, systemImage: "xmark.octagon.fill")
@@ -315,6 +322,9 @@ public struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            logLayoutGenerationAvailability(context: "layout-empty-state")
+        }
     }
 
     @ViewBuilder
@@ -358,6 +368,8 @@ public struct ContentView: View {
                     )
                 }
                 .controlSize(.small)
+                .disabled(!canGenerateLayout)
+                .help(generateLayoutHelp)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -546,18 +558,50 @@ public struct ContentView: View {
 
     // MARK: - Run Logic
 
+    private var layoutGenerationPreflightReport: LayoutGenerationPreflightReport {
+        makeLayoutGenerationPreflightReport(context: "ui")
+    }
+
+    private var layoutGenerationAvailability: LayoutGenerationAvailability {
+        layoutGenerationPreflightReport.availability
+    }
+
     /// Mirrors the menu command's enablement in App.swift.
     private var canGenerateLayout: Bool {
-        !schematicViewModel.document.components.isEmpty
-            && !schematicViewModel.document.wires.isEmpty
+        layoutGenerationAvailability.isAvailable
     }
 
     /// Tooltip explaining what layout generation does, or why it is disabled.
     private var generateLayoutHelp: String {
-        if canGenerateLayout {
-            return "Automatically place and route the schematic components into a physical layout, then run DRC (⇧⌘G)"
-        }
-        return "Layout generation needs a schematic with components and wires. Draw the circuit in the Schematic workspace first."
+        layoutGenerationAvailability.help
+    }
+
+    private var layoutGenerationLogSignature: String {
+        layoutGenerationPreflightReport.signature
+    }
+
+    private func makeLayoutGenerationPreflightReport(context: String) -> LayoutGenerationPreflightReport {
+        LayoutGenerationPreflightReport.make(
+            context: context,
+            project: project,
+            projectRootURL: appState.projectRootURL,
+            selectedFileURL: appState.selectedFileURL,
+            projectService: services.projectService,
+            catalog: services.catalog,
+            workspace: appState.workspace.rawValue,
+            netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
+                appState.netlistSchematicMaterializationState
+            )
+        )
+    }
+
+    private func logLayoutGenerationAvailability(context: String) {
+        guard appState.workspace == .layout || appState.workspace == .integration else { return }
+        let signature = layoutGenerationLogSignature
+        guard signature != lastLayoutGenerationLogSignature else { return }
+        lastLayoutGenerationLogSignature = signature
+
+        LayoutGenerationDiagnosticsLogger.log(report: makeLayoutGenerationPreflightReport(context: context))
     }
 
     private var runButtonDisabled: Bool {
