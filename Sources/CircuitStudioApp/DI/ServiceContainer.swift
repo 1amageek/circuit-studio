@@ -11,6 +11,7 @@ public final class ServiceContainer {
     public let fileSystemService: FileSystemService
     public let netlistParsingService: NetlistParsingService
     public let projectService: ProjectService
+    public let layoutPersistenceService: LayoutPersistenceService
     public let pexCommandService: PEXCommandService
     public let recentDocumentsStore: RecentDocumentsStore
 
@@ -27,7 +28,9 @@ public final class ServiceContainer {
         self.netlistGenerator = NetlistGenerator(catalog: catalog)
         self.fileSystemService = FileSystemService()
         self.netlistParsingService = NetlistParsingService()
-        self.projectService = ProjectService()
+        let projectService = ProjectService()
+        self.projectService = projectService
+        self.layoutPersistenceService = LayoutPersistenceService(projectService: projectService)
         self.pexCommandService = PEXCommandService()
         self.recentDocumentsStore = RecentDocumentsStore()
     }

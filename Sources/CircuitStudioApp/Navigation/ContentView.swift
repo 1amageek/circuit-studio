@@ -244,7 +244,7 @@ public struct ContentView: View {
 
     @ViewBuilder
     private var layoutContent: some View {
-        if project.designUnit == nil {
+        if !project.layoutHasContent {
             layoutEmptyState
         } else {
             VStack(spacing: 0) {
@@ -265,8 +265,10 @@ public struct ContentView: View {
         } actions: {
             VStack(spacing: 8) {
                 Button {
-                    project.generateLayout(
-                        service: services.designFlowService,
+                    services.layoutPersistenceService.generateLayout(
+                        project: project,
+                        appState: appState,
+                        designFlow: services.designFlowService,
                         catalog: services.catalog
                     )
                 } label: {
@@ -324,7 +326,12 @@ public struct ContentView: View {
                     .font(.caption)
                 Spacer()
                 Button("Regenerate") {
-                    project.generateLayout(service: services.designFlowService, catalog: services.catalog)
+                    services.layoutPersistenceService.generateLayout(
+                        project: project,
+                        appState: appState,
+                        designFlow: services.designFlowService,
+                        catalog: services.catalog
+                    )
                 }
                 .controlSize(.small)
             }
@@ -406,8 +413,10 @@ public struct ContentView: View {
         if appState.workspace == .layout || appState.workspace == .integration {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    project.generateLayout(
-                        service: services.designFlowService,
+                    services.layoutPersistenceService.generateLayout(
+                        project: project,
+                        appState: appState,
+                        designFlow: services.designFlowService,
                         catalog: services.catalog
                     )
                 } label: {
@@ -440,7 +449,7 @@ public struct ContentView: View {
     /// Document name with an Xcode-style edited marker when there are
     /// unsaved netlist or schematic changes.
     private var documentTitleLabel: some View {
-        let isDirty = appState.isNetlistDirty || project.isSchematicDirty
+        let isDirty = appState.isNetlistDirty || project.isSchematicDirty || project.isLayoutDirty
         return HStack(spacing: 4) {
             Text(documentTitle)
                 .font(.callout)

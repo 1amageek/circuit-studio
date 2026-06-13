@@ -59,6 +59,25 @@ public final class StudioSession {
         return unit.schematicHash != currentHash
     }
 
+    /// True when any cell carries geometry, vias, or instances.
+    public var layoutHasContent: Bool {
+        layoutViewModel.editor.document.cells.contains { cell in
+            !cell.shapes.isEmpty || !cell.vias.isEmpty || !cell.instances.isEmpty
+        }
+    }
+
+    /// True when the layout differs from its last persisted state.
+    /// A never-persisted layout counts as dirty once it has content.
+    public var isLayoutDirty: Bool {
+        guard layoutViewModel.editor.isPersisted else { return layoutHasContent }
+        return layoutViewModel.editor.hasUnsavedChanges
+    }
+
+    /// Records the current layout as the saved baseline.
+    public func markLayoutSaved() {
+        layoutViewModel.editor.markSaved()
+    }
+
     public init(
         schematicViewModel: SchematicViewModel = SchematicViewModel(),
         layoutViewModel: LayoutEditorViewModel = LayoutEditorViewModel(),
@@ -93,6 +112,31 @@ public final class StudioSession {
     /// Restores schematic state from a persisted placement.
     public func apply(_ placement: SchematicPlacement) {
         schematicViewModel.document = placement.document
+    }
+
+    /// Restores persisted layout editor state: the document, its technology,
+    /// and the schematic-to-layout binding that powers cross-probe and
+    /// staleness tracking. Marks the restored layout as the saved baseline.
+    public func applyLayout(
+        document: LayoutDocument,
+        tech: LayoutTechDatabase,
+        designUnit unit: DesignUnit?
+    ) {
+        layoutViewModel.loadDocument(document, tech: tech)
+        designUnit = unit
+        if let unit {
+            crossProbe.instanceMapping = unit.componentToInstance
+            crossProbe.netMapping = unit.netNameToLayoutNet
+            crossProbe.instanceToComponent = Dictionary(
+                uniqueKeysWithValues: unit.componentToInstance.map { ($0.value, $0.key) }
+            )
+        } else {
+            crossProbe.instanceMapping = [:]
+            crossProbe.netMapping = [:]
+            crossProbe.instanceToComponent = [:]
+        }
+        layoutViewModel.fitAll()
+        markLayoutSaved()
     }
 
     /// Generates physical layout from the current schematic document.

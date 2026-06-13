@@ -12,6 +12,9 @@ public struct ProjectService: Sendable {
     private static let pexDirectoryName = "pex"
     private static let pexRunsDirectoryName = "runs"
     private static let pexTOMLFileName = "pex.toml"
+    private static let layoutDocumentFileName = "layout.json"
+    private static let layoutTechFileName = "layout-tech.json"
+    private static let designUnitFileName = "design-unit.json"
 
     private let packageStore: XcircuitePackageStore
 
@@ -205,6 +208,75 @@ public struct ProjectService: Sendable {
         } catch {
             throw StudioError.projectSaveFailed(
                 "Failed to save layout: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    // MARK: - Layout Editor State
+
+    /// Saves the native layout document — the full-fidelity editor state.
+    /// Interchange formats like OASIS carry mask geometry only and drop
+    /// element IDs, nets, and pins, which the design-unit binding and live
+    /// verification depend on.
+    func saveLayoutDocument(_ document: LayoutDocument, forProjectAt projectRoot: URL) throws {
+        let url = try configurationFileURL(named: Self.layoutDocumentFileName, inProjectAt: projectRoot)
+        try writeJSON(document, to: url, forProjectAt: projectRoot)
+    }
+
+    /// Returns `true` when the project has a persisted layout document.
+    func hasLayoutDocument(forProjectAt projectRoot: URL) -> Bool {
+        do {
+            let url = try configurationFileURL(named: Self.layoutDocumentFileName, inProjectAt: projectRoot)
+            return FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
+        } catch {
+            // No package directory means no persisted layout.
+            return false
+        }
+    }
+
+    func loadLayoutDocument(forProjectAt projectRoot: URL) throws -> LayoutDocument {
+        let url = try configurationFileURL(named: Self.layoutDocumentFileName, inProjectAt: projectRoot)
+        return try readJSON(LayoutDocument.self, from: url)
+    }
+
+    func saveLayoutTech(_ tech: LayoutTechDatabase, forProjectAt projectRoot: URL) throws {
+        let url = try configurationFileURL(named: Self.layoutTechFileName, inProjectAt: projectRoot)
+        try writeJSON(tech, to: url, forProjectAt: projectRoot)
+    }
+
+    func loadLayoutTech(forProjectAt projectRoot: URL) throws -> LayoutTechDatabase {
+        let url = try configurationFileURL(named: Self.layoutTechFileName, inProjectAt: projectRoot)
+        return try readJSON(LayoutTechDatabase.self, from: url)
+    }
+
+    func saveDesignUnit(_ unit: DesignUnit, forProjectAt projectRoot: URL) throws {
+        let url = try configurationFileURL(named: Self.designUnitFileName, inProjectAt: projectRoot)
+        try writeJSON(unit, to: url, forProjectAt: projectRoot)
+    }
+
+    /// Returns nil when no design unit has been persisted. A present but
+    /// unreadable file throws so corruption surfaces instead of silently
+    /// degrading to an unbound layout.
+    func loadDesignUnitIfPresent(forProjectAt projectRoot: URL) throws -> DesignUnit? {
+        let url = try configurationFileURL(named: Self.designUnitFileName, inProjectAt: projectRoot)
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+            return nil
+        }
+        return try readJSON(DesignUnit.self, from: url)
+    }
+
+    /// Removes the persisted design-unit binding. Called when the layout is
+    /// saved without one so a stale binding cannot resurface on next open.
+    func removeDesignUnit(forProjectAt projectRoot: URL) throws {
+        let url = try configurationFileURL(named: Self.designUnitFileName, inProjectAt: projectRoot)
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+            return
+        }
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            throw StudioError.projectSaveFailed(
+                "Failed to remove design unit: \(error.localizedDescription)"
             )
         }
     }

@@ -4,9 +4,11 @@ import CircuitStudioCore
 import WaveformViewer
 import SchematicEditor
 import LayoutEditor
+import LayoutIO
 import UniformTypeIdentifiers
 
 public struct CircuitStudioApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
     @State private var services = ServiceContainer()
     @State private var project = StudioSession()
@@ -21,6 +23,7 @@ public struct CircuitStudioApp: App {
                 project: project
             )
             .frame(minWidth: 800, minHeight: 500)
+            .onAppear { wireTerminationGuard() }
         }
         .defaultSize(width: 1200, height: 700)
         .commands {
@@ -51,6 +54,8 @@ public struct CircuitStudioApp: App {
                 .keyboardShortcut("s")
                 .disabled(appState.spiceSource.isEmpty && appState.projectRootURL == nil)
             Divider()
+            Button("Export Layout...") { exportLayout() }
+                .disabled(!project.layoutHasContent)
             Button("Export Waveform...") { project.waveformViewModel.exportWaveform() }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(project.waveformViewModel.waveformData == nil)
@@ -214,7 +219,12 @@ public struct CircuitStudioApp: App {
     private var layoutCommands: some Commands {
         CommandMenu("Layout") {
             Button("Generate Layout") {
-                project.generateLayout(service: services.designFlowService, catalog: services.catalog)
+                services.layoutPersistenceService.generateLayout(
+                    project: project,
+                    appState: appState,
+                    designFlow: services.designFlowService,
+                    catalog: services.catalog
+                )
                 appState.workspace = .integration
             }
             .keyboardShortcut("g", modifiers: [.command, .shift])
@@ -421,6 +431,20 @@ public struct CircuitStudioApp: App {
         } catch {
             // Not an error — config may not exist yet
         }
+
+        do {
+            if try services.layoutPersistenceService.restoreLayout(
+                into: project,
+                fromProjectAt: projectRoot
+            ) {
+                appState.log("Restored layout from project", kind: .info)
+            }
+        } catch {
+            appState.log(
+                "Could not restore the saved layout: \(error.localizedDescription)",
+                kind: .warning
+            )
+        }
     }
 
     private func autoLoadNetlist(from projectRoot: URL) {
@@ -435,6 +459,16 @@ public struct CircuitStudioApp: App {
     }
 
     // MARK: - Save
+
+    /// Hands the quit guard live closures over the session state so
+    /// quitting with unsaved netlist, schematic, or layout changes prompts
+    /// instead of silently discarding work.
+    private func wireTerminationGuard() {
+        appDelegate.hasUnsavedChanges = {
+            appState.isNetlistDirty || project.isSchematicDirty || project.isLayoutDirty
+        }
+        appDelegate.performSave = { saveAction() }
+    }
 
     private func saveAction() {
         if let projectRoot = appState.projectRootURL {
@@ -476,12 +510,10 @@ public struct CircuitStudioApp: App {
                 )
             }
 
-            if project.designUnit != nil {
-                try services.projectService.saveLayout(
-                    document: project.layoutViewModel.editor.document,
-                    tech: project.layoutViewModel.tech,
-                    to: "top.oas",
-                    inProjectAt: projectRoot
+            if project.layoutHasContent {
+                try services.layoutPersistenceService.persistLayout(
+                    of: project,
+                    toProjectAt: projectRoot
                 )
             }
 
@@ -490,6 +522,38 @@ public struct CircuitStudioApp: App {
             appState.log("Project saved", kind: .success)
         } catch {
             appState.log("Save failed: \(error.localizedDescription)", kind: .error)
+        }
+    }
+
+    // MARK: - Export
+
+    /// Saves the current layout as a GDS or OASIS file at a user-chosen
+    /// location — the save path for layouts outside an open project, and
+    /// the tapeout handoff for layouts inside one.
+    private func exportLayout() {
+        let panel = NSSavePanel()
+        panel.title = "Export Layout"
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "gds")!,
+            UTType(filenameExtension: "oas")!,
+        ]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue =
+            (appState.projectRootURL?.lastPathComponent ?? project.designName) + ".gds"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let format: LayoutFileFormat = url.pathExtension.lowercased() == "oas" ? .oasis : .gds
+        do {
+            let converter = MaskDataFormatConverter(tech: project.layoutViewModel.tech)
+            try converter.exportDocument(
+                project.layoutViewModel.editor.document,
+                to: url,
+                format: format
+            )
+            appState.log("Exported layout to \(url.lastPathComponent)", kind: .success)
+        } catch {
+            appState.log("Layout export failed: \(error.localizedDescription)", kind: .error)
         }
     }
 
