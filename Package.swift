@@ -93,6 +93,8 @@ let package = Package(
                 "SchematicEditor",
                 "WaveformViewer",
                 "CircuitStudioApp",
+                .product(name: "LayoutEditor", package: "semiconductor-layout"),
+                .product(name: "LayoutCore", package: "semiconductor-layout"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 .product(name: "OpenVAFSupport", package: "swift-openvaf"),
                 .product(name: "VerilogACompiler", package: "swift-openvaf"),

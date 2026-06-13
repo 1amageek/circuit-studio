@@ -27,6 +27,11 @@ public struct ContentView: View {
     /// when it is shown or hidden.
     private static let inspectorWidth: CGFloat = 300
 
+    /// Published while key focus is inside an editor subtree; the Delete-key
+    /// router stands down in that state so the focused canvas keeps handling
+    /// Delete itself (including mid-drawing vertex retraction).
+    @FocusedValue(\.editorCommands) private var focusedEditorCommands
+
     private var schematicViewModel: SchematicViewModel { project.schematicViewModel }
     private var layoutViewModel: LayoutEditorViewModel { project.layoutViewModel }
     private var waveformViewModel: WaveformViewModel { project.waveformViewModel }
@@ -48,6 +53,7 @@ public struct ContentView: View {
             .trailingPaneWidth(maximum: Self.inspectorWidth)
             .toolbar { toolbarContent }
         }
+        .background(DeleteKeyRouterView(action: routedDeleteAction))
         .onChange(of: appState.streamingWaveformVersion) { _, _ in
             if let waveform = appState.streamingWaveform {
                 waveformViewModel.updateStreaming(waveform: waveform)
@@ -79,6 +85,19 @@ public struct ContentView: View {
                 appState.scheduleNetlistParse(service: services.netlistParsingService)
             }
         }
+    }
+
+    /// Delete verb for the window-level key router. Nil while an editor
+    /// subtree holds focus (its canvas handles Delete itself) and for
+    /// workspaces without an unambiguous canvas target.
+    private var routedDeleteAction: RoutedDeleteAction? {
+        RoutedDeleteCommand.resolve(
+            workspace: appState.workspace,
+            schematicMode: appState.schematicMode,
+            editorHasKeyFocus: focusedEditorCommands != nil,
+            schematic: schematicViewModel,
+            layout: layoutViewModel
+        )
     }
 
     // MARK: - Editor Area
