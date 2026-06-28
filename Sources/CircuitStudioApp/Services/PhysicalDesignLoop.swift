@@ -16,9 +16,9 @@ public struct PhysicalDesignLoop: Sendable {
     /// The geometry parameter the controller grows to clear a class of violation, and
     /// which classified failure / layer it addresses.
     public struct Tunable: Sendable, Hashable {
-        public let parameter: String      // human label, e.g. "met1_width"
-        public let fixesReason: String    // classified reason it clears, e.g. "min_width_violation"
-        public let onLayer: String        // the rule id must mention this layer, e.g. "met1"
+        public let parameter: String      // human-readable parameter label
+        public let fixesReason: String    // classified reason it clears
+        public let onLayer: String        // the rule id must mention this logical layer
         public let stepFactor: Double     // > 1; the parameter grows to fix
         public let minValue: Double
         public let maxValue: Double

@@ -10,8 +10,11 @@ public final class NANDGateBuilder {
     public private(set) var instances: [GateLevelNetlist.Instance] = []
     private var gateCount = 0
     private var nodeCount = 0
+    private let cellLibrary: CMOSGateLibrary
 
-    public init() {}
+    public init(cellLibrary: CMOSGateLibrary = .bundledDefault) {
+        self.cellLibrary = cellLibrary
+    }
 
     private func gateName() -> String { defer { gateCount += 1 }; return "g\(gateCount)" }
 
@@ -21,13 +24,25 @@ public final class NANDGateBuilder {
     // MARK: - primitives
 
     public func nand(_ a: String, _ b: String, _ y: String) {
-        instances.append(.init(name: gateName(), cell: .nand(name: "nand2", inputs: ["A", "B"]), netMap: ["A": a, "B": b, "Y": y]))
+        instances.append(.init(
+            name: gateName(),
+            cell: cellLibrary.nand(name: "nand2", inputs: ["A", "B"]),
+            netMap: ["A": a, "B": b, "Y": y]
+        ))
     }
     public func nor(_ a: String, _ b: String, _ y: String) {
-        instances.append(.init(name: gateName(), cell: .nor(name: "nor2", inputs: ["A", "B"]), netMap: ["A": a, "B": b, "Y": y]))
+        instances.append(.init(
+            name: gateName(),
+            cell: cellLibrary.nor(name: "nor2", inputs: ["A", "B"]),
+            netMap: ["A": a, "B": b, "Y": y]
+        ))
     }
     public func inv(_ a: String, _ y: String) {
-        instances.append(.init(name: gateName(), cell: .inverter(name: "inv"), netMap: ["A": a, "Y": y]))
+        instances.append(.init(
+            name: gateName(),
+            cell: cellLibrary.inverter(name: "inv"),
+            netMap: ["A": a, "Y": y]
+        ))
     }
 
     // MARK: - composites

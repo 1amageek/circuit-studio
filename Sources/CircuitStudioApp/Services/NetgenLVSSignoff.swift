@@ -3,8 +3,8 @@ import Foundation
 /// Builds a Netgen-driven LVS signoff command for `ExternalSignoffCommandService`.
 ///
 /// Netgen runs headlessly (`-batch source lvs.tcl`) and compares a
-/// layout-extracted SPICE netlist against a schematic netlist using the Sky130
-/// device-matching setup. The bundled `lvs.tcl` reads Netgen's comparison report
+/// layout-extracted SPICE netlist against a schematic netlist using the
+/// profile-resolved device-matching setup. The bundled `lvs.tcl` reads Netgen's comparison report
 /// (whose authoritative "Final result:" line is not printed to stdout) and emits
 /// a single normalized line the `ExternalSignoffReportParser` understands. This
 /// replaces the golden-log replay / "magic-netgen-like" mock for LVS with a real
@@ -13,7 +13,7 @@ public struct NetgenLVSSignoff: Sendable {
 
     /// Absolute path to the Netgen launcher (the Tcl wrapper script).
     public let netgenExecutableURL: URL
-    /// PDK Netgen setup file (`sky130A_setup.tcl`) with device-class rules.
+    /// PDK Netgen setup file with device-class rules.
     public let setupFileURL: URL
     /// Value exported as `PDK_ROOT` for tools that resolve PDK paths.
     public let pdkRoot: String
@@ -74,7 +74,7 @@ public struct NetgenLVSSignoff: Sendable {
         )
     }
 
-    /// Discovers an installed Netgen + Sky130 toolchain, or `nil` if unavailable.
+    /// Discovers an installed Netgen + profile-resolved PDK toolchain, or `nil` if unavailable.
     /// Returning `nil` — rather than substituting a mock — leaves the decision to
     /// the caller; there is no silent fallback to a fake result.
     /// - `NETGEN_BIN` overrides the Netgen launcher path (default
@@ -89,11 +89,18 @@ public struct NetgenLVSSignoff: Sendable {
             ?? NSString(string: "~/.local/netgen/bin/netgen").expandingTildeInPath
         guard fileManager.isExecutableFile(atPath: netgenPath) else { return nil }
 
-        guard let pdkRoot = Sky130PDK.root(environment: environment, fileManager: fileManager) else {
+        let context: SignoffPDKContext
+        let setupFile: URL
+        do {
+            context = try SignoffPDKContext.resolve(
+                requirementID: "netgen",
+                environment: environment,
+                fileManager: fileManager
+            )
+            setupFile = try context.requiredFileURL(requirementID: "netgen")
+        } catch {
             return nil
         }
-        let setupFile = URL(filePath: pdkRoot)
-            .appending(path: "sky130A/libs.tech/netgen/sky130A_setup.tcl")
         guard fileManager.fileExists(atPath: setupFile.path(percentEncoded: false)) else {
             return nil
         }
@@ -101,7 +108,7 @@ public struct NetgenLVSSignoff: Sendable {
         return NetgenLVSSignoff(
             netgenExecutableURL: URL(filePath: netgenPath),
             setupFileURL: setupFile,
-            pdkRoot: pdkRoot,
+            pdkRoot: context.pdkRoot,
             driverScriptURL: driver
         )
     }

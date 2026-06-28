@@ -2,9 +2,9 @@ import Foundation
 import LayoutCore
 
 /// End-to-end automatic hierarchical place & route: it partitions a flat netlist into blocks
-/// (`NetlistPartitioner`), synthesizes each as a single-row cell (`Sky130CircuitSynthesizer`),
+/// (`NetlistPartitioner`), synthesizes each as a single-row cell (`StandardCircuitSynthesizer`),
 /// tiles them into a 2-D grid (`GridFloorplanner`), maze-routes every cross-block signal net
-/// over the cells on met3/met4 (`MazeRouter`), and combs the power rails together
+/// over the cells on profile-selected routing layers (`MazeRouter`), and combs the power rails together
 /// (`InterBlockRouter`) — producing one flattened layout that is LVS-equivalent to the flat
 /// netlist. This is the scalable alternative to one ever-wider row: block count and grid
 /// shape are free parameters, so a design grows in two dimensions, not one.
@@ -30,10 +30,13 @@ public struct HierarchicalSynthesizer: Sendable {
 
     public func synthesize(_ netlist: GateLevelNetlist) throws -> LayoutDocument {
         let part = try NetlistPartitioner().partition(netlist, blocks: blocks)
-        let docs = try part.blocks.map { try Sky130CircuitSynthesizer().synthesize($0) }
+        let profile = try StandardCellLayoutProfileCatalog.loadDefaultProfile()
+        let technology = try LayoutTechnologyResource.bundled(resourceName: profile.targetTechnologyResourceName)
+        let circuitSynthesizer = StandardCircuitSynthesizer(profile: profile, layoutTechnology: technology)
+        let docs = try part.blocks.map { try circuitSynthesizer.synthesize($0) }
         let floor = try GridFloorplanner().tile(docs, columns: columns, name: netlist.name)
 
-        // Power rails first (li1 combs in the margins) — boundaryNets empty so this is power only.
+        // Power rails first in the margins; boundaryNets empty so this is power only.
         let powered = try InterBlockRouter().route(floor, boundaryNets: [], powerNets: [netlist.vpwr, netlist.vgnd])
         guard var cell = powered.cells.first(where: { $0.id == powered.topCellID }) ?? powered.cells.first else {
             throw SynthError.noTopCell

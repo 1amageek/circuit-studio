@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "profileID": "sky130.generic-layout-translation.v1",
+  "targetTechnologyResourceName": "sky130-layout-tech",
+  "sourceLayers": {
+    "active": "ACTIVE",
+    "contact": "CONTACT",
+    "poly": "POLY",
+    "nImplant": "NIMP",
+    "pImplant": "PIMP",
+    "nWell": "NWELL"
+  },
+  "targetLayers": {
+    "diffusion": { "name": "diff", "purpose": "drawing" },
+    "tap": { "name": "tap", "purpose": "drawing" },
+    "localInterconnect": { "name": "li1", "purpose": "drawing" },
+    "gateCutMask": { "name": "npc", "purpose": "drawing" },
+    "gateConductor": { "name": "poly", "purpose": "drawing" },
+    "contactCut": { "name": "licon1", "purpose": "cut" },
+    "metalContactCut": { "name": "mcon", "purpose": "cut" }
+  },
+  "layerMap": {
+    "NWELL": { "name": "nwell", "purpose": "drawing" },
+    "POLY": { "name": "poly", "purpose": "drawing" },
+    "NIMP": { "name": "nsdm", "purpose": "drawing" },
+    "PIMP": { "name": "psdm", "purpose": "drawing" },
+    "M1": { "name": "met1", "purpose": "drawing" },
+    "M2": { "name": "met2", "purpose": "drawing" }
+  },
+  "viaDefinitionMap": {
+    "VIA1": "via"
+  },
+  "contactRestackPolicy": {
+    "activeContactViaDefinitionID": "licon1",
+    "metalContactViaDefinitionID": "mcon",
+    "gateCutMaskEnclosure": 0.10,
+    "gatePadEnclosure": 0.08,
+    "tapContactHorizontalEnclosure": 0.12,
+    "tapImplantEnclosure": 0.125
+  }
+}

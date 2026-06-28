@@ -1,4 +1,5 @@
 import Foundation
+import DesignFlowKernel
 import Testing
 import LayoutCore
 @testable import CircuitStudioApp
@@ -104,6 +105,229 @@ struct DesignFlowServiceTests {
         #expect(manifest.artifacts.contains { $0.kind == "design-spec" && $0.path.hasSuffix("technology-package.json") })
         #expect(manifest.artifacts.contains { $0.kind == "external-signoff-log" })
         #expect(manifest.artifacts.contains { $0.kind == "pex-artifact" })
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func commandAPIBuildsTimingLibraryWithCatalogSelectedExternalModelProfile() async throws {
+        let root = try makeTemporaryRoot("timing-model-profile-library")
+        defer { removeTemporaryRoot(root) }
+        let profileURL = root.appending(path: "external-timing-profile.json")
+        let profile = Level1DeviceModel.bundledDefaultProfile()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(profile).write(to: profileURL, options: .atomic)
+        let profileDigest = try RoundTripArtifactDigest.compute(url: profileURL)
+        let catalogURL = root.appending(path: "timing-profile-catalog.json")
+        let catalog = try TimingModelProfileCatalog(
+            catalogID: "unit-timing-profile-catalog",
+            profiles: [
+                TimingModelProfileCatalog.Entry(
+                    profileID: profile.profileID,
+                    cornerID: profile.technology.cornerID,
+                    profilePath: profileURL.lastPathComponent,
+                    defaultProfile: true
+                ),
+            ]
+        )
+        try encoder.encode(catalog).write(to: catalogURL, options: .atomic)
+        try await prewarmTimingLibraryBuildCache(
+            model: profile.model,
+            technologyContext: try profile.technologyContext(
+                path: profileURL.path(percentEncoded: false),
+                sha256: profileDigest.sha256
+            )
+        )
+
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .buildTimingLibrary,
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "timing-profile-run",
+            timingModelProfileCatalogPath: catalogURL.path(percentEncoded: false),
+            timingModelCornerID: profile.technology.cornerID
+        ))
+
+        #expect(result.runID == "timing-profile-run")
+        #expect(result.projectRootPath == root.path(percentEncoded: false))
+        #expect(result.timingModelProfileID == profile.profileID)
+        #expect(result.timingModelProfilePath == profileURL.path(percentEncoded: false))
+        #expect(result.timingModelProfileCatalogID == catalog.catalogID)
+        #expect(result.timingModelProfileCatalogPath == catalogURL.path(percentEncoded: false))
+        #expect(result.timingModelCornerID == profile.technology.cornerID)
+        let manifestPath = try #require(result.timingArtifactManifestPath)
+        let libraryPath = try #require(result.timingLibraryPath)
+        let selectionPath = try #require(result.timingModelProfileSelectionPath)
+        #expect(FileManager.default.fileExists(atPath: manifestPath))
+        #expect(FileManager.default.fileExists(atPath: libraryPath))
+        #expect(FileManager.default.fileExists(atPath: selectionPath))
+
+        let manifest = try JSONDecoder().decode(
+            TimingArtifactManifest.self,
+            from: Data(contentsOf: URL(filePath: manifestPath))
+        )
+        #expect(manifest.runID == "timing-profile-run")
+        #expect(manifest.technology.modelProfile?.profileID == profile.profileID)
+        #expect(manifest.technology.modelProfile?.path == profileURL.path(percentEncoded: false))
+        #expect(manifest.technology.modelProfile?.sha256 == profileDigest.sha256)
+        #expect(manifest.artifacts.contains { $0.id == "timing-library" && $0.status == .available })
+        #expect(manifest.artifacts.contains { $0.id == "timing-model-profile-selection" && $0.status == .available })
+        #expect(manifest.artifacts.contains { $0.id == "combinational-characterization" && $0.status == .available })
+        #expect(manifest.artifacts.contains { $0.id == "sequential-dff-characterization" && $0.status == .available })
+
+        let selection = try JSONDecoder().decode(
+            TimingModelProfileSelection.self,
+            from: Data(contentsOf: URL(filePath: selectionPath))
+        )
+        #expect(selection.runID == "timing-profile-run")
+        #expect(selection.sourceKind == .externalFile)
+        #expect(selection.catalogID == catalog.catalogID)
+        #expect(selection.catalogPath == catalogURL.path(percentEncoded: false))
+        #expect(selection.profile.profileID == profile.profileID)
+        #expect(selection.profile.path == profileURL.path(percentEncoded: false))
+        #expect(selection.profile.sha256 == profileDigest.sha256)
+        #expect(selection.technology.modelProfile == selection.profile)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIRejectsCatalogTimingModelProfileCornerMismatchBeforeBuild() async throws {
+        let root = try makeTemporaryRoot("timing-model-profile-corner-mismatch")
+        defer { removeTemporaryRoot(root) }
+        let profileURL = root.appending(path: "external-timing-profile.json")
+        let profile = Level1DeviceModel.bundledDefaultProfile()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(profile).write(to: profileURL, options: .atomic)
+        let catalogURL = root.appending(path: "timing-profile-catalog.json")
+        let catalog = try TimingModelProfileCatalog(
+            catalogID: "unit-timing-profile-catalog",
+            profiles: [
+                TimingModelProfileCatalog.Entry(
+                    profileID: profile.profileID,
+                    cornerID: "ss",
+                    profilePath: profileURL.lastPathComponent,
+                    defaultProfile: true
+                ),
+            ]
+        )
+        try encoder.encode(catalog).write(to: catalogURL, options: .atomic)
+
+        await #expect(throws: DesignFlowCommandError.timingModelProfileCatalogCornerMismatch(
+            profileID: profile.profileID,
+            declared: "ss",
+            actual: profile.technology.cornerID
+        )) {
+            try await DesignFlowService().execute(DesignFlowCommand(
+                kind: .buildTimingLibrary,
+                projectRootPath: root.path(percentEncoded: false),
+                runID: "timing-profile-corner-mismatch",
+                timingModelProfileCatalogPath: catalogURL.path(percentEncoded: false)
+            ))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIRejectsConflictingTimingModelProfileSelectors() async throws {
+        let root = try makeTemporaryRoot("timing-model-profile-conflict")
+        defer { removeTemporaryRoot(root) }
+
+        await #expect(throws: DesignFlowCommandError.conflictingTimingModelProfileSelectors) {
+            try await DesignFlowService().execute(DesignFlowCommand(
+                kind: .buildTimingLibrary,
+                projectRootPath: root.path(percentEncoded: false),
+                runID: "timing-profile-conflict",
+                timingModelProfilePath: "/tmp/timing-profile.json",
+                timingModelProfileCatalogPath: "/tmp/timing-profile-catalog.json",
+                timingModelProfileID: "profile-1",
+                timingModelCornerID: "tt"
+            ))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIInspectsBundledTimingModelProfileCatalog() async throws {
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .inspectTimingModelProfiles
+        ))
+
+        let inspection = try #require(result.timingModelProfileCatalogInspection)
+        #expect(result.timingModelProfileCatalogID == "circuit-studio.default-timing-model-profiles.v2")
+        #expect(result.timingModelProfileID == "sky130.level1-device-model.v1")
+        #expect(result.timingModelCornerID == "tt")
+        #expect(inspection.status == .passed)
+        #expect(inspection.profileCount == 3)
+        #expect(inspection.passedProfileCount == 3)
+        #expect(inspection.failedProfileCount == 0)
+        let profile = try #require(inspection.profiles.first)
+        #expect(profile.profileID == "sky130.level1-device-model.v1")
+        #expect(profile.profileResourceName == Level1DeviceModel.bundledDefaultProfileResourceName())
+        #expect(profile.profilePath == nil)
+        #expect(profile.declaredCornerID == "tt")
+        #expect(profile.cornerID == "tt")
+        #expect(profile.deviceModelHash != nil)
+        #expect(profile.sha256 != nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIInspectsBundledTimingModelProfileCatalogByCorner() async throws {
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .inspectTimingModelProfiles,
+            timingModelCornerID: "ss"
+        ))
+
+        let inspection = try #require(result.timingModelProfileCatalogInspection)
+        #expect(result.timingModelProfileCatalogID == "circuit-studio.default-timing-model-profiles.v2")
+        #expect(result.timingModelProfileID == "sky130.level1-device-model.ss.v1")
+        #expect(result.timingModelCornerID == "ss")
+        #expect(inspection.status == .passed)
+        #expect(inspection.profileCount == 3)
+        #expect(inspection.passedProfileCount == 3)
+        let selectedProfile = try #require(inspection.profiles.first { $0.profileID == result.timingModelProfileID })
+        #expect(selectedProfile.declaredCornerID == "ss")
+        #expect(selectedProfile.cornerID == "ss")
+        #expect(selectedProfile.profileResourceName == "sky130-level1-device-model-profile-ss")
+        #expect(selectedProfile.deviceModelHash != nil)
+        #expect(selectedProfile.sha256 != nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func commandAPIInspectsTimingModelProfileCatalogEntryFailures() async throws {
+        let root = try makeTemporaryRoot("timing-model-profile-inspect-failure")
+        defer { removeTemporaryRoot(root) }
+        let catalogURL = root.appending(path: "timing-profile-catalog.json")
+        let catalog = try TimingModelProfileCatalog(
+            catalogID: "broken-timing-profile-catalog",
+            profiles: [
+                TimingModelProfileCatalog.Entry(
+                    profileID: "missing-profile",
+                    cornerID: "tt",
+                    profilePath: "missing-profile.json",
+                    defaultProfile: true
+                ),
+            ]
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(catalog).write(to: catalogURL, options: .atomic)
+
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .inspectTimingModelProfiles,
+            timingModelProfileCatalogPath: catalogURL.path(percentEncoded: false)
+        ))
+
+        let inspection = try #require(result.timingModelProfileCatalogInspection)
+        #expect(inspection.status == .failed)
+        #expect(inspection.profileCount == 1)
+        #expect(inspection.failedProfileCount == 1)
+        let profile = try #require(inspection.profiles.first)
+        #expect(profile.status == .failed)
+        #expect(profile.declaredCornerID == "tt")
+        #expect(profile.profilePath == root.appending(path: "missing-profile.json").path(percentEncoded: false))
+        #expect(profile.diagnostics.first?.code == "profile-load-failed")
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -494,6 +718,251 @@ struct DesignFlowServiceTests {
         let review = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
         #expect(review.approvals.count == 1)
         #expect(review.approvals.first?.gateID == .postLayoutComparison)
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func commandAPIRecordsFailureSuggestedCommandSelection() async throws {
+        let root = try makeTemporaryRoot("failure-command-selection")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "failure-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+            runID: "failure-run",
+            title: "Failure run",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_200),
+            isRoundTripComplete: false,
+            isReadyForPEX: true,
+            stages: [
+                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .failed),
+            ],
+            artifacts: [],
+            bottleneckSummary: HeadlessRoundTripService.BottleneckSummary(
+                totalMeasuredDurationSeconds: 0.2,
+                longestStageName: "post-layout-comparison",
+                longestStageDurationSeconds: 0.2,
+                failedStageName: "post-layout-comparison",
+                recommendations: []
+            )
+        ), to: manifestURL)
+
+        let failureEnvelope = FlowRunnerFailureEnvelope(
+            errorKind: "runtime",
+            errorType: "RuntimeTestError",
+            message: "Post-layout comparison exceeded configured limits.",
+            runID: "failure-run",
+            projectRoot: root.path(percentEncoded: false),
+            manifest: manifestURL.path(percentEncoded: false),
+            stage: "post-layout-comparison",
+            recommendation: "Inspect the failed run.",
+            nextActions: [
+                FlowRunNextAction(
+                    actionID: "review-flow-runner-failure",
+                    kind: "reviewFlowRunnerFailure",
+                    stageID: "post-layout-comparison",
+                    severity: .error,
+                    reason: "Inspect the failed stage and persisted artifacts.",
+                    diagnosticCodes: ["runtime"],
+                    suggestedCommands: [
+                        FlowRunSuggestedCommand(
+                            commandID: "circuit-studio-flow-runner.review-round-trip",
+                            readiness: .ready,
+                            executable: "swift",
+                            arguments: [
+                                "run",
+                                "--quiet",
+                                "circuit-studio-flow-runner",
+                                "--review-round-trip",
+                                "--manifest",
+                                manifestURL.path(percentEncoded: false),
+                                "--json",
+                            ],
+                            reason: "Load the failed run review from its persisted manifest."
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let failureEnvelopeURL = runDirectory.appending(path: "flow-runner-failure.json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(failureEnvelope).write(to: failureEnvelopeURL, options: .atomic)
+
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .selectFailureSuggestedCommand,
+            failureEnvelopePath: failureEnvelopeURL.path(percentEncoded: false),
+            suggestedCommandID: "circuit-studio-flow-runner.review-round-trip",
+            approvalReviewer: "agent-1"
+        ))
+
+        let actionLogPath = try #require(result.actionLogPath)
+        #expect(FileManager.default.fileExists(atPath: actionLogPath))
+        #expect(actionLogPath.hasSuffix(".xcircuite/flow-runs/failure-run/actions.jsonl"))
+        #expect(result.runID == "failure-run")
+        #expect(result.manifestPath == manifestURL.path(percentEncoded: false))
+        #expect(result.selectedSuggestedCommand?.actor.identifier == "agent-1")
+        #expect(result.selectedSuggestedCommand?.nextActionID == "review-flow-runner-failure")
+        #expect(result.selectedSuggestedCommand?.commandID == "circuit-studio-flow-runner.review-round-trip")
+        #expect(result.roundTripReview?.suggestedCommandSelections.count == 1)
+        #expect(result.message?.hasPrefix("round-trip-suggested-command-selection-") == true)
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func commandAPIDispatchesSelectedFailureSuggestedReviewCommand() async throws {
+        let root = try makeTemporaryRoot("failure-command-dispatch")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "failure-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+            runID: "failure-run",
+            title: "Failure run",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_210),
+            isRoundTripComplete: false,
+            isReadyForPEX: true,
+            stages: [
+                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .failed),
+            ],
+            artifacts: [],
+            bottleneckSummary: HeadlessRoundTripService.BottleneckSummary(
+                totalMeasuredDurationSeconds: 0.2,
+                longestStageName: "post-layout-comparison",
+                longestStageDurationSeconds: 0.2,
+                failedStageName: "post-layout-comparison",
+                recommendations: []
+            )
+        ), to: manifestURL)
+
+        let failureEnvelope = FlowRunnerFailureEnvelope(
+            errorKind: "runtime",
+            errorType: "RuntimeTestError",
+            message: "Post-layout comparison exceeded configured limits.",
+            runID: "failure-run",
+            projectRoot: root.path(percentEncoded: false),
+            manifest: manifestURL.path(percentEncoded: false),
+            stage: "post-layout-comparison",
+            recommendation: "Inspect the failed run.",
+            nextActions: [
+                FlowRunNextAction(
+                    actionID: "review-flow-runner-failure",
+                    kind: "reviewFlowRunnerFailure",
+                    stageID: "post-layout-comparison",
+                    severity: .error,
+                    reason: "Inspect the failed stage and persisted artifacts.",
+                    diagnosticCodes: ["runtime"],
+                    suggestedCommands: [
+                        FlowRunSuggestedCommand(
+                            commandID: "circuit-studio-flow-runner.review-round-trip",
+                            readiness: .ready,
+                            executable: "swift",
+                            arguments: [
+                                "run",
+                                "--quiet",
+                                "circuit-studio-flow-runner",
+                                "--review-round-trip",
+                                "--manifest",
+                                manifestURL.path(percentEncoded: false),
+                                "--json",
+                            ],
+                            reason: "Load the failed run review from its persisted manifest."
+                        ),
+                    ]
+                ),
+            ]
+        )
+        _ = try RoundTripActionLogService().recordSuggestedCommandSelection(
+            from: failureEnvelope,
+            commandID: "circuit-studio-flow-runner.review-round-trip",
+            reviewer: "agent-1"
+        )
+
+        let result = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .runSelectedSuggestedCommand,
+            projectRootPath: root.path(percentEncoded: false),
+            runID: "failure-run",
+            suggestedCommandID: "circuit-studio-flow-runner.review-round-trip"
+        ))
+
+        #expect(result.kind == .reviewRoundTrip)
+        #expect(result.roundTripReview?.runID == "failure-run")
+        #expect(result.roundTripReview?.status == .failed)
+        #expect(result.roundTripReview?.suggestedCommandSelections.count == 1)
+        #expect(result.roundTripReview?.suggestedCommandSelections.first?.commandID == "circuit-studio-flow-runner.review-round-trip")
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func commandAPIRejectsUnsupportedSelectedFailureSuggestedExecutable() async throws {
+        let root = try makeTemporaryRoot("failure-command-dispatch-reject")
+        defer { removeTemporaryRoot(root) }
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "failure-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+            runID: "failure-run",
+            title: "Failure run",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_220),
+            isRoundTripComplete: false,
+            isReadyForPEX: true,
+            stages: [
+                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .failed),
+            ],
+            artifacts: []
+        ), to: manifestURL)
+
+        let failureEnvelope = FlowRunnerFailureEnvelope(
+            errorKind: "runtime",
+            errorType: "RuntimeTestError",
+            message: "Post-layout comparison exceeded configured limits.",
+            runID: "failure-run",
+            projectRoot: root.path(percentEncoded: false),
+            manifest: manifestURL.path(percentEncoded: false),
+            stage: "post-layout-comparison",
+            recommendation: "Inspect the failed run.",
+            nextActions: [
+                FlowRunNextAction(
+                    actionID: "run-unsupported",
+                    kind: "runUnsupported",
+                    stageID: "post-layout-comparison",
+                    severity: .error,
+                    reason: "This command must not be dispatched.",
+                    suggestedCommands: [
+                        FlowRunSuggestedCommand(
+                            commandID: "unsupported.shell",
+                            readiness: .ready,
+                            executable: "bash",
+                            arguments: ["-lc", "echo unsafe"],
+                            reason: "Unsupported shell command."
+                        ),
+                    ]
+                ),
+            ]
+        )
+        _ = try RoundTripActionLogService().recordSuggestedCommandSelection(
+            from: failureEnvelope,
+            commandID: "unsupported.shell",
+            reviewer: "agent-1"
+        )
+
+        await #expect(throws: RoundTripSelectedSuggestedCommandResolutionError.self) {
+            try await DesignFlowService().execute(DesignFlowCommand(
+                kind: .runSelectedSuggestedCommand,
+                projectRootPath: root.path(percentEncoded: false),
+                runID: "failure-run",
+                suggestedCommandID: "unsupported.shell"
+            ))
+        }
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -1950,6 +2419,127 @@ struct DesignFlowServiceTests {
         } catch {
             Issue.record("Failed to remove temporary root: \(error)")
         }
+    }
+
+    private func prewarmTimingLibraryBuildCache(
+        model: Level1DeviceModel,
+        technologyContext: TimingTechnologyContext
+    ) async throws {
+        let inputSlews = [40e-12, 200e-12]
+        let outputLoads = [1e-15, 4e-15, 12e-15]
+        let cells = [
+            CMOSGateLibrary.bundledDefault.inverter(name: "inv"),
+            CMOSGateLibrary.bundledDefault.nand(name: "nand2", inputs: ["A", "B"]),
+            CMOSGateLibrary.bundledDefault.nor(name: "nor2", inputs: ["A", "B"]),
+        ]
+        for (index, cell) in cells.enumerated() {
+            _ = try await TimingCharacterizationCache.shared.cellTiming(
+                cell: cell,
+                model: model,
+                inputSlews: inputSlews,
+                outputLoads: outputLoads
+            ) {
+                try Self.cellTimingFixture(
+                    cell: cell,
+                    inputSlews: inputSlews,
+                    outputLoads: outputLoads,
+                    value: Double(index + 1) * 10e-12
+                )
+            }
+        }
+
+        let dffNetlist = DFFGenerator(cellLibrary: .bundledDefault).netlist(name: "dff")
+        _ = try await TimingCharacterizationCache.shared.sequentialReport(
+            netlist: dffNetlist,
+            cellName: "dff",
+            model: model,
+            technologyContext: technologyContext,
+            clockSlew: 80e-12,
+            dataSlew: 80e-12,
+            outputLoads: outputLoads,
+            setupHoldSearchWindow: 300e-12,
+            setupHoldSearchResolution: 20e-12,
+            maxSearchIterations: 4
+        ) {
+            try Self.sequentialReportFixture(
+                netlist: dffNetlist,
+                technologyContext: technologyContext,
+                outputLoads: outputLoads
+            )
+        }
+    }
+
+    private static func cellTimingFixture(
+        cell: CMOSGateNetlist,
+        inputSlews: [Double],
+        outputLoads: [Double],
+        value: Double
+    ) throws -> CellTiming {
+        let inputPins = Set(cell.devices.map(\.gate)).sorted()
+        let lut = try constantTimingLUT(inputSlews: inputSlews, outputLoads: outputLoads, value: value)
+        return CellTiming(
+            cellName: cell.name,
+            inputCapacitance: Dictionary(uniqueKeysWithValues: inputPins.map { ($0, 1e-15) }),
+            arcs: inputPins.map {
+                TimingArc(
+                    inputPin: $0,
+                    sense: .negativeUnate,
+                    delayRise: lut,
+                    delayFall: lut,
+                    transitionRise: lut,
+                    transitionFall: lut
+                )
+            }
+        )
+    }
+
+    private static func sequentialReportFixture(
+        netlist: GateLevelNetlist,
+        technologyContext: TimingTechnologyContext,
+        outputLoads: [Double]
+    ) throws -> SequentialTimingCharacterizationReport {
+        let clockSlews = [80e-12]
+        let timing = SequentialTiming(
+            clkToQRise: try constantTimingLUT(inputSlews: clockSlews, outputLoads: outputLoads, value: 100e-12),
+            clkToQFall: try constantTimingLUT(inputSlews: clockSlews, outputLoads: outputLoads, value: 110e-12),
+            qTransitionRise: try constantTimingLUT(inputSlews: clockSlews, outputLoads: outputLoads, value: 30e-12),
+            qTransitionFall: try constantTimingLUT(inputSlews: clockSlews, outputLoads: outputLoads, value: 35e-12),
+            setupTime: 20e-12,
+            holdTime: 10e-12,
+            dataCapacitance: 1e-15,
+            clockCapacitance: 2e-15
+        )
+        return SequentialTimingCharacterizationReport(
+            cellName: "dff",
+            topologyHash: try TimingTopologyHasher.hash(netlist),
+            activeClockEdge: .rising,
+            technology: technologyContext,
+            characterizationGrid: SequentialTimingCharacterizationGrid(
+                clockSlews: clockSlews,
+                dataSlews: [80e-12],
+                outputLoads: outputLoads,
+                setupHoldSearchResolution: 20e-12,
+                setupHoldSearchWindow: 300e-12
+            ),
+            timing: timing,
+            clkToQMeasurements: [],
+            qTransitionMeasurements: [],
+            setupMeasurements: [],
+            holdMeasurements: [],
+            status: .passed
+        )
+    }
+
+    private static func constantTimingLUT(
+        inputSlews: [Double],
+        outputLoads: [Double],
+        value: Double
+    ) throws -> TimingLUT {
+        try TimingLUT(
+            inputSlews: inputSlews,
+            outputLoads: outputLoads,
+            values: inputSlews.map { _ in outputLoads.map { _ in value } }
+        )
     }
 }
 

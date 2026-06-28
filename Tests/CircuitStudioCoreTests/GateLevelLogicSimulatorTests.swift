@@ -52,7 +52,7 @@ struct GateLevelLogicSimulatorTests {
 
     @Test("M2 functional: a 4-bit clocked accumulator adds its input every cycle")
     func accumulatorAccumulates() throws {
-        let seq = Sky130AccumulatorGenerator(bits: 4).sequentialNetlist(name: "acc")
+        let seq = AccumulatorGenerator(bits: 4).sequentialNetlist(name: "acc")
         func run(addend: Int, cycles n: Int) -> [Int] {
             let vec = (0..<4).reduce(into: [String: Bool]()) { $0["in\($1)"] = (addend >> $1) & 1 == 1 }
             let trace = try! sim.simulate(seq, cycles: Array(repeating: vec, count: n))
@@ -64,7 +64,7 @@ struct GateLevelLogicSimulatorTests {
 
     @Test("M3 functional: the 4-bit ALU matches its truth table for ADD/SUB/AND/OR")
     func aluTruthTable() throws {
-        let seq = Sky130ALUGenerator(bits: 4).combinationalModel()
+        let seq = ALUGenerator(bits: 4).combinationalModel()
         for av in 0..<16 {
             for bv in 0..<16 {
                 for op in 0..<4 {

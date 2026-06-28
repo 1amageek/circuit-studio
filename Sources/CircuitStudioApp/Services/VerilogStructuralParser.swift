@@ -11,6 +11,7 @@ import Foundation
 ///
 /// Connections are by name (`.A(net)`); the cell's ports are A/B/C (gates) and Y (output).
 public struct VerilogStructuralParser: Sendable {
+    private let cellLibrary: CMOSGateLibrary
 
     public enum ParseError: Error, LocalizedError, Equatable {
         case noModule
@@ -30,16 +31,18 @@ public struct VerilogStructuralParser: Sendable {
         }
     }
 
-    public init() {}
+    public init(cellLibrary: CMOSGateLibrary = .bundledDefault) {
+        self.cellLibrary = cellLibrary
+    }
 
     /// The cell template for a library cell name (its gate + output ports are fixed).
     private func cell(for type: String) throws -> CMOSGateNetlist {
         switch type {
-        case "inv", "inverter": return .inverter(name: type)
-        case "nand2": return .nand(name: type, inputs: ["A", "B"])
-        case "nand3": return .nand(name: type, inputs: ["A", "B", "C"])
-        case "nor2": return .nor(name: type, inputs: ["A", "B"])
-        case "nor3": return .nor(name: type, inputs: ["A", "B", "C"])
+        case "inv", "inverter": return cellLibrary.inverter(name: type)
+        case "nand2": return cellLibrary.nand(name: type, inputs: ["A", "B"])
+        case "nand3": return cellLibrary.nand(name: type, inputs: ["A", "B", "C"])
+        case "nor2": return cellLibrary.nor(name: type, inputs: ["A", "B"])
+        case "nor3": return cellLibrary.nor(name: type, inputs: ["A", "B", "C"])
         default: throw ParseError.unknownCell(type)
         }
     }

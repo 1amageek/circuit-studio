@@ -2,6 +2,14 @@
   "originHash" : "6c77b41ee155194c5d63121df416a417040dfc9fd1014a5e6d649d13a31c5640",
   "pins" : [
     {
+      "identity" : "mac-component",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/mac-component.git",
+      "state" : {
+        "revision" : "d3aee65b8dd73a838bcfba124e7c1afe520b97bb"
+      }
+    },
+    {
       "identity" : "swift-async-algorithms",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-async-algorithms.git",

@@ -32,7 +32,7 @@ struct SignoffEvaluationServiceTests {
             ),
         ])
 
-        let evaluation = SignoffEvaluationService().evaluate(review)
+        let evaluation = try signoffEvaluationService().evaluate(review)
 
         #expect(evaluation.passed == false)
         #expect(evaluation.findings.count == 2)
@@ -64,7 +64,7 @@ struct SignoffEvaluationServiceTests {
                 ]
             ),
         ])
-        let finding = try #require(SignoffEvaluationService().evaluate(review).findings.first)
+        let finding = try #require(signoffEvaluationService().evaluate(review).findings.first)
         #expect(finding.reason == "drc_violation")
         #expect(finding.ruleID == "exotic.2")
         #expect(finding.suggestedActions.contains { $0.contains("exotic.2") } == true)
@@ -79,5 +79,22 @@ struct SignoffEvaluationServiceTests {
         let evaluation = SignoffEvaluationService().evaluate(review)
         #expect(evaluation.passed)
         #expect(evaluation.findings.isEmpty)
+    }
+
+    private func signoffEvaluationService() throws -> SignoffEvaluationService {
+        try SignoffEvaluationService(ruleClassificationProfile: SignoffRuleClassificationProfile(
+            schemaVersion: 1,
+            profileID: "test.signoff.rule-classification",
+            rules: [
+                SignoffRuleClassificationProfile.Rule(
+                    ruleID: "met1.2",
+                    reason: "min_spacing_violation",
+                    suggestedActions: [
+                        "increase_spacing_between_met1_shapes",
+                        "reroute_to_widen_the_channel",
+                    ]
+                ),
+            ]
+        ))
     }
 }

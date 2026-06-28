@@ -1,21 +1,38 @@
 import Foundation
 import CircuitStudioCore
+import XcircuitePackage
 
 public struct FlowRunnerCommandOptions: Sendable {
+    public enum OutputFormat: Sendable, Equatable {
+        case keyValue
+        case json
+    }
+
     public enum Mode: Sendable, Equatable {
         case listFixtures
         case generateNetlist
         case simulate
         case runRoundTrip
         case summarizeBottlenecks
+        case summarizeSignoffRepairCandidateCycles
+        case qualifySignoffRepairCandidateCycles
         case loadTechnologyPackage
         case runPEXExtraction
+        case inspectTimingModelProfiles
+        case buildTimingLibrary
         case applyDesignEdit
         case applyLayoutEdit
         case runLayoutTrust
         case runVerification
         case approveGate
         case reviewRoundTrip
+        case selectFailureSuggestedCommand
+        case runSelectedSuggestedCommand
+        case applyWaiverEditProposal
+        case runPostWaiverEditVerification
+        case applyWaiverEditProposalAndRunPostVerification
+        case formulateSignoffRepairPlanningProblem
+        case runSignoffRepairCandidateCycle
 
         public func commandKind(usesDesignSpec: Bool) -> DesignFlowCommand.Kind {
             switch self {
@@ -29,10 +46,18 @@ public struct FlowRunnerCommandOptions: Sendable {
                 return usesDesignSpec ? .runDesignRoundTrip : .runFixtureRoundTrip
             case .summarizeBottlenecks:
                 return .summarizeBottlenecks
+            case .summarizeSignoffRepairCandidateCycles:
+                return .summarizeSignoffRepairCandidateCycles
+            case .qualifySignoffRepairCandidateCycles:
+                return .qualifySignoffRepairCandidateCycles
             case .loadTechnologyPackage:
                 return .loadTechnologyPackage
             case .runPEXExtraction:
                 return .runPEXExtraction
+            case .inspectTimingModelProfiles:
+                return .inspectTimingModelProfiles
+            case .buildTimingLibrary:
+                return .buildTimingLibrary
             case .applyDesignEdit:
                 return .applyDesignEdit
             case .applyLayoutEdit:
@@ -45,6 +70,20 @@ public struct FlowRunnerCommandOptions: Sendable {
                 return .approveGate
             case .reviewRoundTrip:
                 return .reviewRoundTrip
+            case .selectFailureSuggestedCommand:
+                return .selectFailureSuggestedCommand
+            case .runSelectedSuggestedCommand:
+                return .runSelectedSuggestedCommand
+            case .applyWaiverEditProposal:
+                return .applyWaiverEditProposal
+            case .runPostWaiverEditVerification:
+                return .runPostWaiverEditVerification
+            case .applyWaiverEditProposalAndRunPostVerification:
+                return .applyWaiverEditProposalAndRunPostVerification
+            case .formulateSignoffRepairPlanningProblem:
+                return .formulateSignoffRepairPlanningProblem
+            case .runSignoffRepairCandidateCycle:
+                return .runSignoffRepairCandidateCycle
             }
         }
     }
@@ -58,6 +97,7 @@ public struct FlowRunnerCommandOptions: Sendable {
         case invalidOscillationLimit(String)
         case invalidGateID(String)
         case invalidApprovalDecision(String)
+        case invalidActorKind(String)
         case conflictingModes
 
         public var errorDescription: String? {
@@ -78,6 +118,8 @@ public struct FlowRunnerCommandOptions: Sendable {
                 return "Invalid approval gate ID: \(value)"
             case .invalidApprovalDecision(let value):
                 return "Invalid approval decision: \(value)"
+            case .invalidActorKind(let value):
+                return "Invalid actor kind: \(value)"
             case .conflictingModes:
                 return "Only one runner mode can be selected."
             }
@@ -92,12 +134,18 @@ public struct FlowRunnerCommandOptions: Sendable {
     public var pexManifestURL: URL?
     public var pexConfigURL: URL?
     public var pexExecutableURL: URL?
+    public var timingModelProfileURL: URL?
+    public var timingModelProfileCatalogURL: URL?
+    public var timingModelProfileID: String?
+    public var timingModelCornerID: String?
     public var editScriptURL: URL?
     public var outputDesignSpecURL: URL?
     public var layoutDocumentURL: URL?
     public var outputLayoutDocumentURL: URL?
     public var designUnitURL: URL?
     public var reviewManifestURL: URL?
+    public var failureEnvelopeURL: URL?
+    public var suggestedCommandID: String?
     public var approvalGateID: FlowGateID?
     public var approvalTargetURL: URL?
     public var approvalReviewer: String?
@@ -105,6 +153,26 @@ public struct FlowRunnerCommandOptions: Sendable {
     public var approvalPolicy: String?
     public var approvalNote: String?
     public var waiverIDs: [String] = []
+    public var waiverReviewID: String?
+    public var waiverProposalID: String?
+    public var actionActorKind: XcircuiteRunActionActor.Kind?
+    public var drcRepairHintPath: String?
+    public var lvsRepairHintPath: String?
+    public var planningFormulationID: String?
+    public var planningIntentID: String?
+    public var planningIntent: String?
+    public var planningProblemID: String?
+    public var candidateStrategy: String?
+    public var candidateVerificationMode: String?
+    public var signoffRepairHistoryQualificationProfileURL: URL?
+    public var signoffRepairHistoryMinimumRunCount: Int?
+    public var signoffRepairHistoryMinimumCycleCount: Int?
+    public var signoffRepairHistoryMinimumAcceptedCount: Int?
+    public var signoffRepairHistoryMinimumFeedbackRankChangeCount: Int?
+    public var signoffRepairHistoryMinimumFeedbackScoreDeltaCount: Int?
+    public var signoffRepairHistoryMinimumAcceptedCountPerSelectedObjectiveDomain: Int?
+    public var signoffRepairHistoryRequiredSelectedActionDomainIDs: [String] = []
+    public var signoffRepairHistoryRequiredSelectedObjectiveDomainIDs: [String] = []
     public var pexCornerID = "tt_25c_1v0"
     public var signoffDRCLogURL: URL?
     public var signoffLVSLogURL: URL?
@@ -117,6 +185,7 @@ public struct FlowRunnerCommandOptions: Sendable {
     public var technologyPackageURL: URL?
     public var approveSignoff = false
     public var showHelp = false
+    public var outputFormat = OutputFormat.keyValue
 
     private var explicitMode: Mode?
 
@@ -133,10 +202,18 @@ public struct FlowRunnerCommandOptions: Sendable {
                 try selectMode(.simulate)
             case "--summarize-bottlenecks":
                 try selectMode(.summarizeBottlenecks)
+            case "--summarize-signoff-repair-cycles":
+                try selectMode(.summarizeSignoffRepairCandidateCycles)
+            case "--qualify-signoff-repair-cycles":
+                try selectMode(.qualifySignoffRepairCandidateCycles)
             case "--load-technology-package":
                 try selectMode(.loadTechnologyPackage)
             case "--run-pex-extraction":
                 try selectMode(.runPEXExtraction)
+            case "--inspect-timing-model-profiles":
+                try selectMode(.inspectTimingModelProfiles)
+            case "--build-timing-library":
+                try selectMode(.buildTimingLibrary)
             case "--apply-design-edit":
                 try selectMode(.applyDesignEdit)
             case "--apply-layout-edit":
@@ -149,6 +226,22 @@ public struct FlowRunnerCommandOptions: Sendable {
                 try selectMode(.approveGate)
             case "--review-round-trip":
                 try selectMode(.reviewRoundTrip)
+            case "--select-failure-command":
+                try selectMode(.selectFailureSuggestedCommand)
+            case "--run-selected-suggested-command":
+                try selectMode(.runSelectedSuggestedCommand)
+            case "--apply-waiver-edit":
+                try selectMode(.applyWaiverEditProposal)
+            case "--apply-waiver-edit-and-verify":
+                try selectMode(.applyWaiverEditProposalAndRunPostVerification)
+            case "--run-post-waiver-edit-verification":
+                try selectMode(.runPostWaiverEditVerification)
+            case "--verify-waiver-edit":
+                try selectMode(.runPostWaiverEditVerification)
+            case "--formulate-signoff-repair-planning":
+                try selectMode(.formulateSignoffRepairPlanningProblem)
+            case "--run-signoff-repair-candidate-cycle":
+                try selectMode(.runSignoffRepairCandidateCycle)
             case "--fixture":
                 fixtureName = try Self.value(after: argument, in: arguments, index: &index)
             case "--design-spec":
@@ -165,6 +258,14 @@ public struct FlowRunnerCommandOptions: Sendable {
                 pexConfigURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--pex-executable":
                 pexExecutableURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--timing-model-profile":
+                timingModelProfileURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--timing-model-profile-catalog":
+                timingModelProfileCatalogURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--timing-model-profile-id":
+                timingModelProfileID = try Self.value(after: argument, in: arguments, index: &index)
+            case "--timing-model-corner":
+                timingModelCornerID = try Self.value(after: argument, in: arguments, index: &index)
             case "--edit-script":
                 editScriptURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--output-design-spec":
@@ -177,6 +278,10 @@ public struct FlowRunnerCommandOptions: Sendable {
                 designUnitURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--manifest":
                 reviewManifestURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--failure-envelope":
+                failureEnvelopeURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--command-id":
+                suggestedCommandID = try Self.value(after: argument, in: arguments, index: &index)
             case "--approval-gate":
                 approvalGateID = try Self.gateID(after: argument, in: arguments, index: &index)
             case "--approval-target":
@@ -191,6 +296,76 @@ public struct FlowRunnerCommandOptions: Sendable {
                 approvalNote = try Self.value(after: argument, in: arguments, index: &index)
             case "--waiver":
                 waiverIDs.append(try Self.value(after: argument, in: arguments, index: &index))
+            case "--waiver-review":
+                waiverReviewID = try Self.value(after: argument, in: arguments, index: &index)
+            case "--waiver-proposal":
+                waiverProposalID = try Self.value(after: argument, in: arguments, index: &index)
+            case "--actor-kind":
+                actionActorKind = try Self.actorKind(after: argument, in: arguments, index: &index)
+            case "--drc-repair-hints":
+                drcRepairHintPath = try Self.value(after: argument, in: arguments, index: &index)
+            case "--lvs-repair-hints":
+                lvsRepairHintPath = try Self.value(after: argument, in: arguments, index: &index)
+            case "--formulation-id":
+                planningFormulationID = try Self.value(after: argument, in: arguments, index: &index)
+            case "--intent-id":
+                planningIntentID = try Self.value(after: argument, in: arguments, index: &index)
+            case "--intent":
+                planningIntent = try Self.value(after: argument, in: arguments, index: &index)
+            case "--problem-id":
+                planningProblemID = try Self.value(after: argument, in: arguments, index: &index)
+            case "--candidate-strategy":
+                candidateStrategy = try Self.value(after: argument, in: arguments, index: &index)
+            case "--candidate-verification-mode":
+                candidateVerificationMode = try Self.value(after: argument, in: arguments, index: &index)
+            case "--history-qualification-profile":
+                signoffRepairHistoryQualificationProfileURL = URL(
+                    filePath: try Self.value(after: argument, in: arguments, index: &index)
+                )
+            case "--min-history-runs":
+                signoffRepairHistoryMinimumRunCount = try Self.intValue(
+                    after: argument,
+                    in: arguments,
+                    index: &index
+                )
+            case "--min-history-cycles":
+                signoffRepairHistoryMinimumCycleCount = try Self.intValue(
+                    after: argument,
+                    in: arguments,
+                    index: &index
+                )
+            case "--min-history-accepted":
+                signoffRepairHistoryMinimumAcceptedCount = try Self.intValue(
+                    after: argument,
+                    in: arguments,
+                    index: &index
+                )
+            case "--min-history-feedback-rank-changes":
+                signoffRepairHistoryMinimumFeedbackRankChangeCount = try Self.intValue(
+                    after: argument,
+                    in: arguments,
+                    index: &index
+                )
+            case "--min-history-feedback-score-deltas":
+                signoffRepairHistoryMinimumFeedbackScoreDeltaCount = try Self.intValue(
+                    after: argument,
+                    in: arguments,
+                    index: &index
+                )
+            case "--min-history-accepted-per-selected-objective-domain":
+                signoffRepairHistoryMinimumAcceptedCountPerSelectedObjectiveDomain = try Self.intValue(
+                    after: argument,
+                    in: arguments,
+                    index: &index
+                )
+            case "--require-history-selected-action-domain":
+                signoffRepairHistoryRequiredSelectedActionDomainIDs.append(
+                    try Self.value(after: argument, in: arguments, index: &index)
+                )
+            case "--require-history-selected-objective-domain":
+                signoffRepairHistoryRequiredSelectedObjectiveDomainIDs.append(
+                    try Self.value(after: argument, in: arguments, index: &index)
+                )
             case "--pex-corner":
                 pexCornerID = try Self.value(after: argument, in: arguments, index: &index)
             case "--signoff-drc-log":
@@ -217,6 +392,8 @@ public struct FlowRunnerCommandOptions: Sendable {
                 )
             case "--approve-signoff":
                 approveSignoff = true
+            case "--json":
+                outputFormat = .json
             case "--help", "-h":
                 showHelp = true
             default:
@@ -245,11 +422,18 @@ public struct FlowRunnerCommandOptions: Sendable {
 
     public var projectRootPath: String? {
         switch mode {
-        case .listFixtures, .generateNetlist, .simulate, .loadTechnologyPackage, .runPEXExtraction:
+        case .listFixtures, .generateNetlist, .simulate, .loadTechnologyPackage, .runPEXExtraction,
+             .inspectTimingModelProfiles:
             return nil
-        case .applyDesignEdit, .applyLayoutEdit, .runLayoutTrust, .runVerification, .approveGate, .reviewRoundTrip:
+        case .buildTimingLibrary:
+            return (outputURL ?? defaultTimingOutputURL).path(percentEncoded: false)
+        case .applyDesignEdit, .applyLayoutEdit, .runLayoutTrust, .runVerification, .approveGate, .reviewRoundTrip,
+             .selectFailureSuggestedCommand, .applyWaiverEditProposal, .runPostWaiverEditVerification,
+             .applyWaiverEditProposalAndRunPostVerification, .runSelectedSuggestedCommand,
+             .formulateSignoffRepairPlanningProblem, .runSignoffRepairCandidateCycle:
             return outputURL?.path(percentEncoded: false)
-        case .runRoundTrip, .summarizeBottlenecks:
+        case .runRoundTrip, .summarizeBottlenecks, .summarizeSignoffRepairCandidateCycles,
+             .qualifySignoffRepairCandidateCycles:
             return (outputURL ?? defaultOutputURL).path(percentEncoded: false)
         }
     }
@@ -275,19 +459,55 @@ public struct FlowRunnerCommandOptions: Sendable {
             technologyPackagePath: technologyPackageURL?.path(percentEncoded: false),
             pexConfigPath: pexConfigURL?.path(percentEncoded: false),
             pexExecutablePath: pexExecutableURL?.path(percentEncoded: false),
+            timingModelProfilePath: timingModelProfileURL?.path(percentEncoded: false),
+            timingModelProfileCatalogPath: timingModelProfileCatalogURL?.path(percentEncoded: false),
+            timingModelProfileID: timingModelProfileID,
+            timingModelCornerID: timingModelCornerID,
             editScriptPath: editScriptURL?.path(percentEncoded: false),
             outputDesignSpecPath: outputDesignSpecURL?.path(percentEncoded: false),
             layoutDocumentPath: layoutDocumentURL?.path(percentEncoded: false),
             outputLayoutDocumentPath: outputLayoutDocumentURL?.path(percentEncoded: false),
             designUnitPath: designUnitURL?.path(percentEncoded: false),
             roundTripManifestPath: reviewManifestURL?.path(percentEncoded: false),
+            failureEnvelopePath: failureEnvelopeURL?.path(percentEncoded: false),
+            suggestedCommandID: suggestedCommandID,
             approvalGateID: approvalGateID,
             approvalTargetPath: approvalTargetURL?.path(percentEncoded: false),
             approvalReviewer: approvalReviewer,
             approvalDecision: approvalDecision,
             approvalPolicy: approvalPolicy,
             approvalNote: approvalNote,
-            waiverIDs: waiverIDs
+            waiverIDs: waiverIDs,
+            waiverReviewID: waiverReviewID,
+            waiverProposalID: waiverProposalID,
+            actionActorKind: actionActorKind,
+            drcRepairHintPath: drcRepairHintPath,
+            lvsRepairHintPath: lvsRepairHintPath,
+            planningFormulationID: planningFormulationID,
+            planningIntentID: planningIntentID,
+            planningIntent: planningIntent,
+            planningProblemID: planningProblemID,
+            candidateStrategy: candidateStrategy,
+            candidateVerificationMode: candidateVerificationMode,
+            signoffRepairHistoryQualificationProfilePath:
+                signoffRepairHistoryQualificationProfileURL?.path(percentEncoded: false),
+            signoffRepairHistoryMinimumRunCount: signoffRepairHistoryMinimumRunCount,
+            signoffRepairHistoryMinimumCycleCount: signoffRepairHistoryMinimumCycleCount,
+            signoffRepairHistoryMinimumAcceptedCount: signoffRepairHistoryMinimumAcceptedCount,
+            signoffRepairHistoryMinimumFeedbackRankChangeCount:
+                signoffRepairHistoryMinimumFeedbackRankChangeCount,
+            signoffRepairHistoryMinimumFeedbackScoreDeltaCount:
+                signoffRepairHistoryMinimumFeedbackScoreDeltaCount,
+            signoffRepairHistoryMinimumAcceptedCountPerSelectedObjectiveDomain:
+                signoffRepairHistoryMinimumAcceptedCountPerSelectedObjectiveDomain,
+            signoffRepairHistoryRequiredSelectedActionDomainIDs:
+                signoffRepairHistoryRequiredSelectedActionDomainIDs.isEmpty
+                    ? nil
+                    : signoffRepairHistoryRequiredSelectedActionDomainIDs,
+            signoffRepairHistoryRequiredSelectedObjectiveDomainIDs:
+                signoffRepairHistoryRequiredSelectedObjectiveDomainIDs.isEmpty
+                    ? nil
+                    : signoffRepairHistoryRequiredSelectedObjectiveDomainIDs
         )
     }
 
@@ -298,6 +518,12 @@ public struct FlowRunnerCommandOptions: Sendable {
         return URL(filePath: FileManager.default.currentDirectoryPath)
             .appending(path: "round-trip-runs")
             .appending(path: directoryName)
+    }
+
+    private var defaultTimingOutputURL: URL {
+        URL(filePath: FileManager.default.currentDirectoryPath)
+            .appending(path: "round-trip-runs")
+            .appending(path: "timing-library")
     }
 
     private mutating func selectMode(_ mode: Mode) throws {
@@ -327,6 +553,15 @@ public struct FlowRunnerCommandOptions: Sendable {
         return value
     }
 
+    private static func intValue(after option: String, in arguments: [String], index: inout Int) throws -> Int {
+        let rawValue = try value(after: option, in: arguments, index: &index)
+        guard let value = Int(rawValue),
+              value >= 0 else {
+            throw ParseError.invalidNumericValue(option, rawValue)
+        }
+        return value
+    }
+
     private static func gateID(after option: String, in arguments: [String], index: inout Int) throws -> FlowGateID {
         let rawValue = try value(after: option, in: arguments, index: &index)
         guard let gateID = FlowGateID(rawValue: rawValue) else {
@@ -345,6 +580,18 @@ public struct FlowRunnerCommandOptions: Sendable {
             throw ParseError.invalidApprovalDecision(rawValue)
         }
         return decision
+    }
+
+    private static func actorKind(
+        after option: String,
+        in arguments: [String],
+        index: inout Int
+    ) throws -> XcircuiteRunActionActor.Kind {
+        let rawValue = try value(after: option, in: arguments, index: &index)
+        guard let actorKind = XcircuiteRunActionActor.Kind(rawValue: rawValue) else {
+            throw ParseError.invalidActorKind(rawValue)
+        }
+        return actorKind
     }
 
     private static func variableLimit(

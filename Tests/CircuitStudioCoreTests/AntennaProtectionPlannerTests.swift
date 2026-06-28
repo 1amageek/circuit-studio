@@ -7,7 +7,7 @@ struct AntennaProtectionPlannerTests {
     @Test("Primary gate nets are protected without hardcoded net names", .timeLimit(.minutes(1)))
     func primaryGateNetsAreProtected() throws {
         let netlist = GateLevelNetlist.inverterChain(name: "chain3", stages: 3, input: "a", output: "y")
-        let plan = try Sky130CircuitSynthesizer().antennaProtectionPlan(for: netlist)
+        let plan = try circuitSynthesizer().antennaProtectionPlan(for: netlist)
 
         #expect(plan.designName == netlist.name)
         #expect(Set(plan.sites.map(\.net)).contains("a"))
@@ -19,7 +19,7 @@ struct AntennaProtectionPlannerTests {
           .timeLimit(.minutes(1)))
     func ruleSetSeparatesLocalContactAndBudgetProtection() throws {
         let netlist = GateLevelNetlist.inverterChain(name: "chain4", stages: 4, input: "in", output: "out")
-        let synth = Sky130CircuitSynthesizer()
+        let synth = try circuitSynthesizer()
         let defaultPlan = try synth.antennaProtectionPlan(for: netlist)
         let budgetOnlyPlanner = GateLevelAntennaProtectionPlanner(ruleSet: AntennaProtectionRuleSet(
             protectsLocalGateContacts: false
@@ -37,7 +37,7 @@ struct AntennaProtectionPlannerTests {
           .timeLimit(.minutes(1)))
     func acc4ProtectionTargetsComeFromTopology() throws {
         let netlist = ACC4CPUGenerator().gateLevelNetlist(name: "acc4_plan")
-        let plan = try Sky130CircuitSynthesizer().antennaProtectionPlan(for: netlist)
+        let plan = try circuitSynthesizer().antennaProtectionPlan(for: netlist)
 
         let protectedNets = Set(plan.sites.map(\.net))
         #expect(Set(netlist.inputs).isSubset(of: protectedNets))
@@ -68,7 +68,7 @@ struct AntennaProtectionPlannerTests {
             inputs: ["d"],
             outputs: ["y0", "y1"]
         )
-        let candidates = try Sky130CircuitSynthesizer().antennaProtectionCandidates(for: netlist)
+        let candidates = try circuitSynthesizer().antennaProtectionCandidates(for: netlist)
 
         #expect(candidates.count == 2)
         #expect(Set(candidates.map(\.id)).count == candidates.count)
@@ -77,18 +77,18 @@ struct AntennaProtectionPlannerTests {
     @Test("Synthesized layout materializes one diffusion tie per planned site", .timeLimit(.minutes(1)))
     func synthesizedLayoutMaterializesDiffusionTies() throws {
         let netlist = GateLevelNetlist.and2(name: "and2_protected")
-        let synth = Sky130CircuitSynthesizer()
+        let synth = try circuitSynthesizer()
         let synthesis = try synth.synthesisResult(for: netlist)
         let plan = synthesis.antennaProtectionPlan
         let topCell = try #require(synthesis.document.cells.first)
         let tieShapes = topCell.shapes.filter {
-            $0.properties[Sky130AntennaTieGenerator.protectionProperty] == "true"
+            $0.properties[ProfiledAntennaTieGenerator.protectionProperty] == "true"
         }
         let protectedNets = Set(tieShapes.compactMap {
-            $0.properties[Sky130AntennaTieGenerator.netNameProperty]
+            $0.properties[ProfiledAntennaTieGenerator.netNameProperty]
         })
         let materializedSiteIDs = Set(tieShapes.compactMap {
-            $0.properties[Sky130AntennaTieGenerator.siteIDProperty]
+            $0.properties[ProfiledAntennaTieGenerator.siteIDProperty]
         })
 
         #expect(plan.sites.count == 3)
@@ -102,10 +102,10 @@ struct AntennaProtectionPlannerTests {
     @Test("Planner site geometry must match the routed candidate", .timeLimit(.minutes(1)))
     func plannerSiteGeometryMustMatchRoutedCandidate() throws {
         let netlist = GateLevelNetlist.and2(name: "and2_inconsistent_protection")
-        let expectedID = try #require(Sky130CircuitSynthesizer().antennaProtectionCandidates(for: netlist).first?.id)
-        let synth = Sky130CircuitSynthesizer(antennaProtectionPlanProvider: InconsistentAntennaProtectionPlanner())
+        let expectedID = try #require(circuitSynthesizer().antennaProtectionCandidates(for: netlist).first?.id)
+        let synth = try circuitSynthesizer(antennaProtectionPlanProvider: InconsistentAntennaProtectionPlanner())
 
-        #expect(throws: Sky130CircuitSynthesizer.RouteError.inconsistentAntennaProtectionSiteID(expectedID)) {
+        #expect(throws: StandardCircuitSynthesizer.RouteError.inconsistentAntennaProtectionSiteID(expectedID)) {
             try synth.synthesisResult(for: netlist)
         }
     }
@@ -113,10 +113,10 @@ struct AntennaProtectionPlannerTests {
     @Test("Public plan API validates provider output before returning it", .timeLimit(.minutes(1)))
     func publicPlanAPIValidatesProviderOutputBeforeReturningIt() throws {
         let netlist = GateLevelNetlist.and2(name: "and2_public_plan_validation")
-        let expectedID = try #require(Sky130CircuitSynthesizer().antennaProtectionCandidates(for: netlist).first?.id)
-        let synth = Sky130CircuitSynthesizer(antennaProtectionPlanProvider: InconsistentAntennaProtectionPlanner())
+        let expectedID = try #require(circuitSynthesizer().antennaProtectionCandidates(for: netlist).first?.id)
+        let synth = try circuitSynthesizer(antennaProtectionPlanProvider: InconsistentAntennaProtectionPlanner())
 
-        #expect(throws: Sky130CircuitSynthesizer.RouteError.inconsistentAntennaProtectionSiteID(expectedID)) {
+        #expect(throws: StandardCircuitSynthesizer.RouteError.inconsistentAntennaProtectionSiteID(expectedID)) {
             try synth.antennaProtectionPlan(for: netlist)
         }
     }
@@ -124,9 +124,9 @@ struct AntennaProtectionPlannerTests {
     @Test("Antenna protection plans are bound to the routed design name", .timeLimit(.minutes(1)))
     func antennaProtectionPlansAreBoundToRoutedDesignName() throws {
         let netlist = GateLevelNetlist.and2(name: "and2_design_name_validation")
-        let synth = Sky130CircuitSynthesizer(antennaProtectionPlanProvider: WrongDesignAntennaProtectionPlanner())
+        let synth = try circuitSynthesizer(antennaProtectionPlanProvider: WrongDesignAntennaProtectionPlanner())
 
-        #expect(throws: Sky130CircuitSynthesizer.RouteError.inconsistentAntennaProtectionPlanDesignName(
+        #expect(throws: StandardCircuitSynthesizer.RouteError.inconsistentAntennaProtectionPlanDesignName(
             expected: netlist.name,
             actual: "other-design"
         )) {
@@ -154,8 +154,8 @@ struct AntennaProtectionPlannerTests {
             output: "n"
         )
 
-        #expect(throws: Sky130CircuitSynthesizer.RouteError.duplicateDriverNet("n")) {
-            try Sky130CircuitSynthesizer().synthesisResult(for: netlist)
+        #expect(throws: StandardCircuitSynthesizer.RouteError.duplicateDriverNet("n")) {
+            try circuitSynthesizer().synthesisResult(for: netlist)
         }
     }
 
@@ -165,7 +165,7 @@ struct AntennaProtectionPlannerTests {
         let planner = GateLevelAntennaProtectionPlanner(ruleSet: AntennaProtectionRuleSet(
             maxSpanPerGateMicrons: .nan
         ))
-        let candidates = try Sky130CircuitSynthesizer().antennaProtectionCandidates(for: netlist)
+        let candidates = try circuitSynthesizer().antennaProtectionCandidates(for: netlist)
 
         #expect(throws: AntennaProtectionRuleSetError.invalidMaxSpanPerGateMicrons) {
             try planner.plan(for: netlist, candidates: candidates)
@@ -191,6 +191,18 @@ struct AntennaProtectionPlannerTests {
         }
         #expect(!FileManager.default.fileExists(atPath: directory.path(percentEncoded: false)))
     }
+}
+
+private func circuitSynthesizer(
+    antennaProtectionPlanProvider: any AntennaProtectionPlanProvider = GateLevelAntennaProtectionPlanner()
+) throws -> StandardCircuitSynthesizer {
+    let profile = try StandardCellLayoutProfileCatalog.loadDefaultProfile()
+    let technology = try LayoutTechnologyResource.bundled(resourceName: profile.targetTechnologyResourceName)
+    return StandardCircuitSynthesizer(
+        profile: profile,
+        layoutTechnology: technology,
+        antennaProtectionPlanProvider: antennaProtectionPlanProvider
+    )
 }
 
 private struct WrongDesignAntennaProtectionPlanner: AntennaProtectionPlanProvider {

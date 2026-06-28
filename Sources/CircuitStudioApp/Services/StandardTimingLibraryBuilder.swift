@@ -38,6 +38,8 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
     private let model: Level1DeviceModel
     private let cellCharacterizer: CellTimingCharacterizer
     private let sequentialCharacterizer: SequentialTimingCharacterizing
+    private let cellLibrary: CMOSGateLibrary
+    private let technologyContext: TimingTechnologyContext
     private let inputSlews: [Double]
     private let outputLoads: [Double]
     private let cache: TimingCharacterizationCache?
@@ -46,7 +48,9 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
     private let sequentialCacheConfiguration: SequentialCacheConfiguration?
 
     public init(
-        model: Level1DeviceModel = .sky130Like(),
+        model: Level1DeviceModel = .bundledDefault(),
+        cellLibrary: CMOSGateLibrary = .bundledDefault,
+        technologyContext: TimingTechnologyContext? = nil,
         inputSlews: [Double] = [40e-12, 200e-12],
         outputLoads: [Double] = [1e-15, 4e-15, 12e-15],
         cellCharacterizer: CellTimingCharacterizer? = nil,
@@ -54,7 +58,10 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
         cache: TimingCharacterizationCache? = .shared,
         executionPolicy: TimingCharacterizationExecutionPolicy = DirectTimingCharacterizationExecutionPolicy()
     ) {
+        let resolvedTechnologyContext = technologyContext ?? Level1DeviceModel.technologyContext(for: model)
         self.model = model
+        self.cellLibrary = cellLibrary
+        self.technologyContext = resolvedTechnologyContext
         self.inputSlews = inputSlews
         self.outputLoads = outputLoads
         self.cache = cache
@@ -67,16 +74,20 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
         )
         self.sequentialCharacterizer = sequentialCharacterizer ?? SequentialTimingCharacterizer(
             model: model,
-            outputLoads: outputLoads
+            technologyContext: resolvedTechnologyContext,
+            outputLoads: outputLoads,
+            setupHoldSearchWindow: 300e-12,
+            setupHoldSearchResolution: 20e-12,
+            maxSearchIterations: 4
         )
         if sequentialCharacterizer == nil {
             self.sequentialCacheConfiguration = SequentialCacheConfiguration(
                 clockSlew: 80e-12,
                 dataSlew: 80e-12,
                 outputLoads: outputLoads,
-                setupHoldSearchWindow: 600e-12,
-                setupHoldSearchResolution: 5e-12,
-                maxSearchIterations: 8
+                setupHoldSearchWindow: 300e-12,
+                setupHoldSearchResolution: 20e-12,
+                maxSearchIterations: 4
             )
         } else {
             self.sequentialCacheConfiguration = nil
@@ -85,9 +96,9 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
 
     public func buildStandardLibrary(runID: String? = nil) async throws -> StandardTimingLibraryBuildResult {
         let cells: [CMOSGateNetlist] = [
-            .inverter(name: "inv"),
-            .nand(name: "nand2", inputs: ["A", "B"]),
-            .nor(name: "nor2", inputs: ["A", "B"]),
+            cellLibrary.inverter(name: "inv"),
+            cellLibrary.nand(name: "nand2", inputs: ["A", "B"]),
+            cellLibrary.nor(name: "nor2", inputs: ["A", "B"]),
         ]
         var library = TimingLibrary()
         var reportCells: [CombinationalTimingCharacterizationReport.Cell] = []
@@ -104,7 +115,7 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
         }
 
         let sequentialReport = try await characterizeFlipFlop(
-            Sky130DFFGenerator().netlist(name: "dff"),
+            DFFGenerator(cellLibrary: cellLibrary).netlist(name: "dff"),
             cellName: "dff"
         )
         let expectedModelHash = try TimingTopologyHasher.hashModel(model)
@@ -184,6 +195,7 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
             netlist: netlist,
             cellName: cellName,
             model: model,
+            technologyContext: technologyContext,
             clockSlew: configuration.clockSlew,
             dataSlew: configuration.dataSlew,
             outputLoads: configuration.outputLoads,

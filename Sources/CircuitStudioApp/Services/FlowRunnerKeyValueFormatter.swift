@@ -63,6 +63,66 @@ public enum FlowRunnerKeyValueFormatter {
             for recommendation in summary?.recommendations ?? [] {
                 lines.append("recommendation=\(recommendation)")
             }
+        case .summarizeSignoffRepairCandidateCycles:
+            let summary = result.signoffRepairCandidateCycleHistoryIndex
+            lines.append("signoff_repair_cycle_history=summarized")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            appendSignoffRepairCandidateCycleHistory(summary, includeRecommendations: true, to: &lines)
+        case .qualifySignoffRepairCandidateCycles:
+            let report = result.signoffRepairCandidateCycleHistoryQualification
+            let summary = report?.summary ?? result.signoffRepairCandidateCycleHistoryIndex
+            lines.append("signoff_repair_cycle_history_qualification=\(report?.status.rawValue ?? "")")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            lines.append("qualification_passed=\(report?.passed ?? false)")
+            lines.append("qualification_report=\(result.signoffRepairCandidateCycleHistoryQualificationPath ?? "")")
+            lines.append(
+                "qualification_report_sha256=\(result.signoffRepairCandidateCycleHistoryQualificationArtifact?.sha256 ?? "")"
+            )
+            lines.append(
+                "qualification_report_bytes=\(result.signoffRepairCandidateCycleHistoryQualificationArtifact?.byteCount ?? 0)"
+            )
+            lines.append("qualification_profile_id=\(report?.profileID ?? "")")
+            lines.append("qualification_profile_title=\(report?.profileTitle ?? "")")
+            lines.append("qualification_profile_path=\(report?.profilePath ?? "")")
+            lines.append("qualification_failed_gates=\(report?.failedGateIDs.joined(separator: ",") ?? "")")
+            if let request = report?.request {
+                lines.append("qualification_min_history_runs=\(request.minimumRunCount)")
+                lines.append("qualification_min_history_cycles=\(request.minimumCycleCount)")
+                lines.append("qualification_min_history_accepted=\(request.minimumAcceptedCount)")
+                lines.append(
+                    "qualification_min_history_feedback_rank_changes=\(request.minimumFeedbackRankChangeCount)"
+                )
+                lines.append(
+                    "qualification_min_history_feedback_score_deltas=\(request.minimumFeedbackScoreDeltaCount)"
+                )
+                lines.append(
+                    "qualification_min_history_accepted_per_selected_objective_domain=\(request.minimumAcceptedCountPerSelectedObjectiveDomain)"
+                )
+                lines.append(
+                    "qualification_required_selected_action_domains=\(request.requiredSelectedActionDomainIDs.joined(separator: ","))"
+                )
+                lines.append(
+                    "qualification_required_selected_objective_domains=\(request.requiredSelectedObjectiveDomainIDs.joined(separator: ","))"
+                )
+            }
+            lines.append(
+                "qualification_missing_selected_action_domains=\(report?.missingSelectedActionDomainIDs.joined(separator: ",") ?? "")"
+            )
+            lines.append(
+                "qualification_missing_selected_objective_domains=\(report?.missingSelectedObjectiveDomainIDs.joined(separator: ",") ?? "")"
+            )
+            lines.append(
+                "qualification_underqualified_selected_objective_domains=\(report?.underqualifiedSelectedObjectiveDomainIDs.joined(separator: ",") ?? "")"
+            )
+            appendSignoffRepairCandidateCycleHistory(summary, includeRecommendations: false, to: &lines)
+            for gate in report?.gates ?? [] {
+                lines.append(
+                    "qualification_gate=\(gate.gateID),passed=\(gate.passed),observed=\(gate.observed),required=\(gate.required)"
+                )
+            }
+            for recommendation in report?.recommendations ?? [] {
+                lines.append("recommendation=\(recommendation)")
+            }
         case .loadTechnologyPackage:
             lines.append("technology_package=loaded")
             lines.append("technology_package_id=\(result.technologyPackageID ?? "")")
@@ -73,6 +133,31 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("pex_manifest=\(result.pexManifestPath ?? "")")
             lines.append("pex_corner=\(result.pexCornerID ?? "")")
             lines.append("pex_elements=\(result.pexElementCount ?? 0)")
+        case .inspectTimingModelProfiles:
+            let inspection = result.timingModelProfileCatalogInspection
+            lines.append("timing_model_profile_catalog=inspected")
+            lines.append("timing_model_profile_catalog_status=\(inspection?.status.rawValue ?? "")")
+            lines.append("timing_model_profile_catalog_id=\(result.timingModelProfileCatalogID ?? inspection?.catalogID ?? "")")
+            lines.append("timing_model_profile_catalog_path=\(result.timingModelProfileCatalogPath ?? inspection?.catalogPath ?? "")")
+            lines.append("timing_model_profile_selected_id=\(result.timingModelProfileID ?? "")")
+            lines.append("timing_model_corner_id=\(result.timingModelCornerID ?? "")")
+            lines.append("timing_model_profile_default_id=\(inspection?.defaultProfileID ?? "")")
+            lines.append("timing_model_profile_count=\(inspection?.profileCount ?? 0)")
+            lines.append("timing_model_profile_passed_count=\(inspection?.passedProfileCount ?? 0)")
+            lines.append("timing_model_profile_failed_count=\(inspection?.failedProfileCount ?? 0)")
+            lines.append("timing_model_profile_ids=\(inspection?.profiles.map(\.profileID).joined(separator: ",") ?? "")")
+        case .buildTimingLibrary:
+            lines.append("timing_library=generated")
+            lines.append("run_id=\(result.runID ?? "")")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            lines.append("timing_manifest=\(result.timingArtifactManifestPath ?? "")")
+            lines.append("timing_library_artifact=\(result.timingLibraryPath ?? "")")
+            lines.append("timing_model_profile_selection=\(result.timingModelProfileSelectionPath ?? "")")
+            lines.append("timing_model_profile_id=\(result.timingModelProfileID ?? "")")
+            lines.append("timing_model_profile_path=\(result.timingModelProfilePath ?? "")")
+            lines.append("timing_model_profile_catalog_id=\(result.timingModelProfileCatalogID ?? "")")
+            lines.append("timing_model_profile_catalog_path=\(result.timingModelProfileCatalogPath ?? "")")
+            lines.append("timing_model_corner_id=\(result.timingModelCornerID ?? "")")
         case .applyDesignEdit:
             lines.append("design_edit=applied")
             lines.append("design=\(result.designName ?? "")")
@@ -119,8 +204,305 @@ public enum FlowRunnerKeyValueFormatter {
             }
         case .reviewRoundTrip:
             appendRoundTripReview(result: result, to: &lines)
+        case .selectFailureSuggestedCommand:
+            lines.append("suggested_command_selection=recorded")
+            lines.append("run_id=\(result.runID ?? "")")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            lines.append("manifest=\(result.manifestPath ?? "")")
+            lines.append("actions=\(result.actionLogPath ?? "")")
+            lines.append("action_id=\(result.message ?? "")")
+            lines.append("command_id=\(result.selectedSuggestedCommand?.commandID ?? "")")
+            lines.append("readiness=\(result.selectedSuggestedCommand?.readiness ?? "")")
+            lines.append("executable=\(result.selectedSuggestedCommand?.executable ?? "")")
+        case .runSelectedSuggestedCommand:
+            lines.append("selected_suggested_command=dispatched")
+            lines.append("run_id=\(result.runID ?? "")")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            lines.append("command_id=\(result.selectedSuggestedCommand?.commandID ?? "")")
+        case .applyWaiverEditProposal:
+            lines.append("waiver_edit=applied")
+            lines.append("run_id=\(result.runID ?? "")")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            lines.append("actions=\(result.actionLogPath ?? "")")
+            lines.append("action_id=\(result.message ?? "")")
+        case .runPostWaiverEditVerification:
+            lines.append("waiver_edit_verification=\(result.verificationReport?.status ?? "")")
+            lines.append("run_id=\(result.runID ?? "")")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            lines.append("ready_for_pex=\(result.readyForPEX ?? false)")
+            lines.append("verification_report=\(result.verificationReportPath ?? "")")
+            lines.append("layout_trust_report=\(result.layoutTrustReportPath ?? "")")
+            lines.append("drc_passed=\(result.verificationReport?.drc.passed ?? false)")
+            lines.append("drc_violations=\(result.verificationReport?.drc.violationCount ?? 0)")
+            lines.append("lvs_passed=\(result.verificationReport?.lvs.passed ?? false)")
+            lines.append("actions=\(result.actionLogPath ?? "")")
+            lines.append("action_id=\(result.message ?? "")")
+        case .applyWaiverEditProposalAndRunPostVerification:
+            lines.append("waiver_edit=applied")
+            lines.append("waiver_edit_verification=\(result.verificationReport?.status ?? "")")
+            lines.append("run_id=\(result.runID ?? "")")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            lines.append("ready_for_pex=\(result.readyForPEX ?? false)")
+            lines.append("verification_report=\(result.verificationReportPath ?? "")")
+            lines.append("layout_trust_report=\(result.layoutTrustReportPath ?? "")")
+            lines.append("drc_passed=\(result.verificationReport?.drc.passed ?? false)")
+            lines.append("drc_violations=\(result.verificationReport?.drc.violationCount ?? 0)")
+            lines.append("lvs_passed=\(result.verificationReport?.lvs.passed ?? false)")
+            lines.append("actions=\(result.actionLogPath ?? "")")
+            let actionRecordIDs = result.actionRecordIDs ?? []
+            lines.append("application_action_id=\(actionRecordIDs.first ?? "")")
+            lines.append("verification_action_id=\(actionRecordIDs.dropFirst().first ?? result.message ?? "")")
+            lines.append("action_id=\(result.message ?? "")")
+        case .formulateSignoffRepairPlanningProblem:
+            lines.append("signoff_repair_planning=generated")
+            lines.append("run_id=\(result.runID ?? "")")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            lines.append("actions=\(result.actionLogPath ?? "")")
+            lines.append("action_id=\(result.message ?? "")")
+            lines.append("formulation_id=\(result.signoffRepairPlanningResult?.formulationID ?? "")")
+            lines.append("problem_id=\(result.signoffRepairPlanningResult?.problemID ?? "")")
+            lines.append("action_domain=\(result.actionDomainPath ?? "")")
+            lines.append("repair_formulation=\(result.repairFormulationPath ?? "")")
+            lines.append("planning_problem=\(result.planningProblemPath ?? "")")
+            lines.append("drc_repair_hints=\(result.signoffRepairPlanningResult?.drcRepairHintPath ?? "")")
+            lines.append("lvs_repair_hints=\(result.signoffRepairPlanningResult?.lvsRepairHintPath ?? "")")
+            lines.append("source_report_count=\(result.signoffRepairPlanningResult?.sourceReports.count ?? 0)")
+        case .runSignoffRepairCandidateCycle:
+            let cycle = result.signoffRepairCandidateCycleResult
+            lines.append("signoff_repair_candidate_cycle=\(cycle?.candidateVerification.status ?? "")")
+            lines.append("run_id=\(result.runID ?? "")")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            lines.append("actions=\(result.actionLogPath ?? "")")
+            lines.append("cycle_action_id=\(cycle?.cycleActionRecord.actionID ?? result.message ?? "")")
+            lines.append("planning_action_id=\(cycle?.planningResult.actionRecord.actionID ?? "")")
+            lines.append("cycle_index=\(cycle?.cycleIndex ?? 0)")
+            lines.append("strategy=\(cycle?.strategy ?? "")")
+            lines.append("verification_mode=\(cycle?.verificationMode ?? "")")
+            lines.append("formulation_id=\(cycle?.planningResult.formulationID ?? "")")
+            lines.append("problem_id=\(cycle?.planningResult.problemID ?? "")")
+            lines.append("plan_id=\(cycle?.candidateGeneration.planID ?? "")")
+            lines.append("generation_status=\(cycle?.candidateGeneration.status ?? "")")
+            lines.append("execution_status=\(cycle?.candidateExecution.status ?? "")")
+            lines.append("verification_status=\(cycle?.candidateVerification.status ?? "")")
+            lines.append("accepted=\(result.candidateAccepted ?? false)")
+            lines.append("feedback_rejected_plans=\(cycle?.candidateGeneration.symbolicPlannerTrace?.rejectedPlansPath ?? "")")
+            lines.append(
+                "rejected_feedback_count=\(cycle?.candidateGeneration.symbolicPlannerTrace?.rejectedPlanFeedbackRecordCount ?? 0)"
+            )
+            lines.append(
+                "global_rejected_feedback_count=\(cycle?.candidateGeneration.symbolicPlannerTrace?.globalRejectedPlanFeedbackCount ?? 0)"
+            )
+            lines.append(
+                "selected_actions=\(cycle?.candidateGeneration.symbolicPlannerTrace?.selectedActionIDs.joined(separator: ",") ?? "")"
+            )
+            lines.append(
+                "selected_action_domains=\(selectedActionDomainIDs(from: cycle).joined(separator: ","))"
+            )
+            lines.append(
+                "feedback_penalized_actions=\(feedbackPenalizedActionIDs(from: cycle).joined(separator: ","))"
+            )
+            lines.append(
+                "feedback_penalty_terms=\(feedbackPenaltyTerms(from: cycle).joined(separator: ","))"
+            )
+            lines.append(
+                "feedback_rank_changes=\(feedbackRankChanges(from: cycle).joined(separator: ","))"
+            )
+            lines.append(
+                "feedback_score_deltas=\(feedbackScoreDeltas(from: cycle).joined(separator: ","))"
+            )
+            appendSignoffRepairCandidateCycleHistorySummary(
+                result.signoffRepairCandidateCycleHistorySummary,
+                to: &lines
+            )
+            lines.append("action_domain=\(result.actionDomainPath ?? "")")
+            lines.append("repair_formulation=\(result.repairFormulationPath ?? "")")
+            lines.append("planning_problem=\(result.planningProblemPath ?? "")")
+            lines.append("candidate_plan=\(result.candidatePlanPath ?? "")")
+            lines.append("plan_execution=\(result.planExecutionPath ?? "")")
+            lines.append("design_diff=\(result.designDiffPath ?? "")")
+            lines.append("plan_verification=\(result.planVerificationPath ?? "")")
+            lines.append("rejected_plans=\(result.rejectedPlansPath ?? "")")
+            lines.append("cycle_history_summary=\(result.candidateCycleHistorySummaryPath ?? "")")
         }
         return lines
+    }
+
+    private static func appendSignoffRepairCandidateCycleHistorySummary(
+        _ summary: RunReviewSignoffRepairCandidateCycleHistorySummary?,
+        to lines: inout [String]
+    ) {
+        lines.append("cycle_history_count=\(summary?.cycleCount ?? 0)")
+        lines.append("cycle_history_accepted_count=\(summary?.acceptedCount ?? 0)")
+        lines.append("cycle_history_not_accepted_count=\(summary?.notAcceptedCount ?? 0)")
+        lines.append("cycle_history_latest_index=\(summary?.latestCycleIndex ?? 0)")
+        lines.append("cycle_history_latest_accepted=\(summary?.latestAccepted ?? false)")
+        lines.append(
+            "cycle_history_consumed_rejected_feedback_count=\(summary?.consumedRejectedPlanFeedbackRecordCount ?? 0)"
+        )
+        lines.append(
+            "cycle_history_max_global_rejected_feedback_count=\(summary?.maximumGlobalRejectedPlanFeedbackCount ?? 0)"
+        )
+        lines.append(
+            "cycle_history_selected_actions=\(summary?.selectedActionIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append(
+            "cycle_history_selected_action_domains=\(summary?.selectedActionDomainIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append(
+            "cycle_history_selected_objective_domains=\(summary?.selectedObjectiveDomainIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append(
+            "cycle_history_feedback_penalized_actions=\(summary?.feedbackPenalizedActionIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append(
+            "cycle_history_feedback_rank_change_count=\(summary?.feedbackRankChangeCount ?? 0)"
+        )
+        lines.append(
+            "cycle_history_feedback_rank_changed_actions=\(summary?.feedbackRankChangedActionIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append(
+            "cycle_history_feedback_score_delta_count=\(summary?.feedbackScoreDeltaCount ?? 0)"
+        )
+        lines.append(
+            "cycle_history_feedback_score_delta_actions=\(summary?.feedbackScoreDeltaActionIDs.joined(separator: ",") ?? "")"
+        )
+        for domainSummary in summary?.objectiveDomainSummaries ?? [] {
+            lines.append(objectiveDomainSummaryLine(prefix: "cycle_history_objective_domain", summary: domainSummary))
+        }
+    }
+
+    private static func feedbackPenalizedActionIDs(
+        from cycle: RunReviewSignoffRepairCandidateCycleResult?
+    ) -> [String] {
+        let actionIDs = cycle?.candidateGeneration.symbolicPlannerTrace?.objectiveTraces.flatMap { objectiveTrace in
+            objectiveTrace.candidateActions.compactMap { actionTrace in
+                actionTrace.scoreComponents.contains {
+                    $0.termID.hasPrefix("feedback.") && $0.contribution < 0
+                } ? actionTrace.actionID : nil
+            }
+        } ?? []
+        return uniquePreservingOrder(actionIDs)
+    }
+
+    private static func feedbackPenaltyTerms(
+        from cycle: RunReviewSignoffRepairCandidateCycleResult?
+    ) -> [String] {
+        let terms = cycle?.candidateGeneration.symbolicPlannerTrace?.objectiveTraces.flatMap { objectiveTrace in
+            objectiveTrace.candidateActions.flatMap { actionTrace in
+                actionTrace.scoreComponents.compactMap { component in
+                    component.termID.hasPrefix("feedback.") && component.contribution < 0
+                        ? "\(actionTrace.actionID):\(component.termID)"
+                        : nil
+                }
+            }
+        } ?? []
+        return uniquePreservingOrder(terms)
+    }
+
+    private static func selectedActionDomainIDs(
+        from cycle: RunReviewSignoffRepairCandidateCycleResult?
+    ) -> [String] {
+        let domainIDs = cycle?.candidateGeneration.symbolicPlannerTrace?.objectiveTraces.flatMap { objectiveTrace in
+            objectiveTrace.candidateActions.compactMap { actionTrace in
+                actionTrace.selected ? actionTrace.domainID : nil
+            }
+        } ?? []
+        return uniquePreservingOrder(domainIDs)
+    }
+
+    private static func feedbackRankChanges(
+        from cycle: RunReviewSignoffRepairCandidateCycleResult?
+    ) -> [String] {
+        let changes: [String] = cycle?.candidateGeneration.symbolicPlannerTrace?.objectiveTraces.flatMap { objectiveTrace in
+            objectiveTrace.candidateActions.compactMap { actionTrace in
+                guard actionTrace.rejectedFeedbackRankDelta != 0 else {
+                    return nil
+                }
+                return "\(actionTrace.actionID):\(actionTrace.rankBeforeRejectedFeedback)->\(actionTrace.rank)"
+            }
+        } ?? []
+        return uniquePreservingOrder(changes)
+    }
+
+    private static func feedbackScoreDeltas(
+        from cycle: RunReviewSignoffRepairCandidateCycleResult?
+    ) -> [String] {
+        let deltas: [String] = cycle?.candidateGeneration.symbolicPlannerTrace?.objectiveTraces.flatMap { objectiveTrace in
+            objectiveTrace.candidateActions.compactMap { actionTrace in
+                guard actionTrace.rejectedFeedbackScoreDelta != 0 else {
+                    return nil
+                }
+                return "\(actionTrace.actionID):\(actionTrace.rejectedFeedbackScoreDelta)"
+            }
+        } ?? []
+        return uniquePreservingOrder(deltas)
+    }
+
+    private static func uniquePreservingOrder(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for value in values where !seen.contains(value) {
+            seen.insert(value)
+            result.append(value)
+        }
+        return result
+    }
+
+    private static func objectiveDomainSummaryLine(
+        prefix: String,
+        summary: RunReviewSignoffRepairCandidateCycleObjectiveDomainSummary
+    ) -> String {
+        "\(prefix)=\(summary.domainID),cycles=\(summary.cycleCount),accepted=\(summary.acceptedCount),not_accepted=\(summary.notAcceptedCount),acceptance_rate=\(summary.acceptanceRate),rank_changes=\(summary.feedbackRankChangeCount),score_deltas=\(summary.feedbackScoreDeltaCount),actions=\(summary.selectedActionIDs.joined(separator: ",")),action_domains=\(summary.selectedActionDomainIDs.joined(separator: ","))"
+    }
+
+    private static func appendSignoffRepairCandidateCycleHistory(
+        _ summary: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary?,
+        includeRecommendations: Bool,
+        to lines: inout [String]
+    ) {
+        lines.append("history_run_count=\(summary?.runCount ?? 0)")
+        lines.append("history_cycle_count=\(summary?.cycleCount ?? 0)")
+        lines.append("history_accepted_count=\(summary?.acceptedCount ?? 0)")
+        lines.append("history_not_accepted_count=\(summary?.notAcceptedCount ?? 0)")
+        lines.append(
+            "history_consumed_rejected_feedback_count=\(summary?.consumedRejectedPlanFeedbackRecordCount ?? 0)"
+        )
+        lines.append(
+            "history_max_global_rejected_feedback_count=\(summary?.maximumGlobalRejectedPlanFeedbackCount ?? 0)"
+        )
+        lines.append("history_feedback_rank_change_count=\(summary?.feedbackRankChangeCount ?? 0)")
+        lines.append("history_feedback_score_delta_count=\(summary?.feedbackScoreDeltaCount ?? 0)")
+        lines.append(
+            "history_selected_actions=\(summary?.selectedActionIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append(
+            "history_selected_action_domains=\(summary?.selectedActionDomainIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append(
+            "history_selected_objective_domains=\(summary?.selectedObjectiveDomainIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append(
+            "history_feedback_penalized_actions=\(summary?.feedbackPenalizedActionIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append(
+            "history_feedback_rank_changed_actions=\(summary?.feedbackRankChangedActionIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append(
+            "history_feedback_score_delta_actions=\(summary?.feedbackScoreDeltaActionIDs.joined(separator: ",") ?? "")"
+        )
+        for domainSummary in summary?.objectiveDomainSummaries ?? [] {
+            lines.append(objectiveDomainSummaryLine(prefix: "history_objective_domain", summary: domainSummary))
+        }
+        for run in summary?.runs ?? [] {
+            lines.append(
+                "history_run=\(run.runID),cycles=\(run.cycleCount),accepted=\(run.acceptedCount),rank_changes=\(run.feedbackRankChangeCount),summary=\(run.summaryPath)"
+            )
+        }
+        if includeRecommendations {
+            for recommendation in summary?.recommendations ?? [] {
+                lines.append("recommendation=\(recommendation)")
+            }
+        }
     }
 
     private static func appendNetlist(_ netlist: String?, to lines: inout [String]) {
@@ -200,6 +582,11 @@ public enum FlowRunnerKeyValueFormatter {
         for approval in review?.approvals ?? [] {
             lines.append("approval_gate=\(approval.gateID.rawValue)")
             lines.append("approval_decision=\(approval.decision.rawValue)")
+        }
+        lines.append("suggested_command_selection_count=\(review?.suggestedCommandSelections.count ?? 0)")
+        for selection in review?.suggestedCommandSelections ?? [] {
+            lines.append("selected_command=\(selection.commandID)")
+            lines.append("selected_command_action=\(selection.actionRecordID)")
         }
         for recommendation in review?.recommendations ?? [] {
             lines.append("recommendation=\(recommendation)")

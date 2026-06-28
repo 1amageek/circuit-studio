@@ -156,7 +156,7 @@ struct ExternalSignoffCommandServiceTests {
                 kind: .drc,
                 toolName: "slow-drc",
                 executablePath: executable.path(percentEncoded: false),
-                timeoutSeconds: 1.0
+                timeoutSeconds: 3.0
             )
 
             do {
@@ -171,7 +171,7 @@ struct ExternalSignoffCommandServiceTests {
                     return
                 }
                 #expect(executablePath == executable.path(percentEncoded: false))
-                #expect(timeoutSeconds == 1.0)
+                #expect(timeoutSeconds == 3.0)
                 #expect(stdout.contains("START"))
             }
         }

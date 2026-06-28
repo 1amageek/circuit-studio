@@ -17,7 +17,7 @@ struct TimingCharacterizationCacheTests {
         let counter = CallCounter()
         let first = try await cache.cellTiming(
             cell: cell,
-            model: .sky130Like(),
+            model: .bundledDefault(),
             inputSlews: [40e-12],
             outputLoads: [1e-15]
         ) {
@@ -26,7 +26,7 @@ struct TimingCharacterizationCacheTests {
         }
         let second = try await cache.cellTiming(
             cell: cell,
-            model: .sky130Like(),
+            model: .bundledDefault(),
             inputSlews: [40e-12],
             outputLoads: [1e-15]
         ) {
@@ -47,12 +47,13 @@ struct TimingCharacterizationCacheTests {
         }
 
         let cache = TimingCharacterizationCache(directory: directory)
-        let netlist = Sky130DFFGenerator().netlist(name: "dff")
+        let netlist = DFFGenerator().netlist(name: "dff")
         let counter = CallCounter()
         let first = try await cache.sequentialReport(
             netlist: netlist,
             cellName: "dff",
-            model: .sky130Like(),
+            model: .bundledDefault(),
+            technologyContext: Level1DeviceModel.bundledDefaultTechnologyContext(),
             clockSlew: 80e-12,
             dataSlew: 80e-12,
             outputLoads: [1e-15],
@@ -66,7 +67,8 @@ struct TimingCharacterizationCacheTests {
         let second = try await cache.sequentialReport(
             netlist: netlist,
             cellName: "dff",
-            model: .sky130Like(),
+            model: .bundledDefault(),
+            technologyContext: Level1DeviceModel.bundledDefaultTechnologyContext(),
             clockSlew: 80e-12,
             dataSlew: 80e-12,
             outputLoads: [1e-15],
@@ -80,6 +82,79 @@ struct TimingCharacterizationCacheTests {
 
         #expect(first == second)
         #expect(await counter.value() == 1)
+    }
+
+    @Test("Sequential timing cache separates profile provenance", .timeLimit(.minutes(1)))
+    func sequentialTimingCacheSeparatesProfileProvenance() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("timing-characterization-cache-profile-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            Self.removeTemporaryDirectoryIfPresent(directory)
+        }
+
+        let cache = TimingCharacterizationCache(directory: directory)
+        let model = Level1DeviceModel.bundledDefault()
+        let netlist = DFFGenerator().netlist(name: "dff")
+        let defaultContext = Level1DeviceModel.bundledDefaultTechnologyContext()
+        let externalContext = TimingTechnologyContext(
+            processName: defaultContext.processName,
+            cornerID: defaultContext.cornerID,
+            supplyVoltage: defaultContext.supplyVoltage,
+            temperatureC: defaultContext.temperatureC,
+            deviceModelID: defaultContext.deviceModelID,
+            deviceModelHash: defaultContext.deviceModelHash,
+            modelProfile: TimingModelProfileReference(
+                profileID: defaultContext.modelProfile?.profileID ?? "sky130.level1-device-model.v1",
+                path: "/tmp/external-timing-profile.json",
+                sha256: String(repeating: "a", count: 64)
+            )
+        )
+        let counter = CallCounter()
+
+        let defaultReport = try await cache.sequentialReport(
+            netlist: netlist,
+            cellName: "dff",
+            model: model,
+            technologyContext: defaultContext,
+            clockSlew: 80e-12,
+            dataSlew: 80e-12,
+            outputLoads: [1e-15],
+            setupHoldSearchWindow: 300e-12,
+            setupHoldSearchResolution: 20e-12,
+            maxSearchIterations: 4
+        ) {
+            _ = await counter.increment()
+            return try Self.sequentialReportFixture(
+                netlist: netlist,
+                setupTime: 20e-12,
+                technology: defaultContext
+            )
+        }
+        let externalReport = try await cache.sequentialReport(
+            netlist: netlist,
+            cellName: "dff",
+            model: model,
+            technologyContext: externalContext,
+            clockSlew: 80e-12,
+            dataSlew: 80e-12,
+            outputLoads: [1e-15],
+            setupHoldSearchWindow: 300e-12,
+            setupHoldSearchResolution: 20e-12,
+            maxSearchIterations: 4
+        ) {
+            _ = await counter.increment()
+            return try Self.sequentialReportFixture(
+                netlist: netlist,
+                setupTime: 40e-12,
+                technology: externalContext
+            )
+        }
+
+        #expect(defaultReport.timing.setupTime == 20e-12)
+        #expect(externalReport.timing.setupTime == 40e-12)
+        #expect(defaultReport.technology.modelProfile?.resourceName == Level1DeviceModel.bundledDefaultProfileResourceName())
+        #expect(externalReport.technology.modelProfile?.path == "/tmp/external-timing-profile.json")
+        #expect(await counter.value() == 2)
     }
 
     @Test("Standard timing builder reuses cache without executing characterizers", .timeLimit(.minutes(1)))
@@ -101,7 +176,7 @@ struct TimingCharacterizationCacheTests {
         for (index, cell) in cells.enumerated() {
             _ = try await cache.cellTiming(
                 cell: cell,
-                model: .sky130Like(),
+                model: .bundledDefault(),
                 inputSlews: inputSlews,
                 outputLoads: outputLoads
             ) {
@@ -109,24 +184,25 @@ struct TimingCharacterizationCacheTests {
             }
         }
 
-        let dffNetlist = Sky130DFFGenerator().netlist(name: "dff")
+        let dffNetlist = DFFGenerator().netlist(name: "dff")
         _ = try await cache.sequentialReport(
             netlist: dffNetlist,
             cellName: "dff",
-            model: .sky130Like(),
+            model: .bundledDefault(),
+            technologyContext: Level1DeviceModel.bundledDefaultTechnologyContext(),
             clockSlew: 80e-12,
             dataSlew: 80e-12,
             outputLoads: outputLoads,
-            setupHoldSearchWindow: 600e-12,
-            setupHoldSearchResolution: 5e-12,
-            maxSearchIterations: 8
+            setupHoldSearchWindow: 300e-12,
+            setupHoldSearchResolution: 20e-12,
+            maxSearchIterations: 4
         ) {
             try Self.sequentialReportFixture(
                 netlist: dffNetlist,
                 setupTime: 20e-12,
                 outputLoads: outputLoads,
-                setupHoldSearchWindow: 600e-12,
-                setupHoldSearchResolution: 5e-12
+                setupHoldSearchWindow: 300e-12,
+                setupHoldSearchResolution: 20e-12
             )
         }
 
@@ -158,7 +234,7 @@ struct TimingCharacterizationCacheTests {
         let first = Task {
             try await cache.cellTiming(
                 cell: cell,
-                model: .sky130Like(),
+                model: .bundledDefault(),
                 inputSlews: [40e-12],
                 outputLoads: [1e-15]
             ) {
@@ -175,7 +251,7 @@ struct TimingCharacterizationCacheTests {
             await secondCalled.open()
             return try await cache.cellTiming(
                 cell: cell,
-                model: .sky130Like(),
+                model: .bundledDefault(),
                 inputSlews: [40e-12],
                 outputLoads: [1e-15]
             ) {
@@ -235,7 +311,8 @@ struct TimingCharacterizationCacheTests {
         setupTime: Double,
         outputLoads: [Double] = [1e-15],
         setupHoldSearchWindow: Double = 300e-12,
-        setupHoldSearchResolution: Double = 20e-12
+        setupHoldSearchResolution: Double = 20e-12,
+        technology: TimingTechnologyContext = Level1DeviceModel.bundledDefaultTechnologyContext()
     ) throws -> SequentialTimingCharacterizationReport {
         let timing = SequentialTiming(
             clkToQRise: try singleSlewLUT(outputLoads: outputLoads, value: 100e-12),
@@ -247,18 +324,11 @@ struct TimingCharacterizationCacheTests {
             dataCapacitance: 1e-15,
             clockCapacitance: 2e-15
         )
-        let model = Level1DeviceModel.sky130Like()
         return SequentialTimingCharacterizationReport(
             cellName: "dff",
             topologyHash: try TimingTopologyHasher.hash(netlist),
             activeClockEdge: .rising,
-            technology: TimingTechnologyContext(
-                processName: "sky130-like-level1",
-                cornerID: "tt",
-                supplyVoltage: model.supplyVoltage,
-                deviceModelID: "level1-sky130-like",
-                deviceModelHash: try TimingTopologyHasher.hashModel(model)
-            ),
+            technology: technology,
             characterizationGrid: SequentialTimingCharacterizationGrid(
                 clockSlews: [80e-12],
                 dataSlews: [80e-12],

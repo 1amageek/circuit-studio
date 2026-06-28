@@ -114,14 +114,13 @@ struct EndToEndTests {
 
     // MARK: - J3: BJT with .model Card
 
-    @Test("J3: BJT with .model card", .timeLimit(.minutes(1)),
-          .disabled("NR solver lacks damping for nonlinear BJT convergence"))
+    @Test("J3: BJT with .model card", .timeLimit(.minutes(1)))
     func bjtWithModel() async throws {
         let source = """
         BJT bias
         VCC vcc 0 12
         RC vcc col 2k
-        RB vcc base 100k
+        RB vcc base 470k
         Q1 col base 0 NPNMOD
         .model NPNMOD NPN BF=100 IS=1e-16
         .op
@@ -145,8 +144,7 @@ struct EndToEndTests {
 
     // MARK: - J4: MOSFET with .model Card
 
-    @Test("J4: MOSFET with .model card", .timeLimit(.minutes(1)),
-          .disabled("NR solver lacks damping for nonlinear MOSFET convergence"))
+    @Test("J4: MOSFET with .model card", .timeLimit(.minutes(1)))
     func mosfetWithModel() async throws {
         let source = """
         NMOS test
@@ -207,8 +205,7 @@ struct EndToEndTests {
 
     // MARK: - J6: SIN Voltage Source Syntax
 
-    @Test("J6: SIN voltage source transient", .timeLimit(.minutes(1)),
-          .disabled("Transient solver timestep control collapses with SIN waveforms"))
+    @Test("J6: SIN voltage source transient", .timeLimit(.minutes(1)))
     func sinVoltageSource() async throws {
         // Use purely resistive circuit to avoid transient solver step issues
         let source = """
@@ -307,8 +304,7 @@ struct EndToEndTests {
 
     // MARK: - J9: Expression Evaluation
 
-    @Test("J9: Parameter expression evaluation", .timeLimit(.minutes(1)),
-          .disabled("SPICE parser does not yet support .param expression evaluation"))
+    @Test("J9: Parameter expression evaluation", .timeLimit(.minutes(1)))
     func expressionEvaluation() async throws {
         let source = """
         Expression test

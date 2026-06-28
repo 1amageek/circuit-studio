@@ -19,7 +19,7 @@ struct PhysicalSignoffDeckTests {
     static let allBundleAxes: [TapeoutEvidenceBundle.Axis] = [.erc, .ir, .em, .drc, .lvs, .antenna, .density]
 
     private func synthesize(_ netlist: GateLevelNetlist, into dir: URL) throws -> (gds: URL, spice: URL) {
-        let synth = Sky130CircuitSynthesizer()
+        let synth = try circuitSynthesizer()
         let doc = try synth.synthesize(netlist)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let gds = dir.appending(path: "\(netlist.name).gds")
@@ -89,7 +89,7 @@ struct PhysicalSignoffDeckTests {
         // now plans and inserts local diffusion ties generically before signoff, so the antenna
         // axis must pass by real Magic evidence.
         let netlist = ACC4CPUGenerator().gateLevelNetlist(name: "deck_acc4")
-        let plan = try Sky130CircuitSynthesizer().antennaProtectionPlan(for: netlist)
+        let plan = try circuitSynthesizer().antennaProtectionPlan(for: netlist)
         #expect(Set(netlist.inputs).isSubset(of: Set(plan.sites.map(\.net))))
         let dir = FileManager.default.temporaryDirectory.appending(path: "deck-acc4-\(UUID().uuidString)")
         let (gds, _) = try synthesize(netlist, into: dir)
@@ -107,5 +107,11 @@ struct PhysicalSignoffDeckTests {
                                                      evidence: result.report.logPath)
         let folded = try MultiConstraintSignoff(requiredAxes: [.antenna]).combine([verdict])
         #expect(folded.passed)
+    }
+
+    private func circuitSynthesizer() throws -> StandardCircuitSynthesizer {
+        let profile = try StandardCellLayoutProfileCatalog.loadDefaultProfile()
+        let technology = try LayoutTechnologyResource.bundled(resourceName: profile.targetTechnologyResourceName)
+        return StandardCircuitSynthesizer(profile: profile, layoutTechnology: technology)
     }
 }

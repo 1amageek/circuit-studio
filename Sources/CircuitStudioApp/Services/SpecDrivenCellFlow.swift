@@ -1,27 +1,30 @@
 import Foundation
 import CircuitStudioCore
 import CoreSpiceWaveform
+import LayoutTech
 
-/// The full Spec → GDS chain: size a CMOS inverter electrically to meet a performance
+/// The full Spec -> GDS chain: size a CMOS inverter electrically to meet a performance
 /// spec (against the ngspice-validated Measure stage), then synthesize the SIZED
-/// device as a Sky130 cell and sign it off with real Magic DRC + Netgen LVS.
+/// device as a profile-backed cell and sign it off with real Magic DRC + Netgen LVS.
 ///
 /// This is the bridge between the two axes of the agent loop:
 ///   electrical (`SpecDrivenDesignLoop` sizes W in metres against a delay target)
-///   physical   (`Sky130CellSignoffService` builds the cell at W µm and signs it off).
+///   physical   (`StandardCellSignoffService` builds the cell at W microns and signs it off).
 /// The agent states an electrical intent and gets back a physically signed-off GDS
 /// that realises it — not a hand-picked geometry.
 ///
 /// Two honest modelling boundaries are crossed and reported, never hidden:
-///  - the loop sizes W in metres; the layout is built in µm (`× 1e6`);
-///  - the electrical optimum may fall below the Sky130 minimum device width, in which
+///  - the loop sizes W in metres; the layout is built in microns (`x 1e6`);
+///  - the electrical optimum may fall below the profile minimum device width, in which
 ///    case the layout is built at the floor and `widthClampedToFloor` is set true.
-/// The width is snapped UP to the Sky130 manufacturing grid so the realised cell is
+/// The width is snapped up to the profile manufacturing grid so the realized cell is
 /// never narrower than the sized device (it can only be as fast or faster).
 public struct SpecDrivenCellFlow: Sendable {
 
-    /// The Sky130 manufacturing grid (µm); layout coordinates must land on it.
-    public static let gridMicrons = 0.005
+    /// Compatibility access to the bundled profile manufacturing grid.
+    public static var gridMicrons: Double {
+        defaultLayoutProfile().manufacturingGridMicrons
+    }
 
     public struct Output: Sendable {
         /// The electrical sizing result — the loop that chose W.
@@ -34,7 +37,7 @@ public struct SpecDrivenCellFlow: Sendable {
         /// layout width was raised to the floor (the physical constraint dominated).
         public let widthClampedToFloor: Bool
         /// The physical signoff: emitted GDS + real DRC + LVS review.
-        public let physical: Sky130CellSignoffService.Output
+        public let physical: StandardCellSignoffService.Output
 
         public var converged: Bool { electrical.converged }
         public var passed: Bool { physical.passed }
@@ -55,11 +58,17 @@ public struct SpecDrivenCellFlow: Sendable {
     }
 
     private let loop: SpecDrivenDesignLoop
-    private let signoff: Sky130CellSignoffService
+    private let signoff: StandardCellSignoffService
+    private let layoutProfile: StandardCellLayoutProfile
 
-    public init(loop: SpecDrivenDesignLoop = SpecDrivenDesignLoop(), signoff: Sky130CellSignoffService) {
+    public init(
+        loop: SpecDrivenDesignLoop = SpecDrivenDesignLoop(),
+        signoff: StandardCellSignoffService,
+        layoutProfile: StandardCellLayoutProfile? = nil
+    ) {
         self.loop = loop
         self.signoff = signoff
+        self.layoutProfile = layoutProfile ?? Self.defaultLayoutProfile()
     }
 
     /// Available only with the real Magic + Netgen + Sky130 toolchain.
@@ -68,7 +77,11 @@ public struct SpecDrivenCellFlow: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> SpecDrivenCellFlow? {
-        Sky130CellSignoffService.locate(environment: environment, fileManager: fileManager)
+        StandardCellSignoffService.locate(
+            technology: defaultLayoutTechnology(),
+            environment: environment,
+            fileManager: fileManager
+        )
             .map { SpecDrivenCellFlow(loop: loop, signoff: $0) }
     }
 
@@ -94,15 +107,18 @@ public struct SpecDrivenCellFlow: Sendable {
             throw FlowError.noSizingProduced
         }
 
-        // Cross the metre → µm boundary, apply the physical floor, snap UP to grid so
-        // the realised device is never narrower than the sized one.
+        // Cross the metre-to-micron boundary, apply the physical floor, and snap up to grid.
         let sizedMicrons = sizedMetres * 1e6
-        let floored = max(Sky130InverterGenerator.minWidth, sizedMicrons)
+        let floored = max(layoutProfile.inverter.minimumDeviceWidth, sizedMicrons)
         let clamped = floored > sizedMicrons + 1e-9
-        let widthMicrons = (floored / Self.gridMicrons).rounded(.up) * Self.gridMicrons
+        let gridMicrons = layoutProfile.manufacturingGridMicrons
+        let widthMicrons = (floored / gridMicrons).rounded(.up) * gridMicrons
 
         let physical = try await signoff.synthesizeInverter(
-            name: cellName, width: widthMicrons, into: directory
+            name: cellName,
+            width: widthMicrons,
+            into: directory,
+            generator: ProfiledInverterGenerator(profile: layoutProfile)
         )
         return Output(
             electrical: outcome,
@@ -111,5 +127,21 @@ public struct SpecDrivenCellFlow: Sendable {
             widthClampedToFloor: clamped,
             physical: physical
         )
+    }
+
+    private static func defaultLayoutProfile() -> StandardCellLayoutProfile {
+        do {
+            return try StandardCellLayoutProfileCatalog.loadDefaultProfile()
+        } catch {
+            preconditionFailure("Bundled standard-cell layout profile could not be loaded: \(error)")
+        }
+    }
+
+    private static func defaultLayoutTechnology() -> LayoutTechDatabase {
+        do {
+            return try LayoutTechnologyCatalog.loadDefaultTechnology()
+        } catch {
+            preconditionFailure("Bundled layout technology could not be loaded: \(error)")
+        }
     }
 }

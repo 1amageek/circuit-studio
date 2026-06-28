@@ -14,7 +14,7 @@ struct ElectricalRuleCheckerTests {
     func cleanDesignsPass() {
         let cpu = erc.check(ACC4CPUGenerator().gateLevelNetlist())
         #expect(cpu.passed, "ACC-4 ERC errors: \(cpu.errors.map(\.message))")
-        let alu = erc.check(Sky130ALUGenerator(bits: 4).gateLevelNetlist())
+        let alu = erc.check(ALUGenerator(bits: 4).gateLevelNetlist())
         #expect(alu.passed, "ALU ERC errors: \(alu.errors.map(\.message))")
     }
 

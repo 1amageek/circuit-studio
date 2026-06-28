@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "profileID": "sky130.signoff.rule-classification",
+  "rules": [
+    {
+      "ruleID": "met1.1",
+      "reason": "min_width_violation",
+      "suggestedActions": ["widen_met1_shape"]
+    },
+    {
+      "ruleID": "met1.2",
+      "reason": "min_spacing_violation",
+      "suggestedActions": ["increase_spacing_between_met1_shapes", "reroute_to_widen_the_channel"]
+    },
+    {
+      "ruleID": "met2.1",
+      "reason": "min_width_violation",
+      "suggestedActions": ["widen_met2_shape"]
+    },
+    {
+      "ruleID": "met2.2",
+      "reason": "min_spacing_violation",
+      "suggestedActions": ["increase_spacing_between_met2_shapes", "reroute_to_widen_the_channel"]
+    },
+    {
+      "ruleID": "poly.1",
+      "reason": "min_width_violation",
+      "suggestedActions": ["widen_poly_shape"]
+    },
+    {
+      "ruleID": "poly.2",
+      "reason": "min_spacing_violation",
+      "suggestedActions": ["increase_spacing_between_poly_shapes"]
+    },
+    {
+      "ruleID": "li1.1",
+      "reason": "min_width_violation",
+      "suggestedActions": ["widen_li1_shape"]
+    },
+    {
+      "ruleID": "li1.2",
+      "reason": "min_spacing_violation",
+      "suggestedActions": ["increase_spacing_between_li1_shapes"]
+    },
+    {
+      "ruleID": "difftap.2",
+      "reason": "min_spacing_violation",
+      "suggestedActions": ["increase_spacing_between_diffusion_shapes"]
+    }
+  ]
+}

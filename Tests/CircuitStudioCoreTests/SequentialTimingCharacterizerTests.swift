@@ -10,6 +10,8 @@ struct SequentialTimingCharacterizerTests {
 
         #expect(report.status == .passed)
         #expect(report.kind == "sequential-characterization-report")
+        #expect(report.technology.modelProfile?.profileID == "sky130.level1-device-model.v1")
+        #expect(report.technology.modelProfile?.resourceName == Level1DeviceModel.bundledDefaultProfileResourceName())
         let clockSlew = try #require(report.characterizationGrid.clockSlews.first)
         #expect(report.timing.clkToQRise.lookup(inputSlew: clockSlew, outputLoad: 1e-15) > 0)
         #expect(report.timing.clkToQFall.lookup(inputSlew: clockSlew, outputLoad: 1e-15) > 0)
@@ -30,6 +32,32 @@ struct SequentialTimingCharacterizerTests {
                 GateLevelNetlist.and2(name: "not_dff"),
                 cellName: "not_dff"
             )
+        }
+    }
+
+    @Test("Mismatched technology context is rejected before simulation", .timeLimit(.minutes(1)))
+    func mismatchedTechnologyContextThrows() async throws {
+        let model = Level1DeviceModel.bundledDefault()
+        let expectedHash = try TimingTopologyHasher.hashModel(model)
+        let mismatchedTechnology = TimingTechnologyContext(
+            processName: "unit",
+            cornerID: "tt",
+            supplyVoltage: model.supplyVoltage,
+            deviceModelID: "wrong",
+            deviceModelHash: "wrong-hash",
+            modelProfile: TimingModelProfileReference(profileID: "wrong-profile")
+        )
+        let characterizer = SequentialTimingCharacterizer(
+            model: model,
+            technologyContext: mismatchedTechnology,
+            outputLoads: [1e-15]
+        )
+
+        await #expect(throws: SequentialTimingCharacterizer.CharacterizeError.technologyModelHashMismatch(
+            expectedModelHash: expectedHash,
+            actualModelHash: "wrong-hash"
+        )) {
+            _ = try await characterizer.characterizeFlipFlop()
         }
     }
 

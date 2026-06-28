@@ -47,7 +47,21 @@ public struct SignoffEvaluationService: Sendable {
         }
     }
 
-    public init() {}
+    private let drcRuleClassifications: [String: SignoffRuleClassificationProfile.Rule]
+
+    public init(drcRuleClassifications: [String: SignoffRuleClassificationProfile.Rule] = [:]) {
+        self.drcRuleClassifications = drcRuleClassifications
+    }
+
+    public init(ruleClassificationProfile: SignoffRuleClassificationProfile) throws {
+        self.drcRuleClassifications = try ruleClassificationProfile.classificationByRuleID()
+    }
+
+    public static func profileBacked(resourceName: String) throws -> SignoffEvaluationService {
+        try SignoffEvaluationService(
+            ruleClassificationProfile: SignoffRuleClassificationProfile.bundled(resourceName: resourceName)
+        )
+    }
 
     /// Structures every diagnostic in `review` into an actionable finding.
     public func evaluate(_ review: ExternalSignoffReview) -> Evaluation {
@@ -76,23 +90,6 @@ public struct SignoffEvaluationService: Sendable {
         )
     }
 
-    /// DRC rule codes whose meaning we have verified, mapped to a failure mode and
-    /// concrete next actions. Only these are classified confidently; the numeric
-    /// suffix is NOT a reliable dimension-class encoding across all Sky130 rules, so
-    /// an unknown code is reported generically rather than guessed (a wrong `reason`
-    /// would be an unverified claim presented as fact).
-    private static let knownDRCRules: [String: (reason: String, actions: [String])] = [
-        "met1.1": ("min_width_violation", ["widen_met1_shape"]),
-        "met1.2": ("min_spacing_violation", ["increase_spacing_between_met1_shapes", "reroute_to_widen_the_channel"]),
-        "met2.1": ("min_width_violation", ["widen_met2_shape"]),
-        "met2.2": ("min_spacing_violation", ["increase_spacing_between_met2_shapes", "reroute_to_widen_the_channel"]),
-        "poly.1": ("min_width_violation", ["widen_poly_shape"]),
-        "poly.2": ("min_spacing_violation", ["increase_spacing_between_poly_shapes"]),
-        "li1.1": ("min_width_violation", ["widen_li1_shape"]),
-        "li1.2": ("min_spacing_violation", ["increase_spacing_between_li1_shapes"]),
-        "difftap.2": ("min_spacing_violation", ["increase_spacing_between_diffusion_shapes"]),
-    ]
-
     /// Maps a tool rule to a failure mode and concrete next actions. The rule code is
     /// the source of truth; the actions are how an agent or human moves the design.
     /// Unknown DRC codes are reported as a generic violation (with the code) rather
@@ -119,8 +116,8 @@ public struct SignoffEvaluationService: Sendable {
             if rule == "driver" {
                 return ("drc_tool_error", ["inspect_drc_driver_log", "verify_cell_loaded"])
             }
-            if let known = Self.knownDRCRules[rule] {
-                return known
+            if let known = drcRuleClassifications[rule] {
+                return (known.reason, known.suggestedActions)
             }
             return ("drc_violation", ["inspect_rule_\(diagnostic.ruleID ?? "unknown")_in_the_pdk_drc_manual"])
         case .antenna:

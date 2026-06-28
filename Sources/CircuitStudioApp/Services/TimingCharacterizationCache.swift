@@ -22,7 +22,7 @@ public actor TimingCharacterizationCache {
 
     fileprivate static let schemaVersion = 1
     fileprivate static let cellCharacterizerVersion = 1
-    fileprivate static let sequentialCharacterizerVersion = 1
+    fileprivate static let sequentialCharacterizerVersion = 3
 
     private let directory: URL
     private var pendingCells: [String: Task<CellTiming, Error>] = [:]
@@ -94,6 +94,7 @@ public actor TimingCharacterizationCache {
         netlist: GateLevelNetlist,
         cellName: String,
         model: Level1DeviceModel,
+        technologyContext: TimingTechnologyContext,
         clockSlew: Double,
         dataSlew: Double,
         outputLoads: [Double],
@@ -104,6 +105,7 @@ public actor TimingCharacterizationCache {
     ) async throws -> SequentialTimingCharacterizationReport {
         let key = try SequentialTimingCacheKey(
             model: model,
+            technologyContext: technologyContext,
             netlist: netlist,
             cellName: cellName,
             clockSlew: clockSlew,
@@ -301,6 +303,7 @@ private struct SequentialTimingCacheKey: Sendable, Hashable, Codable {
     let kind: String
     let characterizerVersion: Int
     let deviceModelHash: String
+    let technologyContextHash: String
     let topologyHash: String
     let cellName: String
     let clockSlew: Double
@@ -312,6 +315,7 @@ private struct SequentialTimingCacheKey: Sendable, Hashable, Codable {
 
     init(
         model: Level1DeviceModel,
+        technologyContext: TimingTechnologyContext,
         netlist: GateLevelNetlist,
         cellName: String,
         clockSlew: Double,
@@ -325,6 +329,7 @@ private struct SequentialTimingCacheKey: Sendable, Hashable, Codable {
         self.kind = "sequential-timing"
         self.characterizerVersion = TimingCharacterizationCache.sequentialCharacterizerVersion
         self.deviceModelHash = try TimingTopologyHasher.hashModel(model)
+        self.technologyContextHash = try TimingTopologyHasher.hash(technologyContext)
         self.topologyHash = try TimingTopologyHasher.hash(netlist)
         self.cellName = cellName
         self.clockSlew = clockSlew

@@ -1,8 +1,7 @@
 import Foundation
 
-/// A transistor-level netlist for a static CMOS complementary gate — the INTENT the
-/// agent supplies. The synthesizer turns it into a placed-and-routed Sky130 layout (and
-/// the matching reference schematic), so the SYSTEM produces the geometry, not a human.
+/// A transistor-level netlist for a static CMOS complementary gate: topology plus explicit
+/// device sizing. Technology-specific defaults come from `CMOSGateLibrary`, not this type.
 ///
 /// Restricted to the static-CMOS series/parallel class (inverter, NANDk, NORk): the NMOS
 /// pull-down and PMOS pull-up are duals, one a series chain and the other a parallel set
@@ -23,7 +22,7 @@ public struct CMOSGateNetlist: Sendable, Hashable, Codable, Identifiable {
         public let length: Double
 
         public init(name: String, kind: DeviceKind, gate: String, source: String, drain: String,
-                    width: Double = 0.42, length: Double = 0.16) {
+                    width: Double, length: Double) {
             self.name = name
             self.kind = kind
             self.gate = gate
@@ -31,6 +30,25 @@ public struct CMOSGateNetlist: Sendable, Hashable, Codable, Identifiable {
             self.drain = drain
             self.width = width
             self.length = length
+        }
+
+        public init(
+            name: String,
+            kind: DeviceKind,
+            gate: String,
+            source: String,
+            drain: String,
+            sizing: CMOSGateLibrary.DeviceSizing = CMOSGateLibrary.bundledDefault.deviceSizing
+        ) {
+            self.init(
+                name: name,
+                kind: kind,
+                gate: gate,
+                source: source,
+                drain: drain,
+                width: sizing.width,
+                length: sizing.length
+            )
         }
     }
 
@@ -66,43 +84,58 @@ public struct CMOSGateNetlist: Sendable, Hashable, Codable, Identifiable {
     // MARK: - Standard library cells
 
     /// A CMOS inverter: Y = NOT(A).
-    public static func inverter(name: String = "inverter", input: String = "A", output: String = "Y") -> CMOSGateNetlist {
+    public static func inverter(
+        name: String = "inverter",
+        input: String = "A",
+        output: String = "Y",
+        deviceSizing: CMOSGateLibrary.DeviceSizing = CMOSGateLibrary.bundledDefault.deviceSizing
+    ) -> CMOSGateNetlist {
         CMOSGateNetlist(name: name, devices: [
-            Device(name: "MP0", kind: .pmos, gate: input, source: "VPWR", drain: output),
-            Device(name: "MN0", kind: .nmos, gate: input, source: "VGND", drain: output),
+            Device(name: "MP0", kind: .pmos, gate: input, source: "VPWR", drain: output, sizing: deviceSizing),
+            Device(name: "MN0", kind: .nmos, gate: input, source: "VGND", drain: output, sizing: deviceSizing),
         ], output: output)
     }
 
     /// A CMOS NAND with `inputs.count` inputs: series NMOS pull-down, parallel PMOS
     /// pull-up. Y = NOT(A and B and ...).
-    public static func nand(name: String, inputs: [String], output: String = "Y") -> CMOSGateNetlist {
+    public static func nand(
+        name: String,
+        inputs: [String],
+        output: String = "Y",
+        deviceSizing: CMOSGateLibrary.DeviceSizing = CMOSGateLibrary.bundledDefault.deviceSizing
+    ) -> CMOSGateNetlist {
         var devices: [Device] = []
         // Parallel PMOS: each input's PMOS ties VPWR -> output.
         for (i, g) in inputs.enumerated() {
-            devices.append(Device(name: "MP\(i)", kind: .pmos, gate: g, source: "VPWR", drain: output))
+            devices.append(Device(name: "MP\(i)", kind: .pmos, gate: g, source: "VPWR", drain: output, sizing: deviceSizing))
         }
         // Series NMOS chain: output - g0 - n1 - g1 - n2 - ... - VGND.
         for (i, g) in inputs.enumerated() {
             let s = i == 0 ? output : "n\(i)"
             let d = i == inputs.count - 1 ? "VGND" : "n\(i + 1)"
-            devices.append(Device(name: "MN\(i)", kind: .nmos, gate: g, source: s, drain: d))
+            devices.append(Device(name: "MN\(i)", kind: .nmos, gate: g, source: s, drain: d, sizing: deviceSizing))
         }
         return CMOSGateNetlist(name: name, devices: devices, output: output)
     }
 
     /// A CMOS NOR with `inputs.count` inputs: parallel NMOS pull-down, series PMOS
     /// pull-up. Y = NOT(A or B or ...).
-    public static func nor(name: String, inputs: [String], output: String = "Y") -> CMOSGateNetlist {
+    public static func nor(
+        name: String,
+        inputs: [String],
+        output: String = "Y",
+        deviceSizing: CMOSGateLibrary.DeviceSizing = CMOSGateLibrary.bundledDefault.deviceSizing
+    ) -> CMOSGateNetlist {
         var devices: [Device] = []
         // Parallel NMOS: each input's NMOS ties output -> VGND.
         for (i, g) in inputs.enumerated() {
-            devices.append(Device(name: "MN\(i)", kind: .nmos, gate: g, source: "VGND", drain: output))
+            devices.append(Device(name: "MN\(i)", kind: .nmos, gate: g, source: "VGND", drain: output, sizing: deviceSizing))
         }
         // Series PMOS chain: VPWR - g0 - p1 - g1 - p2 - ... - output.
         for (i, g) in inputs.enumerated() {
             let s = i == 0 ? "VPWR" : "p\(i)"
             let d = i == inputs.count - 1 ? output : "p\(i + 1)"
-            devices.append(Device(name: "MP\(i)", kind: .pmos, gate: g, source: s, drain: d))
+            devices.append(Device(name: "MP\(i)", kind: .pmos, gate: g, source: s, drain: d, sizing: deviceSizing))
         }
         return CMOSGateNetlist(name: name, devices: devices, output: output)
     }

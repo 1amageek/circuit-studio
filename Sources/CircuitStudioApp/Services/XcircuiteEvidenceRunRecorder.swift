@@ -171,6 +171,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
             kind: kind,
             format: format,
             sha256: try hasher.sha256(fileAt: url),
+            byteCount: try hasher.byteCount(fileAt: url),
             producedByRunID: runID
         )
     }

@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import XcircuitePackage
 
 public enum RoundTripReviewServiceError: Error, LocalizedError, Equatable {
     case missingManifest(URL)
@@ -66,6 +67,10 @@ public struct RoundTripReviewService: Sendable {
             diagnostics: &diagnostics,
             warnings: &warnings
         )
+        let suggestedCommandSelections = loadSuggestedCommandSelections(
+            manifestURL: manifestURL,
+            diagnostics: &diagnostics
+        )
         let stageSummaries = manifest.stages.map {
             RoundTripReviewStageSummary(
                 name: $0.name,
@@ -88,6 +93,7 @@ public struct RoundTripReviewService: Sendable {
             externalSignoff: signoff,
             postLayoutComparison: comparison,
             approvals: approvals,
+            suggestedCommandSelections: suggestedCommandSelections,
             bottleneckSummary: manifest.bottleneckSummary,
             diagnostics: diagnostics,
             warnings: warnings,
@@ -99,6 +105,20 @@ public struct RoundTripReviewService: Sendable {
                 warnings: warnings
             )
         )
+    }
+
+    private func loadSuggestedCommandSelections(
+        manifestURL: URL,
+        diagnostics: inout [String]
+    ) -> [XcircuiteSuggestedCommandSelection] {
+        do {
+            return try RoundTripActionLogService().loadSuggestedCommandSelections(
+                manifestURL: manifestURL
+            )
+        } catch {
+            diagnostics.append("action log: \(error.localizedDescription)")
+            return []
+        }
     }
 
     private func loadApprovalRecords(

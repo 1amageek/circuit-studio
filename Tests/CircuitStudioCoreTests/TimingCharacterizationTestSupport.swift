@@ -84,7 +84,7 @@ actor TimingCharacterizationTestCache {
         let task = Task {
             try await TimingCharacterizationCache.shared.cellTiming(
                 cell: cell,
-                model: .sky130Like(),
+                model: .bundledDefault(),
                 inputSlews: inputSlews,
                 outputLoads: outputLoads
             ) {
@@ -116,9 +116,10 @@ actor TimingCharacterizationTestCache {
 
         let task = Task {
             try await TimingCharacterizationCache.shared.sequentialReport(
-                netlist: Sky130DFFGenerator().netlist(name: "dff"),
+                netlist: DFFGenerator().netlist(name: "dff"),
                 cellName: "dff",
-                model: .sky130Like(),
+                model: .bundledDefault(),
+                technologyContext: Level1DeviceModel.bundledDefaultTechnologyContext(),
                 clockSlew: 80e-12,
                 dataSlew: 80e-12,
                 outputLoads: [1e-15],
@@ -133,7 +134,7 @@ actor TimingCharacterizationTestCache {
                         setupHoldSearchResolution: 20e-12,
                         maxSearchIterations: 4
                     ).characterizeFlipFlop(
-                        Sky130DFFGenerator().netlist(name: "dff"),
+                        DFFGenerator().netlist(name: "dff"),
                         cellName: "dff"
                     )
                 }

@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import XcircuitePackage
 
 public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
     public enum Status: String, Sendable, Hashable, Codable {
@@ -20,6 +21,7 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
     public let externalSignoff: RoundTripReviewSignoffSummary?
     public let postLayoutComparison: RoundTripReviewComparisonSummary?
     public let approvals: [GateApprovalRecord]
+    public let suggestedCommandSelections: [XcircuiteSuggestedCommandSelection]
     public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
     public let diagnostics: [String]
     public let warnings: [String]
@@ -38,6 +40,7 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
         externalSignoff: RoundTripReviewSignoffSummary?,
         postLayoutComparison: RoundTripReviewComparisonSummary?,
         approvals: [GateApprovalRecord] = [],
+        suggestedCommandSelections: [XcircuiteSuggestedCommandSelection] = [],
         bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?,
         diagnostics: [String],
         warnings: [String] = [],
@@ -55,6 +58,7 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
         self.externalSignoff = externalSignoff
         self.postLayoutComparison = postLayoutComparison
         self.approvals = approvals
+        self.suggestedCommandSelections = suggestedCommandSelections
         self.bottleneckSummary = bottleneckSummary
         self.diagnostics = diagnostics
         self.warnings = warnings
@@ -76,6 +80,7 @@ extension RoundTripReviewSummary {
         case externalSignoff
         case postLayoutComparison
         case approvals
+        case suggestedCommandSelections
         case bottleneckSummary
         case diagnostics
         case warnings
@@ -103,6 +108,10 @@ extension RoundTripReviewSummary {
                 forKey: .postLayoutComparison
             ),
             approvals: try container.decodeIfPresent([GateApprovalRecord].self, forKey: .approvals) ?? [],
+            suggestedCommandSelections: try container.decodeIfPresent(
+                [XcircuiteSuggestedCommandSelection].self,
+                forKey: .suggestedCommandSelections
+            ) ?? [],
             bottleneckSummary: try container.decodeIfPresent(
                 HeadlessRoundTripService.BottleneckSummary.self,
                 forKey: .bottleneckSummary

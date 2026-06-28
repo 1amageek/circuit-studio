@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "profileID": "sky130.layout-routing.v1",
+  "targetTechnologyResourceName": "sky130-layout-tech",
+  "layers": {
+    "pinAccessBottom": { "name": "met2", "purpose": "drawing" },
+    "horizontalRouting": { "name": "met3", "purpose": "drawing" },
+    "verticalRouting": { "name": "met4", "purpose": "drawing" },
+    "pinAccessCut": { "name": "via2", "purpose": "drawing" },
+    "turnCut": { "name": "via3", "purpose": "drawing" },
+    "powerRouting": { "name": "li1", "purpose": "drawing" }
+  },
+  "geometry": {
+    "gridPitch": 0.90,
+    "gridMargin": 1.40,
+    "maxOrderingPasses": 64,
+    "mazeWireWidth": 0.30,
+    "pinBottomPadWidth": 0.37,
+    "pinTopPadWidth": 0.50,
+    "pinAccessCutWidth": 0.20,
+    "turnPadWidth": 0.50,
+    "turnCutWidth": 0.20,
+    "interBlockSignalWireWidth": 0.50,
+    "powerRailHeight": 0.45,
+    "powerSpineWidth": 0.34,
+    "powerRowExtension": 0.085,
+    "powerSpineMargin": 0.60,
+    "powerSpineLaneSpacing": 0.80
+  }
+}

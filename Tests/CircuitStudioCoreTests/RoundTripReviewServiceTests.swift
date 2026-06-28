@@ -1,4 +1,5 @@
 import Foundation
+import DesignFlowKernel
 import Testing
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
@@ -80,6 +81,146 @@ struct RoundTripReviewServiceTests {
         #expect(summary.diagnostics.contains { $0.contains("post-layout-comparison") })
         #expect(summary.artifacts.contains { $0.kind == "post-layout-comparison" && !$0.exists })
         #expect(summary.recommendations.contains { $0.contains("auditable") })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func failureSuggestedCommandSelectionIsProjectedIntoReview() throws {
+        let root = try makeTemporaryRoot("review-selected-command")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: comparisonURL)
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeJSON(makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL), to: manifestURL)
+
+        let failure = FlowRunnerFailureEnvelope(
+            errorKind: "runtime",
+            errorType: "RuntimeTestError",
+            message: "Post-layout comparison exceeded configured limits.",
+            runID: "review-run",
+            projectRoot: root.path(percentEncoded: false),
+            manifest: manifestURL.path(percentEncoded: false),
+            stage: "post-layout-comparison",
+            recommendation: "Inspect post-layout-comparison.json.",
+            nextActions: [
+                FlowRunNextAction(
+                    actionID: "review-flow-runner-failure",
+                    kind: "reviewFlowRunnerFailure",
+                    stageID: "post-layout-comparison",
+                    severity: .error,
+                    reason: "Inspect failed artifacts.",
+                    diagnosticCodes: ["runtime"],
+                    suggestedCommands: [
+                        FlowRunSuggestedCommand(
+                            commandID: "circuit-studio-flow-runner.review-round-trip",
+                            readiness: .ready,
+                            executable: "swift",
+                            arguments: [
+                                "run",
+                                "--quiet",
+                                "circuit-studio-flow-runner",
+                                "--review-round-trip",
+                                "--manifest",
+                                manifestURL.path(percentEncoded: false),
+                                "--json",
+                            ],
+                            reason: "Load the failed run review from its persisted manifest."
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        let record = try RoundTripActionLogService().recordSuggestedCommandSelection(
+            from: failure,
+            commandID: "circuit-studio-flow-runner.review-round-trip",
+            reviewer: "agent-1"
+        )
+        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+        let selection = try #require(summary.suggestedCommandSelections.first)
+
+        #expect(record.actionKind == "review.selectSuggestedCommand")
+        #expect(record.stageID == "post-layout-comparison")
+        #expect(selection.actionRecordID == record.actionID)
+        #expect(selection.runID == "review-run")
+        #expect(selection.actor.identifier == "agent-1")
+        #expect(selection.nextActionID == "review-flow-runner-failure")
+        #expect(selection.nextActionKind == "reviewFlowRunnerFailure")
+        #expect(selection.commandID == "circuit-studio-flow-runner.review-round-trip")
+        #expect(selection.readiness == "ready")
+        #expect(selection.arguments.contains("--review-round-trip"))
+        #expect(summary.diagnostics.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func failureSuggestedCommandSelectionRejectsManifestOutsideDeclaredProjectRoot() throws {
+        let root = try makeTemporaryRoot("review-selected-command-mismatch")
+        let otherRoot = try makeTemporaryRoot("review-selected-command-other-root")
+        defer {
+            removeTemporaryRoot(root)
+            removeTemporaryRoot(otherRoot)
+        }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: comparisonURL)
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeJSON(makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL), to: manifestURL)
+
+        let failure = FlowRunnerFailureEnvelope(
+            errorKind: "runtime",
+            errorType: "RuntimeTestError",
+            message: "Post-layout comparison exceeded configured limits.",
+            runID: "review-run",
+            projectRoot: otherRoot.path(percentEncoded: false),
+            manifest: manifestURL.path(percentEncoded: false),
+            stage: "post-layout-comparison",
+            recommendation: "Inspect post-layout-comparison.json.",
+            nextActions: [
+                FlowRunNextAction(
+                    actionID: "review-flow-runner-failure",
+                    kind: "reviewFlowRunnerFailure",
+                    stageID: "post-layout-comparison",
+                    severity: .error,
+                    reason: "Inspect failed artifacts.",
+                    suggestedCommands: [
+                        FlowRunSuggestedCommand(
+                            commandID: "circuit-studio-flow-runner.review-round-trip",
+                            readiness: .ready,
+                            executable: "swift",
+                            arguments: ["run", "--quiet", "circuit-studio-flow-runner"],
+                            reason: "Load the failed run review."
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        #expect(throws: RoundTripActionLogServiceError.self) {
+            try RoundTripActionLogService().recordSuggestedCommandSelection(
+                from: failure,
+                commandID: "circuit-studio-flow-runner.review-round-trip",
+                reviewer: "agent-1"
+            )
+        }
+        #expect(!FileManager.default.fileExists(
+            atPath: runDirectory.appending(path: "actions.jsonl").path(percentEncoded: false)
+        ))
     }
 
     @Test(.timeLimit(.minutes(1)))

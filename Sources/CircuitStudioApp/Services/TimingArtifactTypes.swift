@@ -25,12 +25,32 @@ public enum TimingModelSourceType: String, Sendable, Hashable, Codable {
 public enum TimingArtifactKind: String, Sendable, Hashable, Codable {
     case timingManifest = "timing-manifest"
     case timingLibrary = "timing-library"
+    case modelProfileSelection = "model-profile-selection"
     case staReport = "sta-report"
     case characterizationReport = "characterization-report"
     case measurementLog = "measurement-log"
     case spiceDeck = "spice-deck"
     case waveformCSV = "waveform-csv"
     case validationReport = "validation-report"
+}
+
+public struct TimingModelProfileReference: Sendable, Hashable, Codable {
+    public let profileID: String
+    public let resourceName: String?
+    public let path: String?
+    public let sha256: String?
+
+    public init(
+        profileID: String,
+        resourceName: String? = nil,
+        path: String? = nil,
+        sha256: String? = nil
+    ) {
+        self.profileID = profileID
+        self.resourceName = resourceName
+        self.path = path
+        self.sha256 = sha256
+    }
 }
 
 public struct TimingTechnologyContext: Sendable, Hashable, Codable {
@@ -40,6 +60,7 @@ public struct TimingTechnologyContext: Sendable, Hashable, Codable {
     public let temperatureC: Double?
     public let deviceModelID: String
     public let deviceModelHash: String?
+    public let modelProfile: TimingModelProfileReference?
 
     public init(
         processName: String,
@@ -47,7 +68,8 @@ public struct TimingTechnologyContext: Sendable, Hashable, Codable {
         supplyVoltage: Double,
         temperatureC: Double? = nil,
         deviceModelID: String,
-        deviceModelHash: String? = nil
+        deviceModelHash: String? = nil,
+        modelProfile: TimingModelProfileReference? = nil
     ) {
         self.processName = processName
         self.cornerID = cornerID
@@ -55,6 +77,7 @@ public struct TimingTechnologyContext: Sendable, Hashable, Codable {
         self.temperatureC = temperatureC
         self.deviceModelID = deviceModelID
         self.deviceModelHash = deviceModelHash
+        self.modelProfile = modelProfile
     }
 }
 

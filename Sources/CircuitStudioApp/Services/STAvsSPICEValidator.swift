@@ -51,7 +51,7 @@ public struct STAvsSPICEValidator: TimingPathValidating {
     private let simulation: SimulationServiceProtocol
     private let logic = GateLevelLogicSimulator()
 
-    public init(model: Level1DeviceModel = .sky130Like(),
+    public init(model: Level1DeviceModel = .bundledDefault(),
                 simulation: SimulationServiceProtocol = SimulationService()) {
         self.model = model
         self.simulation = simulation

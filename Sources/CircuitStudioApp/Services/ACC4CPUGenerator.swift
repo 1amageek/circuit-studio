@@ -15,8 +15,11 @@ import Foundation
 public struct ACC4CPUGenerator: Sendable {
 
     public let bits = 4
+    private let cellLibrary: CMOSGateLibrary
 
-    public init() {}
+    public init(cellLibrary: CMOSGateLibrary = .bundledDefault) {
+        self.cellLibrary = cellLibrary
+    }
 
     // Net-name conventions (also the LVS port names).
     public var operandInputs: [String] { (0..<bits).map { "d\($0)" } }     // instruction operand [3:0]
@@ -115,7 +118,7 @@ public struct ACC4CPUGenerator: Sendable {
     /// The sequential model (combinational logic + ACC/PC flip-flop primitives) for cycle
     /// simulation by `GateLevelLogicSimulator`.
     public func sequentialNetlist(name: String = "acc4", clock: String = "CLK") -> SequentialNetlist {
-        let b = NANDGateBuilder()
+        let b = NANDGateBuilder(cellLibrary: cellLibrary)
         buildCombinational(b)
         return SequentialNetlist(name: name, combinational: b.instances, dffs: registers(clock: clock),
                                  inputs: inputs, outputs: outputs, clock: clock)
@@ -124,10 +127,10 @@ public struct ACC4CPUGenerator: Sendable {
     /// The flat gate-level netlist (combinational + ACC/PC flip-flops expanded to gates) for
     /// place & route + DRC/LVS.
     public func gateLevelNetlist(name: String = "acc4", clock: String = "CLK") -> GateLevelNetlist {
-        let b = NANDGateBuilder()
+        let b = NANDGateBuilder(cellLibrary: cellLibrary)
         buildCombinational(b)
         var insts = b.instances
-        let dff = Sky130DFFGenerator()
+        let dff = DFFGenerator(cellLibrary: cellLibrary)
         for r in registers(clock: clock) {
             insts += dff.instances(prefix: r.name, d: r.d, clk: r.clk, q: r.q)
         }

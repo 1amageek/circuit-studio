@@ -143,11 +143,21 @@ public struct MagicDensitySignoff: Sendable {
         let magicPath = environment["MAGIC_BIN"]
             ?? NSString(string: "~/.local/magic/bin/magic").expandingTildeInPath
         guard fileManager.isExecutableFile(atPath: magicPath) else { return nil }
-        guard let pdkRoot = Sky130PDK.root(environment: environment, fileManager: fileManager) else { return nil }
-        let rcFile = URL(filePath: pdkRoot).appending(path: "sky130A/libs.tech/magic/sky130A.magicrc")
+        let context: SignoffPDKContext
+        let rcFile: URL
+        do {
+            context = try SignoffPDKContext.resolve(
+                requirementID: "magic",
+                environment: environment,
+                fileManager: fileManager
+            )
+            rcFile = try context.requiredFileURL(requirementID: "magic")
+        } catch {
+            return nil
+        }
         guard fileManager.fileExists(atPath: rcFile.path(percentEncoded: false)) else { return nil }
         return MagicDensitySignoff(
             magicExecutableURL: URL(filePath: magicPath),
-            rcFileURL: rcFile, pdkRoot: pdkRoot, driverScriptURL: driver)
+            rcFileURL: rcFile, pdkRoot: context.pdkRoot, driverScriptURL: driver)
     }
 }

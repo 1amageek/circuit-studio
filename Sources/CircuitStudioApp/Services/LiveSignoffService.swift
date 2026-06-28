@@ -18,7 +18,7 @@ public struct LiveSignoffService: Sendable {
         self.extractor = extractor
     }
 
-    /// Discovers the full DRC+LVS toolchain (Magic + Netgen + Sky130 PDK). Returns
+    /// Discovers the full DRC+LVS toolchain (Magic + Netgen + profile-resolved PDK). Returns
     /// nil if any piece is missing — the caller decides how to handle that.
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,

@@ -3,10 +3,10 @@ import LayoutCore
 
 /// Tiles synthesized standard-cell blocks into a 2-D grid of rows and columns — the spatial
 /// scale primitive that replaces one impossibly-wide row with a roughly-square array. Each
-/// block is an independently DRC/LVS-clean layout (from `Sky130CircuitSynthesizer`); the
+/// block is an independently DRC/LVS-clean layout (from `StandardCircuitSynthesizer`); the
 /// floorplanner translates each block's geometry to its grid slot, separated by enough gap
-/// that no inter-block rule is violated. Inter-block signal routing on met3 (BC2.3) joins the
-/// grid into one circuit; this step establishes legal placement.
+/// that no inter-block rule is violated. Inter-block signal routing joins the grid into one
+/// circuit; this step establishes legal placement.
 public struct GridFloorplanner: Sendable {
 
     public enum FloorplanError: Error, LocalizedError, Equatable {

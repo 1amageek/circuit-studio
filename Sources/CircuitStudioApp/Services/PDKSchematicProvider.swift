@@ -1,45 +1,61 @@
 import Foundation
+import SignoffToolSupport
 
 /// Derives a standard cell's reference schematic netlist (its `.subckt` block)
 /// from the installed PDK, so a design referenced by cell name can be signed off
 /// without a hand-supplied schematic — the PDK already ships it.
 ///
-/// The library is inferred from the cell-name prefix (`sky130_fd_sc_hd__inv_1`
-/// → `sky130_fd_sc_hd`), and the subckt is sliced from that library's merged
-/// SPICE deck.
+/// The library is inferred from the cell-name prefix, and the subckt is sliced
+/// from the profile-resolved library SPICE deck.
 public struct PDKSchematicProvider: Sendable {
 
-    public let pdkRoot: String
+    public let context: SignoffPDKContext
 
-    public init(pdkRoot: String) {
-        self.pdkRoot = pdkRoot
+    public var pdkRoot: String {
+        context.pdkRoot
+    }
+
+    public init(context: SignoffPDKContext) {
+        self.context = context
     }
 
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> PDKSchematicProvider? {
-        Sky130PDK.root(environment: environment, fileManager: fileManager).map(PDKSchematicProvider.init(pdkRoot:))
+        do {
+            let context = try SignoffPDKContext.resolve(
+                requirementID: "magic",
+                environment: environment,
+                fileManager: fileManager
+            )
+            return PDKSchematicProvider(context: context)
+        } catch {
+            return nil
+        }
     }
-
-    /// The standard-cell library used to probe PDK readiness (`signoff doctor`).
-    public static let representativeLibrary = "sky130_fd_sc_hd"
 
     /// Whether the PDK actually ships the standard-cell SPICE deck a `check --cell`
     /// run needs to derive a reference schematic. `locate()` only proves the PDK
     /// root exists; this proves the deck a design-by-name needs is present, so
     /// `doctor` does not report Ready while `check --cell` would fail at runtime.
     public func hasLibraryDeck(
-        library: String = PDKSchematicProvider.representativeLibrary,
+        library: String? = nil,
         fileManager: FileManager = .default
     ) -> Bool {
-        let deckURL = URL(filePath: pdkRoot)
-            .appending(path: "sky130A/libs.ref/\(library)/spice/\(library).spice")
+        let deckURL: URL
+        do {
+            deckURL = try libraryDeckURL(for: library ?? representativeLibraryID())
+        } catch {
+            return false
+        }
         return fileManager.fileExists(atPath: deckURL.path(percentEncoded: false))
     }
 
     public enum SchematicError: Error, LocalizedError, Equatable {
         case unrecognizedCellName(String)
+        case standardCellLibraryMissing
+        case standardCellDeckRequirementMissing(library: String)
         case libraryDeckMissing(String)
         case subcircuitNotFound(cell: String, deck: String)
 
@@ -47,6 +63,10 @@ public struct PDKSchematicProvider: Sendable {
             switch self {
             case .unrecognizedCellName(let cell):
                 return "Cannot infer the PDK library from cell name '\(cell)' (expected '<lib>__<cell>')."
+            case .standardCellLibraryMissing:
+                return "PDK profile does not declare a standard-cell library deck template."
+            case .standardCellDeckRequirementMissing(let library):
+                return "PDK profile does not declare a SPICE deck requirement for library '\(library)'."
             case .libraryDeckMissing(let path):
                 return "PDK SPICE deck not found: \(path)"
             case .subcircuitNotFound(let cell, let deck):
@@ -63,8 +83,7 @@ public struct PDKSchematicProvider: Sendable {
             throw SchematicError.unrecognizedCellName(cell)
         }
         let library = String(cell[cell.startIndex..<separator.lowerBound])
-        let deckURL = URL(filePath: pdkRoot)
-            .appending(path: "sky130A/libs.ref/\(library)/spice/\(library).spice")
+        let deckURL = try libraryDeckURL(for: library)
         guard FileManager.default.fileExists(atPath: deckURL.path(percentEncoded: false)) else {
             throw SchematicError.libraryDeckMissing(deckURL.path(percentEncoded: false))
         }
@@ -102,5 +121,26 @@ public struct PDKSchematicProvider: Sendable {
         }
         guard inside, lines.last?.lowercased().hasPrefix(".ends") == true else { return nil }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func representativeLibraryID() -> String? {
+        context.profile.standardCellLibraries.first?.libraryID
+    }
+
+    private func libraryDeckURL(for library: String?) throws -> URL {
+        guard let library else {
+            throw SchematicError.standardCellLibraryMissing
+        }
+        guard let deck = context.profile.standardCellLibraries.first(where: { $0.libraryID == library })
+            ?? context.profile.standardCellLibraries.first else {
+            throw SchematicError.standardCellLibraryMissing
+        }
+        guard !deck.spiceDeckRequirementID.isEmpty else {
+            throw SchematicError.standardCellDeckRequirementMissing(library: library)
+        }
+        return try context.requiredFileURL(
+            requirementID: deck.spiceDeckRequirementID,
+            substitutions: ["library": library]
+        )
     }
 }

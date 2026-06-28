@@ -14,6 +14,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
         case setupHoldSearchFailed(metric: String)
         case invalidGrid(String)
         case unsupportedSequentialTopology(cell: String, reason: String)
+        case technologyModelHashMismatch(expectedModelHash: String, actualModelHash: String?)
 
         public var errorDescription: String? {
             switch self {
@@ -29,6 +30,8 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
                 return "Invalid sequential characterization grid: \(detail)."
             case .unsupportedSequentialTopology(let cell, let reason):
                 return "Sequential characterization only supports the generated DFF topology for \(cell): \(reason)."
+            case .technologyModelHashMismatch(let expected, let actual):
+                return "Sequential characterization technology context used device model hash \(actual ?? "nil"), expected \(expected)."
             }
         }
     }
@@ -60,9 +63,11 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
     private let setupHoldSearchWindow: Double
     private let setupHoldSearchResolution: Double
     private let maxSearchIterations: Int
+    private let technologyContext: TimingTechnologyContext
 
     public init(
-        model: Level1DeviceModel = .sky130Like(),
+        model: Level1DeviceModel = .bundledDefault(),
+        technologyContext: TimingTechnologyContext? = nil,
         simulation: SimulationServiceProtocol = SimulationService(),
         clockSlew: Double = 80e-12,
         dataSlew: Double = 80e-12,
@@ -72,6 +77,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
         maxSearchIterations: Int = 8
     ) {
         self.model = model
+        self.technologyContext = technologyContext ?? Level1DeviceModel.technologyContext(for: model)
         self.simulation = simulation
         self.clockSlew = clockSlew
         self.dataSlew = dataSlew
@@ -82,7 +88,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
     }
 
     public func characterizeFlipFlop(
-        _ netlist: GateLevelNetlist = Sky130DFFGenerator().netlist(name: "dff"),
+        _ netlist: GateLevelNetlist = DFFGenerator().netlist(name: "dff"),
         cellName: String = "dff"
     ) async throws -> SequentialTimingCharacterizationReport {
         guard !outputLoads.isEmpty else { throw CharacterizeError.invalidGrid("outputLoads must not be empty") }
@@ -90,6 +96,8 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
             throw CharacterizeError.invalidGrid("outputLoads must be finite positive values")
         }
         try validateSupportedDFFTopology(netlist)
+        let modelHash = try TimingTopologyHasher.hashModel(model)
+        let technology = try validatedTechnologyContext(modelHash: modelHash)
 
         var dRise = [[Double]](), dFall = [[Double]](), tRise = [[Double]](), tFall = [[Double]]()
         var clkToQMeasurements: [SequentialTimingMeasurementSummary] = []
@@ -174,14 +182,6 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
             clockCapacitance: inputCapacitance(of: netlist, pin: netlist.inputs.dropFirst().first ?? "CLK")
         )
 
-        let modelHash = try TimingTopologyHasher.hashModel(model)
-        let technology = TimingTechnologyContext(
-            processName: "sky130-like-level1",
-            cornerID: "tt",
-            supplyVoltage: model.supplyVoltage,
-            deviceModelID: "level1-sky130-like",
-            deviceModelHash: modelHash
-        )
         let grid = SequentialTimingCharacterizationGrid(
             clockSlews: [clockSlew],
             dataSlews: [dataSlew],
@@ -203,6 +203,16 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
             holdMeasurements: holdMeasurements,
             status: .passed
         )
+    }
+
+    private func validatedTechnologyContext(modelHash: String) throws -> TimingTechnologyContext {
+        guard technologyContext.deviceModelHash == modelHash else {
+            throw CharacterizeError.technologyModelHashMismatch(
+                expectedModelHash: modelHash,
+                actualModelHash: technologyContext.deviceModelHash
+            )
+        }
+        return technologyContext
     }
 
     private func measureClockToQ(

@@ -14,7 +14,11 @@ public struct BooleanGateMapper: Sendable {
         case or(Expr, Expr)
     }
 
-    public init() {}
+    private let cellLibrary: CMOSGateLibrary
+
+    public init(cellLibrary: CMOSGateLibrary = .bundledDefault) {
+        self.cellLibrary = cellLibrary
+    }
 
     /// Decompose `expr` into a gate-level netlist whose output net is `output`.
     public func map(_ expr: Expr, name: String, output: String = "y") -> GateLevelNetlist {
@@ -35,17 +39,17 @@ public struct BooleanGateMapper: Sendable {
                 return x
             case .not(let a):
                 let na = build(a), out = fresh()
-                add(.inverter(name: "inv"), ["A": na, "Y": out])
+                add(cellLibrary.inverter(name: "inv"), ["A": na, "Y": out])
                 return out
             case .and(let a, let b):
                 let na = build(a), nb = build(b), t = fresh(), out = fresh()
-                add(.nand(name: "nand2", inputs: ["A", "B"]), ["A": na, "B": nb, "Y": t])
-                add(.inverter(name: "inv"), ["A": t, "Y": out])
+                add(cellLibrary.nand(name: "nand2", inputs: ["A", "B"]), ["A": na, "B": nb, "Y": t])
+                add(cellLibrary.inverter(name: "inv"), ["A": t, "Y": out])
                 return out
             case .or(let a, let b):
                 let na = build(a), nb = build(b), t = fresh(), out = fresh()
-                add(.nor(name: "nor2", inputs: ["A", "B"]), ["A": na, "B": nb, "Y": t])
-                add(.inverter(name: "inv"), ["A": t, "Y": out])
+                add(cellLibrary.nor(name: "nor2", inputs: ["A", "B"]), ["A": na, "B": nb, "Y": t])
+                add(cellLibrary.inverter(name: "inv"), ["A": t, "Y": out])
                 return out
             }
         }

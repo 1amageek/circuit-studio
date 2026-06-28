@@ -97,4 +97,83 @@ struct FlowRunnerKeyValueFormatterTests {
         #expect(lines.contains("signoff_approved=false"))
         #expect(lines.contains("signoff_approval_kind="))
     }
+
+    @Test("Timing library output carries artifact and profile paths")
+    func timingLibraryOutputCarriesArtifactAndProfilePaths() {
+        let result = DesignFlowCommandResult(
+            kind: .buildTimingLibrary,
+            runID: "timing-run-1",
+            projectRootPath: "/tmp/flow-output",
+            timingArtifactManifestPath: "/tmp/flow-output/.xcircuite/runs/timing-run-1/timing/manifest.json",
+            timingLibraryPath: "/tmp/flow-output/.xcircuite/runs/timing-run-1/timing/timing-library.json",
+            timingModelProfileSelectionPath: "/tmp/flow-output/.xcircuite/runs/timing-run-1/timing/model-profile-selection.json",
+            timingModelProfileID: "profile-1",
+            timingModelProfilePath: "/tmp/timing-profile.json",
+            timingModelProfileCatalogID: "catalog-1",
+            timingModelProfileCatalogPath: "/tmp/timing-profile-catalog.json",
+            timingModelCornerID: "tt"
+        )
+
+        let lines = FlowRunnerKeyValueFormatter.lines(for: result)
+
+        #expect(lines.contains("timing_library=generated"))
+        #expect(lines.contains("timing_manifest=/tmp/flow-output/.xcircuite/runs/timing-run-1/timing/manifest.json"))
+        #expect(lines.contains("timing_library_artifact=/tmp/flow-output/.xcircuite/runs/timing-run-1/timing/timing-library.json"))
+        #expect(lines.contains("timing_model_profile_selection=/tmp/flow-output/.xcircuite/runs/timing-run-1/timing/model-profile-selection.json"))
+        #expect(lines.contains("timing_model_profile_id=profile-1"))
+        #expect(lines.contains("timing_model_profile_path=/tmp/timing-profile.json"))
+        #expect(lines.contains("timing_model_profile_catalog_id=catalog-1"))
+        #expect(lines.contains("timing_model_profile_catalog_path=/tmp/timing-profile-catalog.json"))
+        #expect(lines.contains("timing_model_corner_id=tt"))
+    }
+
+    @Test("Timing profile catalog inspection output carries readiness summary")
+    func timingProfileCatalogInspectionOutputCarriesReadinessSummary() {
+        let inspection = TimingModelProfileCatalogInspection(
+            catalogID: "catalog-1",
+            catalogPath: "/tmp/timing-profile-catalog.json",
+            profiles: [
+                TimingModelProfileCatalogInspection.Profile(
+                    profileID: "profile-1",
+                    displayName: "Profile 1",
+                    sourceKind: .externalFile,
+                    declaredCornerID: "tt",
+                    profileResourceName: nil,
+                    profilePath: "/tmp/profile-1.json",
+                    defaultProfile: true,
+                    status: .passed,
+                    schemaVersion: 1,
+                    processName: "unit-process",
+                    cornerID: "tt",
+                    deviceModelID: "unit-model",
+                    supplyVoltage: 1.8,
+                    deviceModelHash: String(repeating: "a", count: 64),
+                    sha256: String(repeating: "b", count: 64),
+                    diagnostics: []
+                ),
+            ]
+        )
+        let result = DesignFlowCommandResult(
+            kind: .inspectTimingModelProfiles,
+            timingModelProfileID: "profile-1",
+            timingModelProfileCatalogID: "catalog-1",
+            timingModelProfileCatalogPath: "/tmp/timing-profile-catalog.json",
+            timingModelProfileCatalogInspection: inspection,
+            timingModelCornerID: "tt"
+        )
+
+        let lines = FlowRunnerKeyValueFormatter.lines(for: result)
+
+        #expect(lines.contains("timing_model_profile_catalog=inspected"))
+        #expect(lines.contains("timing_model_profile_catalog_status=passed"))
+        #expect(lines.contains("timing_model_profile_catalog_id=catalog-1"))
+        #expect(lines.contains("timing_model_profile_catalog_path=/tmp/timing-profile-catalog.json"))
+        #expect(lines.contains("timing_model_profile_selected_id=profile-1"))
+        #expect(lines.contains("timing_model_corner_id=tt"))
+        #expect(lines.contains("timing_model_profile_default_id=profile-1"))
+        #expect(lines.contains("timing_model_profile_count=1"))
+        #expect(lines.contains("timing_model_profile_passed_count=1"))
+        #expect(lines.contains("timing_model_profile_failed_count=0"))
+        #expect(lines.contains("timing_model_profile_ids=profile-1"))
+    }
 }

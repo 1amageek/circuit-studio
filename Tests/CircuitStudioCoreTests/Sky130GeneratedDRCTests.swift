@@ -27,6 +27,23 @@ struct Sky130GeneratedDRCTests {
         return result.report
     }
 
+    private func circuitSynthesizer() throws -> StandardCircuitSynthesizer {
+        let profile = try standardCellLayoutProfile()
+        let technology = try LayoutTechnologyResource.bundled(resourceName: profile.targetTechnologyResourceName)
+        return StandardCircuitSynthesizer(profile: profile, layoutTechnology: technology)
+    }
+
+    private func standardCellLayoutProfile() throws -> StandardCellLayoutProfile {
+        try StandardCellLayoutProfileCatalog.loadDefaultProfile()
+    }
+
+    private func sky130PhysicalDesignLoop(drc: LayoutDRCChecking) throws -> PhysicalDesignLoop {
+        let evaluator = try SignoffEvaluationService.profileBacked(
+            resourceName: "sky130-signoff-rule-classification-profile"
+        )
+        return PhysicalDesignLoop(drc: drc, evaluator: evaluator)
+    }
+
     private func rect(_ layer: String, _ x: Double, _ y: Double, _ w: Double, _ h: Double) -> LayoutShape {
         LayoutShape(
             layer: Sky130LayoutTech.layer(layer),
@@ -119,7 +136,7 @@ struct Sky130GeneratedDRCTests {
         let netlist = GateLevelNetlist(name: "scale100", instances: insts, inputs: ["a"], output: "y")
         #expect(netlist.instances.count == 100)
         let doc = try HierarchicalSynthesizer(blocks: 4, columns: 2).synthesize(netlist)   // 2x2 grid
-        let spice = Sky130CircuitSynthesizer().referenceSPICE(for: netlist)
+        let spice = try circuitSynthesizer().referenceSPICE(for: netlist)
         let review = try await signoffDocument(doc, topCell: "scale100", referenceSPICE: spice)
         let drc = try #require(review.reports.first { $0.kind == .drc })
         let lvs = try #require(review.reports.first { $0.kind == .lvs })
@@ -140,7 +157,7 @@ struct Sky130GeneratedDRCTests {
         }
         let netlist = GateLevelNetlist(name: "mz_chain", instances: insts, inputs: ["a"], output: "y")
         let doc = try HierarchicalSynthesizer(blocks: 3, columns: 3).synthesize(netlist)
-        let spice = Sky130CircuitSynthesizer().referenceSPICE(for: netlist)
+        let spice = try circuitSynthesizer().referenceSPICE(for: netlist)
         let review = try await signoffDocument(doc, topCell: "mz_chain", referenceSPICE: spice)
         let drc = try #require(review.reports.first { $0.kind == .drc })
         let lvs = try #require(review.reports.first { $0.kind == .lvs })
@@ -170,7 +187,7 @@ struct Sky130GeneratedDRCTests {
     func gridFloorplanClean() async throws {
         // Four independently-synthesized blocks tiled into a 2x2 array — the spatial
         // scale primitive that replaces one impossibly-wide row with a square-ish grid.
-        let synth = Sky130CircuitSynthesizer()
+        let synth = try circuitSynthesizer()
         let blocks = try [
             GateLevelNetlist.and2(name: "b_and2"),
             GateLevelNetlist.or2(name: "b_or2"),
@@ -213,7 +230,7 @@ struct Sky130GeneratedDRCTests {
 
     /// Synthesize a netlist into a layout + schematic, export, and sign off (DRC + LVS).
     private func signoffSynthesized(_ netlist: CMOSGateNetlist) async throws -> ExternalSignoffReview {
-        let synth = Sky130StandardCellSynthesizer()
+        let synth = StandardCellSynthesizer(profile: try standardCellLayoutProfile())
         let doc = try synth.synthesize(netlist)
         let schematic = synth.schematic(netlist)
         let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-synth-\(netlist.name)-\(UUID().uuidString)")
@@ -239,13 +256,13 @@ struct Sky130GeneratedDRCTests {
         return try await signoff.run(layoutGDS: gds, topCell: topCell, schematicNetlist: spiceURL, artifactDirectory: dir)
     }
 
-    @Test("BC2: two VERTICALLY-STACKED blocks are one DRC + LVS clean circuit (cells in 2 rows)",
+    @Test("BC2: two vertically stacked blocks are one DRC + LVS clean circuit (cells in 2 rows)",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(6)))
-    func stackedRowsMet3Routed() async throws {
+    func stackedRowsProfileRouted() async throws {
         // An 8-inverter chain auto-partitioned into 2 blocks, STACKED in 2 rows (columns:1)
-        // — cells in two y-rows, the structural break from single-row. met3 joins the
-        // crossing net across rows; a li1 comb joins the rails at their two row heights.
-        let synth = Sky130CircuitSynthesizer()
+        // — cells in two y-rows, the structural break from single-row. The routing profile
+        // joins the crossing net across rows and straps rails at their two row heights.
+        let synth = try circuitSynthesizer()
         var insts: [GateLevelNetlist.Instance] = []
         for i in 0..<8 {
             let inNet = i == 0 ? "a" : "n\(i)"
@@ -265,10 +282,10 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "stacked LVS: \(lvs.diagnostics.prefix(8).map { ($0.ruleID ?? "?", $0.message) })")
     }
 
-    @Test("BC2: two blocks joined by met3 are one DRC + LVS clean circuit (multi-row routing)",
+    @Test("BC2: two blocks joined by profile routing are one DRC + LVS clean circuit",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(6)))
-    func twoBlockMet3Routed() async throws {
-        let synth = Sky130CircuitSynthesizer()
+    func twoBlockProfileRouted() async throws {
+        let synth = try circuitSynthesizer()
         // Split a 4-inverter chain a->ca->c2->cb->y across two blocks; c2 is the boundary net.
         let blkA = GateLevelNetlist(name: "twoblock_a", instances: [
             .init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "a", "Y": "ca"]),
@@ -314,7 +331,7 @@ struct Sky130GeneratedDRCTests {
 
     /// Auto place & route a gate-level netlist, export, and sign off (DRC + LVS).
     private func signoffCircuit(_ netlist: GateLevelNetlist) async throws -> ExternalSignoffReview {
-        let synth = Sky130CircuitSynthesizer()
+        let synth = try circuitSynthesizer()
         let doc = try synth.synthesize(netlist)
         let spice = synth.referenceSPICE(for: netlist)
         let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-circuit-\(netlist.name)-\(UUID().uuidString)")
@@ -363,7 +380,7 @@ struct Sky130GeneratedDRCTests {
     func aluSignsOff() async throws {
         // The combinational ALU (ADD/SUB/AND/OR + per-bit function-select MUX), ~100 cells,
         // placed & routed automatically. Its function is checked by the truth-table sim.
-        let netlist = Sky130ALUGenerator(bits: 4).gateLevelNetlist(name: "alu4")
+        let netlist = ALUGenerator(bits: 4).gateLevelNetlist(name: "alu4")
         let review = try await signoffCircuit(netlist)
         let drc = try #require(review.reports.first { $0.kind == .drc })
         let lvs = try #require(review.reports.first { $0.kind == .lvs })
@@ -376,7 +393,7 @@ struct Sky130GeneratedDRCTests {
     func accumulatorSignsOff() async throws {
         // The first sequential DATAPATH: a ripple adder + 4 DFFs (~80 cells), placed &
         // routed automatically. Its function is checked separately by the logic simulator.
-        let netlist = Sky130AccumulatorGenerator(bits: 4).gateLevelNetlist(name: "acc4")
+        let netlist = AccumulatorGenerator(bits: 4).gateLevelNetlist(name: "acc4")
         let review = try await signoffCircuit(netlist)
         let drc = try #require(review.reports.first { $0.kind == .drc })
         let lvs = try #require(review.reports.first { $0.kind == .lvs })
@@ -389,7 +406,7 @@ struct Sky130GeneratedDRCTests {
     func dffSignsOff() async throws {
         // A gate-level DFF (master/slave NAND latches + clock inverter) — the system
         // places & routes its latch feedback and clock fanout automatically.
-        let dff = Sky130DFFGenerator().netlist(name: "dff")
+        let dff = DFFGenerator().netlist(name: "dff")
         let review = try await signoffCircuit(dff)
         let drc = try #require(review.reports.first { $0.kind == .drc })
         let lvs = try #require(review.reports.first { $0.kind == .lvs })
@@ -775,13 +792,15 @@ struct Sky130GeneratedDRCTests {
         #expect(lvs.passed, "LVS: \(lvs.diagnostics.map { ($0.ruleID ?? "?", $0.message) }); netlist at \(dir.path)")
     }
 
-    @Test("Sky130CellSignoffService synthesizes the NAND2 generator, signs it off, and emits GDS",
+    @Test("StandardCellSignoffService synthesizes the NAND2 generator, signs it off, and emits GDS",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func synthesizeNAND2SignsOff() async throws {
         // The cell-agnostic agent flow: a different cell type through the SAME service.
-        let service = try #require(Sky130CellSignoffService.locate())
+        let service = try #require(StandardCellSignoffService.locate(technology: Sky130LayoutTech.tech()))
         let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-nand2-flow-\(UUID().uuidString)")
-        let output = try await service.synthesize(Sky130NAND2Generator(), name: "sky130_nand2", into: dir)
+        let profile = try standardCellLayoutProfile()
+        let generator = ProfiledStandardCellGenerator(cellID: "nand2", profile: profile)
+        let output = try await service.synthesize(generator, name: "sky130_nand2", into: dir)
 
         let rules = output.review.reports.flatMap { $0.diagnostics }.map { $0.ruleID ?? "?" }
         #expect(output.passed, "synthesized NAND2 must be DRC + LVS clean: \(rules)")
@@ -791,13 +810,15 @@ struct Sky130GeneratedDRCTests {
         #expect(output.review.reports.contains { $0.kind == .lvs && $0.passed })
     }
 
-    @Test("Sky130CellSignoffService synthesizes the NOR2 generator, signs it off, and emits GDS",
+    @Test("StandardCellSignoffService synthesizes the NOR2 generator, signs it off, and emits GDS",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func synthesizeNOR2SignsOff() async throws {
         // The dual of the NAND2 (parallel NMOS / series PMOS) through the same flow.
-        let service = try #require(Sky130CellSignoffService.locate())
+        let service = try #require(StandardCellSignoffService.locate(technology: Sky130LayoutTech.tech()))
         let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-nor2-flow-\(UUID().uuidString)")
-        let output = try await service.synthesize(Sky130NOR2Generator(), name: "sky130_nor2", into: dir)
+        let profile = try standardCellLayoutProfile()
+        let generator = ProfiledStandardCellGenerator(cellID: "nor2", profile: profile)
+        let output = try await service.synthesize(generator, name: "sky130_nor2", into: dir)
 
         let rules = output.review.reports.flatMap { $0.diagnostics }.map { $0.ruleID ?? "?" }
         #expect(output.passed, "synthesized NOR2 must be DRC + LVS clean: \(rules)")
@@ -1073,13 +1094,18 @@ struct Sky130GeneratedDRCTests {
                 "diagnostics: \(report.diagnostics.map { ($0.ruleID ?? "?", $0.message) })")
     }
 
-    @Test("Sky130CellSignoffService synthesizes an inverter, signs it off, and emits GDS",
+    @Test("StandardCellSignoffService synthesizes an inverter, signs it off, and emits GDS",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func synthesizeSignoffEmitGDS() async throws {
         // The whole agent-callable physical flow in one call.
-        let service = try #require(Sky130CellSignoffService.locate())
+        let service = try #require(StandardCellSignoffService.locate(technology: Sky130LayoutTech.tech()))
         let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-flow-\(UUID().uuidString)")
-        let output = try await service.synthesizeInverter(name: "sky130_inverter", into: dir)
+        let profile = try standardCellLayoutProfile()
+        let output = try await service.synthesizeInverter(
+            name: "sky130_inverter",
+            into: dir,
+            generator: ProfiledInverterGenerator(profile: profile)
+        )
 
         #expect(output.passed, "synthesized cell must be DRC + LVS clean")
         #expect(FileManager.default.fileExists(atPath: output.gdsURL.path(percentEncoded: false)),
@@ -1094,9 +1120,15 @@ struct Sky130GeneratedDRCTests {
     func widthParameterizedSignsOff(width: Double) async throws {
         // The parametric floorplan must hold across the supported width range — this is
         // the link from electrical sizing (W) to a signed-off physical cell.
-        let service = try #require(Sky130CellSignoffService.locate())
+        let service = try #require(StandardCellSignoffService.locate(technology: Sky130LayoutTech.tech()))
         let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-w-\(UUID().uuidString)")
-        let output = try await service.synthesizeInverter(name: "sky130_inverter", width: width, into: dir)
+        let profile = try standardCellLayoutProfile()
+        let output = try await service.synthesizeInverter(
+            name: "sky130_inverter",
+            width: width,
+            into: dir,
+            generator: ProfiledInverterGenerator(profile: profile)
+        )
         let rules = output.review.reports.flatMap { $0.diagnostics }.map { $0.ruleID ?? "?" }
         #expect(output.passed, "width \(width) not clean: \(rules)")
     }
@@ -1188,8 +1220,8 @@ struct Sky130GeneratedDRCTests {
         // DRC name the violation (met1.2), route the report through the Explain stage,
         // and let the loop grow the gap (Decide -> Edit) until it is clean —
         // failure-driven, not a fixed script.
-        let drc = try #require(Sky130LayoutDRC.locate())
-        let loop = PhysicalDesignLoop(drc: drc)
+        let drc = try #require(MagicLayoutDRCChecker.locate())
+        let loop = try sky130PhysicalDesignLoop(drc: drc)
         let cell = "gen_met1_pair"
         let tunable = PhysicalDesignLoop.Tunable(
             parameter: "met1_gap", fixesReason: "min_spacing_violation", onLayer: "met1",
@@ -1247,8 +1279,8 @@ struct Sky130GeneratedDRCTests {
     func physicalLoopRefusesUnaddressableViolation() async throws {
         // Same too-close-wires geometry (a SPACING violation), but the tunable claims to
         // fix a WIDTH violation — the loop must throw, not blindly grow or silently pass.
-        let drc = try #require(Sky130LayoutDRC.locate())
-        let loop = PhysicalDesignLoop(drc: drc)
+        let drc = try #require(MagicLayoutDRCChecker.locate())
+        let loop = try sky130PhysicalDesignLoop(drc: drc)
         let cell = "gen_met1_pair_unfixable"
         let tunable = PhysicalDesignLoop.Tunable(
             parameter: "met1_width", fixesReason: "min_width_violation", onLayer: "met1",
@@ -1270,12 +1302,12 @@ struct Sky130GeneratedDRCTests {
         }
     }
 
-    @Test("The Sky130InverterGenerator output passes real DRC + Netgen LVS end-to-end",
+    @Test("ProfiledInverterGenerator output passes real DRC + Netgen LVS end-to-end",
           .enabled(if: Sky130GeneratedDRCTests.available), .timeLimit(.minutes(5)))
     func generatorOutputSignsOff() async throws {
         // Drive the whole flow from the production generator (not test-embedded
         // geometry): generate -> GDS -> real DRC + LVS.
-        let generator = Sky130InverterGenerator()
+        let generator = try ProfiledInverterGenerator(profile: standardCellLayoutProfile())
         let cell = "sky130_inverter"
         let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-gen-cell-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

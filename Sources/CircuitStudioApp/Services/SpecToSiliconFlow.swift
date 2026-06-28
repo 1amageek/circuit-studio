@@ -155,7 +155,14 @@ public struct SpecToSiliconFlow: Sendable {
         //    when present and are honestly omitted otherwise. Every axis the flow runs is
         //    reported truthfully — a failing axis fails the bundle, never a curated green.
         let netlist = generator.gateLevelNetlist(name: intent.designName)
-        let synth = Sky130CircuitSynthesizer()
+        let layoutProfile = try StandardCellLayoutProfileCatalog.loadDefaultProfile()
+        let layoutTechnology = try LayoutTechnologyResource.bundled(
+            resourceName: layoutProfile.targetTechnologyResourceName
+        )
+        let synth = StandardCircuitSynthesizer(
+            profile: layoutProfile,
+            layoutTechnology: layoutTechnology
+        )
         let synthesis = try synth.synthesisResult(for: netlist)
         let antennaPlanURL = artifactDirectory.appending(path: "\(intent.designName).antenna-protection.json")
         let antennaPlanRecord = try AntennaProtectionArtifactWriter().write(synthesis.antennaProtectionPlan, to: antennaPlanURL)
@@ -167,7 +174,7 @@ public struct SpecToSiliconFlow: Sendable {
                             kind: .supportingEvidence))
         let doc = synthesis.document
         let gds = artifactDirectory.appending(path: "\(intent.designName).gds")
-        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(doc, to: gds, format: .gds)
+        try MaskDataFormatConverter(tech: layoutTechnology).exportDocument(doc, to: gds, format: .gds)
         let spiceURL = artifactDirectory.appending(path: "\(intent.designName).spice")
         try synth.referenceSPICE(for: netlist).write(to: spiceURL, atomically: true, encoding: .utf8)
 

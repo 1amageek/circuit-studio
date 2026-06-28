@@ -2,7 +2,7 @@ import Foundation
 
 /// Builds a Magic-driven DRC signoff command for `ExternalSignoffCommandService`.
 ///
-/// Magic runs headlessly (`-dnull -noconsole`) against a Sky130-class PDK, and
+/// Magic runs headlessly (`-dnull -noconsole`) against a profile-resolved PDK, and
 /// the bundled `drc.tcl` normalizes Magic's free-text DRC output into lines the
 /// `ExternalSignoffReportParser` understands. This replaces the previous
 /// golden-log replay / "magic-netgen-like" mock for DRC with a real tool.
@@ -76,14 +76,14 @@ public struct MagicDRCSignoff: Sendable {
         )
     }
 
-    /// Discovers an installed Magic + Sky130 toolchain, or `nil` if unavailable.
+    /// Discovers an installed Magic + profile-resolved PDK toolchain, or `nil` if unavailable.
     ///
     /// Returning `nil` — rather than substituting a mock — leaves the decision
     /// to the caller; there is no silent fallback to a fake result.
     /// - `MAGIC_BIN` overrides the Magic launcher path (default
     ///   `~/.local/magic/bin/magic`).
-    /// - `PDK_ROOT` overrides the PDK root; otherwise the single installed
-    ///   volare Sky130 version is used (ambiguity returns `nil`).
+    /// - `PDK_ROOT` overrides the PDK root; otherwise the selected profile's
+    ///   candidate roots are used.
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
@@ -94,11 +94,18 @@ public struct MagicDRCSignoff: Sendable {
             ?? NSString(string: "~/.local/magic/bin/magic").expandingTildeInPath
         guard fileManager.isExecutableFile(atPath: magicPath) else { return nil }
 
-        guard let pdkRoot = Sky130PDK.root(environment: environment, fileManager: fileManager) else {
+        let context: SignoffPDKContext
+        let rcFile: URL
+        do {
+            context = try SignoffPDKContext.resolve(
+                requirementID: "magic",
+                environment: environment,
+                fileManager: fileManager
+            )
+            rcFile = try context.requiredFileURL(requirementID: "magic")
+        } catch {
             return nil
         }
-        let rcFile = URL(filePath: pdkRoot)
-            .appending(path: "sky130A/libs.tech/magic/sky130A.magicrc")
         guard fileManager.fileExists(atPath: rcFile.path(percentEncoded: false)) else {
             return nil
         }
@@ -106,7 +113,7 @@ public struct MagicDRCSignoff: Sendable {
         return MagicDRCSignoff(
             magicExecutableURL: URL(filePath: magicPath),
             rcFileURL: rcFile,
-            pdkRoot: pdkRoot,
+            pdkRoot: context.pdkRoot,
             driverScriptURL: driver
         )
     }

@@ -6,7 +6,7 @@ import Foundation
 /// cannot see: during fabrication, a long stretch of metal connected to a gate
 /// before the gate's protection diode is placed collects plasma charge and can
 /// rupture the thin gate oxide. The bundled `antenna.tcl` runs the check
-/// headlessly against a Sky130-class PDK and normalizes Magic's output into lines
+/// headlessly against a profile-resolved PDK and normalizes Magic's output into lines
 /// the `ExternalSignoffReportParser` understands.
 public struct MagicAntennaSignoff: Sendable {
 
@@ -72,7 +72,7 @@ public struct MagicAntennaSignoff: Sendable {
         )
     }
 
-    /// Discovers an installed Magic + Sky130 toolchain, or `nil` if unavailable.
+    /// Discovers an installed Magic + profile-resolved PDK toolchain, or `nil` if unavailable.
     ///
     /// Returning `nil` — rather than substituting a mock — leaves the decision to
     /// the caller; there is no silent fallback to a fake result. Mirrors
@@ -87,11 +87,18 @@ public struct MagicAntennaSignoff: Sendable {
             ?? NSString(string: "~/.local/magic/bin/magic").expandingTildeInPath
         guard fileManager.isExecutableFile(atPath: magicPath) else { return nil }
 
-        guard let pdkRoot = Sky130PDK.root(environment: environment, fileManager: fileManager) else {
+        let context: SignoffPDKContext
+        let rcFile: URL
+        do {
+            context = try SignoffPDKContext.resolve(
+                requirementID: "magic",
+                environment: environment,
+                fileManager: fileManager
+            )
+            rcFile = try context.requiredFileURL(requirementID: "magic")
+        } catch {
             return nil
         }
-        let rcFile = URL(filePath: pdkRoot)
-            .appending(path: "sky130A/libs.tech/magic/sky130A.magicrc")
         guard fileManager.fileExists(atPath: rcFile.path(percentEncoded: false)) else {
             return nil
         }
@@ -99,7 +106,7 @@ public struct MagicAntennaSignoff: Sendable {
         return MagicAntennaSignoff(
             magicExecutableURL: URL(filePath: magicPath),
             rcFileURL: rcFile,
-            pdkRoot: pdkRoot,
+            pdkRoot: context.pdkRoot,
             driverScriptURL: driver
         )
     }

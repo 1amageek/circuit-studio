@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "kind": "layout-technology-catalog",
+  "catalogID": "circuit-studio.default-layout-technologies.v1",
+  "technologies": [
+    {
+      "technologyID": "sky130.layout-tech.v1",
+      "displayName": "Sky130 compatibility layout technology",
+      "processName": "sky130",
+      "technologyResourceName": "sky130-layout-tech",
+      "routingProfileResourceName": "sky130-layout-routing-profile",
+      "defaultTechnology": true
+    }
+  ]
+}

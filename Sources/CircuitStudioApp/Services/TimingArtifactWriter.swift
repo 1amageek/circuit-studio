@@ -56,6 +56,7 @@ public struct TimingArtifactWriter: Sendable {
         runDirectory: URL,
         technology: TimingTechnologyContext,
         library: TimingLibraryArtifact,
+        profileSelection: TimingModelProfileSelection? = nil,
         staReport: STAReportArtifact?,
         combinationalReport: CombinationalTimingCharacterizationReport?,
         sequentialReport: SequentialTimingCharacterizationReport?,
@@ -76,6 +77,7 @@ public struct TimingArtifactWriter: Sendable {
             staReport: staReport,
             combinationalReport: combinationalReport,
             sequentialReport: sequentialReport,
+            profileSelection: profileSelection,
             validationReports: validationReports
         )
         if combinationalReport != nil || sequentialReport != nil {
@@ -108,6 +110,16 @@ public struct TimingArtifactWriter: Sendable {
                 kind: .staReport,
                 value: staReport,
                 url: timingDirectory.appending(path: "sta-report.json"),
+                runDirectory: runDirectory
+            ))
+        }
+
+        if let profileSelection {
+            artifactItems.append(try artifactItem(
+                id: "timing-model-profile-selection",
+                kind: .modelProfileSelection,
+                value: profileSelection,
+                url: timingDirectory.appending(path: "model-profile-selection.json"),
                 runDirectory: runDirectory
             ))
         }
@@ -178,6 +190,7 @@ public struct TimingArtifactWriter: Sendable {
         staReport: STAReportArtifact?,
         combinationalReport: CombinationalTimingCharacterizationReport?,
         sequentialReport: SequentialTimingCharacterizationReport?,
+        profileSelection: TimingModelProfileSelection?,
         validationReports: [(id: String, fileName: String, report: TimingValidationReport)]
     ) throws -> [TimingArtifactRecord] {
         var records: [TimingArtifactRecord] = []
@@ -193,6 +206,15 @@ public struct TimingArtifactWriter: Sendable {
                 id: "sta-report",
                 kind: .staReport,
                 url: timingDirectory.appending(path: "sta-report.json"),
+                runDirectory: runDirectory
+            ))
+        }
+
+        if profileSelection != nil {
+            records.append(try plannedRecord(
+                id: "timing-model-profile-selection",
+                kind: .modelProfileSelection,
+                url: timingDirectory.appending(path: "model-profile-selection.json"),
                 runDirectory: runDirectory
             ))
         }

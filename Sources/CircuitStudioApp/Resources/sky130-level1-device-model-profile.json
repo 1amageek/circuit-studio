@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "profileID": "sky130.level1-device-model.v1",
+  "technology": {
+    "processName": "sky130-like-level1",
+    "cornerID": "tt",
+    "temperatureC": 25.0,
+    "deviceModelID": "level1-sky130-like"
+  },
+  "model": {
+    "supplyVoltage": 1.8,
+    "nmosModelName": "NM",
+    "pmosModelName": "PM",
+    "nmosCard": ".model NM NMOS level=1 vto=0.45 kp=120u lambda=0.1 gamma=0.4 phi=0.65",
+    "pmosCard": ".model PM PMOS level=1 vto=-0.45 kp=40u lambda=0.1 gamma=0.4 phi=0.65",
+    "oxideCapPerArea": 0.0085
+  }
+}

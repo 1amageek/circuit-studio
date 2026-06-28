@@ -5,490 +5,8 @@ import CoreSpiceWaveform
 import LayoutCore
 import LayoutTech
 import LayoutEngine
-
-public struct DesignFlowSPICESimulationRequest: Sendable {
-    public let source: String
-    public let fileName: String?
-    public let processConfiguration: ProcessConfiguration?
-    public let onWaveformUpdate: (@Sendable (WaveformData) -> Void)?
-
-    public init(
-        source: String,
-        fileName: String?,
-        processConfiguration: ProcessConfiguration? = nil,
-        onWaveformUpdate: (@Sendable (WaveformData) -> Void)? = nil
-    ) {
-        self.source = source
-        self.fileName = fileName
-        self.processConfiguration = processConfiguration
-        self.onWaveformUpdate = onWaveformUpdate
-    }
-}
-
-public struct DesignFlowSchematicSimulationRequest: Sendable {
-    public let schematic: SchematicDocument
-    public let library: CellLibrary
-    public let title: String?
-    public let testbench: Testbench
-    public let processConfiguration: ProcessConfiguration?
-    public let onWaveformUpdate: (@Sendable (WaveformData) -> Void)?
-
-    public init(
-        schematic: SchematicDocument,
-        library: CellLibrary = CellLibrary(),
-        title: String? = nil,
-        testbench: Testbench,
-        processConfiguration: ProcessConfiguration? = nil,
-        onWaveformUpdate: (@Sendable (WaveformData) -> Void)? = nil
-    ) {
-        self.schematic = schematic
-        self.library = library
-        self.title = title
-        self.testbench = testbench
-        self.processConfiguration = processConfiguration
-        self.onWaveformUpdate = onWaveformUpdate
-    }
-}
-
-public struct DesignFlowSchematicSimulationResult: Sendable {
-    public let netlist: String
-    public let simulationResult: SimulationResult
-
-    public init(netlist: String, simulationResult: SimulationResult) {
-        self.netlist = netlist
-        self.simulationResult = simulationResult
-    }
-}
-
-public struct DesignFlowNetlistRequest: Sendable {
-    public let schematic: SchematicDocument
-    public let library: CellLibrary
-    public let title: String?
-    public let testbench: Testbench?
-    public let processConfiguration: ProcessConfiguration?
-
-    public init(
-        schematic: SchematicDocument,
-        library: CellLibrary = CellLibrary(),
-        title: String? = nil,
-        testbench: Testbench? = nil,
-        processConfiguration: ProcessConfiguration? = nil
-    ) {
-        self.schematic = schematic
-        self.library = library
-        self.title = title
-        self.testbench = testbench
-        self.processConfiguration = processConfiguration
-    }
-}
-
-public struct DesignFlowLayoutGenerationRequest: Sendable {
-    public let schematic: SchematicDocument
-    public let catalog: DeviceCatalog
-    public let tech: LayoutTechDatabase?
-    public let placementStrategy: PlacementEngineSelection
-    public let routingStrategy: RoutingEngineSelection
-    public let constraints: [LayoutConstraint]
-
-    public init(
-        schematic: SchematicDocument,
-        catalog: DeviceCatalog = .standard(),
-        tech: LayoutTechDatabase? = nil,
-        placementStrategy: PlacementEngineSelection = .greedy,
-        routingStrategy: RoutingEngineSelection = .simple,
-        constraints: [LayoutConstraint] = []
-    ) {
-        self.schematic = schematic
-        self.catalog = catalog
-        self.tech = tech
-        self.placementStrategy = placementStrategy
-        self.routingStrategy = routingStrategy
-        self.constraints = constraints
-    }
-}
-
-public struct DesignFlowPrePEXVerificationRequest: Sendable {
-    public let schematic: SchematicDocument
-    public let layout: LayoutDocument
-    public let tech: LayoutTechDatabase
-    public let designUnit: DesignUnit?
-    public let catalog: DeviceCatalog
-    public let externalSignoff: ExternalSignoffReview?
-
-    public init(
-        schematic: SchematicDocument,
-        layout: LayoutDocument,
-        tech: LayoutTechDatabase,
-        designUnit: DesignUnit?,
-        catalog: DeviceCatalog = .standard(),
-        externalSignoff: ExternalSignoffReview? = nil
-    ) {
-        self.schematic = schematic
-        self.layout = layout
-        self.tech = tech
-        self.designUnit = designUnit
-        self.catalog = catalog
-        self.externalSignoff = externalSignoff
-    }
-}
-
-public struct DesignFlowPostLayoutSimulationRequest: Sendable {
-    public let baseNetlist: String
-    public let parasitics: PEXParasiticIR
-    public let command: AnalysisCommand
-    public let processConfiguration: ProcessConfiguration?
-
-    public init(
-        baseNetlist: String,
-        parasitics: PEXParasiticIR,
-        command: AnalysisCommand,
-        processConfiguration: ProcessConfiguration? = nil
-    ) {
-        self.baseNetlist = baseNetlist
-        self.parasitics = parasitics
-        self.command = command
-        self.processConfiguration = processConfiguration
-    }
-}
-
-public struct DesignFlowRoundTripRequest {
-    public let schematic: SchematicDocument
-    public let configuration: HeadlessRoundTripService.Configuration
-
-    public init(
-        schematic: SchematicDocument,
-        configuration: HeadlessRoundTripService.Configuration
-    ) {
-        self.schematic = schematic
-        self.configuration = configuration
-    }
-}
-
-public struct DesignFlowPEXInput: Sendable, Hashable {
-    public let ir: PEXParasiticIR
-    public let artifactPaths: [String]
-
-    public init(ir: PEXParasiticIR, artifactPaths: [String]) {
-        self.ir = ir
-        self.artifactPaths = artifactPaths
-    }
-}
-
-public struct DesignFlowPEXExtractionRequest: Sendable, Hashable {
-    public let configURL: URL
-    public let workingDirectory: URL?
-    public let cornerID: String
-    public let executablePath: String?
-    public let additionalArguments: [String]
-
-    public init(
-        configURL: URL,
-        workingDirectory: URL? = nil,
-        cornerID: String = "tt_25c_1v0",
-        executablePath: String? = nil,
-        additionalArguments: [String] = []
-    ) {
-        self.configURL = configURL
-        self.workingDirectory = workingDirectory
-        self.cornerID = cornerID
-        self.executablePath = executablePath
-        self.additionalArguments = additionalArguments
-    }
-}
-
-private struct DesignFlowVerificationInput {
-    let schematic: SchematicDocument
-    let fixtureName: String?
-    let designName: String?
-}
-
-public struct DesignFlowCommand: Sendable, Hashable, Codable {
-    public enum Kind: String, Sendable, Hashable, Codable {
-        case listFixtures
-        case generateFixtureNetlist
-        case runFixtureSimulation
-        case runFixtureRoundTrip
-        case generateDesignNetlist
-        case runDesignSimulation
-        case runDesignRoundTrip
-        case summarizeBottlenecks
-        case loadTechnologyPackage
-        case runPEXExtraction
-        case applyDesignEdit
-        case applyLayoutEdit
-        case runLayoutTrust
-        case runVerification
-        case approveGate
-        case reviewRoundTrip
-    }
-
-    public let kind: Kind
-    public let fixtureName: String?
-    public let designSpecPath: String?
-    public let projectRootPath: String?
-    public let runID: String?
-    public let approveSignoff: Bool
-    public let pexManifestPath: String?
-    public let pexCornerID: String?
-    public let signoffDRCLogPath: String?
-    public let signoffLVSLogPath: String?
-    public let maxAbsoluteDelta: Double?
-    public let maxRelativeDelta: Double?
-    public let relativeDeltaDenominatorFloor: Double?
-    public let domainComparisonLimits: [PostLayoutSignalDomainComparisonLimit]?
-    public let variableComparisonLimits: [PostLayoutVariableComparisonLimit]?
-    public let oscillationMetricLimits: [PostLayoutOscillationMetricLimit]?
-    public let technologyPackagePath: String?
-    public let pexConfigPath: String?
-    public let pexExecutablePath: String?
-    public let editScriptPath: String?
-    public let outputDesignSpecPath: String?
-    public let layoutDocumentPath: String?
-    public let outputLayoutDocumentPath: String?
-    public let designUnitPath: String?
-    public let roundTripManifestPath: String?
-    public let approvalGateID: FlowGateID?
-    public let approvalTargetPath: String?
-    public let approvalReviewer: String?
-    public let approvalDecision: GateApprovalDecision?
-    public let approvalPolicy: String?
-    public let approvalNote: String?
-    public let waiverIDs: [String]
-
-    public init(
-        kind: Kind,
-        fixtureName: String? = nil,
-        designSpecPath: String? = nil,
-        projectRootPath: String? = nil,
-        runID: String? = nil,
-        approveSignoff: Bool = false,
-        pexManifestPath: String? = nil,
-        pexCornerID: String? = nil,
-        signoffDRCLogPath: String? = nil,
-        signoffLVSLogPath: String? = nil,
-        maxAbsoluteDelta: Double? = nil,
-        maxRelativeDelta: Double? = nil,
-        relativeDeltaDenominatorFloor: Double? = nil,
-        domainComparisonLimits: [PostLayoutSignalDomainComparisonLimit] = [],
-        variableComparisonLimits: [PostLayoutVariableComparisonLimit] = [],
-        oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = [],
-        technologyPackagePath: String? = nil,
-        pexConfigPath: String? = nil,
-        pexExecutablePath: String? = nil,
-        editScriptPath: String? = nil,
-        outputDesignSpecPath: String? = nil,
-        layoutDocumentPath: String? = nil,
-        outputLayoutDocumentPath: String? = nil,
-        designUnitPath: String? = nil,
-        roundTripManifestPath: String? = nil,
-        approvalGateID: FlowGateID? = nil,
-        approvalTargetPath: String? = nil,
-        approvalReviewer: String? = nil,
-        approvalDecision: GateApprovalDecision? = nil,
-        approvalPolicy: String? = nil,
-        approvalNote: String? = nil,
-        waiverIDs: [String] = []
-    ) {
-        self.kind = kind
-        self.fixtureName = fixtureName
-        self.designSpecPath = designSpecPath
-        self.projectRootPath = projectRootPath
-        self.runID = runID
-        self.approveSignoff = approveSignoff
-        self.pexManifestPath = pexManifestPath
-        self.pexCornerID = pexCornerID
-        self.signoffDRCLogPath = signoffDRCLogPath
-        self.signoffLVSLogPath = signoffLVSLogPath
-        self.maxAbsoluteDelta = maxAbsoluteDelta
-        self.maxRelativeDelta = maxRelativeDelta
-        self.relativeDeltaDenominatorFloor = relativeDeltaDenominatorFloor
-        self.domainComparisonLimits = domainComparisonLimits.isEmpty ? nil : domainComparisonLimits
-        self.variableComparisonLimits = variableComparisonLimits.isEmpty ? nil : variableComparisonLimits
-        self.oscillationMetricLimits = oscillationMetricLimits.isEmpty ? nil : oscillationMetricLimits
-        self.technologyPackagePath = technologyPackagePath
-        self.pexConfigPath = pexConfigPath
-        self.pexExecutablePath = pexExecutablePath
-        self.editScriptPath = editScriptPath
-        self.outputDesignSpecPath = outputDesignSpecPath
-        self.layoutDocumentPath = layoutDocumentPath
-        self.outputLayoutDocumentPath = outputLayoutDocumentPath
-        self.designUnitPath = designUnitPath
-        self.roundTripManifestPath = roundTripManifestPath
-        self.approvalGateID = approvalGateID
-        self.approvalTargetPath = approvalTargetPath
-        self.approvalReviewer = approvalReviewer
-        self.approvalDecision = approvalDecision
-        self.approvalPolicy = approvalPolicy
-        self.approvalNote = approvalNote
-        self.waiverIDs = waiverIDs
-    }
-
-    public static func listFixtures() -> DesignFlowCommand {
-        DesignFlowCommand(kind: .listFixtures)
-    }
-}
-
-public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
-    public let kind: DesignFlowCommand.Kind
-    public let fixtureNames: [String]
-    public let fixtureName: String?
-    public let designName: String?
-    public let runID: String?
-    public let netlist: String?
-    public let simulationStatus: String?
-    public let projectRootPath: String?
-    public let manifestPath: String?
-    public let readyForPEX: Bool?
-    public let pexCornerID: String?
-    public let pexElementCount: Int?
-    public let comparisonLimitsConfigured: Bool?
-    public let pexManifestPath: String?
-    public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
-    public let bottleneckHistory: RoundTripBottleneckHistoryService.Summary?
-    public let technologyPackageID: String?
-    public let technologyPackagePath: String?
-    public let validationDiagnostics: [TechnologyPackageValidationReport.Diagnostic]?
-    public let designSpecPath: String?
-    public let layoutDocumentPath: String?
-    public let actionLogPath: String?
-    public let designDiffPath: String?
-    public let layoutDiffPath: String?
-    public let layoutTrustPassed: Bool?
-    public let layoutTrustReportPath: String?
-    public let layoutTrustReport: LayoutTrustReport?
-    public let verificationReportPath: String?
-    public let verificationReport: DesignFlowVerificationReport?
-    public let approvalRecordPath: String?
-    public let approvalRecord: GateApprovalRecord?
-    public let roundTripReview: RoundTripReviewSummary?
-    public let message: String?
-
-    public init(
-        kind: DesignFlowCommand.Kind,
-        fixtureNames: [String] = [],
-        fixtureName: String? = nil,
-        designName: String? = nil,
-        runID: String? = nil,
-        netlist: String? = nil,
-        simulationStatus: String? = nil,
-        projectRootPath: String? = nil,
-        manifestPath: String? = nil,
-        readyForPEX: Bool? = nil,
-        pexCornerID: String? = nil,
-        pexElementCount: Int? = nil,
-        comparisonLimitsConfigured: Bool? = nil,
-        pexManifestPath: String? = nil,
-        bottleneckSummary: HeadlessRoundTripService.BottleneckSummary? = nil,
-        bottleneckHistory: RoundTripBottleneckHistoryService.Summary? = nil,
-        technologyPackageID: String? = nil,
-        technologyPackagePath: String? = nil,
-        validationDiagnostics: [TechnologyPackageValidationReport.Diagnostic]? = nil,
-        designSpecPath: String? = nil,
-        layoutDocumentPath: String? = nil,
-        actionLogPath: String? = nil,
-        designDiffPath: String? = nil,
-        layoutDiffPath: String? = nil,
-        layoutTrustPassed: Bool? = nil,
-        layoutTrustReportPath: String? = nil,
-        layoutTrustReport: LayoutTrustReport? = nil,
-        verificationReportPath: String? = nil,
-        verificationReport: DesignFlowVerificationReport? = nil,
-        approvalRecordPath: String? = nil,
-        approvalRecord: GateApprovalRecord? = nil,
-        roundTripReview: RoundTripReviewSummary? = nil,
-        message: String? = nil
-    ) {
-        self.kind = kind
-        self.fixtureNames = fixtureNames
-        self.fixtureName = fixtureName
-        self.designName = designName
-        self.runID = runID
-        self.netlist = netlist
-        self.simulationStatus = simulationStatus
-        self.projectRootPath = projectRootPath
-        self.manifestPath = manifestPath
-        self.readyForPEX = readyForPEX
-        self.pexCornerID = pexCornerID
-        self.pexElementCount = pexElementCount
-        self.comparisonLimitsConfigured = comparisonLimitsConfigured
-        self.pexManifestPath = pexManifestPath
-        self.bottleneckSummary = bottleneckSummary
-        self.bottleneckHistory = bottleneckHistory
-        self.technologyPackageID = technologyPackageID
-        self.technologyPackagePath = technologyPackagePath
-        self.validationDiagnostics = validationDiagnostics
-        self.designSpecPath = designSpecPath
-        self.layoutDocumentPath = layoutDocumentPath
-        self.actionLogPath = actionLogPath
-        self.designDiffPath = designDiffPath
-        self.layoutDiffPath = layoutDiffPath
-        self.layoutTrustPassed = layoutTrustPassed
-        self.layoutTrustReportPath = layoutTrustReportPath
-        self.layoutTrustReport = layoutTrustReport
-        self.verificationReportPath = verificationReportPath
-        self.verificationReport = verificationReport
-        self.approvalRecordPath = approvalRecordPath
-        self.approvalRecord = approvalRecord
-        self.roundTripReview = roundTripReview
-        self.message = message
-    }
-}
-
-public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
-    case missingFixtureName
-    case missingDesignSpecPath
-    case missingProjectRoot
-    case incompleteSignoffLogPair
-    case invalidComparisonLimits([String])
-    case missingTechnologyPackagePath
-    case missingPEXConfigPath
-    case missingEditScriptPath
-    case missingOutputDesignSpecPath
-    case missingLayoutDocumentPath
-    case missingOutputLayoutDocumentPath
-    case missingVerificationDesignInput
-    case missingRoundTripManifestPath
-    case missingApprovalGateID
-    case missingApprovalReviewer
-    case signoffToolchainUnavailable
-
-    public var errorDescription: String? {
-        switch self {
-        case .missingFixtureName:
-            return "Design flow command requires a fixture name."
-        case .missingDesignSpecPath:
-            return "Design flow command requires a design spec path."
-        case .missingProjectRoot:
-            return "Design flow command requires a project root path."
-        case .incompleteSignoffLogPair:
-            return "Both DRC and LVS signoff log paths are required when importing signoff logs."
-        case .invalidComparisonLimits(let diagnostics):
-            return diagnostics.joined(separator: "; ")
-        case .missingTechnologyPackagePath:
-            return "Design flow command requires a technology package path."
-        case .missingPEXConfigPath:
-            return "Design flow command requires a PEX config path."
-        case .missingEditScriptPath:
-            return "Design flow command requires a design edit script path."
-        case .missingOutputDesignSpecPath:
-            return "Design flow command requires an output design spec path."
-        case .missingLayoutDocumentPath:
-            return "Design flow command requires a layout document path."
-        case .missingOutputLayoutDocumentPath:
-            return "Design flow command requires an output layout document path."
-        case .missingVerificationDesignInput:
-            return "Design flow verification requires a design spec path or a fixture name."
-        case .missingRoundTripManifestPath:
-            return "Design flow command requires a round-trip manifest path, or a project root path with a run ID."
-        case .missingApprovalGateID:
-            return "Design flow command requires an approval gate ID."
-        case .missingApprovalReviewer:
-            return "Design flow command requires an approval reviewer."
-        case .signoffToolchainUnavailable:
-            return "Live signoff was requested but the Magic + Netgen + Sky130 toolchain was not found (set MAGIC_BIN/NETGEN_BIN/PDK_ROOT or install the tools)."
-        }
-    }
-}
+import Xcircuite
+import XcircuitePackage
 
 public struct DesignFlowService: Sendable {
     private let simulationService: SimulationService
@@ -656,7 +174,7 @@ public struct DesignFlowService: Sendable {
         preLayoutResult: SimulationResult,
         postLayoutResult: SimulationResult,
         limits: PostLayoutComparisonLimits? = nil
-    ) -> PostLayoutComparisonReport {
+    ) -> CircuitStudioCore.PostLayoutComparisonReport {
         PostLayoutComparisonService().compare(
             preLayoutResult: preLayoutResult,
             postLayoutResult: postLayoutResult,
@@ -753,6 +271,45 @@ public struct DesignFlowService: Sendable {
         try RoundTripBottleneckHistoryService().summarize(forProjectAt: projectRoot)
     }
 
+    public func summarizeSignoffRepairCandidateCycles(
+        projectRoot: URL
+    ) throws -> RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary {
+        try RunReviewSignoffRepairCandidateCycleHistoryIndexService().summarize(forProjectAt: projectRoot)
+    }
+
+    public func qualifySignoffRepairCandidateCycles(
+        projectRoot: URL,
+        request: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request
+    ) throws -> RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Report {
+        try RunReviewSignoffRepairCandidateCycleHistoryQualificationService()
+            .qualify(forProjectAt: projectRoot, request: request)
+    }
+
+    private func signoffRepairHistoryQualificationRequest(
+        for command: DesignFlowCommand,
+        profile: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Profile?
+    ) -> RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request {
+        let base = profile?.request ?? RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request()
+        return RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request(
+            minimumRunCount: command.signoffRepairHistoryMinimumRunCount ?? base.minimumRunCount,
+            minimumCycleCount: command.signoffRepairHistoryMinimumCycleCount ?? base.minimumCycleCount,
+            minimumAcceptedCount: command.signoffRepairHistoryMinimumAcceptedCount ?? base.minimumAcceptedCount,
+            minimumFeedbackRankChangeCount:
+                command.signoffRepairHistoryMinimumFeedbackRankChangeCount ?? base.minimumFeedbackRankChangeCount,
+            minimumFeedbackScoreDeltaCount:
+                command.signoffRepairHistoryMinimumFeedbackScoreDeltaCount ?? base.minimumFeedbackScoreDeltaCount,
+            minimumAcceptedCountPerSelectedObjectiveDomain:
+                command.signoffRepairHistoryMinimumAcceptedCountPerSelectedObjectiveDomain
+                    ?? base.minimumAcceptedCountPerSelectedObjectiveDomain,
+            requiredSelectedActionDomainIDs:
+                command.signoffRepairHistoryRequiredSelectedActionDomainIDs
+                    ?? base.requiredSelectedActionDomainIDs,
+            requiredSelectedObjectiveDomainIDs:
+                command.signoffRepairHistoryRequiredSelectedObjectiveDomainIDs
+                    ?? base.requiredSelectedObjectiveDomainIDs
+        )
+    }
+
     public func loadDesignSpec(_ url: URL) throws -> DesignFlowDesignSpec {
         do {
             let data = try Data(contentsOf: url)
@@ -800,6 +357,17 @@ public struct DesignFlowService: Sendable {
             return try decoder.decode(DesignUnit.self, from: data)
         } catch {
             throw StudioError.projectLoadFailed("Failed to load design unit: \(error.localizedDescription)")
+        }
+    }
+
+    public func loadFlowRunnerFailureEnvelope(_ url: URL) throws -> FlowRunnerFailureEnvelope {
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(FlowRunnerFailureEnvelope.self, from: data)
+        } catch {
+            throw StudioError.projectLoadFailed("Failed to load flow-runner failure envelope: \(error.localizedDescription)")
         }
     }
 
@@ -896,6 +464,48 @@ public struct DesignFlowService: Sendable {
                 projectRootPath: projectRoot.path(percentEncoded: false),
                 bottleneckHistory: summary
             )
+        case .summarizeSignoffRepairCandidateCycles:
+            guard let projectRootPath = command.projectRootPath else {
+                throw DesignFlowCommandError.missingProjectRoot
+            }
+            let projectRoot = URL(filePath: projectRootPath)
+            let summary = try summarizeSignoffRepairCandidateCycles(projectRoot: projectRoot)
+            return DesignFlowCommandResult(
+                kind: command.kind,
+                projectRootPath: projectRoot.path(percentEncoded: false),
+                signoffRepairCandidateCycleHistoryIndex: summary
+            )
+        case .qualifySignoffRepairCandidateCycles:
+            guard let projectRootPath = command.projectRootPath else {
+                throw DesignFlowCommandError.missingProjectRoot
+            }
+            let projectRoot = URL(filePath: projectRootPath)
+            let qualificationService = RunReviewSignoffRepairCandidateCycleHistoryQualificationService()
+            let profilePath = command.signoffRepairHistoryQualificationProfilePath
+            let profile = try profilePath.map {
+                try qualificationService.loadProfile(from: URL(filePath: $0))
+            }
+            let report = try qualificationService.qualify(
+                forProjectAt: projectRoot,
+                request: signoffRepairHistoryQualificationRequest(
+                    for: command,
+                    profile: profile
+                ),
+                profile: profile,
+                profilePath: profilePath
+            )
+            let artifact = try qualificationService.persist(report, forProjectAt: projectRoot)
+            return DesignFlowCommandResult(
+                kind: command.kind,
+                projectRootPath: projectRoot.path(percentEncoded: false),
+                signoffRepairCandidateCycleHistoryIndex: report.summary,
+                signoffRepairCandidateCycleHistoryQualification: report,
+                signoffRepairCandidateCycleHistoryQualificationArtifact: artifact,
+                signoffRepairCandidateCycleHistoryQualificationPath: absolutePath(
+                    for: artifact,
+                    projectRoot: projectRoot
+                )
+            )
         case .loadTechnologyPackage:
             let package = try requiredTechnologyPackage(for: command)
             return DesignFlowCommandResult(
@@ -907,6 +517,10 @@ public struct DesignFlowService: Sendable {
             )
         case .runPEXExtraction:
             return try await runPEXExtraction(command)
+        case .inspectTimingModelProfiles:
+            return try inspectTimingModelProfiles(command)
+        case .buildTimingLibrary:
+            return try await buildTimingLibrary(command)
         case .applyDesignEdit:
             return try applyDesignEdit(command)
         case .applyLayoutEdit:
@@ -919,8 +533,24 @@ public struct DesignFlowService: Sendable {
             return try approveGate(command)
         case .reviewRoundTrip:
             return try reviewRoundTrip(command)
+        case .selectFailureSuggestedCommand:
+            return try selectFailureSuggestedCommand(command)
+        case .runSelectedSuggestedCommand:
+            return try await runSelectedSuggestedCommand(command)
+        case .applyWaiverEditProposal:
+            return try applyWaiverEditProposal(command)
+        case .runPostWaiverEditVerification:
+            return try await runPostWaiverEditVerification(command)
+        case .applyWaiverEditProposalAndRunPostVerification:
+            return try await applyWaiverEditProposalAndRunPostVerification(command)
+        case .formulateSignoffRepairPlanningProblem:
+            return try formulateSignoffRepairPlanningProblem(command)
+        case .runSignoffRepairCandidateCycle:
+            return try await runSignoffRepairCandidateCycle(command)
         }
     }
+
+
 
     private func approveGate(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
         guard let gateID = command.approvalGateID else {
@@ -981,7 +611,7 @@ public struct DesignFlowService: Sendable {
     }
 
     @MainActor
-    private func runVerification(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
+    func runVerification(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
         guard let layoutDocumentPath = command.layoutDocumentPath else {
             throw DesignFlowCommandError.missingLayoutDocumentPath
         }
@@ -1064,6 +694,72 @@ public struct DesignFlowService: Sendable {
             roundTripReview: summary,
             message: summary.status.rawValue
         )
+    }
+
+    private func selectFailureSuggestedCommand(
+        _ command: DesignFlowCommand
+    ) throws -> DesignFlowCommandResult {
+        guard let failureEnvelopePath = command.failureEnvelopePath else {
+            throw DesignFlowCommandError.missingFailureEnvelopePath
+        }
+        guard let commandID = command.suggestedCommandID else {
+            throw DesignFlowCommandError.missingSuggestedCommandID
+        }
+        guard let reviewer = command.approvalReviewer else {
+            throw DesignFlowCommandError.missingApprovalReviewer
+        }
+
+        let failureEnvelopeURL = URL(filePath: failureEnvelopePath)
+        let failure = try loadFlowRunnerFailureEnvelope(failureEnvelopeURL)
+        let actionLogService = RoundTripActionLogService()
+        let record = try actionLogService.recordSuggestedCommandSelection(
+            from: failure,
+            commandID: commandID,
+            reviewer: reviewer
+        )
+        let manifestURL: URL?
+        if let manifest = failure.manifest {
+            manifestURL = URL(filePath: manifest)
+        } else {
+            manifestURL = nil
+        }
+        let review = try manifestURL.map {
+            try RoundTripReviewService().loadReview(manifestURL: $0)
+        }
+        let selection = try manifestURL.flatMap {
+            try actionLogService.loadSuggestedCommandSelections(manifestURL: $0).last
+        }
+
+        return DesignFlowCommandResult(
+            kind: command.kind,
+            runID: failure.runID,
+            projectRootPath: failure.projectRoot,
+            manifestPath: failure.manifest,
+            actionLogPath: manifestURL.map(actionLogService.actionLogPath(manifestURL:)),
+            roundTripReview: review,
+            selectedSuggestedCommand: selection,
+            message: record.actionID
+        )
+    }
+
+    private func runSelectedSuggestedCommand(
+        _ command: DesignFlowCommand
+    ) async throws -> DesignFlowCommandResult {
+        guard let projectRootPath = command.projectRootPath else {
+            throw DesignFlowCommandError.missingProjectRoot
+        }
+        guard let runID = command.runID else {
+            throw DesignFlowCommandError.missingRunID
+        }
+
+        let resolved = try RoundTripSelectedSuggestedCommandResolver().resolve(
+            request: RoundTripSelectedSuggestedCommandResolutionRequest(
+                runID: runID,
+                commandID: command.suggestedCommandID
+            ),
+            projectRoot: URL(filePath: projectRootPath)
+        )
+        return try await execute(resolved.command)
     }
 
     private func applyLayoutEdit(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
@@ -1152,6 +848,7 @@ public struct DesignFlowService: Sendable {
             message: result.manifest.backendID
         )
     }
+
 
     @MainActor
     private func runDesignRoundTrip(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
@@ -1500,95 +1197,4 @@ public struct DesignFlowService: Sendable {
         )
     }
 
-    private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(value)
-        try data.write(to: url, options: .atomic)
-    }
-
-    private func writeActionLog(_ actions: [DesignFlowDesignEditAction], to url: URL) throws {
-        try writeJSONLines(actions, to: url)
-    }
-
-    private func writeLayoutActionLog(_ actions: [DesignFlowLayoutEditAction], to url: URL) throws {
-        try writeJSONLines(actions, to: url)
-    }
-
-    private func writeJSONLines<T: Encodable>(_ values: [T], to url: URL) throws {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let lines = try values.map { value -> String in
-            let data = try encoder.encode(value)
-            guard let line = String(data: data, encoding: .utf8) else {
-                throw StudioError.projectSaveFailed("Failed to encode action log.")
-            }
-            return line
-        }
-        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
-    }
-
-    private func designEditArtifactDirectory(for command: DesignFlowCommand, outputURL: URL) -> URL {
-        let root = command.projectRootPath.map { URL(filePath: $0) }
-            ?? outputURL.deletingLastPathComponent()
-        let runID = command.runID ?? Self.timestamp()
-        return root
-            .appending(path: ".xcircuite")
-            .appending(path: "design-edits")
-            .appending(path: runID)
-    }
-
-    private func layoutEditArtifactDirectory(for command: DesignFlowCommand, outputURL: URL) -> URL {
-        let root = command.projectRootPath.map { URL(filePath: $0) }
-            ?? outputURL.deletingLastPathComponent()
-        let runID = command.runID ?? Self.timestamp()
-        return root
-            .appending(path: ".xcircuite")
-            .appending(path: "layout-edits")
-            .appending(path: runID)
-    }
-
-    private func layoutTrustArtifactDirectory(for command: DesignFlowCommand) -> URL {
-        runArtifactDirectory(for: command, fallbackRootName: "layout-trust-runs")
-            .appending(path: "layout")
-    }
-
-    private func verificationArtifactDirectory(for command: DesignFlowCommand) -> URL {
-        runArtifactDirectory(for: command, fallbackRootName: "verification-runs")
-    }
-
-    private func runArtifactDirectory(for command: DesignFlowCommand, fallbackRootName: String) -> URL {
-        let root = command.projectRootPath.map { URL(filePath: $0) }
-            ?? URL(filePath: FileManager.default.currentDirectoryPath)
-                .appending(path: fallbackRootName)
-        let runID = command.runID ?? Self.timestamp()
-        return root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: runID)
-    }
-
-    private func defaultCommandProjectRoot(fixtureName: String) -> String {
-        URL(filePath: FileManager.default.currentDirectoryPath)
-            .appending(path: "round-trip-runs")
-            .appending(path: fixtureName)
-            .path(percentEncoded: false)
-    }
-
-    private static func timestamp() -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: Date())
-            .replacingOccurrences(of: ":", with: "")
-            .replacingOccurrences(of: ".", with: "")
-    }
 }

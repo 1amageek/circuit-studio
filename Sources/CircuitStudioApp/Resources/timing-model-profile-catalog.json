@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "kind": "timing-model-profile-catalog",
+  "catalogID": "circuit-studio.default-timing-model-profiles.v2",
+  "profiles": [
+    {
+      "profileID": "sky130.level1-device-model.v1",
+      "displayName": "Sky130-like level-1 TT timing model profile",
+      "cornerID": "tt",
+      "profileResourceName": "sky130-level1-device-model-profile",
+      "defaultProfile": true
+    },
+    {
+      "profileID": "sky130.level1-device-model.ss.v1",
+      "displayName": "Sky130-like level-1 SS timing model profile",
+      "cornerID": "ss",
+      "profileResourceName": "sky130-level1-device-model-profile-ss"
+    },
+    {
+      "profileID": "sky130.level1-device-model.ff.v1",
+      "displayName": "Sky130-like level-1 FF timing model profile",
+      "cornerID": "ff",
+      "profileResourceName": "sky130-level1-device-model-profile-ff"
+    }
+  ]
+}

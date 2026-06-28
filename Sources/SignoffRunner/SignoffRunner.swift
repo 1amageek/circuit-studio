@@ -238,7 +238,10 @@ struct SignoffRunner {
                     switch error {
                     case .unrecognizedCellName:
                         throw CLIError(code: 1, message: error.localizedDescription)   // usage
-                    case .libraryDeckMissing, .subcircuitNotFound:
+                    case .standardCellLibraryMissing,
+                         .standardCellDeckRequirementMissing,
+                         .libraryDeckMissing,
+                         .subcircuitNotFound:
                         throw CLIError(code: 2, message: error.localizedDescription)   // PDK/setup
                     }
                 }

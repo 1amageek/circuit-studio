@@ -153,7 +153,7 @@ struct PEXCommandServiceTests {
 
             let service = PEXCommandService(
                 executablePath: executable.path(percentEncoded: false),
-                timeoutSeconds: 1.0
+                timeoutSeconds: 3.0
             )
 
             do {
@@ -165,7 +165,7 @@ struct PEXCommandServiceTests {
                     return
                 }
                 #expect(executablePath == executable.path(percentEncoded: false))
-                #expect(timeoutSeconds == 1.0)
+                #expect(timeoutSeconds == 3.0)
                 #expect(stdout.contains("started"))
             }
         }

@@ -31,7 +31,7 @@ public struct PDKCellLayoutService: Sendable {
         Bundle.module.url(forResource: "materialize_cell", withExtension: "tcl")
     }
 
-    /// Available only with the Magic + Sky130 toolchain (reuses the DRC signoff's
+    /// Available only with the Magic + selected PDK toolchain (reuses the DRC signoff's
     /// resolved Magic + PDK so discovery is consistent).
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,

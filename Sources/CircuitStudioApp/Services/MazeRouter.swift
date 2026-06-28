@@ -1,13 +1,13 @@
 import Foundation
 import CircuitPhysicalDesign
 import LayoutCore
+import LayoutTech
 
 /// A grid maze router for inter-block global routing. It lays a uniform routing grid over
-/// the floorplan and connects each net's pins with a Lee/BFS search on two over-the-cell
-/// layers — met3 for horizontal edges, met4 for vertical edges, via3 where a net turns.
-/// Edge and via occupancy is tracked per layer, so two nets may cross (met3 over met4
-/// without a via) but never share a wire — many crossing nets route without collision,
-/// which the fixed-lane router could not do. Pins reach the grid through a via2 (met2→met3).
+/// the floorplan and connects each net's pins with a Lee/BFS search on two routing
+/// layers selected by `LayoutRoutingProfile`. Edge and via occupancy is tracked per
+/// layer, so two nets may cross without a via but never share a wire. Pins reach the
+/// routing grid through the profile-declared pin-access stack.
 public struct MazeRouter: Sendable {
 
     public enum MazeError: Error, LocalizedError, Equatable {
@@ -38,26 +38,52 @@ public struct MazeRouter: Sendable {
         }
     }
 
+    private let profile: LayoutRoutingProfile
+    private let layoutTechnology: LayoutTechDatabase
     private let pitch: Double
     private let margin: Double
     private let maxOrderingPasses: Int
 
-    public init(pitch: Double = 0.9, margin: Double = 1.4, maxOrderingPasses: Int = 64) {
-        self.pitch = pitch   // >= 0.50 (via pad) + 0.30 (met3/met4 spacing) so pads never clash
-        self.margin = margin
-        self.maxOrderingPasses = maxOrderingPasses
+    public init(
+        profile: LayoutRoutingProfile,
+        layoutTechnology: LayoutTechDatabase,
+        pitch: Double? = nil,
+        margin: Double? = nil,
+        maxOrderingPasses: Int? = nil
+    ) {
+        self.profile = profile
+        self.layoutTechnology = layoutTechnology
+        self.pitch = pitch ?? profile.geometry.gridPitch
+        self.margin = margin ?? profile.geometry.gridMargin
+        self.maxOrderingPasses = maxOrderingPasses ?? profile.geometry.maxOrderingPasses
+    }
+
+    public init(pitch: Double? = nil, margin: Double? = nil, maxOrderingPasses: Int? = nil) {
+        do {
+            let profile = try LayoutTechnologyCatalog.loadDefaultRoutingProfile()
+            let technology = try LayoutTechnologyCatalog.loadDefaultTechnology()
+            self.init(
+                profile: profile,
+                layoutTechnology: technology,
+                pitch: pitch,
+                margin: margin,
+                maxOrderingPasses: maxOrderingPasses
+            )
+        } catch {
+            preconditionFailure("Bundled layout routing profile could not be loaded: \(error)")
+        }
     }
 
     // A grid node.
     private struct Node: Hashable { let c: Int; let r: Int }
     private enum Layer: Hashable {
-        case met3
-        case met4
+        case horizontal
+        case vertical
 
         var sortOrder: Int {
             switch self {
-            case .met3: return 0
-            case .met4: return 1
+            case .horizontal: return 0
+            case .vertical: return 1
             }
         }
     }
@@ -65,8 +91,8 @@ public struct MazeRouter: Sendable {
         var hEdgeOwner: [Int]
         var vEdgeOwner: [Int]
         var viaOwner: [Int]
-        var met3NodeOwner: [Int]
-        var met4NodeOwner: [Int]
+        var horizontalNodeOwner: [Int]
+        var verticalNodeOwner: [Int]
     }
     private enum AttemptResult {
         case success(RoutingPlan)
@@ -119,7 +145,7 @@ public struct MazeRouter: Sendable {
             case .success(let plan):
                 let ownedShapes = emit(plan: plan, nets: nets, cols: cols, rows: rows,
                                        nodeX: nodeX, nodeY: nodeY, snap: snap)
-                let report = NetAwareLayoutEvaluator().evaluate(shapes: ownedShapes, tech: Sky130LayoutTech.tech())
+                let report = NetAwareLayoutEvaluator().evaluate(shapes: ownedShapes, tech: layoutTechnology)
                 guard report.passed else {
                     throw MazeError.invalidRoute(reason: report.summary)
                 }
@@ -159,15 +185,15 @@ public struct MazeRouter: Sendable {
             hEdgeOwner: [Int](repeating: -1, count: cols * rows),
             vEdgeOwner: [Int](repeating: -1, count: cols * rows),
             viaOwner: [Int](repeating: -1, count: cols * rows),
-            met3NodeOwner: [Int](repeating: -1, count: cols * rows),
-            met4NodeOwner: [Int](repeating: -1, count: cols * rows)
+            horizontalNodeOwner: [Int](repeating: -1, count: cols * rows),
+            verticalNodeOwner: [Int](repeating: -1, count: cols * rows)
         )
 
         for netIndex in pinNodes.indices {
             for terminalNode in pinNodes[netIndex] {
-                guard reserve(State(node: terminalNode, layer: .met3), netIndex: netIndex, cols: cols,
-                              met3NodeOwner: &plan.met3NodeOwner,
-                              met4NodeOwner: &plan.met4NodeOwner) else {
+                guard reserve(State(node: terminalNode, layer: .horizontal), netIndex: netIndex, cols: cols,
+                              horizontalNodeOwner: &plan.horizontalNodeOwner,
+                              verticalNodeOwner: &plan.verticalNodeOwner) else {
                     return .failure(netIndex: netIndex)
                 }
             }
@@ -176,37 +202,38 @@ public struct MazeRouter: Sendable {
         for netIndex in order {
             let terminals = pinNodes[netIndex]
             guard let first = terminals.first else { continue }
-            var inTree = Set([State(node: first, layer: .met3)])
+            var inTree = Set([State(node: first, layer: .horizontal)])
             for targetNode in terminals.dropFirst() {
-                let target = State(node: targetNode, layer: .met3)
+                let target = State(node: targetNode, layer: .horizontal)
                 guard !inTree.contains(target) else { continue }
                 let path = search(from: inTree, to: target, netIndex: netIndex, cols: cols, rows: rows,
                                   hEdgeOwner: plan.hEdgeOwner,
                                   vEdgeOwner: plan.vEdgeOwner,
                                   viaOwner: plan.viaOwner,
-                                  met3NodeOwner: plan.met3NodeOwner,
-                                  met4NodeOwner: plan.met4NodeOwner)
+                                  horizontalNodeOwner: plan.horizontalNodeOwner,
+                                  verticalNodeOwner: plan.verticalNodeOwner)
                 guard let path else { return .failure(netIndex: netIndex) }
                 commit(path, netIndex: netIndex, cols: cols,
                        hEdgeOwner: &plan.hEdgeOwner,
                        vEdgeOwner: &plan.vEdgeOwner,
                        viaOwner: &plan.viaOwner,
-                       met3NodeOwner: &plan.met3NodeOwner,
-                       met4NodeOwner: &plan.met4NodeOwner)
+                       horizontalNodeOwner: &plan.horizontalNodeOwner,
+                       verticalNodeOwner: &plan.verticalNodeOwner)
                 inTree.formUnion(path)
             }
         }
         return .success(plan)
     }
 
-    /// BFS over (node, layer); pins live on met3, so the search both starts and ends on met3.
-    /// Horizontal moves use met3 edges, vertical use met4 edges, and a layer switch at a node
-    /// costs a via3 — avoiding any edge/via already owned by another net. Returns the full
-    /// (node, layer) path so edges and vias are read off exactly.
+    /// BFS over (node, layer); pins live on the horizontal routing layer, so the search both
+    /// starts and ends there. Horizontal moves use horizontal edges, vertical moves use
+    /// vertical edges, and a layer switch at a node costs a turn cut while avoiding any
+    /// edge/cut already owned by another net. Returns the full path so edges and cuts are
+    /// read off exactly.
     private func search(
         from sources: Set<State>, to target: State, netIndex: Int, cols: Int, rows: Int,
         hEdgeOwner: [Int], vEdgeOwner: [Int], viaOwner: [Int],
-        met3NodeOwner: [Int], met4NodeOwner: [Int]
+        horizontalNodeOwner: [Int], verticalNodeOwner: [Int]
     ) -> [State]? {
         func hOK(_ c: Int, _ r: Int) -> Bool { let o = hEdgeOwner[r * cols + c]; return o < 0 || o == netIndex }
         func vOK(_ c: Int, _ r: Int) -> Bool { let o = vEdgeOwner[r * cols + c]; return o < 0 || o == netIndex }
@@ -214,10 +241,10 @@ public struct MazeRouter: Sendable {
         func nodeOK(_ state: State) -> Bool {
             let owner: Int
             switch state.layer {
-            case .met3:
-                owner = met3NodeOwner[state.node.r * cols + state.node.c]
-            case .met4:
-                owner = met4NodeOwner[state.node.r * cols + state.node.c]
+            case .horizontal:
+                owner = horizontalNodeOwner[state.node.r * cols + state.node.c]
+            case .vertical:
+                owner = verticalNodeOwner[state.node.r * cols + state.node.c]
             }
             return owner < 0 || owner == netIndex
         }
@@ -239,23 +266,23 @@ public struct MazeRouter: Sendable {
             if cur == target { return reconstruct(cur, prev: prev) }
             let c = cur.node.c, r = cur.node.r
             var neighbors: [State] = []
-            if cur.layer == .met3 {
+            if cur.layer == .horizontal {
                 if c + 1 < cols && hOK(c, r) {
-                    neighbors.append(State(node: Node(c: c + 1, r: r), layer: .met3))
+                    neighbors.append(State(node: Node(c: c + 1, r: r), layer: .horizontal))
                 }
                 if c - 1 >= 0 && hOK(c - 1, r) {
-                    neighbors.append(State(node: Node(c: c - 1, r: r), layer: .met3))
+                    neighbors.append(State(node: Node(c: c - 1, r: r), layer: .horizontal))
                 }
             } else {
                 if r + 1 < rows && vOK(c, r) {
-                    neighbors.append(State(node: Node(c: c, r: r + 1), layer: .met4))
+                    neighbors.append(State(node: Node(c: c, r: r + 1), layer: .vertical))
                 }
                 if r - 1 >= 0 && vOK(c, r - 1) {
-                    neighbors.append(State(node: Node(c: c, r: r - 1), layer: .met4))
+                    neighbors.append(State(node: Node(c: c, r: r - 1), layer: .vertical))
                 }
             }
             if viaOK(c, r) {
-                neighbors.append(State(node: cur.node, layer: cur.layer == .met3 ? .met4 : .met3))
+                neighbors.append(State(node: cur.node, layer: cur.layer == .horizontal ? .vertical : .horizontal))
             }
             for nb in neighbors where !visited.contains(nb) && nodeOK(nb) {
                 visited.insert(nb); prev[nb] = cur; queue.append(nb)
@@ -274,21 +301,21 @@ public struct MazeRouter: Sendable {
     private func commit(
         _ path: [State], netIndex: Int, cols: Int,
         hEdgeOwner: inout [Int], vEdgeOwner: inout [Int], viaOwner: inout [Int],
-        met3NodeOwner: inout [Int], met4NodeOwner: inout [Int]
+        horizontalNodeOwner: inout [Int], verticalNodeOwner: inout [Int]
     ) {
         guard path.count >= 2 else { return }
         for state in path {
             _ = reserve(state, netIndex: netIndex, cols: cols,
-                        met3NodeOwner: &met3NodeOwner,
-                        met4NodeOwner: &met4NodeOwner)
+                        horizontalNodeOwner: &horizontalNodeOwner,
+                        verticalNodeOwner: &verticalNodeOwner)
         }
         for i in 1..<path.count {
             let a = path[i - 1], b = path[i]
-            if a.node == b.node {                                  // layer switch -> via3
+            if a.node == b.node {
                 viaOwner[a.node.r * cols + a.node.c] = netIndex
-            } else if a.node.r == b.node.r {                       // horizontal -> met3 edge
+            } else if a.node.r == b.node.r {
                 hEdgeOwner[a.node.r * cols + min(a.node.c, b.node.c)] = netIndex
-            } else {                                               // vertical -> met4 edge
+            } else {
                 vEdgeOwner[min(a.node.r, b.node.r) * cols + a.node.c] = netIndex
             }
         }
@@ -298,17 +325,17 @@ public struct MazeRouter: Sendable {
         _ state: State,
         netIndex: Int,
         cols: Int,
-        met3NodeOwner: inout [Int],
-        met4NodeOwner: inout [Int]
+        horizontalNodeOwner: inout [Int],
+        verticalNodeOwner: inout [Int]
     ) -> Bool {
         let index = state.node.r * cols + state.node.c
         switch state.layer {
-        case .met3:
-            guard met3NodeOwner[index] < 0 || met3NodeOwner[index] == netIndex else { return false }
-            met3NodeOwner[index] = netIndex
-        case .met4:
-            guard met4NodeOwner[index] < 0 || met4NodeOwner[index] == netIndex else { return false }
-            met4NodeOwner[index] = netIndex
+        case .horizontal:
+            guard horizontalNodeOwner[index] < 0 || horizontalNodeOwner[index] == netIndex else { return false }
+            horizontalNodeOwner[index] = netIndex
+        case .vertical:
+            guard verticalNodeOwner[index] < 0 || verticalNodeOwner[index] == netIndex else { return false }
+            verticalNodeOwner[index] = netIndex
         }
         return true
     }
@@ -334,8 +361,8 @@ public struct MazeRouter: Sendable {
         for net in nets {
             for pin in net.pins {
                 let node = snap(pin)
-                shapes.append(contentsOf: via2Drop(x: pin.x, y: pin.y, net: net).map { owned($0, by: net) })
-                shapes.append(contentsOf: met3Jog(from: pin, toX: nodeX(node.c), toY: nodeY(node.r), net: net)
+                shapes.append(contentsOf: pinAccessStack(x: pin.x, y: pin.y, net: net).map { owned($0, by: net) })
+                shapes.append(contentsOf: horizontalLayerJog(from: pin, toX: nodeX(node.c), toY: nodeY(node.r), net: net)
                     .map { owned($0, by: net) })
             }
         }
@@ -345,7 +372,7 @@ public struct MazeRouter: Sendable {
                 let owner = plan.hEdgeOwner[hIdx(c, r)]
                 guard owner >= 0 else { continue }
                 let net = nets[owner]
-                shapes.append(owned(hMet3(nodeX(c), nodeX(c + 1), nodeY(r), net: net), by: net))
+                shapes.append(owned(horizontalWire(nodeX(c), nodeX(c + 1), nodeY(r), net: net), by: net))
             }
         }
         for c in 0..<cols {
@@ -353,7 +380,7 @@ public struct MazeRouter: Sendable {
                 let owner = plan.vEdgeOwner[vIdx(c, r)]
                 guard owner >= 0 else { continue }
                 let net = nets[owner]
-                shapes.append(owned(vMet4(nodeX(c), nodeY(r), nodeY(r + 1), net: net), by: net))
+                shapes.append(owned(verticalWire(nodeX(c), nodeY(r), nodeY(r + 1), net: net), by: net))
             }
         }
         for r in 0..<rows {
@@ -361,42 +388,87 @@ public struct MazeRouter: Sendable {
                 let owner = plan.viaOwner[r * cols + c]
                 guard owner >= 0 else { continue }
                 let net = nets[owner]
-                shapes.append(contentsOf: via3Drop(x: nodeX(c), y: nodeY(r), net: net).map { owned($0, by: net) })
+                shapes.append(contentsOf: turnStack(x: nodeX(c), y: nodeY(r), net: net).map { owned($0, by: net) })
             }
         }
         return shapes
     }
 
-    private func rect(_ layer: String, _ x: Double, _ y: Double, _ w: Double, _ h: Double, net: Net) -> LayoutShape {
-        LayoutShape(layer: Sky130LayoutTech.layer(layer),
+    private func rect(
+        _ role: LayoutRoutingProfile.LayerRole,
+        _ x: Double,
+        _ y: Double,
+        _ w: Double,
+        _ h: Double,
+        net: Net
+    ) -> LayoutShape {
+        LayoutShape(layer: profile.layerID(for: role),
                     netID: net.netID,
                     geometry: .rect(LayoutRect(origin: LayoutPoint(x: x, y: y), size: LayoutSize(width: w, height: h))),
                     properties: [NetAwareLayoutEvaluator.netNameProperty: net.name])
     }
-    private func hMet3(_ x0: Double, _ x1: Double, _ y: Double, net: Net) -> LayoutShape {
-        rect("met3", min(x0, x1) - 0.15, y - 0.15, abs(x1 - x0) + 0.30, 0.30, net: net)
+
+    private func horizontalWire(_ x0: Double, _ x1: Double, _ y: Double, net: Net) -> LayoutShape {
+        let width = profile.geometry.mazeWireWidth
+        return rect(
+            .horizontalRouting,
+            min(x0, x1) - width / 2,
+            y - width / 2,
+            abs(x1 - x0) + width,
+            width,
+            net: net
+        )
     }
-    private func vMet4(_ x: Double, _ y0: Double, _ y1: Double, net: Net) -> LayoutShape {
-        rect("met4", x - 0.15, min(y0, y1) - 0.15, 0.30, abs(y1 - y0) + 0.30, net: net)
+
+    private func verticalWire(_ x: Double, _ y0: Double, _ y1: Double, net: Net) -> LayoutShape {
+        let width = profile.geometry.mazeWireWidth
+        return rect(
+            .verticalRouting,
+            x - width / 2,
+            min(y0, y1) - width / 2,
+            width,
+            abs(y1 - y0) + width,
+            net: net
+        )
     }
-    private func via2Drop(x: Double, y: Double, net: Net) -> [LayoutShape] {
-        [rect("met2", x - 0.185, y - 0.185, 0.37, 0.37, net: net),
-         rect("via2", x - 0.10, y - 0.10, 0.20, 0.20, net: net),
-         rect("met3", x - 0.25, y - 0.25, 0.50, 0.50, net: net)]
+
+    private func pinAccessStack(x: Double, y: Double, net: Net) -> [LayoutShape] {
+        let bottom = profile.geometry.pinBottomPadWidth
+        let cut = profile.geometry.pinAccessCutWidth
+        let top = profile.geometry.pinTopPadWidth
+        return [
+            rect(.pinAccessBottom, x - bottom / 2, y - bottom / 2, bottom, bottom, net: net),
+            rect(.pinAccessCut, x - cut / 2, y - cut / 2, cut, cut, net: net),
+            rect(.horizontalRouting, x - top / 2, y - top / 2, top, top, net: net),
+        ]
     }
-    /// An L-shaped met3 jog joining a pin to its grid node (both on met3).
-    private func met3Jog(from p: LayoutPoint, toX gx: Double, toY gy: Double, net: Net) -> [LayoutShape] {
+
+    private func horizontalLayerJog(from p: LayoutPoint, toX gx: Double, toY gy: Double, net: Net) -> [LayoutShape] {
         var shapes: [LayoutShape] = []
-        if abs(gx - p.x) > 1e-6 { shapes.append(hMet3(p.x, gx, p.y, net: net)) }
-        if abs(gy - p.y) > 1e-6 { shapes.append(vMet3(gx, p.y, gy, net: net)) }
+        if abs(gx - p.x) > 1e-6 { shapes.append(horizontalWire(p.x, gx, p.y, net: net)) }
+        if abs(gy - p.y) > 1e-6 { shapes.append(verticalJogOnHorizontalLayer(gx, p.y, gy, net: net)) }
         return shapes
     }
-    private func vMet3(_ x: Double, _ y0: Double, _ y1: Double, net: Net) -> LayoutShape {
-        rect("met3", x - 0.15, min(y0, y1) - 0.15, 0.30, abs(y1 - y0) + 0.30, net: net)
+
+    private func verticalJogOnHorizontalLayer(_ x: Double, _ y0: Double, _ y1: Double, net: Net) -> LayoutShape {
+        let width = profile.geometry.mazeWireWidth
+        return rect(
+            .horizontalRouting,
+            x - width / 2,
+            min(y0, y1) - width / 2,
+            width,
+            abs(y1 - y0) + width,
+            net: net
+        )
     }
-    private func via3Drop(x: Double, y: Double, net: Net) -> [LayoutShape] {
-        [rect("met3", x - 0.25, y - 0.25, 0.50, 0.50, net: net),
-         rect("via3", x - 0.10, y - 0.10, 0.20, 0.20, net: net),
-         rect("met4", x - 0.25, y - 0.25, 0.50, 0.50, net: net)]
+
+    private func turnStack(x: Double, y: Double, net: Net) -> [LayoutShape] {
+        let pad = profile.geometry.turnPadWidth
+        let cut = profile.geometry.turnCutWidth
+        return [
+            rect(.horizontalRouting, x - pad / 2, y - pad / 2, pad, pad, net: net),
+            rect(.turnCut, x - cut / 2, y - cut / 2, cut, cut, net: net),
+            rect(.verticalRouting, x - pad / 2, y - pad / 2, pad, pad, net: net),
+        ]
     }
 }

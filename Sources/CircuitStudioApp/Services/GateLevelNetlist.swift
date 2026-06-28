@@ -60,32 +60,35 @@ public struct GateLevelNetlist: Sendable, Hashable, Codable, Identifiable {
 
     /// AND2 = NAND2 -> INV. Y = a AND b.
     public static func and2(name: String = "and2", a: String = "a", b: String = "b",
-                            output: String = "y") -> GateLevelNetlist {
+                            output: String = "y",
+                            cellLibrary: CMOSGateLibrary = .bundledDefault) -> GateLevelNetlist {
         GateLevelNetlist(name: name, instances: [
-            Instance(name: "g0", cell: .nand(name: "nand2", inputs: ["A", "B"]),
+            Instance(name: "g0", cell: cellLibrary.nand(name: "nand2", inputs: ["A", "B"]),
                      netMap: ["A": a, "B": b, "Y": "n_and"]),
-            Instance(name: "g1", cell: .inverter(name: "inv"), netMap: ["A": "n_and", "Y": output]),
+            Instance(name: "g1", cell: cellLibrary.inverter(name: "inv"), netMap: ["A": "n_and", "Y": output]),
         ], inputs: [a, b], output: output)
     }
 
     /// OR2 = NOR2 -> INV. Y = a OR b.
     public static func or2(name: String = "or2", a: String = "a", b: String = "b",
-                           output: String = "y") -> GateLevelNetlist {
+                           output: String = "y",
+                           cellLibrary: CMOSGateLibrary = .bundledDefault) -> GateLevelNetlist {
         GateLevelNetlist(name: name, instances: [
-            Instance(name: "g0", cell: .nor(name: "nor2", inputs: ["A", "B"]),
+            Instance(name: "g0", cell: cellLibrary.nor(name: "nor2", inputs: ["A", "B"]),
                      netMap: ["A": a, "B": b, "Y": "n_or"]),
-            Instance(name: "g1", cell: .inverter(name: "inv"), netMap: ["A": "n_or", "Y": output]),
+            Instance(name: "g1", cell: cellLibrary.inverter(name: "inv"), netMap: ["A": "n_or", "Y": output]),
         ], inputs: [a, b], output: output)
     }
 
     /// An N-stage inverter chain. Y = in (even N) / NOT(in) (odd N).
     public static func inverterChain(name: String = "invchain", stages: Int,
-                                     input: String = "a", output: String = "y") -> GateLevelNetlist {
+                                     input: String = "a", output: String = "y",
+                                     cellLibrary: CMOSGateLibrary = .bundledDefault) -> GateLevelNetlist {
         var insts: [Instance] = []
         for i in 0..<stages {
             let inNet = i == 0 ? input : "c\(i)"
             let outNet = i == stages - 1 ? output : "c\(i + 1)"
-            insts.append(Instance(name: "g\(i)", cell: .inverter(name: "inv"),
+            insts.append(Instance(name: "g\(i)", cell: cellLibrary.inverter(name: "inv"),
                                   netMap: ["A": inNet, "Y": outNet]))
         }
         return GateLevelNetlist(name: name, instances: insts, inputs: [input], output: output)

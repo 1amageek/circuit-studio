@@ -8,11 +8,10 @@ import Foundation
 /// lumped cap both when characterizing (the swept output load) and when validating against
 /// SPICE (a load on each path net), keeping the abstraction self-consistent.
 public struct Level1DeviceModel: Sendable, Hashable, Codable {
-
     public let supplyVoltage: Double      // VDD (volts)
     public let nmosModelName: String
     public let pmosModelName: String
-    public let nmosCard: String           // ".model NM NMOS level=1 ..."
+    public let nmosCard: String           // ".model <name> NMOS level=1 ..."
     public let pmosCard: String
     public let oxideCapPerArea: Double     // Cox (F/m^2), for the lumped input-cap model
 
@@ -26,16 +25,94 @@ public struct Level1DeviceModel: Sendable, Hashable, Codable {
         self.oxideCapPerArea = oxideCapPerArea
     }
 
-    /// Sky130-like level-1 parameters (the trust-gate inverter deck's models): 1.8 V rails,
-    /// asymmetric NMOS/PMOS drive, and an oxide capacitance giving ~0.5 fF per minimum FET.
-    public static func sky130Like() -> Level1DeviceModel {
-        Level1DeviceModel(
-            supplyVoltage: 1.8,
-            nmosModelName: "NM", pmosModelName: "PM",
-            nmosCard: ".model NM NMOS level=1 vto=0.45 kp=120u lambda=0.1 gamma=0.4 phi=0.65",
-            pmosCard: ".model PM PMOS level=1 vto=-0.45 kp=40u lambda=0.1 gamma=0.4 phi=0.65",
-            oxideCapPerArea: 8.5e-3
-        )
+    public static func bundledDefault() -> Level1DeviceModel {
+        bundledDefaultProfile().model
+    }
+
+    public static func bundledDefaultProfile() -> Level1DeviceModelProfile {
+        do {
+            return try bundledDefaultProfileSelection().profile
+        } catch {
+            preconditionFailure("Bundled default level-1 device model profile is missing or invalid: \(error)")
+        }
+    }
+
+    public static func bundledDefaultTechnologyContext() -> TimingTechnologyContext {
+        do {
+            return try bundledDefaultProfileSelection().technologyContext
+        } catch {
+            preconditionFailure("Bundled default level-1 device model profile context is invalid: \(error)")
+        }
+    }
+
+    public static func bundledDefaultProfileResourceName() -> String {
+        do {
+            let catalog = try TimingModelProfileCatalog.bundled()
+            let entry = try catalog.entry(profileID: nil)
+            guard let resourceName = entry.profileResourceName else {
+                preconditionFailure("Bundled default level-1 device model profile is not a bundled resource.")
+            }
+            return resourceName
+        } catch {
+            preconditionFailure("Bundled default level-1 device model profile resource is missing: \(error)")
+        }
+    }
+
+    public static func technologyContext(for model: Level1DeviceModel) -> TimingTechnologyContext {
+        do {
+            let defaultSelection = try bundledDefaultProfileSelection()
+            if model == defaultSelection.profile.model {
+                return defaultSelection.technologyContext
+            }
+        } catch {
+            // A custom model can still produce an unprofiled context below.
+        }
+
+        do {
+            return TimingTechnologyContext(
+                processName: "custom-level1",
+                cornerID: "unspecified",
+                supplyVoltage: model.supplyVoltage,
+                deviceModelID: "custom-level1-device-model",
+                deviceModelHash: try TimingTopologyHasher.hashModel(model)
+            )
+        } catch {
+            preconditionFailure("Custom level-1 device model context is invalid: \(error)")
+        }
+    }
+
+    private struct DefaultProfileSelection {
+        let profile: Level1DeviceModelProfile
+        let technologyContext: TimingTechnologyContext
+    }
+
+    private static func bundledDefaultProfileSelection() throws -> DefaultProfileSelection {
+        let catalog = try TimingModelProfileCatalog.bundled()
+        let entry = try catalog.entry(profileID: nil)
+        if let resourceName = entry.profileResourceName {
+            let profile = try Level1DeviceModelProfile.bundled(resourceName: resourceName)
+            guard profile.profileID == entry.profileID else {
+                throw TimingModelProfileCatalogError.profileNotFound(entry.profileID)
+            }
+            return try DefaultProfileSelection(
+                profile: profile,
+                technologyContext: profile.technologyContext(resourceName: resourceName)
+            )
+        }
+
+        if let profilePath = entry.profilePath {
+            let url = URL(filePath: profilePath)
+            let profile = try Level1DeviceModelProfile.load(from: url)
+            guard profile.profileID == entry.profileID else {
+                throw TimingModelProfileCatalogError.profileNotFound(entry.profileID)
+            }
+            return try DefaultProfileSelection(
+                profile: profile,
+                technologyContext: profile.technologyContext(path: url.path(percentEncoded: false))
+            )
+        }
+
+        throw TimingModelProfileCatalogError.missingProfileReference(entry.profileID)
     }
 
     /// Both `.model` cards, one per line.

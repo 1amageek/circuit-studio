@@ -1,6 +1,5 @@
 import Foundation
 import LayoutCore
-import LayoutTech
 
 /// Raises a layer's area coverage into its density window by tiling fill geometry across the
 /// cell. Foundry CMP needs a minimum metal density; sparse routing must be padded with
@@ -11,12 +10,19 @@ import LayoutTech
 public struct MetalFillInserter: Sendable {
 
     public struct Config: Sendable, Hashable {
-        public let layerName: String   // logical layer (e.g. "met1") resolved via the tech
+        public let layerID: LayoutLayerID
         public let fillSize: Double     // fill square side (µm)
         public let pitch: Double        // grid pitch (µm); must exceed fillSize to keep spacing
 
+        public init(layerID: LayoutLayerID, fillSize: Double, pitch: Double) {
+            self.layerID = layerID
+            self.fillSize = fillSize
+            self.pitch = pitch
+        }
+
+        @available(*, deprecated, message: "Use init(layerID:fillSize:pitch:) with a profile-resolved layer.")
         public init(layerName: String, fillSize: Double, pitch: Double) {
-            self.layerName = layerName
+            self.layerID = LayoutTechnologyResource.layer(layerName)
             self.fillSize = fillSize
             self.pitch = pitch
         }
@@ -36,7 +42,7 @@ public struct MetalFillInserter: Sendable {
         let cell = doc.cells[topIndex]
         guard let area = region ?? boundingBox(of: cell) else { return doc }
 
-        let layer = Sky130LayoutTech.layer(config.layerName)
+        let layer = config.layerID
         var fills: [LayoutShape] = []
         var y = area.minY
         while y + config.fillSize <= area.maxY {

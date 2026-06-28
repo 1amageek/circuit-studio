@@ -60,7 +60,7 @@ struct MagicDensitySignoffTests {
         // 2) Tile metal fill over the cell (0.40 µm squares on 0.60 µm pitch ≈ 44% grid
         //    density), then RE-MEASURE with Magic. The fill brings MET1 into the window.
         let filled = MetalFillInserter().fill(
-            sparse, config: .init(layerName: "met1", fillSize: 0.40, pitch: 0.60))
+            sparse, config: .init(layerID: LayoutTechnologyResource.layer("met1"), fillSize: 0.40, pitch: 0.60))
         let after = try await measureDensity(cell: "dens_filled", document: renamed(filled, to: "dens_filled"), window: window)
         let met1After = try #require(after.layers.first { $0.layer == "MET1" })
         #expect(after.passed, "after fill MET1 must be within the window; measured \(met1After.status)")

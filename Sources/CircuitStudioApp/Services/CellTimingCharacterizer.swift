@@ -34,7 +34,7 @@ public struct CellTimingCharacterizer: Sendable {
     private let logic = GateLevelLogicSimulator()
 
     public init(
-        model: Level1DeviceModel = .sky130Like(),
+        model: Level1DeviceModel = .bundledDefault(),
         simulation: SimulationServiceProtocol = SimulationService(),
         inputSlews: [Double] = [20e-12, 80e-12, 320e-12],
         outputLoads: [Double] = [0.5e-15, 2e-15, 8e-15]

@@ -23,6 +23,7 @@ struct ArtifactSchemaContractTests {
 
         try expectStrictSchemaEnvelope(TimingLibraryArtifact.self, fixtures.libraryArtifact)
         try expectStrictSchemaEnvelope(STAReportArtifact.self, fixtures.staReportArtifact)
+        try expectStrictSchemaEnvelope(TimingModelProfileSelection.self, fixtures.profileSelection)
         try expectStrictSchemaEnvelope(TimingArtifactManifest.self, fixtures.manifest)
         try expectStrictSchemaEnvelope(TimingValidationReport.self, fixtures.validationReport)
         try expectStrictSchemaEnvelope(
@@ -41,6 +42,8 @@ struct ArtifactSchemaContractTests {
         let fixtures = ArtifactFixture()
         let manifestJSON = try topLevelJSON(fixtures.manifest)
         #expect(manifestJSON["createdAt"] is String)
+        let profileSelectionJSON = try topLevelJSON(fixtures.profileSelection)
+        #expect(profileSelectionJSON["selectedAt"] is String)
 
         let record = TimingArtifactRecord(
             id: "timing-library",
@@ -276,6 +279,7 @@ struct ArtifactSchemaContractTests {
             runDirectory: runDirectory,
             technology: fixtures.technology,
             library: fixtures.libraryArtifact,
+            profileSelection: fixtures.profileSelection,
             staReport: fixtures.staReportArtifact,
             combinationalReport: fixtures.combinationalReport,
             sequentialReport: fixtures.sequentialReport,
@@ -296,6 +300,8 @@ struct ArtifactSchemaContractTests {
                 _ = try JSONDecoder().decode(TimingArtifactManifest.self, from: data)
             case "timing-library":
                 _ = try JSONDecoder().decode(TimingLibraryArtifact.self, from: data)
+            case "timing-model-profile-selection":
+                _ = try JSONDecoder().decode(TimingModelProfileSelection.self, from: data)
             case "sta-report":
                 _ = try JSONDecoder().decode(STAReportArtifact.self, from: data)
             case "combinational-characterization":
@@ -491,6 +497,7 @@ private struct ArtifactFixture {
     let technology: TimingTechnologyContext
     let sequentialTiming: SequentialTiming
     let libraryArtifact: TimingLibraryArtifact
+    let profileSelection: TimingModelProfileSelection
     let staReportArtifact: STAReportArtifact
     let manifest: TimingArtifactManifest
     let validationReport: TimingValidationReport
@@ -499,11 +506,16 @@ private struct ArtifactFixture {
     let layoutTrustReport: LayoutTrustReport
 
     init() {
+        let profileReference = TimingModelProfileReference(
+            profileID: "unit-profile",
+            resourceName: "unit-profile.json"
+        )
         let context = TimingTechnologyContext(
             processName: "test",
             cornerID: "tt",
             supplyVoltage: 1.8,
-            deviceModelID: "unit"
+            deviceModelID: "unit",
+            modelProfile: profileReference
         )
         let timing = SequentialTiming(
             clkToQRise: .constant(100e-12),
@@ -529,6 +541,14 @@ private struct ArtifactFixture {
                     artifactIDs: ["sequential-dff-characterization"]
                 ),
             ]
+        )
+        profileSelection = TimingModelProfileSelection(
+            runID: "unit",
+            sourceKind: .bundledResource,
+            selectionReason: "unit fixture",
+            profileSchemaVersion: 1,
+            profile: profileReference,
+            technology: context
         )
 
         let timingPath = TimingPath(
