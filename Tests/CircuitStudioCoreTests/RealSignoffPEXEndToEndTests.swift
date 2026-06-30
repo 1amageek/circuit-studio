@@ -40,8 +40,7 @@ struct RealSignoffPEXEndToEndTests {
         #expect(review.passed, "live DRC+LVS should pass on the clean inv1 layout")
 
         // 2) Real PEX on the same layout via the default engine (backendID=magic).
-        let netlist = work.appending(path: "top.cir")
-        try Data("* placeholder\n.end\n".utf8).write(to: netlist)
+        let netlist = try lvsFixture("inv_schematic", "spice")
         let tech = TechnologyIR(
             processName: "sky130A", stack: [], logicalToPhysicalLayerMap: [:],
             vias: [], defaultExtractionRules: .default, backendHints: [:]

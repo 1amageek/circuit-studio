@@ -115,7 +115,8 @@ struct SignoffRunner {
     }
 
     /// Runs DRC + LVS + PEX (+ back-annotation) on one design and returns whether
-    /// the signoff review passed (the single source of truth — `review.passed`).
+    /// the overall signoff completed cleanly. DRC/LVS remain the primary verdict,
+    /// but a PEX failure on an otherwise clean design is still a failed signoff run.
     private static func evaluate(_ options: Options) async throws -> Bool {
         let design = try await resolveDesign(options)
         let rc = options.flag("--rc")
@@ -270,14 +271,17 @@ struct SignoffRunner {
         let backAnnotation: ParasiticBackAnnotationService.Result?
     }
 
+    static func overallPassed(reviewPassed: Bool, pexError: String?) -> Bool {
+        reviewPassed && pexError == nil
+    }
+
     private static func extractPEX(design: Design, rc: Bool, corner: String) async throws -> PEXSummary {
         guard MagicToolchain.locate() != nil else {
             throw CLIError(code: 2, message: "PEX toolchain unavailable — run `signoff doctor`")
         }
         let pexDir = design.artifacts.appending(path: "pex")
         try FileManager.default.createDirectory(at: pexDir, withIntermediateDirectories: true)
-        let netlist = pexDir.appending(path: "pex-source.cir")
-        try Data("* placeholder\n.end\n".utf8).write(to: netlist)
+        let netlist = try stagePEXSourceNetlist(from: design.schematic, into: pexDir)
         let tech = TechnologyIR(
             processName: "sky130A", stack: [], logicalToPhysicalLayerMap: [:],
             vias: [], defaultExtractionRules: .default, backendHints: [:]
@@ -324,13 +328,25 @@ struct SignoffRunner {
         )
     }
 
+    static func stagePEXSourceNetlist(from schematic: URL, into pexDirectory: URL) throws -> URL {
+        let netlist = pexDirectory.appending(path: "pex-source.cir")
+        let data: Data
+        do {
+            data = try Data(contentsOf: schematic)
+        } catch {
+            throw CLIError(code: 1, message: "Could not read schematic netlist for PEX: \(error.localizedDescription)")
+        }
+        try data.write(to: netlist, options: .atomic)
+        return netlist
+    }
+
     // MARK: - report
 
     private static func report(design: Design, review: ExternalSignoffReview, pex: PEXSummary?,
                                pexError: String?, rc: Bool, corner: String, json: Bool) {
         let drc = review.reports.first { $0.kind == .drc }?.passed ?? false
         let lvs = review.reports.first { $0.kind == .lvs }?.passed ?? false
-        let overall = review.passed
+        let overall = overallPassed(reviewPassed: review.passed, pexError: pexError)
         if json {
             var obj: [String: Any] = [
                 "cell": design.topCell, "drc": drc, "lvs": lvs, "passed": overall,

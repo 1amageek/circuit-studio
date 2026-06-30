@@ -16,6 +16,7 @@ public struct FlowRunnerFailureEnvelope: Codable, Sendable, Equatable {
     public let projectRoot: String?
     public let manifest: String?
     public let stage: String?
+    public let manifestInspectionError: String?
     public let recommendation: String
     public let nextActions: [FlowRunNextAction]
 
@@ -28,6 +29,7 @@ public struct FlowRunnerFailureEnvelope: Codable, Sendable, Equatable {
         projectRoot: String? = nil,
         manifest: String? = nil,
         stage: String? = nil,
+        manifestInspectionError: String? = nil,
         recommendation: String,
         nextActions: [FlowRunNextAction] = []
     ) {
@@ -42,6 +44,7 @@ public struct FlowRunnerFailureEnvelope: Codable, Sendable, Equatable {
         self.projectRoot = projectRoot
         self.manifest = manifest
         self.stage = stage
+        self.manifestInspectionError = manifestInspectionError
         self.recommendation = recommendation
         self.nextActions = nextActions
     }
@@ -60,6 +63,7 @@ extension FlowRunnerFailureEnvelope {
         case projectRoot
         case manifest
         case stage
+        case manifestInspectionError
         case recommendation
         case nextActions
     }
@@ -77,6 +81,7 @@ extension FlowRunnerFailureEnvelope {
         projectRoot = try container.decodeIfPresent(String.self, forKey: .projectRoot)
         manifest = try container.decodeIfPresent(String.self, forKey: .manifest)
         stage = try container.decodeIfPresent(String.self, forKey: .stage)
+        manifestInspectionError = try container.decodeIfPresent(String.self, forKey: .manifestInspectionError)
         recommendation = try container.decode(String.self, forKey: .recommendation)
         nextActions = try container.decodeIfPresent([FlowRunNextAction].self, forKey: .nextActions) ?? []
     }

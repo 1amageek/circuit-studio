@@ -32,7 +32,7 @@ public enum FlowRunnerFailureEnvelopeBuilder {
 
     public static func runtime(error: Error, options: FlowRunnerCommandOptions) -> FlowRunnerFailureEnvelope {
         let manifestURL = candidateManifestURL(from: options)
-        let failedStage = manifestURL.flatMap(failedStageName(from:))
+        let manifestInspection = manifestURL.map(inspectManifest(at:)) ?? ManifestInspection()
         let manifestPath = manifestURL?.path(percentEncoded: false)
         let projectRoot = options.projectRootPath
         return FlowRunnerFailureEnvelope(
@@ -42,13 +42,15 @@ public enum FlowRunnerFailureEnvelopeBuilder {
             runID: options.runID,
             projectRoot: projectRoot,
             manifest: manifestPath,
-            stage: failedStage,
-            recommendation: recommendation(for: error, manifestURL: manifestURL),
+            stage: manifestInspection.failedStage,
+            manifestInspectionError: manifestInspection.error,
+            recommendation: recommendation(for: error, manifestURL: manifestURL, manifestInspection: manifestInspection),
             nextActions: runtimeNextActions(
                 error: error,
                 projectRoot: projectRoot,
                 manifestPath: manifestPath,
-                failedStage: failedStage
+                failedStage: manifestInspection.failedStage,
+                manifestInspectionError: manifestInspection.error
             )
         )
     }
@@ -83,26 +85,37 @@ public enum FlowRunnerFailureEnvelopeBuilder {
         return manifestURL
     }
 
-    public static func failedStageName(from manifestURL: URL) -> String? {
+    public static func inspectManifest(at manifestURL: URL) -> ManifestInspection {
         do {
             let data = try Data(contentsOf: manifestURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let manifest = try decoder.decode(HeadlessRoundTripService.Manifest.self, from: data)
-            return manifest.stages.first { $0.status == .failed }?.name
-                ?? manifest.bottleneckSummary?.failedStageName
+            return ManifestInspection(
+                failedStage: manifest.stages.first { $0.status == .failed }?.name
+                    ?? manifest.bottleneckSummary?.failedStageName
+            )
         } catch {
-            return nil
+            return ManifestInspection(
+                error: "Failed to inspect manifest '\(manifestURL.path(percentEncoded: false))': \(error.localizedDescription)"
+            )
         }
     }
 
-    public static func recommendation(for error: Error, manifestURL: URL?) -> String {
+    public static func recommendation(
+        for error: Error,
+        manifestURL: URL?,
+        manifestInspection: ManifestInspection
+    ) -> String {
         let description = error.localizedDescription
         if description.contains("Post-layout comparison exceeded configured limits") {
             return "Inspect post-layout-comparison.json and adjust the design or comparison limits."
         }
         if error is DesignFlowCommandError {
             return "Fix the command inputs and rerun. Use --help only when you need the option reference."
+        }
+        if let inspectionError = manifestInspection.error {
+            return "\(inspectionError) Repair or regenerate the manifest before relying on persisted stage evidence."
         }
         if manifestURL != nil {
             return "Inspect the manifest and stage artifacts for the structured failure evidence."
@@ -114,9 +127,11 @@ public enum FlowRunnerFailureEnvelopeBuilder {
         error: Error,
         projectRoot: String?,
         manifestPath: String?,
-        failedStage: String?
+        failedStage: String?,
+        manifestInspectionError: String?
     ) -> [FlowRunNextAction] {
         if let manifestPath {
+            let diagnosticCodes = manifestInspectionError == nil ? ["runtime"] : ["runtime", "manifest_unreadable"]
             var suggestedCommands = [
                 FlowRunSuggestedCommand(
                     commandID: "circuit-studio-flow-runner.review-round-trip",
@@ -158,7 +173,7 @@ public enum FlowRunnerFailureEnvelopeBuilder {
                     stageID: failedStage,
                     severity: .error,
                     reason: "Inspect the failed stage and persisted artifacts before planning a repair.",
-                    diagnosticCodes: ["runtime"],
+                    diagnosticCodes: diagnosticCodes,
                     suggestedCommands: suggestedCommands
                 ),
             ]
@@ -195,5 +210,15 @@ public enum FlowRunnerFailureEnvelopeBuilder {
                 suggestedCommands: []
             ),
         ]
+    }
+
+    public struct ManifestInspection: Sendable, Hashable {
+        public let failedStage: String?
+        public let error: String?
+
+        public init(failedStage: String? = nil, error: String? = nil) {
+            self.failedStage = failedStage
+            self.error = error
+        }
     }
 }

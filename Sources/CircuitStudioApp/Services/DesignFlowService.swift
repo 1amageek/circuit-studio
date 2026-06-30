@@ -738,6 +738,7 @@ public struct DesignFlowService: Sendable {
             actionLogPath: manifestURL.map(actionLogService.actionLogPath(manifestURL:)),
             roundTripReview: review,
             selectedSuggestedCommand: selection,
+            actionRecordIDs: [record.actionID],
             message: record.actionID
         )
     }

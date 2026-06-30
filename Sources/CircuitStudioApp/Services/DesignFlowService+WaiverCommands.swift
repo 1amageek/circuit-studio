@@ -79,6 +79,7 @@ extension DesignFlowService {
             layoutTrustReport: verificationResult.layoutTrustReport,
             verificationReportPath: verificationReportPath,
             verificationReport: verificationReport,
+            actionRecordIDs: [record.actionID],
             message: record.actionID
         )
     }
@@ -114,6 +115,7 @@ extension DesignFlowService {
             runID: runID,
             projectRootPath: projectRootPath,
             actionLogPath: actionLogPath(projectRoot: projectRoot, runID: runID),
+            actionRecordIDs: [record.actionID],
             message: record.actionID
         )
     }

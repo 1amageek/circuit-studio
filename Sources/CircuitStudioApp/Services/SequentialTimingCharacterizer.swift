@@ -460,7 +460,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
     }
 
     private func validateSupportedDFFTopology(_ netlist: GateLevelNetlist) throws {
-        guard netlist.inputs.count >= 2, !netlist.output.isEmpty else {
+        guard netlist.inputs.count >= 2, !netlist.outputs.isEmpty else {
             throw CharacterizeError.unsupportedSequentialTopology(
                 cell: netlist.name,
                 reason: "expected D and CLK inputs plus one Q output"

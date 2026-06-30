@@ -1111,6 +1111,110 @@ struct FlowRunnerCLITests {
         #expect(keys["action_id"] == "waiver-edit-proposal-verification-1")
     }
 
+    @Test("apply-waiver-edit-and-verify leaves verification_action_id empty when the ledger did not record one", .timeLimit(.minutes(1)))
+    func applyWaiverEditAndVerifyOutputDoesNotInventVerificationActionID() {
+        let result = DesignFlowCommandResult(
+            kind: .applyWaiverEditProposalAndRunPostVerification,
+            runID: "run-1",
+            projectRootPath: "/tmp/flow-output",
+            readyForPEX: false,
+            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
+            verificationReportPath: "/tmp/flow-output/.xcircuite/runs/run-1/reports/physical-verification.json",
+            actionRecordIDs: [
+                "waiver-edit-proposal-application-1",
+            ],
+            message: "waiver-edit-proposal-verification-1"
+        )
+        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
+        let keys = keyValueOutput(output)
+
+        #expect(keys["application_action_id"] == "waiver-edit-proposal-application-1")
+        #expect(keys["verification_action_id"] == "")
+        #expect(keys["action_id"] == "waiver-edit-proposal-verification-1")
+    }
+
+    @Test("apply-waiver-edit output prefers recorded action IDs over message fallback", .timeLimit(.minutes(1)))
+    func applyWaiverEditOutputPrefersRecordedActionID() {
+        let result = DesignFlowCommandResult(
+            kind: .applyWaiverEditProposal,
+            runID: "run-1",
+            projectRootPath: "/tmp/flow-output",
+            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
+            actionRecordIDs: ["waiver-edit-proposal-application-1"]
+        )
+        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
+        let keys = keyValueOutput(output)
+
+        #expect(keys["action_id"] == "waiver-edit-proposal-application-1")
+    }
+
+    @Test("post-waiver-edit verification output prefers recorded action IDs over message fallback", .timeLimit(.minutes(1)))
+    func postWaiverEditVerificationOutputPrefersRecordedActionID() {
+        let result = DesignFlowCommandResult(
+            kind: .runPostWaiverEditVerification,
+            runID: "run-1",
+            projectRootPath: "/tmp/flow-output",
+            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
+            actionRecordIDs: ["waiver-edit-proposal-verification-1"]
+        )
+        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
+        let keys = keyValueOutput(output)
+
+        #expect(keys["action_id"] == "waiver-edit-proposal-verification-1")
+    }
+
+    @Test("planning output prefers recorded action IDs over message fallback", .timeLimit(.minutes(1)))
+    func planningOutputPrefersRecordedActionID() {
+        let result = DesignFlowCommandResult(
+            kind: .formulateSignoffRepairPlanningProblem,
+            runID: "run-1",
+            projectRootPath: "/tmp/flow-output",
+            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
+            actionRecordIDs: ["signoff-repair-planning-1"]
+        )
+        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
+        let keys = keyValueOutput(output)
+
+        #expect(keys["action_id"] == "signoff-repair-planning-1")
+    }
+
+    @Test("candidate-cycle output does not invent cycle_action_id when the cycle result is absent", .timeLimit(.minutes(1)))
+    func candidateCycleOutputDoesNotInventCycleActionID() {
+        let result = DesignFlowCommandResult(
+            kind: .runSignoffRepairCandidateCycle,
+            runID: "run-1",
+            projectRootPath: "/tmp/flow-output",
+            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
+            message: "signoff-repair-candidate-cycle-1"
+        )
+        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
+        let keys = keyValueOutput(output)
+
+        #expect(keys["cycle_action_id"] == "")
+        #expect(keys["action_id"] == nil || keys["action_id"] == "")
+    }
+
+    @Test("candidate-cycle output falls back to recorded action IDs when the cycle result is absent", .timeLimit(.minutes(1)))
+    func candidateCycleOutputFallsBackToRecordedActionIDs() {
+        let result = DesignFlowCommandResult(
+            kind: .runSignoffRepairCandidateCycle,
+            runID: "run-1",
+            projectRootPath: "/tmp/flow-output",
+            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
+            actionRecordIDs: [
+                "signoff-repair-planning-1",
+                "candidate-plan-1-execution",
+                "candidate-plan-1-verification",
+                "signoff-repair-candidate-cycle-1",
+            ]
+        )
+        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
+        let keys = keyValueOutput(output)
+
+        #expect(keys["planning_action_id"] == "signoff-repair-planning-1")
+        #expect(keys["cycle_action_id"] == "signoff-repair-candidate-cycle-1")
+    }
+
     @Test("post-waiver-edit verification arguments construct the verification command", .timeLimit(.minutes(1)))
     func postWaiverEditVerificationArgumentsConstructCommand() throws {
         let options = try FlowRunnerCommandOptions(arguments: [

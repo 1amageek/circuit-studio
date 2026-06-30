@@ -22,6 +22,20 @@ struct MultiCellBlockTests {
         try #require(Bundle.module.url(forResource: "inv_pair", withExtension: "gds", subdirectory: "lvs"))
     }
 
+    private func blockNetlist() -> String {
+        """
+        * two-inverter block used as the PEX source netlist
+        .subckt sky130_fd_sc_hd__inv_1 A VGND VNB VPB VPWR Y
+        X0 VGND A Y VNB sky130_fd_pr__nfet_01v8 w=650000u l=150000u
+        X1 VPWR A Y VPB sky130_fd_pr__pfet_01v8_hvt w=1000000u l=150000u
+        .ends
+        .subckt inv_pair A Y1 Y2 VGND VNB VPB VPWR
+        XINV0 A Y1 VGND VNB VPB VPWR sky130_fd_sc_hd__inv_1
+        XINV1 A Y2 VGND VNB VPB VPWR sky130_fd_sc_hd__inv_1
+        .ends
+        """
+    }
+
     private func makeDir(_ name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "MultiCellBlock-\(name)-\(UUID().uuidString)")
@@ -56,7 +70,7 @@ struct MultiCellBlockTests {
         let work = try makeDir("pex")
         defer { removeCoreTestTemporaryDirectory(work) }
         let netlist = work.appending(path: "top.cir")
-        try Data("* placeholder\n.end\n".utf8).write(to: netlist)
+        try Data(blockNetlist().utf8).write(to: netlist)
         let tech = TechnologyIR(
             processName: "sky130A", stack: [], logicalToPhysicalLayerMap: [:],
             vias: [], defaultExtractionRules: .default, backendHints: [:]

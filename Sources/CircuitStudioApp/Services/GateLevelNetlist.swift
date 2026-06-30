@@ -32,7 +32,12 @@ public struct GateLevelNetlist: Sendable, Hashable, Codable, Identifiable {
     public let vgnd: String
 
     /// The first (or only) output net.
-    public var output: String { outputs.first ?? "" }
+    public var output: String {
+        guard let output = outputs.first else {
+            preconditionFailure("GateLevelNetlist '\(name)' must declare at least one output net.")
+        }
+        return output
+    }
 
     public init(name: String, instances: [Instance], inputs: [String], output: String,
                 vpwr: String = "VPWR", vgnd: String = "VGND") {
@@ -41,6 +46,7 @@ public struct GateLevelNetlist: Sendable, Hashable, Codable, Identifiable {
 
     public init(name: String, instances: [Instance], inputs: [String], outputs: [String],
                 vpwr: String = "VPWR", vgnd: String = "VGND") {
+        precondition(!outputs.isEmpty, "GateLevelNetlist '\(name)' must declare at least one output net.")
         self.name = name
         self.instances = instances
         self.inputs = inputs

@@ -88,6 +88,19 @@ struct PDKSchematicProviderTests {
         #expect(contents.contains(".subckt generic_std__inv_1 A Y"))
     }
 
+    @Test("Rejects cells whose library is absent from the PDK profile")
+    func rejectsUnknownLibraryInsteadOfFallingBack() throws {
+        let fixture = try makeProfileBackedProvider()
+        defer { removeCoreTestTemporaryDirectory(fixture.root) }
+
+        #expect(throws: PDKSchematicProvider.SchematicError.standardCellLibraryMissing) {
+            _ = try fixture.provider.schematic(
+                forCell: "missing_std__inv_1",
+                into: FileManager.default.temporaryDirectory.appending(path: "PDKSchematicProviderMissing-\(UUID().uuidString)")
+            )
+        }
+    }
+
     private struct ProfileBackedProviderFixture {
         let provider: PDKSchematicProvider
         let root: URL

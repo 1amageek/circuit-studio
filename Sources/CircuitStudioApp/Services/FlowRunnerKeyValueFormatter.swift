@@ -210,7 +210,7 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("project_root=\(result.projectRootPath ?? "")")
             lines.append("manifest=\(result.manifestPath ?? "")")
             lines.append("actions=\(result.actionLogPath ?? "")")
-            lines.append("action_id=\(result.message ?? "")")
+            lines.append("action_id=\(firstActionRecordID(from: result) ?? result.message ?? "")")
             lines.append("command_id=\(result.selectedSuggestedCommand?.commandID ?? "")")
             lines.append("readiness=\(result.selectedSuggestedCommand?.readiness ?? "")")
             lines.append("executable=\(result.selectedSuggestedCommand?.executable ?? "")")
@@ -224,7 +224,7 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("run_id=\(result.runID ?? "")")
             lines.append("project_root=\(result.projectRootPath ?? "")")
             lines.append("actions=\(result.actionLogPath ?? "")")
-            lines.append("action_id=\(result.message ?? "")")
+            lines.append("action_id=\(firstActionRecordID(from: result) ?? result.message ?? "")")
         case .runPostWaiverEditVerification:
             lines.append("waiver_edit_verification=\(result.verificationReport?.status ?? "")")
             lines.append("run_id=\(result.runID ?? "")")
@@ -236,7 +236,7 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("drc_violations=\(result.verificationReport?.drc.violationCount ?? 0)")
             lines.append("lvs_passed=\(result.verificationReport?.lvs.passed ?? false)")
             lines.append("actions=\(result.actionLogPath ?? "")")
-            lines.append("action_id=\(result.message ?? "")")
+            lines.append("action_id=\(firstActionRecordID(from: result) ?? result.message ?? "")")
         case .applyWaiverEditProposalAndRunPostVerification:
             lines.append("waiver_edit=applied")
             lines.append("waiver_edit_verification=\(result.verificationReport?.status ?? "")")
@@ -251,14 +251,14 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("actions=\(result.actionLogPath ?? "")")
             let actionRecordIDs = result.actionRecordIDs ?? []
             lines.append("application_action_id=\(actionRecordIDs.first ?? "")")
-            lines.append("verification_action_id=\(actionRecordIDs.dropFirst().first ?? result.message ?? "")")
-            lines.append("action_id=\(result.message ?? "")")
+            lines.append("verification_action_id=\(actionRecordIDs.dropFirst().first ?? "")")
+            lines.append("action_id=\(lastActionRecordID(from: result) ?? result.message ?? "")")
         case .formulateSignoffRepairPlanningProblem:
             lines.append("signoff_repair_planning=generated")
             lines.append("run_id=\(result.runID ?? "")")
             lines.append("project_root=\(result.projectRootPath ?? "")")
             lines.append("actions=\(result.actionLogPath ?? "")")
-            lines.append("action_id=\(result.message ?? "")")
+            lines.append("action_id=\(firstActionRecordID(from: result) ?? result.message ?? "")")
             lines.append("formulation_id=\(result.signoffRepairPlanningResult?.formulationID ?? "")")
             lines.append("problem_id=\(result.signoffRepairPlanningResult?.problemID ?? "")")
             lines.append("action_domain=\(result.actionDomainPath ?? "")")
@@ -273,8 +273,8 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("run_id=\(result.runID ?? "")")
             lines.append("project_root=\(result.projectRootPath ?? "")")
             lines.append("actions=\(result.actionLogPath ?? "")")
-            lines.append("cycle_action_id=\(cycle?.cycleActionRecord.actionID ?? result.message ?? "")")
-            lines.append("planning_action_id=\(cycle?.planningResult.actionRecord.actionID ?? "")")
+            lines.append("cycle_action_id=\(cycle?.cycleActionRecord.actionID ?? actionRecordID(from: result, at: 3) ?? "")")
+            lines.append("planning_action_id=\(cycle?.planningResult.actionRecord.actionID ?? actionRecordID(from: result, at: 0) ?? "")")
             lines.append("cycle_index=\(cycle?.cycleIndex ?? 0)")
             lines.append("strategy=\(cycle?.strategy ?? "")")
             lines.append("verification_mode=\(cycle?.verificationMode ?? "")")
@@ -626,5 +626,21 @@ public enum FlowRunnerKeyValueFormatter {
         context: FlowRunnerOutputContext
     ) -> Bool {
         signoffSource(result: result, context: context) != "none" && context.approveSignoff
+    }
+
+    private static func firstActionRecordID(from result: DesignFlowCommandResult) -> String? {
+        result.actionRecordIDs?.first
+    }
+
+    private static func lastActionRecordID(from result: DesignFlowCommandResult) -> String? {
+        result.actionRecordIDs?.last
+    }
+
+    private static func actionRecordID(from result: DesignFlowCommandResult, at index: Int) -> String? {
+        guard let actionRecordIDs = result.actionRecordIDs,
+              actionRecordIDs.indices.contains(index) else {
+            return nil
+        }
+        return actionRecordIDs[index]
     }
 }

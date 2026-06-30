@@ -40,8 +40,7 @@ struct PDKBlockSignoffTests {
         #expect(lvs.passed, "DFF layout must match its 24-device schematic")
 
         // Real PEX on the same layout.
-        let netlist = work.appending(path: "top.cir")
-        try Data("* placeholder\n.end\n".utf8).write(to: netlist)
+        let netlist = try fixture("dff_schematic", "spice")
         let tech = TechnologyIR(
             processName: "sky130A", stack: [], logicalToPhysicalLayerMap: [:],
             vias: [], defaultExtractionRules: .default, backendHints: [:]

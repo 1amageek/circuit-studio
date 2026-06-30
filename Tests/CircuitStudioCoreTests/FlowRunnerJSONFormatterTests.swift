@@ -125,6 +125,7 @@ struct FlowRunnerJSONFormatterTests {
             projectRoot: "/tmp/flow-output",
             manifest: "/tmp/flow-output/.xcircuite/flow-runs/run-1/round-trip-manifest.json",
             stage: "post-layout-comparison",
+            manifestInspectionError: "Failed to inspect manifest '/tmp/flow-output/.xcircuite/flow-runs/run-1/round-trip-manifest.json': malformed JSON.",
             recommendation: "Inspect the manifest and stage artifacts for the structured failure evidence."
         )
 
@@ -140,6 +141,7 @@ struct FlowRunnerJSONFormatterTests {
         #expect(decoded.runID == "run-1")
         #expect(decoded.projectRoot == "/tmp/flow-output")
         #expect(decoded.stage == "post-layout-comparison")
+        #expect(decoded.manifestInspectionError == "Failed to inspect manifest '/tmp/flow-output/.xcircuite/flow-runs/run-1/round-trip-manifest.json': malformed JSON.")
         #expect(decoded.recommendation.contains("structured failure evidence"))
         #expect(decoded.nextActions.isEmpty)
     }
@@ -226,6 +228,48 @@ struct FlowRunnerJSONFormatterTests {
         #expect(reviewCommand.executable == "swift")
         #expect(reviewCommand.arguments.contains("--review-round-trip"))
         #expect(reviewCommand.arguments.contains(manifestURL.path(percentEncoded: false)))
+    }
+
+    @Test("Runtime failure envelope records unreadable manifest inspection failures", .timeLimit(.minutes(1)))
+    func runtimeFailureEnvelopeRecordsUnreadableManifestInspectionFailures() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "FlowRunnerFailureEnvelopeMalformedManifestTests-\(UUID().uuidString)")
+        defer {
+            do {
+                try FileManager.default.removeItem(at: root)
+            } catch {
+                Issue.record("Failed to remove temporary directory \(root.path(percentEncoded: false)): \(error)")
+            }
+        }
+
+        let runID = "failed-run"
+        let manifestURL = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: runID)
+            .appending(path: "round-trip-manifest.json")
+        try FileManager.default.createDirectory(
+            at: manifestURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{not-json}".utf8).write(to: manifestURL, options: .atomic)
+
+        let options = try FlowRunnerCommandOptions(arguments: [
+            "--output", root.path(percentEncoded: false),
+            "--run-id", runID,
+            "--json",
+        ])
+        let failure = FlowRunnerFailureEnvelopeBuilder.runtime(
+            error: RuntimeTestError("Unexpected runtime failure."),
+            options: options
+        )
+
+        #expect(failure.manifest == manifestURL.path(percentEncoded: false))
+        #expect(failure.stage == nil)
+        #expect(failure.manifestInspectionError?.contains("Failed to inspect manifest") == true)
+        #expect(failure.recommendation.contains("Repair or regenerate the manifest") == true)
+        let nextAction = try #require(failure.nextActions.first)
+        #expect(nextAction.diagnosticCodes.contains("manifest_unreadable"))
     }
 
     @Test("Usage failure envelope suggests help command", .timeLimit(.minutes(1)))

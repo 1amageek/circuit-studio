@@ -123,6 +123,7 @@ let package = Package(
                 "SchematicEditor",
                 "WaveformViewer",
                 "CircuitStudioApp",
+                "SignoffRunner",
                 .product(name: "LayoutEditor", package: "semiconductor-layout"),
                 .product(name: "LayoutCore", package: "semiconductor-layout"),
                 .product(name: "LayoutEngine", package: "semiconductor-layout"),

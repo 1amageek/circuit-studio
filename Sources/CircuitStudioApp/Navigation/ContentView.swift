@@ -517,6 +517,7 @@ public struct ContentView: View {
         .pickerStyle(.segmented)
         .fixedSize()
         .help("Switch Workspace")
+        .accessibilityIdentifier("workspace-picker")
     }
 
     @ViewBuilder

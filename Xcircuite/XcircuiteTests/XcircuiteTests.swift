@@ -10,8 +10,8 @@ import Testing
 
 struct XcircuiteTests {
 
-    @Test func example() async throws {
-        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+    @Test("App host delegates to the shared CircuitStudio app entry point")
+    func appHostDelegatesToCircuitStudioApp() {
+        #expect(Xcircuite.hostedAppTypeName == "CircuitStudioApp")
     }
-
 }

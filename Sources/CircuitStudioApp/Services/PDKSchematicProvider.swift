@@ -131,8 +131,7 @@ public struct PDKSchematicProvider: Sendable {
         guard let library else {
             throw SchematicError.standardCellLibraryMissing
         }
-        guard let deck = context.profile.standardCellLibraries.first(where: { $0.libraryID == library })
-            ?? context.profile.standardCellLibraries.first else {
+        guard let deck = context.profile.standardCellLibraries.first(where: { $0.libraryID == library }) else {
             throw SchematicError.standardCellLibraryMissing
         }
         guard !deck.spiceDeckRequirementID.isEmpty else {
