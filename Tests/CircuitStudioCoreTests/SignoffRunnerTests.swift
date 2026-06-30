@@ -32,4 +32,19 @@ struct SignoffRunnerTests {
         #expect(staged.lastPathComponent == "pex-source.cir")
         #expect(try String(contentsOf: staged, encoding: .utf8) == source)
     }
+
+    @Test("Batch check isolates each cell under the requested artifact root")
+    func batchCheckNamespacesCellArtifacts() {
+        let base = "/tmp/signoff-artifacts"
+
+        #expect(SignoffRunner.parseCellList(" inv_1, nand2_1 ,, sky130_fd_sc_hd__buf_1 ") == [
+            "inv_1",
+            "nand2_1",
+            "sky130_fd_sc_hd__buf_1",
+        ])
+        #expect(
+            SignoffRunner.batchCellArtifactDirectory(base: base, cell: "sky130_fd_sc_hd__inv_1")
+                == "/tmp/signoff-artifacts/sky130_fd_sc_hd__inv_1"
+        )
+    }
 }

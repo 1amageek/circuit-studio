@@ -8,6 +8,12 @@ import Foundation
 /// is injected as `nextCandidate`, so this type owns only the apply→verify→iterate
 /// machinery and the convergence criterion (`ExternalSignoffReview.passed`).
 public struct SignoffIterationLoop: Sendable {
+    public typealias SignoffExecution = @Sendable (
+        _ layoutGDS: URL,
+        _ topCell: String,
+        _ schematicNetlist: URL,
+        _ artifactDirectory: URL
+    ) async throws -> ExternalSignoffReview
 
     /// One design proposal to verify.
     public struct Candidate: Sendable, Hashable {
@@ -45,10 +51,21 @@ public struct SignoffIterationLoop: Sendable {
         }
     }
 
-    private let signoff: LiveSignoffService
+    private let runSignoff: SignoffExecution
 
     public init(signoff: LiveSignoffService) {
-        self.signoff = signoff
+        self.runSignoff = { layoutGDS, topCell, schematicNetlist, artifactDirectory in
+            try await signoff.run(
+                layoutGDS: layoutGDS,
+                topCell: topCell,
+                schematicNetlist: schematicNetlist,
+                artifactDirectory: artifactDirectory
+            )
+        }
+    }
+
+    public init(runSignoff: @escaping SignoffExecution) {
+        self.runSignoff = runSignoff
     }
 
     /// Available only when the real signoff toolchain is installed.
@@ -76,11 +93,11 @@ public struct SignoffIterationLoop: Sendable {
 
         for index in 0..<maxIterations {
             guard let candidate = try await nextCandidate(index, lastReview) else { break }
-            let review = try await signoff.run(
-                layoutGDS: candidate.layoutGDS,
-                topCell: candidate.topCell,
-                schematicNetlist: candidate.schematicNetlist,
-                artifactDirectory: artifactDirectory.appending(path: "iter-\(index)")
+            let review = try await runSignoff(
+                candidate.layoutGDS,
+                candidate.topCell,
+                candidate.schematicNetlist,
+                artifactDirectory.appending(path: "iter-\(index)")
             )
             outcomes.append(IterationOutcome(index: index, candidate: candidate, review: review))
             if review.passed {

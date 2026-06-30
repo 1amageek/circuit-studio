@@ -21,6 +21,38 @@ struct SignoffIterationLoopTests {
         return url
     }
 
+    @Test("The loop requests candidates lazily and stops after the first passing review")
+    func candidateProviderIsLazy() async throws {
+        let work = try makeDir("lazy")
+        defer { removeCoreTestTemporaryDirectory(work) }
+
+        let recorder = SignoffLoopRecorder()
+        let loop = SignoffIterationLoop { _, topCell, _, artifactDirectory in
+            let executionIndex = await recorder.recordExecution(topCell)
+            #expect(artifactDirectory.lastPathComponent == "iter-\(executionIndex)")
+            return passingReview(logPath: artifactDirectory.appending(path: "fake.log").path(percentEncoded: false))
+        }
+
+        var requestedIndices: [Int] = []
+        let result = try await loop.run(maxIterations: 3, artifactDirectory: work) { index, lastReview in
+            requestedIndices.append(index)
+            #expect(lastReview == nil)
+            if index > 0 {
+                Issue.record("Candidate \(index) should not be requested after the first pass.")
+            }
+            return SignoffIterationLoop.Candidate(
+                layoutGDS: URL(filePath: "/tmp/layout-\(index).gds"),
+                topCell: "candidate-\(index)",
+                schematicNetlist: URL(filePath: "/tmp/schematic-\(index).spice")
+            )
+        }
+
+        #expect(result.converged)
+        #expect(result.iterations.map(\.candidate.topCell) == ["candidate-0"])
+        #expect(requestedIndices == [0])
+        #expect(await recorder.executedCells() == ["candidate-0"])
+    }
+
     @Test(
         "The loop iterates past a failing candidate and converges on a passing one",
         .enabled(if: SignoffIterationLoopTests.loop != nil),
@@ -88,5 +120,37 @@ struct SignoffIterationLoopTests {
         await #expect(throws: SignoffIterationLoop.LoopError.nonPositiveIterationBudget) {
             _ = try await loop.run(maxIterations: 0, artifactDirectory: work) { _, _ in broken }
         }
+    }
+
+    private func passingReview(logPath: String) -> ExternalSignoffReview {
+        ExternalSignoffReview(reports: [
+            ExternalSignoffToolReport(
+                kind: .drc,
+                toolName: "fake-drc",
+                success: true,
+                completed: true,
+                logPath: logPath
+            ),
+            ExternalSignoffToolReport(
+                kind: .lvs,
+                toolName: "fake-lvs",
+                success: true,
+                completed: true,
+                logPath: logPath
+            ),
+        ])
+    }
+}
+
+private actor SignoffLoopRecorder {
+    private var cells: [String] = []
+
+    func recordExecution(_ cell: String) -> Int {
+        cells.append(cell)
+        return cells.count - 1
+    }
+
+    func executedCells() -> [String] {
+        cells
     }
 }

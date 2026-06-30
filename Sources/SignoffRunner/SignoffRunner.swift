@@ -90,7 +90,7 @@ struct SignoffRunner {
     private static func runCheck(_ options: Options) async throws -> Int32 {
         // Batch: --cells a,b,c evaluates each cell consistently and aggregates.
         if let list = options.value("--cells") {
-            let cells = list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            let cells = parseCellList(list)
             guard !cells.isEmpty else { throw CLIError(code: 1, message: "--cells is empty") }
             var allPassed = true
             for (index, cell) in cells.enumerated() {
@@ -102,7 +102,7 @@ struct SignoffRunner {
                 if let base = options.value("--artifacts") {
                     cellOptions = cellOptions.with(
                         key: "--artifacts",
-                        value: URL(filePath: base).appending(path: cell).path(percentEncoded: false)
+                        value: batchCellArtifactDirectory(base: base, cell: cell)
                     )
                 }
                 let passed = try await evaluate(cellOptions)
@@ -166,7 +166,7 @@ struct SignoffRunner {
         guard let list = options.value("--cells") else {
             throw CLIError(code: 1, message: "iterate requires --cells <a,b,c> (the candidate sequence)")
         }
-        let cells = list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let cells = parseCellList(list)
         guard !cells.isEmpty else { throw CLIError(code: 1, message: "--cells is empty") }
         let maxIterations = options.value("--max-iterations").flatMap(Int.init) ?? cells.count
 
@@ -401,6 +401,16 @@ struct SignoffRunner {
     }
 
     // MARK: - helpers
+
+    static func parseCellList(_ list: String) -> [String] {
+        list.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    static func batchCellArtifactDirectory(base: String, cell: String) -> String {
+        URL(filePath: base).appending(path: cell).path(percentEncoded: false)
+    }
 
     private static func emitJSON(_ object: [String: Any]) throws {
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])

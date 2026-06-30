@@ -100,6 +100,53 @@ struct ExternalSignoffCommandServiceTests {
         ])
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func largeStdoutAndStderrAreDrainedWithoutDeadlock() async throws {
+        let root = try makeTemporaryRoot("large-output")
+        defer { removeTemporaryRoot(root) }
+
+        let executable = try writeExecutable(
+            named: "mock-large-output",
+            in: root,
+            contents: """
+            #!/usr/bin/env perl
+            for my $i (1..2500) {
+                print STDOUT "stdout-$i " . ("x" x 96) . "\\n";
+                print STDERR "stderr-$i " . ("y" x 96) . "\\n";
+            }
+            print STDOUT "[INFO] rule=DRC_DONE message=\\"complete\\"\\n";
+            print STDERR "[WARN] rule=LARGE_STDERR message=\\"drained\\"\\n";
+            exit 0;
+            """
+        )
+        let artifactDirectory = root.appending(path: "artifacts")
+        let command = ExternalSignoffCommand(
+            kind: .drc,
+            toolName: "large-output-drc",
+            executablePath: executable.path(percentEncoded: false),
+            timeoutSeconds: 5.0
+        )
+
+        let result = try await ExternalSignoffCommandService().run(
+            command: command,
+            artifactDirectory: artifactDirectory
+        )
+
+        #expect(result.exitCode == 0)
+        #expect(result.standardOutput.contains("stdout-2500"))
+        #expect(result.standardError.contains("stderr-2500"))
+        #expect(result.standardOutput.utf8.count > 200_000)
+        #expect(result.standardError.utf8.count > 200_000)
+        #expect(result.report.passed)
+        #expect(result.report.diagnostics.contains {
+            $0.ruleID == "LARGE_STDERR" && $0.message == "drained"
+        })
+
+        let log = try String(contentsOf: result.logURL, encoding: .utf8)
+        #expect(log.contains("stdout-2500"))
+        #expect(log.contains("stderr-2500"))
+    }
+
     @Test func runCommandsBuildsUnapprovedReview() async throws {
         let root = try makeTemporaryRoot("aggregate")
         defer { removeTemporaryRoot(root) }
