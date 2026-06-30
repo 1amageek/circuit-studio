@@ -66,6 +66,8 @@ struct RunReviewItemList: View {
             return "rectangle.stack.badge.exclamationmark"
         case .planningCorrectness:
             return "checklist"
+        case .retainedHistory:
+            return "chart.line.uptrend.xyaxis"
         case .archiveOrContinue:
             return "archivebox"
         case .cancellation:

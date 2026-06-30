@@ -126,26 +126,28 @@ struct LayoutGenerationCellSnapshot: Sendable, Codable, Equatable {
         source: LayoutGenerationSourceSnapshot?,
         cellName: String
     ) -> CircuitLayoutAvailability {
-        guard base.code == .emptySchematic, let source else { return base }
+        guard let source else { return base }
         let loadedNetlistName = source.topNetlist.exists
             ? (source.topNetlist.fileName ?? "top.cir")
             : (source.selectedFile.fileName ?? "SPICE netlist")
-        if let materialization = source.netlistMaterialization,
-           materialization.status == .failed {
-            return unavailable(
-                code: .netlistMaterializationFailed,
-                "Cell '\(cellName)' has no materialized schematic because \(loadedNetlistName) could not be imported: \(materialization.message ?? "unknown failure").",
-                help: "Fix the SPICE import issue or create cells/\(cellName)/schematic.json before generating layout."
-            )
-        }
         if source.topNetlist.exists, !source.activeCellSchematic.exists {
+            if let materialization = source.netlistMaterialization,
+               materialization.status == .failed {
+                return unavailable(
+                    code: .netlistMaterializationFailed,
+                    "Cell '\(cellName)' has no materialized schematic because \(loadedNetlistName) could not be imported: \(materialization.message ?? "unknown failure").",
+                    help: "Fix the SPICE import issue or create cells/\(cellName)/schematic.json before generating layout."
+                )
+            }
             return unavailable(
                 code: .missingMaterializedSchematic,
                 "\(loadedNetlistName) is loaded, but cells/\(cellName)/schematic.json is missing.",
-                help: "Layout generation needs a materialized schematic cell. The project opened with a SPICE netlist but no visual schematic cell."
+                help: "Layout generation needs a persisted schematic cell so the editor, CLI, and generated artifacts share the same canonical input."
             )
         }
-        if source.projectRoot.path == nil, source.selectedFile.exists {
+        if source.projectRoot.path == nil,
+           source.selectedFile.exists,
+           base.code == .emptySchematic {
             return unavailable(
                 code: .missingMaterializedSchematic,
                 "\(loadedNetlistName) is loaded, but no schematic has been materialized.",

@@ -201,6 +201,8 @@ struct RunReviewInteractiveSignoffDrilldownCard: View {
             return "point.3.connected.trianglepath.dotted"
         case .pex:
             return "bolt.horizontal"
+        case .oracle:
+            return "checkmark.seal"
         case .simulation:
             return "waveform.path.ecg"
         case .postLayout:

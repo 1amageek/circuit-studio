@@ -605,6 +605,15 @@ public struct CircuitStudioApp: App {
                 topCell: result.topCellName,
                 activeCell: result.activeCellName
             )
+            if let projectRoot {
+                try services.projectService.saveMaterializedSchematic(
+                    result,
+                    forProjectAt: projectRoot
+                )
+                for workspace in project.cells {
+                    workspace.markSchematicSaved()
+                }
+            }
             let sourceName = appState.spiceFileName ?? "SPICE netlist"
             var message = "Materialized \(result.sourceDescription) from \(sourceName) into cell '\(result.topCellName)'."
             if let materializationWarning {

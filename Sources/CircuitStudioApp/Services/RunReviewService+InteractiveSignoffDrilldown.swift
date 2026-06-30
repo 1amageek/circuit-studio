@@ -404,6 +404,8 @@ extension RunReviewService {
             return .lvs
         case "PEX":
             return .pex
+        case "Oracle":
+            return .oracle
         case "Post-layout":
             return .postLayout
         default:
@@ -423,6 +425,8 @@ extension RunReviewService {
             return "LVS"
         case .pex:
             return "PEX"
+        case .oracle:
+            return "Oracle"
         case .simulation:
             return "Simulation"
         case .postLayout:
@@ -444,12 +448,14 @@ extension RunReviewService {
             return 2
         case .pex:
             return 3
-        case .simulation:
+        case .oracle:
             return 4
-        case .postLayout:
+        case .simulation:
             return 5
-        case .waveform:
+        case .postLayout:
             return 6
+        case .waveform:
+            return 7
         }
     }
 

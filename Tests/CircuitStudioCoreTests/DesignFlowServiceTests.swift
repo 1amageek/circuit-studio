@@ -54,7 +54,7 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func technologyPackageLoadsAndInjectsProcessConfig() async throws {
-        let packageURL = try rootFixtureURL("technology-package", extension: "json")
+        let packageURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
         let service = DesignFlowService()
 
         let packageResult = try await service.execute(DesignFlowCommand(
@@ -83,9 +83,9 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRunsFixtureRoundTripWithTechnologyPackage() async throws {
-        let packageURL = try rootFixtureURL("technology-package", extension: "json")
-        let root = try makeTemporaryRoot("technology-package-round-trip")
-        defer { removeTemporaryRoot(root) }
+        let packageURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("technology-package-round-trip")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
 
         let roundTrip = try await DesignFlowService().execute(DesignFlowCommand(
             kind: .runFixtureRoundTrip,
@@ -109,235 +109,15 @@ struct DesignFlowServiceTests {
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
-    func commandAPIBuildsTimingLibraryWithCatalogSelectedExternalModelProfile() async throws {
-        let root = try makeTemporaryRoot("timing-model-profile-library")
-        defer { removeTemporaryRoot(root) }
-        let profileURL = root.appending(path: "external-timing-profile.json")
-        let profile = Level1DeviceModel.bundledDefaultProfile()
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(profile).write(to: profileURL, options: .atomic)
-        let profileDigest = try RoundTripArtifactDigest.compute(url: profileURL)
-        let catalogURL = root.appending(path: "timing-profile-catalog.json")
-        let catalog = try TimingModelProfileCatalog(
-            catalogID: "unit-timing-profile-catalog",
-            profiles: [
-                TimingModelProfileCatalog.Entry(
-                    profileID: profile.profileID,
-                    cornerID: profile.technology.cornerID,
-                    profilePath: profileURL.lastPathComponent,
-                    defaultProfile: true
-                ),
-            ]
-        )
-        try encoder.encode(catalog).write(to: catalogURL, options: .atomic)
-        try await prewarmTimingLibraryBuildCache(
-            model: profile.model,
-            technologyContext: try profile.technologyContext(
-                path: profileURL.path(percentEncoded: false),
-                sha256: profileDigest.sha256
-            )
-        )
-
-        let result = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .buildTimingLibrary,
-            projectRootPath: root.path(percentEncoded: false),
-            runID: "timing-profile-run",
-            timingModelProfileCatalogPath: catalogURL.path(percentEncoded: false),
-            timingModelCornerID: profile.technology.cornerID
-        ))
-
-        #expect(result.runID == "timing-profile-run")
-        #expect(result.projectRootPath == root.path(percentEncoded: false))
-        #expect(result.timingModelProfileID == profile.profileID)
-        #expect(result.timingModelProfilePath == profileURL.path(percentEncoded: false))
-        #expect(result.timingModelProfileCatalogID == catalog.catalogID)
-        #expect(result.timingModelProfileCatalogPath == catalogURL.path(percentEncoded: false))
-        #expect(result.timingModelCornerID == profile.technology.cornerID)
-        let manifestPath = try #require(result.timingArtifactManifestPath)
-        let libraryPath = try #require(result.timingLibraryPath)
-        let selectionPath = try #require(result.timingModelProfileSelectionPath)
-        #expect(FileManager.default.fileExists(atPath: manifestPath))
-        #expect(FileManager.default.fileExists(atPath: libraryPath))
-        #expect(FileManager.default.fileExists(atPath: selectionPath))
-
-        let manifest = try JSONDecoder().decode(
-            TimingArtifactManifest.self,
-            from: Data(contentsOf: URL(filePath: manifestPath))
-        )
-        #expect(manifest.runID == "timing-profile-run")
-        #expect(manifest.technology.modelProfile?.profileID == profile.profileID)
-        #expect(manifest.technology.modelProfile?.path == profileURL.path(percentEncoded: false))
-        #expect(manifest.technology.modelProfile?.sha256 == profileDigest.sha256)
-        #expect(manifest.artifacts.contains { $0.id == "timing-library" && $0.status == .available })
-        #expect(manifest.artifacts.contains { $0.id == "timing-model-profile-selection" && $0.status == .available })
-        #expect(manifest.artifacts.contains { $0.id == "combinational-characterization" && $0.status == .available })
-        #expect(manifest.artifacts.contains { $0.id == "sequential-dff-characterization" && $0.status == .available })
-
-        let selection = try JSONDecoder().decode(
-            TimingModelProfileSelection.self,
-            from: Data(contentsOf: URL(filePath: selectionPath))
-        )
-        #expect(selection.runID == "timing-profile-run")
-        #expect(selection.sourceKind == .externalFile)
-        #expect(selection.catalogID == catalog.catalogID)
-        #expect(selection.catalogPath == catalogURL.path(percentEncoded: false))
-        #expect(selection.profile.profileID == profile.profileID)
-        #expect(selection.profile.path == profileURL.path(percentEncoded: false))
-        #expect(selection.profile.sha256 == profileDigest.sha256)
-        #expect(selection.technology.modelProfile == selection.profile)
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    @MainActor
-    func commandAPIRejectsCatalogTimingModelProfileCornerMismatchBeforeBuild() async throws {
-        let root = try makeTemporaryRoot("timing-model-profile-corner-mismatch")
-        defer { removeTemporaryRoot(root) }
-        let profileURL = root.appending(path: "external-timing-profile.json")
-        let profile = Level1DeviceModel.bundledDefaultProfile()
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(profile).write(to: profileURL, options: .atomic)
-        let catalogURL = root.appending(path: "timing-profile-catalog.json")
-        let catalog = try TimingModelProfileCatalog(
-            catalogID: "unit-timing-profile-catalog",
-            profiles: [
-                TimingModelProfileCatalog.Entry(
-                    profileID: profile.profileID,
-                    cornerID: "ss",
-                    profilePath: profileURL.lastPathComponent,
-                    defaultProfile: true
-                ),
-            ]
-        )
-        try encoder.encode(catalog).write(to: catalogURL, options: .atomic)
-
-        await #expect(throws: DesignFlowCommandError.timingModelProfileCatalogCornerMismatch(
-            profileID: profile.profileID,
-            declared: "ss",
-            actual: profile.technology.cornerID
-        )) {
-            try await DesignFlowService().execute(DesignFlowCommand(
-                kind: .buildTimingLibrary,
-                projectRootPath: root.path(percentEncoded: false),
-                runID: "timing-profile-corner-mismatch",
-                timingModelProfileCatalogPath: catalogURL.path(percentEncoded: false)
-            ))
-        }
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    @MainActor
-    func commandAPIRejectsConflictingTimingModelProfileSelectors() async throws {
-        let root = try makeTemporaryRoot("timing-model-profile-conflict")
-        defer { removeTemporaryRoot(root) }
-
-        await #expect(throws: DesignFlowCommandError.conflictingTimingModelProfileSelectors) {
-            try await DesignFlowService().execute(DesignFlowCommand(
-                kind: .buildTimingLibrary,
-                projectRootPath: root.path(percentEncoded: false),
-                runID: "timing-profile-conflict",
-                timingModelProfilePath: "/tmp/timing-profile.json",
-                timingModelProfileCatalogPath: "/tmp/timing-profile-catalog.json",
-                timingModelProfileID: "profile-1",
-                timingModelCornerID: "tt"
-            ))
-        }
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    @MainActor
-    func commandAPIInspectsBundledTimingModelProfileCatalog() async throws {
-        let result = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .inspectTimingModelProfiles
-        ))
-
-        let inspection = try #require(result.timingModelProfileCatalogInspection)
-        #expect(result.timingModelProfileCatalogID == "circuit-studio.default-timing-model-profiles.v2")
-        #expect(result.timingModelProfileID == "sky130.level1-device-model.v1")
-        #expect(result.timingModelCornerID == "tt")
-        #expect(inspection.status == .passed)
-        #expect(inspection.profileCount == 3)
-        #expect(inspection.passedProfileCount == 3)
-        #expect(inspection.failedProfileCount == 0)
-        let profile = try #require(inspection.profiles.first)
-        #expect(profile.profileID == "sky130.level1-device-model.v1")
-        #expect(profile.profileResourceName == Level1DeviceModel.bundledDefaultProfileResourceName())
-        #expect(profile.profilePath == nil)
-        #expect(profile.declaredCornerID == "tt")
-        #expect(profile.cornerID == "tt")
-        #expect(profile.deviceModelHash != nil)
-        #expect(profile.sha256 != nil)
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    @MainActor
-    func commandAPIInspectsBundledTimingModelProfileCatalogByCorner() async throws {
-        let result = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .inspectTimingModelProfiles,
-            timingModelCornerID: "ss"
-        ))
-
-        let inspection = try #require(result.timingModelProfileCatalogInspection)
-        #expect(result.timingModelProfileCatalogID == "circuit-studio.default-timing-model-profiles.v2")
-        #expect(result.timingModelProfileID == "sky130.level1-device-model.ss.v1")
-        #expect(result.timingModelCornerID == "ss")
-        #expect(inspection.status == .passed)
-        #expect(inspection.profileCount == 3)
-        #expect(inspection.passedProfileCount == 3)
-        let selectedProfile = try #require(inspection.profiles.first { $0.profileID == result.timingModelProfileID })
-        #expect(selectedProfile.declaredCornerID == "ss")
-        #expect(selectedProfile.cornerID == "ss")
-        #expect(selectedProfile.profileResourceName == "sky130-level1-device-model-profile-ss")
-        #expect(selectedProfile.deviceModelHash != nil)
-        #expect(selectedProfile.sha256 != nil)
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    @MainActor
-    func commandAPIInspectsTimingModelProfileCatalogEntryFailures() async throws {
-        let root = try makeTemporaryRoot("timing-model-profile-inspect-failure")
-        defer { removeTemporaryRoot(root) }
-        let catalogURL = root.appending(path: "timing-profile-catalog.json")
-        let catalog = try TimingModelProfileCatalog(
-            catalogID: "broken-timing-profile-catalog",
-            profiles: [
-                TimingModelProfileCatalog.Entry(
-                    profileID: "missing-profile",
-                    cornerID: "tt",
-                    profilePath: "missing-profile.json",
-                    defaultProfile: true
-                ),
-            ]
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(catalog).write(to: catalogURL, options: .atomic)
-
-        let result = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .inspectTimingModelProfiles,
-            timingModelProfileCatalogPath: catalogURL.path(percentEncoded: false)
-        ))
-
-        let inspection = try #require(result.timingModelProfileCatalogInspection)
-        #expect(inspection.status == .failed)
-        #expect(inspection.profileCount == 1)
-        #expect(inspection.failedProfileCount == 1)
-        let profile = try #require(inspection.profiles.first)
-        #expect(profile.status == .failed)
-        #expect(profile.declaredCornerID == "tt")
-        #expect(profile.profilePath == root.appending(path: "missing-profile.json").path(percentEncoded: false))
-        #expect(profile.diagnostics.first?.code == "profile-load-failed")
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
     func commandAPIRunsDesignSpecNetlistSimulationAndRoundTrip() async throws {
-        let root = try makeTemporaryRoot("design-spec-round-trip")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("design-spec-round-trip")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let specURL = root.appending(path: "agent-resistor-divider.json")
         let embeddedLimits = PostLayoutComparisonLimits(maxAbsoluteDelta: 1.0e-3, maxRelativeDelta: 2.0)
-        try writeDesignSpec(agentResistorDividerSpec(postLayoutComparisonLimits: embeddedLimits), to: specURL)
+        try DesignFlowServiceTestSupport.writeDesignSpec(
+            DesignFlowServiceTestSupport.agentResistorDividerSpec(postLayoutComparisonLimits: embeddedLimits),
+            to: specURL
+        )
 
         let service = DesignFlowService()
         let netlist = try await service.execute(DesignFlowCommand(
@@ -392,13 +172,16 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIAppliesDesignEditAndWritesAuditArtifacts() async throws {
-        let root = try makeTemporaryRoot("design-edit")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("design-edit")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let inputURL = root.appending(path: "input.json")
         let scriptURL = root.appending(path: "edits.json")
         let outputURL = root.appending(path: "edited.json")
-        try writeDesignSpec(agentResistorDividerSpec(), to: inputURL)
-        try writeDesignEditScript(DesignFlowDesignEditScript(edits: [
+        try DesignFlowServiceTestSupport.writeDesignSpec(
+            DesignFlowServiceTestSupport.agentResistorDividerSpec(),
+            to: inputURL
+        )
+        try DesignFlowServiceTestSupport.writeDesignEditScript(DesignFlowDesignEditScript(edits: [
             DesignFlowDesignEdit(
                 kind: .setComponentParameters,
                 componentName: "R2",
@@ -445,8 +228,8 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIAppliesLayoutEditAndWritesAuditArtifacts() async throws {
-        let root = try makeTemporaryRoot("layout-edit")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("layout-edit")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let inputURL = root.appending(path: "layout.json")
         let scriptURL = root.appending(path: "layout-edits.json")
         let outputURL = root.appending(path: "edited-layout.json")
@@ -460,8 +243,8 @@ struct DesignFlowServiceTests {
             cells: [LayoutCell(id: cellID, name: "TOP")],
             topCellID: cellID
         )
-        try writeLayoutDocument(layout, to: inputURL)
-        try writeLayoutEditScript(DesignFlowLayoutEditScript(edits: [
+        try DesignFlowServiceTestSupport.writeLayoutDocument(layout, to: inputURL)
+        try DesignFlowServiceTestSupport.writeLayoutEditScript(DesignFlowLayoutEditScript(edits: [
             DesignFlowLayoutEdit(
                 kind: .addNet,
                 cellName: "TOP",
@@ -527,7 +310,7 @@ struct DesignFlowServiceTests {
         #expect(top.pins.contains { $0.id == pinID && $0.name == "OUT" && $0.netID == netID })
         #expect(top.labels.contains { $0.id == labelID && $0.text == "out" && $0.netID == netID })
 
-        let diff = try loadLayoutDiff(URL(filePath: diffPath))
+        let diff = try DesignFlowServiceTestSupport.loadLayoutDiff(URL(filePath: diffPath))
         #expect(diff.addedNets == ["TOP:out"])
         #expect(diff.addedShapes == [shapeID])
         #expect(diff.addedPins == ["TOP:OUT"])
@@ -537,8 +320,8 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRunsLayoutTrustAndWritesArtifacts() async throws {
-        let root = try makeTemporaryRoot("layout-trust")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("layout-trust")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let layoutURL = root.appending(path: "layout.json")
         let cellID = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
         let netID = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
@@ -565,7 +348,7 @@ struct DesignFlowServiceTests {
             ],
             topCellID: cellID
         )
-        try writeLayoutDocument(layout, to: layoutURL)
+        try DesignFlowServiceTestSupport.writeLayoutDocument(layout, to: layoutURL)
 
         let result = try await DesignFlowService().execute(DesignFlowCommand(
             kind: .runLayoutTrust,
@@ -622,8 +405,8 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRunsVerificationOnlyAndWritesReportArtifact() async throws {
-        let root = try makeTemporaryRoot("verification-only")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("verification-only")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let layoutURL = root.appending(path: "layout.json")
         let designUnitURL = root.appending(path: "design-unit.json")
         let service = DesignFlowService()
@@ -632,8 +415,8 @@ struct DesignFlowServiceTests {
             schematic: fixture.schematic,
             catalog: .standard()
         ))
-        try writeLayoutDocument(layoutOutput.document, to: layoutURL)
-        try writeDesignUnit(layoutOutput.designUnit, to: designUnitURL)
+        try DesignFlowServiceTestSupport.writeLayoutDocument(layoutOutput.document, to: layoutURL)
+        try DesignFlowServiceTestSupport.writeDesignUnit(layoutOutput.designUnit, to: designUnitURL)
 
         let result = try await service.execute(DesignFlowCommand(
             kind: .runVerification,
@@ -663,8 +446,8 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIApprovesGateAndWritesAuditRecord() async throws {
-        let root = try makeTemporaryRoot("gate-approval")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "flow-runs")
@@ -673,7 +456,7 @@ struct DesignFlowServiceTests {
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
         try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "approval-run",
             title: "Approval run",
             createdAt: Date(timeIntervalSince1970: 1_700_000_100),
@@ -683,7 +466,7 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                try roundTripArtifact(
+                try DesignFlowServiceTestSupport.roundTripArtifact(
                     kind: "post-layout-comparison",
                     url: comparisonURL
                 ),
@@ -723,15 +506,15 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRecordsFailureSuggestedCommandSelection() async throws {
-        let root = try makeTemporaryRoot("failure-command-selection")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("failure-command-selection")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "flow-runs")
             .appending(path: "failure-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "failure-run",
             title: "Failure run",
             createdAt: Date(timeIntervalSince1970: 1_700_000_200),
@@ -814,15 +597,15 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIDispatchesSelectedFailureSuggestedReviewCommand() async throws {
-        let root = try makeTemporaryRoot("failure-command-dispatch")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("failure-command-dispatch")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "flow-runs")
             .appending(path: "failure-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "failure-run",
             title: "Failure run",
             createdAt: Date(timeIntervalSince1970: 1_700_000_210),
@@ -901,15 +684,15 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsUnsupportedSelectedFailureSuggestedExecutable() async throws {
-        let root = try makeTemporaryRoot("failure-command-dispatch-reject")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("failure-command-dispatch-reject")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "flow-runs")
             .appending(path: "failure-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "failure-run",
             title: "Failure run",
             createdAt: Date(timeIntervalSince1970: 1_700_000_220),
@@ -968,8 +751,8 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsEscapingGateApprovalArtifactPath() async throws {
-        let root = try makeTemporaryRoot("gate-approval-escape")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-escape")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "flow-runs")
@@ -982,7 +765,7 @@ struct DesignFlowServiceTests {
         try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: outsideURL, options: .atomic)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "approval-run",
             title: "Escaping approval run",
             createdAt: Date(timeIntervalSince1970: 1_700_000_150),
@@ -992,7 +775,7 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                try roundTripArtifact(
+                try DesignFlowServiceTestSupport.roundTripArtifact(
                     kind: "post-layout-comparison",
                     url: outsideURL,
                     path: "../outside-comparison.json"
@@ -1022,8 +805,8 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsAbsoluteManifestArtifactPath() async throws {
-        let root = try makeTemporaryRoot("gate-approval-absolute-artifact")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-absolute-artifact")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "flow-runs")
@@ -1032,7 +815,7 @@ struct DesignFlowServiceTests {
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
         try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "approval-run",
             title: "Absolute artifact approval run",
             createdAt: Date(timeIntervalSince1970: 1_700_000_175),
@@ -1042,7 +825,7 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                try roundTripArtifact(
+                try DesignFlowServiceTestSupport.roundTripArtifact(
                     kind: "post-layout-comparison",
                     url: comparisonURL,
                     path: comparisonURL.path(percentEncoded: false)
@@ -1072,8 +855,8 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsGateApprovalForInvalidManifestRunID() async throws {
-        let root = try makeTemporaryRoot("gate-approval-invalid-run")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-invalid-run")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "flow-runs")
@@ -1082,7 +865,7 @@ struct DesignFlowServiceTests {
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
         try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "../escape",
             title: "Invalid approval run",
             createdAt: Date(timeIntervalSince1970: 1_700_000_200),
@@ -1092,7 +875,7 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                try roundTripArtifact(
+                try DesignFlowServiceTestSupport.roundTripArtifact(
                     kind: "post-layout-comparison",
                     url: comparisonURL
                 ),
@@ -1116,8 +899,8 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRejectsPrePEXApprovalWithoutVerificationArtifact() async throws {
-        let root = try makeTemporaryRoot("gate-approval-missing-pre-pex")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-missing-pre-pex")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "flow-runs")
@@ -1126,7 +909,7 @@ struct DesignFlowServiceTests {
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
         try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "approval-run",
             title: "Missing pre-PEX approval target",
             createdAt: Date(timeIntervalSince1970: 1_700_000_300),
@@ -1137,7 +920,7 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                try roundTripArtifact(
+                try DesignFlowServiceTestSupport.roundTripArtifact(
                     kind: "post-layout-comparison",
                     url: comparisonURL
                 ),
@@ -1162,8 +945,8 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIApprovesPhysicalVerificationReportGates() async throws {
-        let root = try makeTemporaryRoot("gate-approval-physical-verification")
-        defer { removeTemporaryRoot(root) }
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-physical-verification")
+        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "flow-runs")
@@ -1172,7 +955,7 @@ struct DesignFlowServiceTests {
         let verificationURL = runDirectory.appending(path: "physical-verification.json")
         try Data(#"{"status":"passed","readyForPEX":true}"#.utf8).write(to: verificationURL, options: .atomic)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "approval-run",
             title: "Physical verification approval run",
             createdAt: Date(timeIntervalSince1970: 1_700_000_350),
@@ -1182,7 +965,7 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "pre-pex-verification", status: .passed),
             ],
             artifacts: [
-                try roundTripArtifact(
+                try DesignFlowServiceTestSupport.roundTripArtifact(
                     kind: "physical-verification-report",
                     url: verificationURL
                 ),
@@ -1219,1342 +1002,4 @@ struct DesignFlowServiceTests {
         ])
     }
 
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIRejectsUnsafeDesignSpecNamesAndDuplicateTerminals() async throws {
-        let root = try makeTemporaryRoot("invalid-design-spec")
-        defer { removeTemporaryRoot(root) }
-        let base = agentResistorDividerSpec()
-        let service = DesignFlowService()
-
-        let unsafeNameURL = root.appending(path: "unsafe-name.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "../escaped",
-            title: base.title,
-            components: base.components,
-            nets: base.nets,
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: unsafeNameURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.invalidDesignName("../escaped")) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: unsafeNameURL.path(percentEncoded: false)
-            ))
-        }
-
-        let duplicateTerminalURL = root.appending(path: "duplicate-terminal.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "duplicate-terminal",
-            title: base.title,
-            components: base.components,
-            nets: base.nets + [
-                DesignFlowDesignSpec.Net(
-                    name: "vin_copy",
-                    terminals: [
-                        DesignFlowDesignSpec.Terminal(component: "V1", port: "pos"),
-                    ]
-                ),
-            ],
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: duplicateTerminalURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.duplicateTerminal(
-            component: "V1",
-            port: "pos",
-            firstNet: "vin",
-            secondNet: "vin_copy"
-        )) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: duplicateTerminalURL.path(percentEncoded: false)
-            ))
-        }
-
-        let missingSchemaData = Data("""
-        {
-          "name": "missing-schema",
-          "components": [],
-          "nets": [],
-          "analyses": []
-        }
-        """.utf8)
-        #expect(throws: DecodingError.self) {
-            try JSONDecoder().decode(DesignFlowDesignSpec.self, from: missingSchemaData)
-        }
-
-        let unsupportedSchemaURL = root.appending(path: "unsupported-schema.json")
-        let unsupportedSchemaData = Data("""
-        {
-          "schemaVersion": 2,
-          "name": "unsupported-schema",
-          "components": [],
-          "nets": [],
-          "analyses": []
-        }
-        """.utf8)
-        try unsupportedSchemaData.write(to: unsupportedSchemaURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.unsupportedSchemaVersion(2)) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: unsupportedSchemaURL.path(percentEncoded: false)
-            ))
-        }
-
-        let wrongPrefixURL = root.appending(path: "wrong-prefix.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "wrong_prefix",
-            title: base.title,
-            components: [
-                DesignFlowDesignSpec.Component(
-                    name: "X1",
-                    deviceKindID: "resistor",
-                    parameters: ["r": 1_000]
-                ),
-                DesignFlowDesignSpec.Component(
-                    name: "R2",
-                    deviceKindID: "resistor",
-                    parameters: ["r": 1_000]
-                ),
-                DesignFlowDesignSpec.Component(
-                    name: "V1",
-                    deviceKindID: "vsource",
-                    parameters: ["dc": 5.0]
-                ),
-                DesignFlowDesignSpec.Component(
-                    name: "GND1",
-                    deviceKindID: "ground"
-                ),
-            ],
-            nets: [
-                DesignFlowDesignSpec.Net(
-                    name: "vin",
-                    terminals: [
-                        DesignFlowDesignSpec.Terminal(component: "V1", port: "pos"),
-                        DesignFlowDesignSpec.Terminal(component: "X1", port: "pos"),
-                    ]
-                ),
-            ],
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: wrongPrefixURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.invalidComponentPrefix(
-            component: "X1",
-            deviceKindID: "resistor",
-            expectedPrefix: "R"
-        )) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: wrongPrefixURL.path(percentEncoded: false)
-            ))
-        }
-
-        let unknownParameterURL = root.appending(path: "unknown-parameter.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "unknown_parameter",
-            title: base.title,
-            components: [
-                DesignFlowDesignSpec.Component(
-                    name: "R1",
-                    deviceKindID: "resistor",
-                    parameters: ["resistance": 1_000]
-                ),
-            ],
-            nets: [],
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: unknownParameterURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.unknownParameter(
-            component: "R1",
-            parameter: "resistance"
-        )) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: unknownParameterURL.path(percentEncoded: false)
-            ))
-        }
-
-        let unknownPresetURL = root.appending(path: "unknown-preset.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "unknown_preset",
-            title: base.title,
-            components: [
-                DesignFlowDesignSpec.Component(
-                    name: "M1",
-                    deviceKindID: "nmos_l1",
-                    parameters: ["w": 1.0e-6, "l": 1.0e-6],
-                    modelPresetID: "missing_preset"
-                ),
-            ],
-            nets: [],
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: unknownPresetURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.unknownModelPresetID("missing_preset")) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: unknownPresetURL.path(percentEncoded: false)
-            ))
-        }
-
-        let missingRequiredParameterURL = root.appending(path: "missing-required-parameter.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "missing_required_parameter",
-            title: base.title,
-            components: [
-                DesignFlowDesignSpec.Component(
-                    name: "R1",
-                    deviceKindID: "resistor"
-                ),
-            ],
-            nets: [],
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: missingRequiredParameterURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.missingRequiredParameter(
-            component: "R1",
-            parameter: "r"
-        )) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: missingRequiredParameterURL.path(percentEncoded: false)
-            ))
-        }
-
-        let outOfRangeParameterURL = root.appending(path: "out-of-range-parameter.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "out_of_range_parameter",
-            title: base.title,
-            components: [
-                DesignFlowDesignSpec.Component(
-                    name: "R1",
-                    deviceKindID: "resistor",
-                    parameters: ["r": 0]
-                ),
-            ],
-            nets: [],
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: outOfRangeParameterURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.parameterOutOfRange(
-            component: "R1",
-            parameter: "r"
-        )) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: outOfRangeParameterURL.path(percentEncoded: false)
-            ))
-        }
-
-        let unsupportedModelURL = root.appending(path: "unsupported-model.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "unsupported_model",
-            title: base.title,
-            components: [
-                DesignFlowDesignSpec.Component(
-                    name: "R1",
-                    deviceKindID: "resistor",
-                    parameters: ["r": 1_000],
-                    modelPresetID: "generic_nmos"
-                ),
-            ],
-            nets: [],
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: unsupportedModelURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.unsupportedComponentModel(
-            component: "R1",
-            deviceKindID: "resistor"
-        )) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: unsupportedModelURL.path(percentEncoded: false)
-            ))
-        }
-
-        let incompatiblePresetURL = root.appending(path: "incompatible-preset.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "incompatible_preset",
-            title: base.title,
-            components: [
-                DesignFlowDesignSpec.Component(
-                    name: "M1",
-                    deviceKindID: "nmos_l1",
-                    parameters: ["w": 1.0e-6, "l": 1.0e-6],
-                    modelPresetID: "generic_pmos"
-                ),
-            ],
-            nets: [],
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: incompatiblePresetURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.incompatibleModelPresetID(
-            component: "M1",
-            modelPresetID: "generic_pmos",
-            expectedModelType: "NMOS",
-            actualModelType: "PMOS"
-        )) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: incompatiblePresetURL.path(percentEncoded: false)
-            ))
-        }
-
-        let ambiguousModelURL = root.appending(path: "ambiguous-model.json")
-        try writeDesignSpec(DesignFlowDesignSpec(
-            name: "ambiguous_model",
-            title: base.title,
-            components: [
-                DesignFlowDesignSpec.Component(
-                    name: "M1",
-                    deviceKindID: "nmos_l1",
-                    parameters: ["w": 1.0e-6, "l": 1.0e-6],
-                    modelPresetID: "generic_nmos",
-                    modelName: "CUSTOM_NMOS"
-                ),
-            ],
-            nets: [],
-            analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
-        ), to: ambiguousModelURL)
-
-        await #expect(throws: DesignFlowDesignSpecError.ambiguousComponentModel(component: "M1")) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: ambiguousModelURL.path(percentEncoded: false)
-            ))
-        }
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func designSpecNormalizesInlinePEXUnitsAndRejectsInvalidPEX() async throws {
-        let root = try makeTemporaryRoot("inline-pex-spec")
-        defer { removeTemporaryRoot(root) }
-        let service = DesignFlowService()
-
-        let scaledPEXURL = root.appending(path: "scaled-pex.json")
-        try writeDesignSpecJSON(
-            agentResistorDividerSpecJSON(
-                pexUnits: """
-                "units": {
-                  "resistance": "kohm",
-                  "capacitance": "fF",
-                  "coordinate": "um"
-                },
-                """,
-                pexElements: """
-                {
-                  "id": "r_out",
-                  "kind": "resistor",
-                  "nodeA": "out",
-                  "nodeB": "out_pex",
-                  "value": 0.001
-                },
-                {
-                  "id": "c_out",
-                  "kind": "capacitor",
-                  "nodeA": "out_pex",
-                  "value": 2.0
-                }
-                """
-            ),
-            to: scaledPEXURL
-        )
-        let scaledDesign = try service.loadDesignSpec(scaledPEXURL).build()
-        #expect(scaledDesign.pexIR?.units == .canonical)
-        #expect(scaledDesign.pexIR?.elements.first { $0.id == "r_out" }?.value == 1.0)
-        #expect(scaledDesign.pexIR?.elements.first { $0.id == "c_out" }?.value == 2.0e-15)
-
-        let missingNodeURL = root.appending(path: "missing-node.json")
-        try writeDesignSpecJSON(
-            agentResistorDividerSpecJSON(
-                pexUnits: "",
-                pexElements: """
-                {
-                  "id": "r_out",
-                  "kind": "resistor",
-                  "nodeA": "out",
-                  "value": 0.5
-                }
-                """
-            ),
-            to: missingNodeURL
-        )
-        await #expect(throws: DesignFlowDesignSpecError.missingPEXElementNodeB("r_out", "resistor")) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: missingNodeURL.path(percentEncoded: false)
-            ))
-        }
-
-        let unsupportedUnitURL = root.appending(path: "unsupported-unit.json")
-        try writeDesignSpecJSON(
-            agentResistorDividerSpecJSON(
-                pexUnits: """
-                "units": {
-                  "resistance": "mohm",
-                  "capacitance": "F",
-                  "coordinate": "um"
-                },
-                """,
-                pexElements: """
-                {
-                  "id": "r_out",
-                  "kind": "resistor",
-                  "nodeA": "out",
-                  "nodeB": "out_pex",
-                  "value": 0.5
-                }
-                """
-            ),
-            to: unsupportedUnitURL
-        )
-        await #expect(throws: DesignFlowDesignSpecError.unsupportedPEXResistanceUnit("mohm")) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: unsupportedUnitURL.path(percentEncoded: false)
-            ))
-        }
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIRunsFixtureRoundTripAndSummarizesBottlenecks() async throws {
-        let root = try makeTemporaryRoot("command-round-trip")
-        defer { removeTemporaryRoot(root) }
-
-        let service = DesignFlowService()
-        let roundTrip = try await service.execute(DesignFlowCommand(
-            kind: .runFixtureRoundTrip,
-            fixtureName: "resistor-divider",
-            projectRootPath: root.path(percentEncoded: false),
-            runID: "command-api-round-trip",
-            approveSignoff: true,
-            maxAbsoluteDelta: 1.0e-3,
-            maxRelativeDelta: 1.0e-3,
-            relativeDeltaDenominatorFloor: 0.1
-        ))
-
-        #expect(roundTrip.fixtureName == "resistor-divider")
-        #expect(roundTrip.runID == "command-api-round-trip")
-        #expect(roundTrip.readyForPEX == true)
-        #expect(roundTrip.manifestPath?.hasSuffix("round-trip-manifest.json") == true)
-        let manifest = try #require(roundTrip.manifestPath).loadManifest()
-        let comparisonPath = try #require(manifest.artifacts.first { $0.kind == "post-layout-comparison" }?.path)
-        let comparisonData = try Data(contentsOf: artifactURL(
-            path: comparisonPath,
-            manifestPath: try #require(roundTrip.manifestPath)
-        ))
-        let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
-        #expect(comparison.comparisonLimits?.relativeDeltaDenominatorFloor == 0.1)
-        #expect(roundTrip.pexElementCount == 2)
-        #expect(roundTrip.bottleneckSummary?.totalMeasuredDurationSeconds ?? 0 >= 0)
-        #expect(roundTrip.bottleneckSummary?.longestStageName != nil)
-
-        let history = try await service.execute(DesignFlowCommand(
-            kind: .summarizeBottlenecks,
-            projectRootPath: root.path(percentEncoded: false)
-        ))
-
-        #expect(history.bottleneckHistory?.runCount == 1)
-        #expect(history.bottleneckHistory?.mostExpensiveStageName != nil)
-
-        let encoded = try JSONEncoder().encode(roundTrip)
-        let decoded = try JSONDecoder().decode(DesignFlowCommandResult.self, from: encoded)
-        #expect(decoded.manifestPath == roundTrip.manifestPath)
-        #expect(decoded.runID == roundTrip.runID)
-        #expect(decoded.bottleneckSummary == roundTrip.bottleneckSummary)
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIRejectsIncompleteSignoffPairAndInvalidLimits() async throws {
-        let service = DesignFlowService()
-        let invalidRoot = FileManager.default.temporaryDirectory
-            .appending(path: "CircuitStudioDesignFlowServiceTests-invalid-command-\(UUID().uuidString)")
-        let invalidRunIDRoot = FileManager.default.temporaryDirectory
-            .appending(path: "CircuitStudioDesignFlowServiceTests-invalid-run-id-\(UUID().uuidString)")
-        defer { removeTemporaryRoot(invalidRoot) }
-        defer { removeTemporaryRoot(invalidRunIDRoot) }
-
-        await #expect(throws: DesignFlowCommandError.incompleteSignoffLogPair) {
-            try await service.execute(DesignFlowCommand(
-                kind: .runFixtureRoundTrip,
-                fixtureName: "voltage-divider",
-                signoffDRCLogPath: "/tmp/drc.log"
-            ))
-        }
-
-        do {
-            _ = try await service.execute(DesignFlowCommand(
-                kind: .runFixtureRoundTrip,
-                fixtureName: "voltage-divider",
-                projectRootPath: invalidRoot.path(percentEncoded: false),
-                maxAbsoluteDelta: .nan
-            ))
-            Issue.record("Expected invalid comparison limits to throw.")
-        } catch DesignFlowCommandError.invalidComparisonLimits(let diagnostics) {
-            #expect(!diagnostics.isEmpty)
-        } catch {
-            Issue.record("Unexpected error: \(error)")
-        }
-        #expect(!FileManager.default.fileExists(atPath: invalidRoot.path(percentEncoded: false)))
-
-        do {
-            _ = try await service.execute(DesignFlowCommand(
-                kind: .runFixtureRoundTrip,
-                fixtureName: "voltage-divider",
-                projectRootPath: invalidRoot.path(percentEncoded: false),
-                variableComparisonLimits: [
-                    PostLayoutVariableComparisonLimit(variableName: "V(out)"),
-                ]
-            ))
-            Issue.record("Expected invalid variable comparison limits to throw.")
-        } catch DesignFlowCommandError.invalidComparisonLimits(let diagnostics) {
-            #expect(diagnostics.contains { $0.contains("V(out)") })
-        } catch {
-            Issue.record("Unexpected error: \(error)")
-        }
-        #expect(!FileManager.default.fileExists(atPath: invalidRoot.path(percentEncoded: false)))
-
-        do {
-            _ = try await service.execute(DesignFlowCommand(
-                kind: .runFixtureRoundTrip,
-                fixtureName: "voltage-divider",
-                projectRootPath: invalidRunIDRoot.path(percentEncoded: false),
-                runID: "../escaped-run",
-                approveSignoff: true,
-                pexManifestPath: "/definitely/missing/pex-manifest.json",
-                signoffDRCLogPath: "/tmp/drc.log"
-            ))
-            Issue.record("Expected invalid run ID to throw.")
-        } catch StudioError.invalidDesign(let message) {
-            #expect(message.contains("Invalid run ID"))
-        } catch {
-            Issue.record("Unexpected error: \(error)")
-        }
-        #expect(!FileManager.default.fileExists(atPath: invalidRunIDRoot.path(percentEncoded: false)))
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func unifiedAPIRunsHeadlessRoundTrip() async throws {
-        let root = try makeTemporaryRoot("round-trip")
-        defer { removeTemporaryRoot(root) }
-
-        let service = DesignFlowService()
-        let configuration = HeadlessRoundTripService.Configuration(
-            projectRoot: root,
-            runID: "api-round-trip",
-            title: "API round trip",
-            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
-            postLayoutCommand: .op,
-            pexIR: PEXParasiticIR(
-                version: "1.0",
-                cornerID: "tt_25c_1v0",
-                elements: [
-                    PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
-                    PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
-                ]
-            ),
-            externalSignoffCommands: try makeSignoffCommands(in: root),
-            approvedBy: "api-reviewer",
-            approvedAt: Date(timeIntervalSince1970: 2_000),
-            createdAt: Date(timeIntervalSince1970: 1_000)
-        )
-
-        let result = try await service.runRoundTrip(DesignFlowRoundTripRequest(
-            schematic: SchematicPreview.voltageDividerViewModel().document,
-            configuration: configuration
-        ))
-        let bottlenecks = try service.summarizeBottlenecks(projectRoot: root)
-
-        #expect(result.manifest.isRoundTripComplete)
-        #expect(result.manifest.isReadyForPEX)
-        #expect(result.manifest.stages.allSatisfy { $0.status == .passed })
-        #expect(bottlenecks.runCount == 1)
-        #expect(bottlenecks.mostExpensiveStageName != nil)
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    func unifiedAPIRunsSchematicSimulation() async throws {
-        let service = DesignFlowService()
-        let result = try await service.runSchematicSimulation(DesignFlowSchematicSimulationRequest(
-            schematic: SchematicPreview.voltageDividerViewModel().document,
-            testbench: Testbench(name: "Operating Point", analysisCommands: [.op])
-        ))
-
-        #expect(result.netlist.contains(".op"))
-        #expect(result.simulationResult.status == .completed)
-        #expect(result.simulationResult.waveform != nil)
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func unifiedAPIGeneratesLayoutAndRunsPrePEXVerification() throws {
-        let service = DesignFlowService()
-        let schematic = SchematicPreview.voltageDividerViewModel().document
-
-        let layout = try service.generateLayout(DesignFlowLayoutGenerationRequest(
-            schematic: schematic,
-            catalog: .standard()
-        ))
-        let verification = service.runPrePEXVerification(DesignFlowPrePEXVerificationRequest(
-            schematic: schematic,
-            layout: layout.document,
-            tech: layout.tech,
-            designUnit: layout.designUnit,
-            catalog: .standard()
-        ))
-
-        if !verification.drc.passed {
-            Issue.record("Auto-layout DRC violations: \(layout.drcResult.violations.map(\.message).joined(separator: " | "))")
-            Issue.record("Auto-layout DRC details: \(layout.drcResult.violations.map { "\($0.kind.rawValue) layer=\($0.layer?.name ?? "-") region=\($0.region) nets=\($0.netIDs)" }.joined(separator: " | "))")
-        }
-        #expect(layout.unroutedNets.isEmpty)
-        #expect(verification.drc.passed)
-        #expect(verification.lvs.passed)
-        #expect(verification.isReadyForPEX)
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func unifiedAPIGeneratesRCLowPassLayoutAndRunsPrePEXVerification() throws {
-        let service = DesignFlowService()
-        let schematic = SchematicPreview.rcLowPassViewModel().document
-
-        let layout = try service.generateLayout(DesignFlowLayoutGenerationRequest(
-            schematic: schematic,
-            catalog: .standard()
-        ))
-        let verification = service.runPrePEXVerification(DesignFlowPrePEXVerificationRequest(
-            schematic: schematic,
-            layout: layout.document,
-            tech: layout.tech,
-            designUnit: layout.designUnit,
-            catalog: .standard()
-        ))
-
-        if !verification.isReadyForPEX {
-            Issue.record("Auto-layout DRC violations: \(layout.drcResult.violations.map(\.message).joined(separator: " | "))")
-            Issue.record("Auto-layout DRC details: \(layout.drcResult.violations.map { "\($0.kind.rawValue) layer=\($0.layer?.name ?? "-") region=\($0.region) nets=\($0.netIDs)" }.joined(separator: " | "))")
-            Issue.record("Auto-layout via neighborhood: \(viaNeighborhoodSummary(layout.document, around: layout.drcResult.violations.first?.region))")
-            Issue.record("DRC: \(verification.drc)")
-            Issue.record("LVS: \(verification.lvs)")
-        }
-
-        #expect(layout.unroutedNets.isEmpty)
-        #expect(verification.drc.passed)
-        #expect(verification.lvs.passed)
-        #expect(verification.isReadyForPEX)
-    }
-
-    private func viaNeighborhoodSummary(_ document: LayoutDocument, around region: LayoutRect?) -> String {
-        guard let topCellID = document.topCellID,
-              let topCell = document.cell(withID: topCellID),
-              let region else {
-            return "unavailable"
-        }
-        let expanded = region.expanded(by: 0.5, 0.5)
-        let nearbyShapes = topCell.shapes.filter {
-            let box = LayoutGeometryAnalysis.boundingBox(for: $0.geometry)
-            return box.intersects(expanded)
-        }.map {
-            "\($0.layer.name) net=\($0.netID?.uuidString ?? "-") box=\(LayoutGeometryAnalysis.boundingBox(for: $0.geometry))"
-        }
-        let nearbyVias = topCell.vias.filter {
-            expanded.contains($0.position)
-        }.map {
-            "\($0.viaDefinitionID) net=\($0.netID?.uuidString ?? "-") at=\($0.position)"
-        }
-        return "vias=[\(nearbyVias.joined(separator: "; "))] shapes=[\(nearbyShapes.joined(separator: "; "))]"
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    func unifiedAPIRunsPostLayoutSimulationAndComparison() async throws {
-        let service = DesignFlowService()
-        let baseNetlist = """
-        * Voltage divider fixture
-        V1 vin 0 1
-        R1 vin out 1000
-        R2 out 0 1000
-        .op
-        .end
-        """
-        let parasitics = PEXParasiticIR(
-            version: "1.0",
-            cornerID: "tt_25c_1v0",
-            elements: [
-                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
-                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
-            ]
-        )
-
-        let preLayoutResult = try await service.runSPICESimulation(DesignFlowSPICESimulationRequest(
-            source: baseNetlist,
-            fileName: nil
-        ))
-        let postLayoutNetlist = service.buildPostLayoutNetlist(
-            baseNetlist: baseNetlist,
-            parasitics: parasitics
-        )
-        let postLayoutResult = try await service.runPostLayoutSimulation(DesignFlowPostLayoutSimulationRequest(
-            baseNetlist: baseNetlist,
-            parasitics: parasitics,
-            command: .op
-        ))
-        let comparison = service.comparePostLayout(
-            preLayoutResult: preLayoutResult,
-            postLayoutResult: postLayoutResult,
-            limits: PostLayoutComparisonLimits(maxAbsoluteDelta: 1.0e-3)
-        )
-
-        #expect(postLayoutNetlist.contains("* --- Extracted parasitics ---"))
-        #expect(postLayoutResult.status == .completed)
-        #expect(comparison.status == "compared")
-        #expect(comparison.gateStatus == "passed")
-    }
-
-    @Test func unifiedAPILoadsPEXInputWithArtifactPaths() throws {
-        let manifestURL = try fixtureURL(
-            "manifest",
-            extension: "json",
-            subdirectory: "pex/golden-voltage-divider"
-        )
-
-        let input = try DesignFlowService().loadPEXInput(
-            manifestURL: manifestURL,
-            cornerID: "ss_125c_0v9"
-        )
-
-        #expect(input.ir.cornerID == "ss_125c_0v9")
-        #expect(input.ir.elements.count == 3)
-        #expect(input.artifactPaths.contains { $0.hasSuffix("manifest.json") })
-        #expect(input.artifactPaths.contains { $0.hasSuffix("ss_125c_0v9.json") })
-        #expect(input.artifactPaths.contains { $0.hasSuffix("voltage-divider.spef") })
-        #expect(input.artifactPaths.contains { $0.hasSuffix("extraction.log") })
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIRunsPEXExtractionThroughBackendAdapter() async throws {
-        let root = try makeTemporaryRoot("pex-extraction-command")
-        defer { removeTemporaryRoot(root) }
-        let runDirectory = root.appending(path: "pex-runs").appending(path: "mock-run")
-        try writePEXArtifacts(runDirectory: runDirectory)
-        let configURL = root.appending(path: "pex-config.json")
-        try "{}".write(to: configURL, atomically: true, encoding: .utf8)
-        let executable = try writeExecutable(
-            named: "mock-pexengine",
-            in: root,
-            contents: """
-            #!/bin/sh
-            printf '{"artifacts":{"manifestURL":"%s"}}\\n' "\(runDirectory.appending(path: "manifest.json").path(percentEncoded: false))"
-            exit 0
-            """
-        )
-
-        let result = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .runPEXExtraction,
-            pexCornerID: "tt_25c_1v0",
-            pexConfigPath: configURL.path(percentEncoded: false),
-            pexExecutablePath: executable.path(percentEncoded: false)
-        ))
-
-        #expect(result.kind == .runPEXExtraction)
-        #expect(result.pexManifestPath == runDirectory.appending(path: "manifest.json").path(percentEncoded: false))
-        #expect(result.pexCornerID == "tt_25c_1v0")
-        #expect(result.pexElementCount == 1)
-        #expect(result.message == "mock-pexengine")
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    func sharedPEXExtractionAPIProducesInjectablePostLayoutNetlist() async throws {
-        let root = try makeTemporaryRoot("pex-extraction-shared-api")
-        defer { removeTemporaryRoot(root) }
-        let runDirectory = root.appending(path: "pex-runs").appending(path: "mock-run")
-        try writePEXArtifacts(runDirectory: runDirectory)
-        let configURL = root.appending(path: "pex-config.json")
-        try "{}".write(to: configURL, atomically: true, encoding: .utf8)
-        let executable = try writeExecutable(
-            named: "mock-pexengine",
-            in: root,
-            contents: """
-            #!/bin/sh
-            printf '{"artifacts":{"manifestURL":"%s"}}\\n' "\(runDirectory.appending(path: "manifest.json").path(percentEncoded: false))"
-            exit 0
-            """
-        )
-
-        let service = DesignFlowService()
-        let extraction = try await service.runPEXExtraction(DesignFlowPEXExtractionRequest(
-            configURL: configURL,
-            workingDirectory: root,
-            cornerID: "tt_25c_1v0",
-            executablePath: executable.path(percentEncoded: false)
-        ))
-        let postLayoutNetlist = service.buildPostLayoutNetlist(
-            baseNetlist: """
-            * Base
-            V1 out 0 1
-            .op
-            .end
-            """,
-            parasitics: extraction.ir
-        )
-
-        #expect(extraction.commandResult?.exitCode == 0)
-        #expect(extraction.manifestURL == runDirectory.appending(path: "manifest.json"))
-        #expect(extraction.ir.elements.count == 1)
-        #expect(postLayoutNetlist.contains("* --- Extracted parasitics ---"))
-        #expect(postLayoutNetlist.contains("RPEX_r_out out 0 12"))
-        #expect(!postLayoutNetlist.contains("top.spef"))
-    }
-
-    private func makeSignoffCommands(in root: URL) throws -> [ExternalSignoffCommand] {
-        let drc = try writeExecutable(
-            named: "mock-drc",
-            in: root,
-            contents: """
-            #!/bin/sh
-            printf '[INFO] rule=DRC_CLEAN message="clean drc"\\n'
-            exit 0
-            """
-        )
-        let lvs = try writeExecutable(
-            named: "mock-lvs",
-            in: root,
-            contents: """
-            #!/bin/sh
-            printf '[INFO] rule=LVS_MATCH message="clean lvs"\\n'
-            exit 0
-            """
-        )
-
-        return [
-            ExternalSignoffCommand(
-                kind: .drc,
-                toolName: "mock-drc",
-                executablePath: drc.path(percentEncoded: false)
-            ),
-            ExternalSignoffCommand(
-                kind: .lvs,
-                toolName: "mock-lvs",
-                executablePath: lvs.path(percentEncoded: false)
-            ),
-        ]
-    }
-
-    private func writePEXArtifacts(runDirectory: URL) throws {
-        let rawDirectory = runDirectory.appending(path: "raw").appending(path: "tt_25c_1v0")
-        let irDirectory = runDirectory.appending(path: "ir")
-        try FileManager.default.createDirectory(at: rawDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: irDirectory, withIntermediateDirectories: true)
-        try "mock spef".write(to: rawDirectory.appending(path: "top.spef"), atomically: true, encoding: .utf8)
-        try "mock log".write(to: rawDirectory.appending(path: "extraction.log"), atomically: true, encoding: .utf8)
-        try """
-        {
-          "version": "1.0",
-          "cornerID": { "value": "tt_25c_1v0" },
-          "units": { "resistance": "ohm", "capacitance": "F", "coordinate": "um" },
-          "nets": [],
-          "elements": [
-            {
-              "id": "r_out",
-              "kind": "resistor",
-              "nodeA": { "netName": { "value": "out" }, "nodeName": { "value": "out" } },
-              "nodeB": { "netName": { "value": "0" }, "nodeName": { "value": "0" } },
-              "value": 12.0,
-              "source": "extracted"
-            }
-          ],
-          "metadata": {}
-        }
-        """.write(to: irDirectory.appending(path: "tt_25c_1v0.json"), atomically: true, encoding: .utf8)
-        try """
-        {
-          "version": 2,
-          "runID": { "value": "00000000-0000-0000-0000-000000000300" },
-          "requestHash": { "value": "fixture" },
-          "backendID": "mock-pexengine",
-          "status": "success",
-          "startedAt": "2026-05-07T00:00:00Z",
-          "finishedAt": "2026-05-07T00:00:01Z",
-          "corners": [
-            {
-              "cornerID": { "value": "tt_25c_1v0" },
-              "status": "success",
-              "artifactIDs": ["raw-tt", "ir-tt", "log-tt"]
-            }
-          ],
-          "artifacts": [
-            {
-              "id": "raw-tt",
-              "kind": "rawOutput",
-              "stage": "backendExecution",
-              "cornerID": { "value": "tt_25c_1v0" },
-              "relativePath": { "value": "raw/tt_25c_1v0/top.spef" },
-              "createdAt": "2026-05-07T00:00:00Z",
-              "status": "available"
-            },
-            {
-              "id": "ir-tt",
-              "kind": "parasiticIR",
-              "stage": "persistence",
-              "cornerID": { "value": "tt_25c_1v0" },
-              "relativePath": { "value": "ir/tt_25c_1v0.json" },
-              "createdAt": "2026-05-07T00:00:00Z",
-              "status": "available"
-            },
-            {
-              "id": "log-tt",
-              "kind": "log",
-              "stage": "backendExecution",
-              "cornerID": { "value": "tt_25c_1v0" },
-              "relativePath": { "value": "raw/tt_25c_1v0/extraction.log" },
-              "createdAt": "2026-05-07T00:00:00Z",
-              "status": "available"
-            }
-          ],
-          "warnings": []
-        }
-        """.write(to: runDirectory.appending(path: "manifest.json"), atomically: true, encoding: .utf8)
-    }
-
-    private func writeExecutable(named name: String, in root: URL, contents: String) throws -> URL {
-        let url = root.appending(path: name)
-        try contents.write(to: url, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: NSNumber(value: Int16(0o755))],
-            ofItemAtPath: url.path(percentEncoded: false)
-        )
-        return url
-    }
-
-    private func fixtureURL(_ name: String, extension ext: String, subdirectory: String) throws -> URL {
-        guard let url = Bundle.module.url(
-            forResource: name,
-            withExtension: ext,
-            subdirectory: subdirectory
-        ) else {
-            throw StudioError.projectLoadFailed("Missing fixture: Fixtures/\(subdirectory)/\(name).\(ext)")
-        }
-        return url
-    }
-
-    private func rootFixtureURL(_ name: String, extension ext: String) throws -> URL {
-        guard let url = Bundle.module.url(forResource: name, withExtension: ext) else {
-            throw StudioError.projectLoadFailed("Missing fixture: Fixtures/\(name).\(ext)")
-        }
-        return url
-    }
-
-    private func makeTemporaryRoot(_ name: String) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
-            .appending(path: "CircuitStudioDesignFlowServiceTests-\(name)-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        return root
-    }
-
-    private func writeDesignSpec(_ spec: DesignFlowDesignSpec, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(spec)
-        try data.write(to: url, options: .atomic)
-    }
-
-    private func writeDesignEditScript(_ script: DesignFlowDesignEditScript, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(script)
-        try data.write(to: url, options: .atomic)
-    }
-
-    private func writeLayoutDocument(_ layout: LayoutDocument, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(layout)
-        try data.write(to: url, options: .atomic)
-    }
-
-    private func writeDesignUnit(_ designUnit: DesignUnit, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(designUnit)
-        try data.write(to: url, options: .atomic)
-    }
-
-    private func writeHeadlessManifest(_ manifest: HeadlessRoundTripService.Manifest, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(manifest)
-        try data.write(to: url, options: .atomic)
-    }
-
-    private func roundTripArtifact(
-        kind: String,
-        url: URL,
-        path: String? = nil
-    ) throws -> HeadlessRoundTripService.Artifact {
-        let digest = try RoundTripArtifactDigest.compute(url: url)
-        return HeadlessRoundTripService.Artifact(
-            kind: kind,
-            path: path ?? url.lastPathComponent,
-            sha256: digest.sha256,
-            byteCount: digest.byteCount
-        )
-    }
-
-    private func writeLayoutEditScript(_ script: DesignFlowLayoutEditScript, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(script)
-        try data.write(to: url, options: .atomic)
-    }
-
-    private func loadLayoutDiff(_ url: URL) throws -> DesignFlowLayoutDiff {
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(DesignFlowLayoutDiff.self, from: data)
-    }
-
-    private func writeDesignSpecJSON(_ json: String, to url: URL) throws {
-        try Data(json.utf8).write(to: url, options: .atomic)
-    }
-
-    private func agentResistorDividerSpec(
-        postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil
-    ) -> DesignFlowDesignSpec {
-        DesignFlowDesignSpec(
-            name: "agent-resistor-divider",
-            title: "Agent resistor divider",
-            components: [
-                DesignFlowDesignSpec.Component(
-                    name: "V1",
-                    deviceKindID: "vsource",
-                    parameters: ["dc": 5.0]
-                ),
-                DesignFlowDesignSpec.Component(
-                    name: "R1",
-                    deviceKindID: "resistor",
-                    parameters: ["r": 1_000]
-                ),
-                DesignFlowDesignSpec.Component(
-                    name: "R2",
-                    deviceKindID: "resistor",
-                    parameters: ["r": 1_000]
-                ),
-                DesignFlowDesignSpec.Component(
-                    name: "GND1",
-                    deviceKindID: "ground"
-                ),
-            ],
-            nets: [
-                DesignFlowDesignSpec.Net(
-                    name: "vin",
-                    terminals: [
-                        DesignFlowDesignSpec.Terminal(component: "V1", port: "pos"),
-                        DesignFlowDesignSpec.Terminal(component: "R1", port: "pos"),
-                    ]
-                ),
-                DesignFlowDesignSpec.Net(
-                    name: "out",
-                    terminals: [
-                        DesignFlowDesignSpec.Terminal(component: "R1", port: "neg"),
-                        DesignFlowDesignSpec.Terminal(component: "R2", port: "pos"),
-                    ]
-                ),
-                DesignFlowDesignSpec.Net(
-                    name: "0",
-                    terminals: [
-                        DesignFlowDesignSpec.Terminal(component: "V1", port: "neg"),
-                        DesignFlowDesignSpec.Terminal(component: "R2", port: "neg"),
-                        DesignFlowDesignSpec.Terminal(component: "GND1", port: "gnd"),
-                    ]
-                ),
-            ],
-            analyses: [
-                DesignFlowDesignSpec.Analysis(kind: .op),
-            ],
-            postLayoutComparisonLimits: postLayoutComparisonLimits,
-            pexIR: PEXParasiticIR(
-                version: "1.0",
-                cornerID: "tt_25c_1v0",
-                elements: [
-                    PEXParasiticElement(
-                        id: "r_out",
-                        kind: .resistor,
-                        nodeA: "out",
-                        nodeB: "out_pex",
-                        value: 0.5
-                    ),
-                    PEXParasiticElement(
-                        id: "c_out",
-                        kind: .capacitor,
-                        nodeA: "out_pex",
-                        nodeB: nil,
-                        value: 1.0e-15
-                    ),
-                ]
-            )
-        )
-    }
-
-    private func agentResistorDividerSpecJSON(
-        pexUnits: String,
-        pexElements: String
-    ) -> String {
-        """
-        {
-          "schemaVersion": 1,
-          "name": "agent_resistor_divider",
-          "title": "Agent resistor divider",
-          "components": [
-            {
-              "name": "V1",
-              "deviceKindID": "vsource",
-              "parameters": {
-                "dc": 5.0
-              }
-            },
-            {
-              "name": "R1",
-              "deviceKindID": "resistor",
-              "parameters": {
-                "r": 1000.0
-              }
-            },
-            {
-              "name": "R2",
-              "deviceKindID": "resistor",
-              "parameters": {
-                "r": 1000.0
-              }
-            },
-            {
-              "name": "GND1",
-              "deviceKindID": "ground"
-            }
-          ],
-          "nets": [
-            {
-              "name": "vin",
-              "terminals": [
-                {
-                  "component": "V1",
-                  "port": "pos"
-                },
-                {
-                  "component": "R1",
-                  "port": "pos"
-                }
-              ]
-            },
-            {
-              "name": "out",
-              "terminals": [
-                {
-                  "component": "R1",
-                  "port": "neg"
-                },
-                {
-                  "component": "R2",
-                  "port": "pos"
-                }
-              ]
-            },
-            {
-              "name": "0",
-              "terminals": [
-                {
-                  "component": "V1",
-                  "port": "neg"
-                },
-                {
-                  "component": "R2",
-                  "port": "neg"
-                },
-                {
-                  "component": "GND1",
-                  "port": "gnd"
-                }
-              ]
-            }
-          ],
-          "analyses": [
-            {
-              "kind": "op"
-            }
-          ],
-          "pexIR": {
-            "version": "1.0",
-            "cornerID": "tt_25c_1v0",
-            \(pexUnits)
-            "elements": [
-              \(pexElements)
-            ],
-            "diagnostics": []
-          }
-        }
-        """
-    }
-
-    private func removeTemporaryRoot(_ root: URL) {
-        guard FileManager.default.fileExists(atPath: root.path(percentEncoded: false)) else {
-            return
-        }
-        do {
-            try FileManager.default.removeItem(at: root)
-        } catch {
-            Issue.record("Failed to remove temporary root: \(error)")
-        }
-    }
-
-    private func prewarmTimingLibraryBuildCache(
-        model: Level1DeviceModel,
-        technologyContext: TimingTechnologyContext
-    ) async throws {
-        let inputSlews = [40e-12, 200e-12]
-        let outputLoads = [1e-15, 4e-15, 12e-15]
-        let cells = [
-            CMOSGateLibrary.bundledDefault.inverter(name: "inv"),
-            CMOSGateLibrary.bundledDefault.nand(name: "nand2", inputs: ["A", "B"]),
-            CMOSGateLibrary.bundledDefault.nor(name: "nor2", inputs: ["A", "B"]),
-        ]
-        for (index, cell) in cells.enumerated() {
-            _ = try await TimingCharacterizationCache.shared.cellTiming(
-                cell: cell,
-                model: model,
-                inputSlews: inputSlews,
-                outputLoads: outputLoads
-            ) {
-                try Self.cellTimingFixture(
-                    cell: cell,
-                    inputSlews: inputSlews,
-                    outputLoads: outputLoads,
-                    value: Double(index + 1) * 10e-12
-                )
-            }
-        }
-
-        let dffNetlist = DFFGenerator(cellLibrary: .bundledDefault).netlist(name: "dff")
-        _ = try await TimingCharacterizationCache.shared.sequentialReport(
-            netlist: dffNetlist,
-            cellName: "dff",
-            model: model,
-            technologyContext: technologyContext,
-            clockSlew: 80e-12,
-            dataSlew: 80e-12,
-            outputLoads: outputLoads,
-            setupHoldSearchWindow: 300e-12,
-            setupHoldSearchResolution: 20e-12,
-            maxSearchIterations: 4
-        ) {
-            try Self.sequentialReportFixture(
-                netlist: dffNetlist,
-                technologyContext: technologyContext,
-                outputLoads: outputLoads
-            )
-        }
-    }
-
-    private static func cellTimingFixture(
-        cell: CMOSGateNetlist,
-        inputSlews: [Double],
-        outputLoads: [Double],
-        value: Double
-    ) throws -> CellTiming {
-        let inputPins = Set(cell.devices.map(\.gate)).sorted()
-        let lut = try constantTimingLUT(inputSlews: inputSlews, outputLoads: outputLoads, value: value)
-        return CellTiming(
-            cellName: cell.name,
-            inputCapacitance: Dictionary(uniqueKeysWithValues: inputPins.map { ($0, 1e-15) }),
-            arcs: inputPins.map {
-                TimingArc(
-                    inputPin: $0,
-                    sense: .negativeUnate,
-                    delayRise: lut,
-                    delayFall: lut,
-                    transitionRise: lut,
-                    transitionFall: lut
-                )
-            }
-        )
-    }
-
-    private static func sequentialReportFixture(
-        netlist: GateLevelNetlist,
-        technologyContext: TimingTechnologyContext,
-        outputLoads: [Double]
-    ) throws -> SequentialTimingCharacterizationReport {
-        let clockSlews = [80e-12]
-        let timing = SequentialTiming(
-            clkToQRise: try constantTimingLUT(inputSlews: clockSlews, outputLoads: outputLoads, value: 100e-12),
-            clkToQFall: try constantTimingLUT(inputSlews: clockSlews, outputLoads: outputLoads, value: 110e-12),
-            qTransitionRise: try constantTimingLUT(inputSlews: clockSlews, outputLoads: outputLoads, value: 30e-12),
-            qTransitionFall: try constantTimingLUT(inputSlews: clockSlews, outputLoads: outputLoads, value: 35e-12),
-            setupTime: 20e-12,
-            holdTime: 10e-12,
-            dataCapacitance: 1e-15,
-            clockCapacitance: 2e-15
-        )
-        return SequentialTimingCharacterizationReport(
-            cellName: "dff",
-            topologyHash: try TimingTopologyHasher.hash(netlist),
-            activeClockEdge: .rising,
-            technology: technologyContext,
-            characterizationGrid: SequentialTimingCharacterizationGrid(
-                clockSlews: clockSlews,
-                dataSlews: [80e-12],
-                outputLoads: outputLoads,
-                setupHoldSearchResolution: 20e-12,
-                setupHoldSearchWindow: 300e-12
-            ),
-            timing: timing,
-            clkToQMeasurements: [],
-            qTransitionMeasurements: [],
-            setupMeasurements: [],
-            holdMeasurements: [],
-            status: .passed
-        )
-    }
-
-    private static func constantTimingLUT(
-        inputSlews: [Double],
-        outputLoads: [Double],
-        value: Double
-    ) throws -> TimingLUT {
-        try TimingLUT(
-            inputSlews: inputSlews,
-            outputLoads: outputLoads,
-            values: inputSlews.map { _ in outputLoads.map { _ in value } }
-        )
-    }
-}
-
-private extension String {
-    func loadManifest() throws -> HeadlessRoundTripService.Manifest {
-        let data = try Data(contentsOf: URL(filePath: self))
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(HeadlessRoundTripService.Manifest.self, from: data)
-    }
-}
-
-private func artifactURL(path: String, manifestPath: String) -> URL {
-    if path.hasPrefix("/") {
-        return URL(filePath: path)
-    }
-    return URL(filePath: manifestPath).deletingLastPathComponent().appending(path: path)
 }

@@ -6,6 +6,7 @@ public struct RunReviewInteractiveSignoffDrilldown: Sendable, Hashable {
         case drc
         case lvs
         case pex
+        case oracle
         case simulation
         case postLayout = "post-layout"
         case waveform

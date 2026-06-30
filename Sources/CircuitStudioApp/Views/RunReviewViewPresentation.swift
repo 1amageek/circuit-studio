@@ -72,6 +72,8 @@ extension RunReviewView {
             return "rectangle.stack.badge.exclamationmark"
         case .planningCorrectness:
             return "checklist"
+        case .retainedHistory:
+            return "chart.line.uptrend.xyaxis"
         case .archiveOrContinue:
             return "archivebox"
         case .cancellation:
@@ -182,6 +184,8 @@ extension RunReviewView {
             return "point.3.connected.trianglepath.dotted"
         case .pex:
             return "bolt.horizontal"
+        case .oracle:
+            return "checkmark.seal"
         case .simulation:
             return "waveform.path.ecg"
         case .postLayout:

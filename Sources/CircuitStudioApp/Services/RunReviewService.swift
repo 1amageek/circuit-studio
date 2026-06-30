@@ -22,6 +22,8 @@ public struct RunReviewService: Sendable {
         public let signoff: RunReviewSignoffSummary
         public let waivers: RunReviewWaiverSummary
         public let failureStates: RunReviewFailureStateSummary
+        public let flowReview: RunReviewFlowReviewProjection
+        public let retainedDashboard: RunReviewRetainedDashboardProjection
         public let bundle: FlowRunReviewBundle
     }
 
@@ -129,6 +131,8 @@ public struct RunReviewService: Sendable {
             signoffDecodeIssues: signoff.decodeIssues,
             waiverDecodeIssues: waivers.decodeIssues
         )
+        let flowReview = RunReviewFlowReviewProjection(bundle: bundle)
+        let retainedDashboard = retainedDashboardProjection(bundle: bundle)
 
         return RunReview(
             runID: runID,
@@ -141,6 +145,8 @@ public struct RunReviewService: Sendable {
             signoff: signoff,
             waivers: waivers,
             failureStates: failureStates,
+            flowReview: flowReview,
+            retainedDashboard: retainedDashboard,
             bundle: bundle
         )
     }

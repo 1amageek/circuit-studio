@@ -262,6 +262,54 @@ struct CircuitLayoutAvailabilityTests {
         #expect(Set(nets.map(\.name)) == Set(["0", "in", "out"]))
     }
 
+    @Test @MainActor func topCirImportRequiresPersistedSchematicBeforeProjectLayoutGeneration() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "LayoutGenerationUnpersistedMaterialization-\(UUID().uuidString)")
+        defer { removeTemporaryDirectory(root) }
+
+        let projectService = ProjectService()
+        try projectService.createProject(at: root)
+        let source = """
+        * resistor divider
+        V1 in 0 5
+        R1 in out 1k
+        C1 out 0 2p
+        .end
+        """
+        try Data(source.utf8).write(to: root.appending(path: "top.cir"))
+
+        let result = try await SPICESchematicImporter().importTopLevel(
+            source: source,
+            fileName: "top.cir",
+            topCellName: "Top",
+            catalog: .standard()
+        )
+        let project = StudioSession()
+        try project.replaceCells(
+            result.cells.map { ($0.name, $0.schematic) },
+            topCell: result.topCellName,
+            activeCell: result.activeCellName
+        )
+
+        let report = LayoutGenerationPreflightReport.make(
+            context: "test",
+            project: project,
+            projectRootURL: root,
+            selectedFileURL: root.appending(path: "top.cir"),
+            projectService: projectService,
+            catalog: .standard(),
+            workspace: "layout",
+            netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
+                status: .succeeded,
+                message: "materialized in memory"
+            )
+        )
+
+        #expect(!report.availability.isAvailable)
+        #expect(report.availability.code == .missingMaterializedSchematic)
+        #expect(report.availability.reason?.contains("schematic.json is missing") == true)
+    }
+
     @Test @MainActor func invalidStudioSessionManifestDoesNotBlockTopCirMaterialization() async throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "LayoutGenerationInvalidSessionManifest-\(UUID().uuidString)")
@@ -301,6 +349,7 @@ struct CircuitLayoutAvailabilityTests {
             topCell: result.topCellName,
             activeCell: result.activeCellName
         )
+        try projectService.saveMaterializedSchematic(result, forProjectAt: root)
 
         let report = LayoutGenerationPreflightReport.make(
             context: "test",
@@ -318,6 +367,7 @@ struct CircuitLayoutAvailabilityTests {
 
         #expect(report.availability.isAvailable)
         #expect(report.source.studioSessionManifest.exists)
+        #expect(report.source.activeCellSchematic.exists)
         #expect(report.source.xcircuiteProjectManifest.exists)
         #expect(report.diagnosticMessage().contains("Could not read studio session manifest"))
     }

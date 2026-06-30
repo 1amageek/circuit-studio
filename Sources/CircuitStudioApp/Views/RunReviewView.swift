@@ -91,6 +91,12 @@ public struct RunReviewView: View {
                 if review.failureStates.hasContent {
                     RunReviewFailureStateReviewCard(summary: review.failureStates)
                 }
+                if review.retainedDashboard.hasContent {
+                    RunReviewRetainedDashboardCard(projection: review.retainedDashboard)
+                }
+                if review.flowReview.hasContent {
+                    RunReviewFlowReviewProjectionCard(projection: review.flowReview)
+                }
                 if !review.bundle.summary.nextActions.isEmpty {
                     RunReviewNextActionList(
                         actions: review.bundle.summary.nextActions,

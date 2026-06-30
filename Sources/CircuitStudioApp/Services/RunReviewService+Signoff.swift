@@ -41,6 +41,24 @@ extension RunReviewService {
                     cards: &cards,
                     makeCard: pexCard
                 )
+            case .generatedLayoutSignoffCorpus:
+                appendDecodedCard(
+                    artifact: artifact,
+                    allArtifacts: bundle.artifacts,
+                    projectRoot: projectRoot,
+                    decodeIssues: &decodeIssues,
+                    cards: &cards,
+                    makeCard: generatedLayoutSignoffCorpusCard
+                )
+            case .retainedSignoffReport:
+                appendDecodedCard(
+                    artifact: artifact,
+                    allArtifacts: bundle.artifacts,
+                    projectRoot: projectRoot,
+                    decodeIssues: &decodeIssues,
+                    cards: &cards,
+                    makeCard: retainedSignoffReportCard
+                )
             case .simulationMetric:
                 appendDecodedCard(
                     artifact: artifact,
@@ -1062,6 +1080,23 @@ extension RunReviewService {
         if artifactID == "pex-summary" || path.hasSuffix("pex-summary.json") {
             return .pex
         }
+        if artifactID == "generated-layout-signoff-corpus-report"
+            || artifactID == "generated-layout-signoff-ready-oracle-corpus-report"
+            || (
+                path.contains("generated-layout-signoff")
+                    && (
+                        path.hasSuffix("corpus-report.json")
+                            || path.hasSuffix("corpus-report-ready-oracle-evidence.json")
+                    )
+            ) {
+            return .generatedLayoutSignoffCorpus
+        }
+        if artifactID == "retained-signoff-report"
+            || path.hasSuffix("retained-signoff-report.json")
+            || path.contains("retained-signoff-report")
+            || path.hasSuffix("signoff-retained-report-v1.json") {
+            return .retainedSignoffReport
+        }
         if artifactID == "planning-simulation-summary" || path.hasSuffix("simulation-summary.json") {
             return .simulationMetric
         }
@@ -1132,6 +1167,15 @@ extension RunReviewService {
             return searchable.contains("lvs")
         case .pex:
             return searchable.contains("pex") || searchable.contains("spef")
+        case .generatedLayoutSignoffCorpus:
+            return searchable.contains("generated-layout-signoff")
+                || searchable.contains("oracle")
+                || searchable.contains("corpus")
+                || searchable.contains("retained-signoff")
+        case .retainedSignoffReport:
+            return searchable.contains("retained-signoff")
+                || searchable.contains("oracle")
+                || searchable.contains("generated-layout-signoff")
         case .simulationMetric, .simulationMeasurement:
             return searchable.contains("simulation")
                 || searchable.contains("measurement")
@@ -1149,8 +1193,9 @@ extension RunReviewService {
         case "DRC": 0
         case "LVS": 1
         case "PEX": 2
-        case "Simulation": 3
-        case "Post-layout": 4
+        case "Oracle": 3
+        case "Simulation": 4
+        case "Post-layout": 5
         default: 10
         }
     }

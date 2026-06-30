@@ -4,6 +4,8 @@ enum SignoffArtifactKind {
     case drc
     case lvs
     case pex
+    case generatedLayoutSignoffCorpus
+    case retainedSignoffReport
     case simulationMetric
     case simulationMeasurement
     case postLayoutComparison

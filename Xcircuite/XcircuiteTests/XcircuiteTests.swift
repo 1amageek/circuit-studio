@@ -6,7 +6,7 @@
 //
 
 import Testing
-@testable import Xcircuite
+@testable import XcircuiteAppHost
 
 struct XcircuiteTests {
 

@@ -208,6 +208,49 @@ struct ProjectServiceTests {
         #expect(loaded == source)
     }
 
+    @Test func saveMaterializedSchematicWritesCanonicalCellArtifacts() async throws {
+        let root = try makeTemporaryProjectRoot("materialized-schematic")
+        defer { removeTemporaryProjectRoot(root) }
+
+        let service = ProjectService()
+        try service.createProject(at: root)
+
+        let source = """
+        * imported top-level deck
+        V1 in 0 5
+        R1 in out 1k
+        C1 out 0 1p
+        .end
+        """
+        let result = try await SPICESchematicImporter().importTopLevel(
+            source: source,
+            fileName: "top.cir",
+            topCellName: "Top",
+            catalog: .standard()
+        )
+
+        try service.saveMaterializedSchematic(result, forProjectAt: root)
+
+        #expect(fileExists("cells/Top/schematic.json", in: root))
+        #expect(fileExists(".xcircuite/studio-session.json", in: root))
+
+        let cellNames = try service.listCellNames(forProjectAt: root)
+        #expect(cellNames == ["Top"])
+
+        let document = try service.loadCellSchematic(cellName: "Top", forProjectAt: root)
+        #expect(document.components.map(\.name).sorted() == ["c1", "r1", "v1"])
+
+        let manifest = try #require(try service.loadStudioSessionManifestIfPresent(forProjectAt: root))
+        #expect(manifest.topCell == "Top")
+        #expect(manifest.activeCell == "Top")
+
+        let packageManifest = try String(
+            contentsOf: root.appending(path: ".xcircuite/project.json"),
+            encoding: .utf8
+        )
+        #expect(packageManifest.contains("\"topDesignName\" : \"Top\""))
+    }
+
     private func makeTemporaryProjectRoot(_ name: String) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "CircuitStudioProjectServiceTests-\(name)-\(UUID().uuidString)")

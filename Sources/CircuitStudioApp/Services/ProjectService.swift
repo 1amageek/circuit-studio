@@ -158,6 +158,30 @@ public struct ProjectService: Sendable {
         return try readJSON(SchematicDocument.self, from: url)
     }
 
+    /// Promotes an imported SPICE schematic into the project's canonical cell
+    /// artifacts. This keeps project-open, layout preflight, and later flow
+    /// stages reading the same cell state instead of depending on an
+    /// in-memory reconstruction that disappears on reopen.
+    func saveMaterializedSchematic(
+        _ result: SPICESchematicImportResult,
+        forProjectAt projectRoot: URL
+    ) throws {
+        for cell in result.cells {
+            try saveCellSchematic(
+                cell.schematic,
+                cellName: cell.name,
+                forProjectAt: projectRoot
+            )
+        }
+        try saveStudioSessionManifest(
+            StudioSessionManifest(
+                topCell: result.topCellName,
+                activeCell: result.activeCellName
+            ),
+            forProjectAt: projectRoot
+        )
+    }
+
     /// Deletes a cell's directory and everything in it. Removing a cell
     /// that is not on disk is a no-op — the in-memory cell simply was
     /// never saved.
