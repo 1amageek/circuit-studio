@@ -140,10 +140,7 @@ struct ProcessInspectorTab: View {
 
     private func openProcessFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "json")!,
-            .plainText,
-        ]
+        panel.allowedContentTypes = FileContentTypes.processImport
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
 

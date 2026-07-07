@@ -60,8 +60,7 @@ public struct ClockTreeSynthesizer: Sendable {
         // Group sizes per level, from the sinks up to a single root. `counts[0]` is the sink
         // count; each subsequent level has ceil(prev / maxFanout) buffers.
         var levelCounts = [sinkCount]
-        while levelCounts.last! > 1 {
-            let prev = levelCounts.last!
+        while let prev = levelCounts.last, prev > 1 {
             levelCounts.append((prev + maxFanout - 1) / maxFanout)
         }
         let levels = levelCounts.count - 1   // number of BUFFER stages (sinks are level 0)

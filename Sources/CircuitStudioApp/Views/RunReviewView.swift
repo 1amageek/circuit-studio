@@ -920,6 +920,7 @@ public struct RunReviewView: View {
             review = nil
             waiverEditVerificationContext = nil
             waiverEditVerificationContextError = nil
+            loadError = nil
             return
         }
         do {
@@ -1161,11 +1162,11 @@ public struct RunReviewView: View {
         _ artifact: FlowRunReviewArtifact,
         runID: String
     ) {
-        let key = RunReviewArtifactPreviewKey.make(runID: runID, artifactPath: artifact.path)
+        let key = RunReviewArtifactPreviewKey.make(runID: runID, artifact: artifact)
         do {
             artifactPreviews[key] = try service.loadArtifactPreview(
                 runID: runID,
-                artifactPath: artifact.path,
+                artifact: artifact,
                 projectRoot: projectRoot
             )
             artifactPreviewErrors[key] = nil

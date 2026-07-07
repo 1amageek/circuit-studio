@@ -1,4 +1,6 @@
 public enum BenchmarkError: Error, CustomStringConvertible {
+    case invalidSampleCount(name: String, count: Int)
+    case invalidIterationsPerSample(name: String, count: Int)
     case nonFiniteChecksum(String)
     case nonPositiveDuration(String)
     case missingRowMajorStorage(String)
@@ -7,6 +9,10 @@ public enum BenchmarkError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
+        case .invalidSampleCount(let name, let count):
+            return "\(name) expected a positive sample count, got \(count)."
+        case .invalidIterationsPerSample(let name, let count):
+            return "\(name) expected positive iterations per sample, got \(count)."
         case .nonFiniteChecksum(let name):
             return "\(name) produced a non-finite checksum."
         case .nonPositiveDuration(let name):

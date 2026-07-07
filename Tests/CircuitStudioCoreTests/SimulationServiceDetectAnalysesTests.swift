@@ -76,4 +76,60 @@ struct SimulationServiceDetectAnalysesTests {
 
         #expect(analyses.isEmpty)
     }
+
+    @Test("Analysis detection resolves parameter expressions")
+    func analysisDetectionResolvesParameterExpressions() async throws {
+        let source = """
+            * parameterized transient
+            .param tstop=20u tstep={tstop/200}
+            V1 in 0 PULSE(0 1 0 1n 1n 5u 10u)
+            R1 in out 1k
+            C1 out 0 1n
+            .tran {tstep} {tstop}
+            .end
+            """
+
+        let analyses = try await SimulationService().detectAnalyses(
+            source: source,
+            fileName: "parameterized.cir"
+        )
+
+        try #require(analyses.count == 1)
+        guard case .tran(let spec) = analyses[0] else {
+            Issue.record("Expected transient analysis, got \(analyses[0])")
+            return
+        }
+
+        #expect(abs(spec.stopTime - 20e-6) < 1e-12)
+        let stepTime = try #require(spec.stepTime)
+        #expect(abs(stepTime - 100e-9) < 1e-15)
+    }
+
+    @Test("Unresolved analysis parameters fail instead of using defaults")
+    func unresolvedAnalysisParametersFailInsteadOfUsingDefaults() async throws {
+        let source = """
+            * unresolved transient
+            V1 in 0 1
+            R1 in out 1k
+            C1 out 0 1n
+            .tran 1n {missingStop}
+            .end
+            """
+
+        do {
+            _ = try await SimulationService().detectAnalyses(
+                source: source,
+                fileName: "unresolved.cir"
+            )
+            Issue.record("Expected unresolved analysis parameter to fail")
+        } catch let error as StudioError {
+            guard case .simulationFailure(let message) = error else {
+                Issue.record("Expected simulationFailure, got \(error)")
+                return
+            }
+            #expect(message.contains("tran.stopTime"))
+        } catch {
+            Issue.record("Expected StudioError, got \(error)")
+        }
+    }
 }

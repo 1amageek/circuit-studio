@@ -107,7 +107,7 @@ public struct ArtifactPublisher: ArtifactPublishing {
             )
         }
 
-        return ArtifactPublicationRecord(
+        return try ArtifactPublicationRecord(
             id: id,
             kind: kind,
             path: artifactPath.value,

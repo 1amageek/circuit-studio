@@ -54,6 +54,7 @@ public struct PhysicalDesignLoop: Sendable {
         case nonPositiveBudget
         case unfixableViolations([String])
         case boundReached(parameter: Double, rules: [String])
+        case missingFinalReport
 
         public var errorDescription: String? {
             switch self {
@@ -63,6 +64,8 @@ public struct PhysicalDesignLoop: Sendable {
                 return "The tunable cannot address these violations: \(rules.joined(separator: ", "))."
             case .boundReached(let value, let rules):
                 return "Parameter reached its bound (\(value)) but still violates: \(rules.joined(separator: ", "))."
+            case .missingFinalReport:
+                return "The physical loop exhausted its budget without retaining a final signoff report."
             }
         }
     }
@@ -122,11 +125,14 @@ public struct PhysicalDesignLoop: Sendable {
 
         // Budget exhausted while still failing — report it honestly (the last report is
         // non-nil because maxIterations >= 1 guarantees at least one check ran).
+        guard let finalReport = lastReport else {
+            throw LoopError.missingFinalReport
+        }
         return Outcome(
             converged: false,
             iterations: iterations,
             finalParameter: iterations.last?.parameterValue ?? value,
-            finalReport: lastReport!
+            finalReport: finalReport
         )
     }
 

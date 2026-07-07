@@ -1,19 +1,128 @@
 import Foundation
 
 public actor TimingCharacterizationCache {
+    public struct CacheDiagnostic: Sendable, Hashable, Codable {
+        public let code: String
+        public let operation: String
+        public let path: String
+        public let reason: String
+        public let message: String
+        public let suggestedActions: [String]
+
+        public init(
+            code: String,
+            operation: String,
+            path: String,
+            reason: String,
+            message: String,
+            suggestedActions: [String]
+        ) {
+            self.code = code
+            self.operation = operation
+            self.path = path
+            self.reason = reason
+            self.message = message
+            self.suggestedActions = suggestedActions
+        }
+    }
+
     public enum CacheError: Error, LocalizedError, Equatable {
         case directoryCreationFailed(path: String, reason: String)
         case readFailed(path: String, reason: String)
         case writeFailed(path: String, reason: String)
 
         public var errorDescription: String? {
+            diagnostic.message
+        }
+
+        public var diagnostic: CacheDiagnostic {
             switch self {
             case .directoryCreationFailed(let path, let reason):
-                return "Could not create timing characterization cache directory at \(path): \(reason)."
+                return CacheDiagnostic(
+                    code: "TIMING_CACHE_DIRECTORY_CREATION_FAILED",
+                    operation: "create-cache-directory",
+                    path: path,
+                    reason: reason,
+                    message: "Could not create timing characterization cache directory at \(path): \(reason).",
+                    suggestedActions: [
+                        "check-cache-directory-permissions",
+                        "select-writable-timing-cache-directory",
+                        "rerun-timing-characterization",
+                    ]
+                )
             case .readFailed(let path, let reason):
-                return "Could not read timing characterization cache artifact at \(path): \(reason)."
+                let code = Self.readFailureCode(reason: reason)
+                return CacheDiagnostic(
+                    code: code,
+                    operation: "read-cache-artifact",
+                    path: path,
+                    reason: reason,
+                    message: "Could not read timing characterization cache artifact at \(path): \(reason).",
+                    suggestedActions: Self.readFailureSuggestedActions(code: code)
+                )
             case .writeFailed(let path, let reason):
-                return "Could not write timing characterization cache artifact at \(path): \(reason)."
+                return CacheDiagnostic(
+                    code: "TIMING_CACHE_WRITE_FAILED",
+                    operation: "write-cache-artifact",
+                    path: path,
+                    reason: reason,
+                    message: "Could not write timing characterization cache artifact at \(path): \(reason).",
+                    suggestedActions: [
+                        "check-cache-directory-permissions",
+                        "check-available-disk-space",
+                        "rerun-timing-characterization",
+                    ]
+                )
+            }
+        }
+
+        public var code: String {
+            diagnostic.code
+        }
+
+        public var suggestedActions: [String] {
+            diagnostic.suggestedActions
+        }
+
+        private static func readFailureCode(reason: String) -> String {
+            if reason.hasPrefix("Schema version ") {
+                return "TIMING_CACHE_SCHEMA_UNSUPPORTED"
+            }
+            if reason.hasPrefix("Unexpected artifact kind ") {
+                return "TIMING_CACHE_KIND_MISMATCH"
+            }
+            if reason == "Cache key does not match requested characterization input." {
+                return "TIMING_CACHE_KEY_MISMATCH"
+            }
+            return "TIMING_CACHE_READ_FAILED"
+        }
+
+        private static func readFailureSuggestedActions(code: String) -> [String] {
+            switch code {
+            case "TIMING_CACHE_SCHEMA_UNSUPPORTED":
+                return [
+                    "delete-stale-timing-cache-artifact",
+                    "regenerate-timing-characterization",
+                    "verify-cache-schema-version",
+                ]
+            case "TIMING_CACHE_KIND_MISMATCH":
+                return [
+                    "inspect-cache-artifact-kind",
+                    "quarantine-invalid-timing-cache-artifact",
+                    "regenerate-timing-characterization",
+                ]
+            case "TIMING_CACHE_KEY_MISMATCH":
+                return [
+                    "quarantine-suspect-timing-cache-artifact",
+                    "verify-timing-cache-key-hash",
+                    "regenerate-timing-characterization",
+                ]
+            default:
+                return [
+                    "inspect-cache-artifact",
+                    "quarantine-unreadable-timing-cache-artifact",
+                    "regenerate-timing-characterization",
+                ]
             }
         }
     }

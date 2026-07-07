@@ -91,31 +91,29 @@ public struct NetExtractor: Sendable {
 
             // Start endpoint
             let startGroup = wireGroups.find(2 * i)
-            if groupToNet[startGroup] == nil {
-                groupToNet[startGroup] = (name: nil, pins: [])
-            }
+            var startNet = groupToNet[startGroup] ?? (name: nil, pins: [])
             if let ref = wire.startPin {
-                if !groupToNet[startGroup]!.pins.contains(ref) {
-                    groupToNet[startGroup]!.pins.append(ref)
+                if !startNet.pins.contains(ref) {
+                    startNet.pins.append(ref)
                 }
             }
-            if let name = wire.netName, groupToNet[startGroup]!.name == nil {
-                groupToNet[startGroup]!.name = name
+            if let name = wire.netName, startNet.name == nil {
+                startNet.name = name
             }
+            groupToNet[startGroup] = startNet
 
             // End endpoint
             let endGroup = wireGroups.find(2 * i + 1)
-            if groupToNet[endGroup] == nil {
-                groupToNet[endGroup] = (name: nil, pins: [])
-            }
+            var endNet = groupToNet[endGroup] ?? (name: nil, pins: [])
             if let ref = wire.endPin {
-                if !groupToNet[endGroup]!.pins.contains(ref) {
-                    groupToNet[endGroup]!.pins.append(ref)
+                if !endNet.pins.contains(ref) {
+                    endNet.pins.append(ref)
                 }
             }
-            if let name = wire.netName, groupToNet[endGroup]!.name == nil {
-                groupToNet[endGroup]!.name = name
+            if let name = wire.netName, endNet.name == nil {
+                endNet.name = name
             }
+            groupToNet[endGroup] = endNet
         }
 
         // Merge nets that share the same group root (start/end already merged by union-find)
@@ -127,8 +125,9 @@ public struct NetExtractor: Sendable {
                 continue
             }
             let group = wireGroups.find(endpointIdx)
-            if groupToNet[group] != nil {
-                groupToNet[group]!.name = name
+            if var net = groupToNet[group] {
+                net.name = name
+                groupToNet[group] = net
             }
         }
 
@@ -264,9 +263,11 @@ private struct UnionFind {
     mutating func find(_ x: Int) -> Int {
         guard let p = parent[x] else { return x }
         if p != x {
-            parent[x] = find(p)
+            let root = find(p)
+            parent[x] = root
+            return root
         }
-        return parent[x]!
+        return p
     }
 
     mutating func union(_ x: Int, _ y: Int) {

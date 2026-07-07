@@ -21,6 +21,8 @@ struct RunReviewServiceTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { RunReviewTestSupport.removeTemporaryRoot(root) }
 
+        // The rerun below revisits the same run directory, which the
+        // kernel only permits when the caller opts in explicitly.
         let request = FlowOperationRequest(
             projectRoot: root,
             runID: "run-review",
@@ -28,7 +30,8 @@ struct RunReviewServiceTests {
             stages: [
                 FlowStageDefinition(stageID: "001-drc", displayName: "DRC", requiresApproval: true),
                 FlowStageDefinition(stageID: "002-ship", displayName: "Ship"),
-            ]
+            ],
+            allowExistingRunDirectory: true
         )
         let summaryPath = ".xcircuite/runs/run-review/stages/001-drc/raw/drc-summary.json"
         let summaryPayload = Data(#"{"artifactID":"drc-summary"}"#.utf8)
@@ -315,16 +318,116 @@ struct RunReviewServiceTests {
         })
     }
 
+    @Test func flowReviewProjectionSeparatesUnverifiedArtifactsFromDecisionRefs() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("run-review-flow-integrity-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { RunReviewTestSupport.removeTemporaryRoot(root) }
+
+        let runID = "run-flow-integrity"
+        let stageID = "001-plan"
+        _ = try await DefaultFlowOrchestrator().run(
+            request: FlowOperationRequest(
+                projectRoot: root,
+                runID: runID,
+                intent: "Review projection integrity",
+                stages: [
+                    FlowStageDefinition(stageID: stageID, displayName: "Planning", requiresApproval: true),
+                ]
+            ),
+            toolRegistry: ToolRegistry(),
+            healthResults: [:],
+            executors: [
+                RunReviewPassingExecutor(stageID: stageID),
+            ]
+        )
+
+        let planningPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
+        _ = try RunReviewTestSupport.writeRunJSONArtifact(
+            Data(#"{"schemaVersion":1,"planID":"plan-1","steps":[]}"#.utf8),
+            path: planningPath,
+            artifactID: "planning-candidate-plan",
+            root: root,
+            runID: runID
+        )
+        try Data(#"{"schemaVersion":1,"planID":"plan-2","steps":[]}"#.utf8)
+            .write(to: root.appending(path: planningPath), options: .atomic)
+
+        let review = try RunReviewService().loadRun(runID: runID, projectRoot: root)
+        #expect(!review.flowReview.planningArtifacts.contains { $0.path == planningPath })
+        #expect(review.flowReview.integrityIssueArtifacts.contains {
+            $0.path == planningPath && $0.integrity?.status == .sha256Mismatch
+        })
+        let planningDomain = try #require(review.flowReview.coverageDomains.first {
+            $0.domain == "planning"
+        })
+        #expect(!planningDomain.artifactPaths.contains(planningPath))
+        #expect(planningDomain.unverifiedArtifactPaths.contains(planningPath))
+    }
+
+    @Test func retainedDashboardProjectionRejectsUnsafeRunIDBeforeWriting() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("retained-dashboard-validation-\(UUID().uuidString)")
+        let root = parent.appending(path: "project")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { RunReviewTestSupport.removeTemporaryRoot(parent) }
+
+        let escapedName = "retained-dashboard-escape-\(UUID().uuidString)"
+        let invalidRunID = "../../../\(escapedName)"
+        let bundle = FlowRunReviewBundle(
+            runID: invalidRunID,
+            status: .blocked,
+            runDirectoryPath: ".xcircuite/runs/\(invalidRunID)",
+            summary: FlowRunLedgerSummary(
+                runID: invalidRunID,
+                status: .blocked,
+                runDirectoryPath: ".xcircuite/runs/\(invalidRunID)"
+            )
+        )
+        let service = RunReviewService(
+            reviewBundler: RetainedDashboardStaticReviewBundler(bundle: bundle)
+        )
+
+        #expect(throws: XcircuitePackageError.invalidIdentifier(kind: "runID", value: invalidRunID)) {
+            _ = try service.persistRetainedDashboardProjection(
+                runID: invalidRunID,
+                projectRoot: root
+            )
+        }
+        let escapedProjection = parent
+            .appending(path: escapedName)
+            .appending(path: RunReviewService.retainedDashboardRelativePath)
+        #expect(!FileManager.default.fileExists(atPath: escapedProjection.path(percentEncoded: false)))
+    }
+
     @Test func runReviewViewSurfacesFlowReviewProjectionCard() throws {
         let source = try RunReviewTestSupport.projectSource("Sources/CircuitStudioApp/Views/RunReviewView.swift")
+        let cardSource = try RunReviewTestSupport.projectSource(
+            "Sources/CircuitStudioApp/Views/RunReviewFlowReviewProjectionCard.swift"
+        )
         #expect(source.contains("review.flowReview.hasContent"))
         #expect(source.contains("RunReviewFlowReviewProjectionCard(projection: review.flowReview)"))
+        #expect(cardSource.contains("projection.integrityIssueArtifacts"))
+        #expect(cardSource.contains("Integrity Issues"))
     }
 
     @Test func runReviewViewSurfacesRetainedDashboardCard() throws {
         let source = try RunReviewTestSupport.projectSource("Sources/CircuitStudioApp/Views/RunReviewView.swift")
         #expect(source.contains("review.retainedDashboard.hasContent"))
         #expect(source.contains("RunReviewRetainedDashboardCard(projection: review.retainedDashboard)"))
+    }
+
+    @Test func runReviewViewClearsStaleLoadErrorWhenSelectionIsCleared() throws {
+        let source = try RunReviewTestSupport.projectSource("Sources/CircuitStudioApp/Views/RunReviewView.swift")
+        #expect(source.contains("""
+        guard let selectedRunID else {
+                    review = nil
+                    waiverEditVerificationContext = nil
+                    waiverEditVerificationContextError = nil
+                    loadError = nil
+                    return
+                }
+        """))
     }
 
     @Test func reviewFailureStatesProjectMissingIntegrityBlockedAndStaleEvidence() async throws {
@@ -339,6 +442,7 @@ struct RunReviewServiceTests {
         let missingPath = "\(rawPrefix)/missing-report.json"
         let mismatchPath = "\(rawPrefix)/mismatch-report.json"
         let stalePath = "\(rawPrefix)/stale-report.json"
+        let invalidIdentifierPath = "\(rawPrefix)/invalid-identifier-report.json"
         let staleURL = root.appending(path: stalePath)
         try FileManager.default.createDirectory(
             at: staleURL.deletingLastPathComponent(),
@@ -347,6 +451,8 @@ struct RunReviewServiceTests {
         try Data(#"{"state":"unhashed"}"#.utf8).write(to: staleURL, options: .atomic)
 
         let mismatchPayload = Data(#"{"state":"original"}"#.utf8)
+        // The stale artifact above pre-seeds the run directory, so the
+        // run must opt in to reusing it.
         _ = try await DefaultFlowOrchestrator().run(
             request: FlowOperationRequest(
                 projectRoot: root,
@@ -354,7 +460,8 @@ struct RunReviewServiceTests {
                 intent: "Review failure states",
                 stages: [
                     FlowStageDefinition(stageID: stageID, displayName: "DRC", requiresApproval: true),
-                ]
+                ],
+                allowExistingRunDirectory: true
             ),
             toolRegistry: ToolRegistry(),
             healthResults: [:],
@@ -377,6 +484,12 @@ struct RunReviewServiceTests {
                         XcircuiteFileReference(
                             artifactID: "stale-report",
                             path: stalePath,
+                            kind: .report,
+                            format: .json
+                        ),
+                        XcircuiteFileReference(
+                            artifactID: "invalid identifier report",
+                            path: invalidIdentifierPath,
                             kind: .report,
                             format: .json
                         ),
@@ -413,6 +526,13 @@ struct RunReviewServiceTests {
             }
         })
         #expect(mismatch.suggestedActions.contains("rerun-artifact-integrity-gate"))
+
+        let invalidIdentifier = try #require(failureStates.states(of: .integrityMismatch).first {
+            $0.artifactRefs.contains {
+                $0.path == invalidIdentifierPath && $0.integrityStatus == "invalidIdentifier"
+            }
+        })
+        #expect(invalidIdentifier.suggestedActions.contains("rerun-artifact-integrity-gate"))
 
         let stale = try #require(failureStates.states(of: .staleEvidence).first {
             $0.artifactRefs.contains {
@@ -516,6 +636,7 @@ struct RunReviewServiceTests {
             )
         }
 
+        // Second pass over the same run directory: opt in to reuse.
         _ = try await DefaultFlowOrchestrator().run(
             request: FlowOperationRequest(
                 projectRoot: root,
@@ -523,7 +644,8 @@ struct RunReviewServiceTests {
                 intent: "Missing review context",
                 stages: [
                     FlowStageDefinition(stageID: stageID, displayName: "Review"),
-                ]
+                ],
+                allowExistingRunDirectory: true
             ),
             toolRegistry: ToolRegistry(),
             healthResults: [:],
@@ -566,13 +688,16 @@ struct RunReviewServiceTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { RunReviewTestSupport.removeTemporaryRoot(root) }
 
+        // The rejection rerun revisits the same run directory, so the
+        // request opts in to reusing it.
         let request = FlowOperationRequest(
             projectRoot: root,
             runID: "run-reject",
             intent: "Review loop",
             stages: [
                 FlowStageDefinition(stageID: "001-drc", displayName: "DRC", requiresApproval: true),
-            ]
+            ],
+            allowExistingRunDirectory: true
         )
         let executors: [any FlowStageExecutor] = [RunReviewPassingExecutor(stageID: "001-drc")]
 
@@ -611,4 +736,12 @@ struct RunReviewServiceTests {
     }
 
 
+}
+
+private struct RetainedDashboardStaticReviewBundler: FlowRunReviewBundling {
+    let bundle: FlowRunReviewBundle
+
+    func makeReviewBundle(runID: String, projectRoot: URL) throws -> FlowRunReviewBundle {
+        bundle
+    }
 }

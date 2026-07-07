@@ -347,12 +347,16 @@ extension RunReviewService {
         )
     }
 
+    /// `technologyPackagePath` is required by the downstream verification
+    /// contract: the layout technology must be explicit — there is no
+    /// silent process fallback.
     public func runPostWaiverEditVerification(
         runID: String,
         waiverReviewID: String,
         proposalID: String,
         reviewer: String,
         note: String = "",
+        technologyPackagePath: String? = nil,
         projectRoot: URL
     ) async throws -> DesignFlowCommandResult {
         let context = try waiverEditVerificationContext(runID: runID, projectRoot: projectRoot)
@@ -361,6 +365,7 @@ extension RunReviewService {
             designSpecPath: context.designSpecURL.path(percentEncoded: false),
             projectRootPath: projectRoot.path(percentEncoded: false),
             runID: runID,
+            technologyPackagePath: technologyPackagePath,
             layoutDocumentPath: context.layoutDocumentURL.path(percentEncoded: false),
             designUnitPath: context.designUnitURL?.path(percentEncoded: false),
             approvalReviewer: reviewer,
@@ -370,12 +375,16 @@ extension RunReviewService {
         ))
     }
 
+    /// `technologyPackagePath` is required by the downstream verification
+    /// contract: the layout technology must be explicit — there is no
+    /// silent process fallback.
     public func applyWaiverEditProposalAndRunPostVerification(
         runID: String,
         waiverReviewID: String,
         proposalID: String,
         reviewer: String,
         note: String = "",
+        technologyPackagePath: String? = nil,
         projectRoot: URL
     ) async throws -> DesignFlowCommandResult {
         let context = try waiverEditVerificationContext(runID: runID, projectRoot: projectRoot)
@@ -384,6 +393,7 @@ extension RunReviewService {
             designSpecPath: context.designSpecURL.path(percentEncoded: false),
             projectRootPath: projectRoot.path(percentEncoded: false),
             runID: runID,
+            technologyPackagePath: technologyPackagePath,
             layoutDocumentPath: context.layoutDocumentURL.path(percentEncoded: false),
             designUnitPath: context.designUnitURL?.path(percentEncoded: false),
             approvalReviewer: reviewer,
@@ -466,6 +476,7 @@ extension RunReviewService {
         ) -> RunReviewWaiverItem?
     ) {
         do {
+            try validateWaiverArtifactIntegrity(artifact)
             let data = try Data(contentsOf: waiverArtifactURL(for: artifact, projectRoot: projectRoot))
             let document = try JSONDecoder().decode(Document.self, from: data)
             let reviewID = waiverReviewID(domain: waiverDomain(for: artifact), artifact: artifact)
@@ -486,6 +497,23 @@ extension RunReviewService {
                     artifactPath: artifact.path,
                     message: error.localizedDescription
                 )
+            )
+        }
+    }
+
+    private func validateWaiverArtifactIntegrity(_ artifact: FlowRunReviewArtifact) throws {
+        guard let integrity = artifact.integrity else {
+            throw RunReviewServiceError.waiverArtifactIntegrityUnverified(
+                path: artifact.path,
+                status: "missing",
+                message: "Artifact integrity was not recorded."
+            )
+        }
+        guard integrity.status == .verified else {
+            throw RunReviewServiceError.waiverArtifactIntegrityUnverified(
+                path: artifact.path,
+                status: integrity.status.rawValue,
+                message: integrity.message
             )
         }
     }

@@ -39,7 +39,7 @@ struct MagicDensitySignoffTests {
         let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-density-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let gds = dir.appending(path: "\(cell).gds")
-        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(document, to: gds, format: .gds)
+        try MaskDataFormatConverter(tech: try Sky130LayoutTech.tech()).exportDocument(document, to: gds, format: .gds)
 
         let density = try #require(MagicDensitySignoff.locate())
         return try await density.run(cell: cell, gds: gds, window: window, artifactDirectory: dir)

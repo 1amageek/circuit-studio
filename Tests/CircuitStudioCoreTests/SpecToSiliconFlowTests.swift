@@ -134,6 +134,36 @@ struct SpecToSiliconFlowTests {
         #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "timing/timing-library.json").path))
     }
 
+    @Test("Design name is validated before artifact writes", .timeLimit(.minutes(1)))
+    func invalidDesignNameFailsBeforeCreatingArtifactDirectory() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "flow-invalid-name-\(UUID().uuidString)")
+        defer {
+            do {
+                if FileManager.default.fileExists(atPath: dir.path) {
+                    try FileManager.default.removeItem(at: dir)
+                }
+            } catch {
+                Issue.record("Failed to remove temporary flow directory: \(error)")
+            }
+        }
+
+        let unsafeIntent = SpecToSiliconFlow.Intent(
+            designName: "../escape",
+            program: try ACC4Assembler().assemble(Self.fibonacci),
+            cycles: 4,
+            targetClockPeriod: 5e-9
+        )
+
+        await #expect(throws: SpecToSiliconFlow.FlowError.invalidArtifactDesignName("../escape")) {
+            _ = try await SpecToSiliconFlow(
+                runPhysical: false,
+                timingLibraryBuilder: EmptySequentialGridTimingLibraryBuilder(),
+                spiceValidator: PassingTimingPathValidator()
+            ).run(unsafeIntent, artifactDirectory: dir)
+        }
+        #expect(!FileManager.default.fileExists(atPath: dir.path))
+    }
+
     private struct PassingTimingPathValidator: TimingPathValidating {
         func validate(
             path: TimingPath,

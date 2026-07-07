@@ -252,6 +252,7 @@ public enum DesignFlowLayoutEditError: Error, LocalizedError, Equatable {
     case unknownNet(String)
     case netInUse(String)
     case duplicateNet(String)
+    case netReferenceMismatch(id: UUID, name: String)
     case unknownElement(UUID)
     case duplicateElement(UUID)
     case duplicateInstanceName(String)
@@ -275,6 +276,8 @@ public enum DesignFlowLayoutEditError: Error, LocalizedError, Equatable {
             return "Layout edit cannot remove net '\(net)' because layout elements still reference it."
         case .duplicateNet(let net):
             return "Layout edit would create duplicate net '\(net)'."
+        case .netReferenceMismatch(let id, let name):
+            return "Layout edit net reference '\(id.uuidString)' does not match net name '\(name)'."
         case .unknownElement(let id):
             return "Layout edit references unknown element '\(id.uuidString)'."
         case .duplicateElement(let id):
@@ -749,15 +752,23 @@ public struct DesignFlowLayoutEditService: Sendable {
 
     private func resolvedNet(for edit: DesignFlowLayoutEdit, in layout: LayoutDocument) throws -> LayoutNet {
         let cellIndex = try resolvedCellIndex(for: edit, in: layout)
-        if let netID = edit.netID,
-           let net = layout.cells[cellIndex].nets.first(where: { $0.id == netID }) {
+        if let netID = edit.netID {
+            guard let net = layout.cells[cellIndex].nets.first(where: { $0.id == netID }) else {
+                throw DesignFlowLayoutEditError.unknownNet(netID.uuidString)
+            }
+            if let netName = edit.netName {
+                let checkedName = try nonEmpty(netName, field: "netName", kind: edit.kind)
+                guard net.name == checkedName else {
+                    throw DesignFlowLayoutEditError.netReferenceMismatch(id: netID, name: checkedName)
+                }
+            }
             return net
         }
-        if let netName = edit.netName,
-           let net = layout.cells[cellIndex].nets.first(where: { $0.name == netName }) {
+        let netName = try nonEmpty(edit.netName, field: "netName", kind: edit.kind)
+        if let net = layout.cells[cellIndex].nets.first(where: { $0.name == netName }) {
             return net
         }
-        throw DesignFlowLayoutEditError.unknownNet(edit.netName ?? edit.netID?.uuidString ?? "")
+        throw DesignFlowLayoutEditError.unknownNet(netName)
     }
 
     private func optionalNetID(for edit: DesignFlowLayoutEdit, in layout: LayoutDocument) throws -> UUID? {

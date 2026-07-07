@@ -14,13 +14,15 @@ struct ExternalSignoffArtifactServiceTests {
                 kind: .drc,
                 toolName: "calibre-drc",
                 logURL: drcURL,
-                success: true
+                success: true,
+                parserStyle: .calibreLike
             ),
             ExternalSignoffLogArtifact(
                 kind: .lvs,
                 toolName: "calibre-lvs",
                 logURL: lvsURL,
-                success: true
+                success: true,
+                parserStyle: .calibreLike
             ),
         ])
 
@@ -40,22 +42,26 @@ struct ExternalSignoffArtifactServiceTests {
                 kind: .lvs,
                 toolName: "calibre-lvs",
                 logURL: lvsURL,
-                success: true
+                success: true,
+                parserStyle: .calibreLike
             ),
         ])
 
         #expect(!review.passed)
         #expect(!review.isReadyForPEX)
-        #expect(review.reports[0].diagnostics == [
-            ExternalSignoffDiagnostic(
+        #expect(review.reports[0].diagnostics.contains {
+            $0 == ExternalSignoffDiagnostic(
                 severity: .error,
                 message: "layout net shorted against schematic",
                 ruleID: "LVS_SHORT",
                 componentName: "MN1",
                 netName: "out",
                 rawLine: "LVS MISMATCH rule=LVS_SHORT instance=MN1 net=out message=\"layout net shorted against schematic\""
-            ),
-        ])
+            )
+        })
+        #expect(review.reports[0].diagnostics.contains {
+            $0.ruleID == "CALIBRE_SIGNOFF_INCORRECT" && $0.severity == .error
+        })
     }
 
     @Test func loadRejectsMissingLog() throws {

@@ -205,6 +205,7 @@ public struct RunReviewService: Sendable {
         approvalID: String,
         verdict: XcircuiteApprovalRecord.Verdict,
         reviewer: String,
+        reviewerKind: XcircuiteRunActionActor.Kind = .human,
         note: String = "",
         projectRoot: URL
     ) throws -> XcircuiteCandidatePlanRiskApprovalResult {
@@ -214,6 +215,7 @@ public struct RunReviewService: Sendable {
                 approvalID: approvalID,
                 verdict: verdict,
                 reviewer: reviewer,
+                reviewerKind: reviewerKind,
                 note: note
             ),
             projectRoot: projectRoot
@@ -222,11 +224,14 @@ public struct RunReviewService: Sendable {
 
     /// Records the reviewer's decision. The flow kernel's approval gate
     /// reads exactly this record on the next run of the same runID.
+    /// `reviewerKind` keeps human and automated decisions distinguishable
+    /// in the audited ledger; the cockpit records `.human` by default.
     public func decide(
         runID: String,
         stageID: String,
         verdict: XcircuiteApprovalRecord.Verdict,
         reviewer: String,
+        reviewerKind: XcircuiteRunActionActor.Kind = .human,
         note: String = "",
         projectRoot: URL
     ) throws -> XcircuiteApprovalRecord {
@@ -235,6 +240,7 @@ public struct RunReviewService: Sendable {
             stageID: stageID,
             verdict: verdict,
             reviewer: reviewer,
+            reviewerKind: reviewerKind,
             note: note
         )
         try store.recordApprovalAction(
@@ -325,6 +331,7 @@ public struct RunReviewService: Sendable {
         }
 
         do {
+            try validatePlanningArtifactIntegrity(artifact)
             let data = try Data(contentsOf: artifactURL(for: artifact, projectRoot: projectRoot))
             return try JSONDecoder().decode(type, from: data)
         } catch {
@@ -336,6 +343,23 @@ public struct RunReviewService: Sendable {
                 )
             )
             return nil
+        }
+    }
+
+    private func validatePlanningArtifactIntegrity(_ artifact: FlowRunReviewArtifact) throws {
+        guard let integrity = artifact.integrity else {
+            throw RunReviewServiceError.planningArtifactIntegrityUnverified(
+                path: artifact.path,
+                status: "missing",
+                message: "Artifact integrity was not recorded."
+            )
+        }
+        guard integrity.status == .verified else {
+            throw RunReviewServiceError.planningArtifactIntegrityUnverified(
+                path: artifact.path,
+                status: integrity.status.rawValue,
+                message: integrity.message
+            )
         }
     }
 

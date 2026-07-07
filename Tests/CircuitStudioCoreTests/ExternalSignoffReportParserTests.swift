@@ -2,6 +2,63 @@ import Foundation
 import Testing
 @testable import CircuitStudioApp
 
+@Suite("ExternalSignoffReportParser generic")
+struct GenericExternalSignoffReportParserTests {
+
+    private let parser = ExternalSignoffReportParser(style: .generic)
+
+    private func report(_ rawOutput: String, success: Bool = true) -> ExternalSignoffToolReport {
+        parser.parse(
+            kind: .drc,
+            toolName: "generic-signoff",
+            logPath: "/tmp/generic-signoff.log",
+            rawOutput: rawOutput,
+            success: success
+        )
+    }
+
+    @Test("An empty generic log is not accepted as completion proof")
+    func emptyLogIsNotCompletionProof() {
+        let result = report("")
+        #expect(!result.completed)
+        #expect(!result.passed)
+    }
+
+    @Test("A whitespace-only generic log is not accepted as completion proof")
+    func whitespaceOnlyLogIsNotCompletionProof() {
+        let result = report(" \n\t ")
+        #expect(!result.completed)
+        #expect(!result.passed)
+    }
+
+    @Test("A generic log with evidence remains compatible")
+    func explicitPassingResultMarkerPasses() {
+        let result = report("""
+        [INFO] rule=GENERIC_CLEAN message="clean"
+        SIGNOFF_RESULT status=pass
+        """)
+        #expect(result.completed)
+        #expect(result.passed)
+    }
+
+    @Test("A non-empty generic log without a result marker is incomplete")
+    func nonEmptyGenericLogWithoutResultMarkerIsIncomplete() {
+        let result = report(#"[INFO] rule=GENERIC_CLEAN message="clean""#)
+        #expect(!result.completed)
+        #expect(!result.passed)
+    }
+
+    @Test("A generic failure result marker blocks pass")
+    func failureResultMarkerBlocksPass() {
+        let result = report("SIGNOFF_RESULT status=failed")
+        #expect(result.completed)
+        #expect(!result.passed)
+        #expect(result.diagnostics.contains {
+            $0.ruleID == "SIGNOFF_RESULT" && $0.severity == .error
+        })
+    }
+}
+
 /// Pure parser tests for the `.magicDRC` style — they need no Magic installation,
 /// so they cover the normalization contract in CI even when the gated
 /// `MagicDRCSignoffTests` integration tests are skipped.
@@ -89,6 +146,18 @@ struct ExternalSignoffReportParserTests {
         #expect(!result.passed)
     }
 
+    @Test("A marker-like token inside chatter is not completion proof")
+    func markerTextInsideChatterIsNotCompletionProof() {
+        let raw = """
+        Magic 8.3 revision 652
+        INFO message="driver did not emit DRC_DONE before output ended"
+        """
+        let result = report(raw, success: true)
+        #expect(!result.completed)
+        #expect(!result.passed)
+        #expect(result.diagnostics.isEmpty)
+    }
+
     @Test("DRC_SUMMARY total>0 with no enumerated VIOLATION still fails (count gates the verdict)")
     func authoritativeCountGatesTheVerdict() {
         // The authoritative count says 5, but no VIOLATION line was enumerated; the
@@ -172,6 +241,112 @@ struct NetgenLVSReportParserTests {
         LVS_DONE
         """
         let result = report(raw)
+        #expect(!result.completed)
+        #expect(!result.passed)
+    }
+
+    @Test("A marker-like token inside chatter is not a positive LVS match")
+    func markerTextInsideChatterIsNotCompletionProof() {
+        let raw = """
+        Netgen 1.5.320
+        INFO message="previous log contained LVS_RESULT status=match"
+        LVS_DONE
+        """
+        let result = report(raw)
+        #expect(!result.completed)
+        #expect(!result.passed)
+        #expect(result.diagnostics.isEmpty)
+    }
+}
+
+/// Pure parser tests for the `.magicAntenna` style — no Magic installation needed.
+@Suite("ExternalSignoffReportParser .magicAntenna")
+struct MagicAntennaReportParserTests {
+
+    private let parser = ExternalSignoffReportParser(style: .magicAntenna)
+
+    private func report(_ rawOutput: String, success: Bool = true) -> ExternalSignoffToolReport {
+        parser.parse(
+            kind: .antenna,
+            toolName: "magic",
+            logPath: "/tmp/antenna-magic.log",
+            rawOutput: rawOutput,
+            success: success
+        )
+    }
+
+    @Test("A clean antenna run passes with a standalone completion marker")
+    func cleanRunPasses() {
+        let raw = """
+        ANTENNA_SUMMARY total=0 cell=ant_clean
+        ANTENNA_DONE
+        """
+        let result = report(raw)
+        #expect(result.completed)
+        #expect(result.passed)
+        #expect(result.diagnostics.isEmpty)
+    }
+
+    @Test("ANTENNA_SUMMARY total>0 with no enumerated violation still fails")
+    func authoritativeCountGatesTheVerdict() {
+        let raw = """
+        ANTENNA_SUMMARY total=2 cell=ant_violation
+        ANTENNA_DONE
+        """
+        let result = report(raw)
+        #expect(result.completed)
+        #expect(result.diagnostics.contains { $0.ruleID == "ANTENNA_SUMMARY_MISMATCH" && $0.severity == .error })
+        #expect(!result.passed)
+    }
+
+    @Test("A marker-like token inside chatter is not antenna completion proof")
+    func markerTextInsideChatterIsNotCompletionProof() {
+        let raw = """
+        Magic 8.3 revision 652
+        INFO message="driver did not emit ANTENNA_DONE before output ended"
+        """
+        let result = report(raw)
+        #expect(!result.completed)
+        #expect(!result.passed)
+        #expect(result.diagnostics.isEmpty)
+    }
+}
+
+@Suite("ExternalSignoffReportParser .calibreLike")
+struct CalibreLikeReportParserTests {
+
+    private let parser = ExternalSignoffReportParser(style: .calibreLike)
+
+    @Test("Calibre DRC result count gates pass even when no violation line is parsed")
+    func drcResultCountGatesPass() {
+        let result = parser.parse(
+            kind: .drc,
+            toolName: "calibre",
+            logPath: "/tmp/calibre-drc.log",
+            rawOutput: """
+            Calibre nmDRC summary
+            TOTAL DRC Results Generated: 2
+            """,
+            success: true
+        )
+
+        #expect(result.completed)
+        #expect(!result.passed)
+        #expect(result.diagnostics.contains {
+            $0.ruleID == "CALIBRE_DRC_RESULTS" && $0.severity == .error
+        })
+    }
+
+    @Test("Calibre DRC without a result count is incomplete")
+    func drcWithoutResultCountIsIncomplete() {
+        let result = parser.parse(
+            kind: .drc,
+            toolName: "calibre",
+            logPath: "/tmp/calibre-drc.log",
+            rawOutput: "Calibre nmDRC summary",
+            success: true
+        )
+
         #expect(!result.completed)
         #expect(!result.passed)
     }

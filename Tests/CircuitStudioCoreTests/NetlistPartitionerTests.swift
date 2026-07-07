@@ -18,7 +18,7 @@ struct NetlistPartitionerTests {
 
     @Test("Partitioning preserves every instance across the blocks")
     func preservesInstances() throws {
-        let netlist = ACC4CPUGenerator().gateLevelNetlist()
+        let netlist = try ACC4CPUGenerator().gateLevelNetlist()
         let result = try NetlistPartitioner().partition(netlist, blocks: 4)
         let reassembled = Set(result.blocks.flatMap { $0.instances }.map(\.name))
         #expect(reassembled == Set(netlist.instances.map(\.name)))
@@ -30,10 +30,10 @@ struct NetlistPartitionerTests {
     func interBlockNetsAreCorrect() throws {
         // A 4-inverter chain split into 2 blocks: the middle net is the only crossing.
         let chain = GateLevelNetlist(name: "chain", instances: [
-            .init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "a", "Y": "n1"]),
-            .init(name: "g1", cell: .inverter(name: "inv"), netMap: ["A": "n1", "Y": "n2"]),
-            .init(name: "g2", cell: .inverter(name: "inv"), netMap: ["A": "n2", "Y": "n3"]),
-            .init(name: "g3", cell: .inverter(name: "inv"), netMap: ["A": "n3", "Y": "y"]),
+            .init(name: "g0", cell: try .inverter(name: "inv"), netMap: ["A": "a", "Y": "n1"]),
+            .init(name: "g1", cell: try .inverter(name: "inv"), netMap: ["A": "n1", "Y": "n2"]),
+            .init(name: "g2", cell: try .inverter(name: "inv"), netMap: ["A": "n2", "Y": "n3"]),
+            .init(name: "g3", cell: try .inverter(name: "inv"), netMap: ["A": "n3", "Y": "y"]),
         ], inputs: ["a"], output: "y")
         let result = try NetlistPartitioner().partition(chain, blocks: 2)
         #expect(result.blocks.count == 2)
@@ -48,12 +48,12 @@ struct NetlistPartitionerTests {
     @Test("Partitioning clusters connected components even when instances are interleaved")
     func clustersInterleavedChains() throws {
         let netlist = GateLevelNetlist(name: "interleaved", instances: [
-            .init(name: "a0", cell: .inverter(name: "inv"), netMap: ["A": "a", "Y": "a1"]),
-            .init(name: "b0", cell: .inverter(name: "inv"), netMap: ["A": "b", "Y": "b1"]),
-            .init(name: "a1", cell: .inverter(name: "inv"), netMap: ["A": "a1", "Y": "a2"]),
-            .init(name: "b1", cell: .inverter(name: "inv"), netMap: ["A": "b1", "Y": "b2"]),
-            .init(name: "a2", cell: .inverter(name: "inv"), netMap: ["A": "a2", "Y": "ay"]),
-            .init(name: "b2", cell: .inverter(name: "inv"), netMap: ["A": "b2", "Y": "by"]),
+            .init(name: "a0", cell: try .inverter(name: "inv"), netMap: ["A": "a", "Y": "a1"]),
+            .init(name: "b0", cell: try .inverter(name: "inv"), netMap: ["A": "b", "Y": "b1"]),
+            .init(name: "a1", cell: try .inverter(name: "inv"), netMap: ["A": "a1", "Y": "a2"]),
+            .init(name: "b1", cell: try .inverter(name: "inv"), netMap: ["A": "b1", "Y": "b2"]),
+            .init(name: "a2", cell: try .inverter(name: "inv"), netMap: ["A": "a2", "Y": "ay"]),
+            .init(name: "b2", cell: try .inverter(name: "inv"), netMap: ["A": "b2", "Y": "by"]),
         ], inputs: ["a", "b"], outputs: ["ay", "by"])
 
         let result = try NetlistPartitioner().partition(netlist, blocks: 2)
@@ -69,7 +69,7 @@ struct NetlistPartitionerTests {
 
     @Test("Partitioning does not emit empty blocks when more blocks than instances are requested")
     func requestedMoreBlocksThanInstances() throws {
-        let netlist = GateLevelNetlist.inverterChain(name: "small", stages: 2)
+        let netlist = try GateLevelNetlist.inverterChain(name: "small", stages: 2)
         let result = try NetlistPartitioner().partition(netlist, blocks: 8)
 
         #expect(result.blocks.count == 2)
@@ -89,7 +89,7 @@ struct NetlistPartitionerTests {
 
     @Test("Partitioner rejects invalid strategy assignment counts")
     func rejectsInvalidAssignmentCount() throws {
-        let netlist = GateLevelNetlist.inverterChain(name: "bad_count", stages: 2)
+        let netlist = try GateLevelNetlist.inverterChain(name: "bad_count", stages: 2)
         let partitioner = NetlistPartitioner(strategy: FixedPartitioningStrategy(assignments: [0]))
 
         #expect(throws: NetlistPartitioner.PartitionError.self) {
@@ -99,7 +99,7 @@ struct NetlistPartitionerTests {
 
     @Test("Partitioner rejects strategy block indexes outside the active block range")
     func rejectsOutOfRangeAssignments() throws {
-        let netlist = GateLevelNetlist.inverterChain(name: "bad_range", stages: 2)
+        let netlist = try GateLevelNetlist.inverterChain(name: "bad_range", stages: 2)
         let partitioner = NetlistPartitioner(strategy: FixedPartitioningStrategy(assignments: [0, 3]))
 
         #expect(throws: NetlistPartitioner.PartitionError.self) {
@@ -109,7 +109,7 @@ struct NetlistPartitionerTests {
 
     @Test("Partitioner rejects strategy assignments that leave active blocks empty")
     func rejectsEmptyAssignedBlocks() throws {
-        let netlist = GateLevelNetlist.inverterChain(name: "bad_empty", stages: 3)
+        let netlist = try GateLevelNetlist.inverterChain(name: "bad_empty", stages: 3)
         let partitioner = NetlistPartitioner(strategy: FixedPartitioningStrategy(assignments: [0, 0, 0]))
 
         #expect(throws: NetlistPartitioner.PartitionError.self) {

@@ -27,12 +27,12 @@ public struct InterBlockRouter: Sendable {
         self.profile = profile
     }
 
-    public init() {
-        do {
-            self.init(profile: try LayoutTechnologyCatalog.loadDefaultRoutingProfile())
-        } catch {
-            preconditionFailure("Bundled layout routing profile could not be loaded: \(error)")
-        }
+    public static func bundledDefault() throws -> InterBlockRouter {
+        InterBlockRouter(profile: try LayoutTechnologyCatalog.loadDefaultRoutingProfile())
+    }
+
+    public init() throws {
+        self.init(profile: try LayoutTechnologyCatalog.loadDefaultRoutingProfile())
     }
 
     private func rect(_ role: LayoutRoutingProfile.LayerRole, _ x: Double, _ y: Double, _ w: Double, _ h: Double) -> LayoutShape {

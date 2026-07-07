@@ -65,7 +65,7 @@ struct CellTimingCharacterizerTests {
             qTransitionRise: .constant(40e-12), qTransitionFall: .constant(40e-12),
             setupTime: 30e-12, holdTime: 10e-12, dataCapacitance: 1e-15, clockCapacitance: 2e-15)
 
-        let seq = ACC4CPUGenerator().sequentialNetlist()
+        let seq = try ACC4CPUGenerator().sequentialNetlist()
         let report = try StaticTimingAnalyzer(library: lib).analyze(seq, clockPeriod: 10e-9, defaultInputSlew: 50e-12)
         #expect(report.fmaxHz.isFinite && report.fmaxHz > 0, "fmax = \(report.fmaxHz)")
         #expect(report.criticalPath.endpoint.hasPrefix("acc_d"))

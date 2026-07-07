@@ -66,7 +66,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
     private let technologyContext: TimingTechnologyContext
 
     public init(
-        model: Level1DeviceModel = .bundledDefault(),
+        model: Level1DeviceModel,
         technologyContext: TimingTechnologyContext? = nil,
         simulation: SimulationServiceProtocol = SimulationService(),
         clockSlew: Double = 80e-12,
@@ -75,9 +75,15 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
         setupHoldSearchWindow: Double = 600e-12,
         setupHoldSearchResolution: Double = 5e-12,
         maxSearchIterations: Int = 8
-    ) {
+    ) throws {
+        let resolvedTechnologyContext: TimingTechnologyContext
+        if let technologyContext {
+            resolvedTechnologyContext = technologyContext
+        } else {
+            resolvedTechnologyContext = try Level1DeviceModel.technologyContextChecked(for: model)
+        }
         self.model = model
-        self.technologyContext = technologyContext ?? Level1DeviceModel.technologyContext(for: model)
+        self.technologyContext = resolvedTechnologyContext
         self.simulation = simulation
         self.clockSlew = clockSlew
         self.dataSlew = dataSlew
@@ -87,13 +93,45 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
         self.maxSearchIterations = maxSearchIterations
     }
 
+    public init(
+        technologyContext: TimingTechnologyContext? = nil,
+        simulation: SimulationServiceProtocol = SimulationService(),
+        clockSlew: Double = 80e-12,
+        dataSlew: Double = 80e-12,
+        outputLoads: [Double] = [1e-15, 4e-15, 12e-15],
+        setupHoldSearchWindow: Double = 600e-12,
+        setupHoldSearchResolution: Double = 5e-12,
+        maxSearchIterations: Int = 8
+    ) throws {
+        try self.init(
+            model: try Level1DeviceModel.loadBundledDefault(),
+            technologyContext: technologyContext,
+            simulation: simulation,
+            clockSlew: clockSlew,
+            dataSlew: dataSlew,
+            outputLoads: outputLoads,
+            setupHoldSearchWindow: setupHoldSearchWindow,
+            setupHoldSearchResolution: setupHoldSearchResolution,
+            maxSearchIterations: maxSearchIterations
+        )
+    }
+
     public func characterizeFlipFlop(
-        _ netlist: GateLevelNetlist = DFFGenerator().netlist(name: "dff"),
+        cellName: String = "dff"
+    ) async throws -> SequentialTimingCharacterizationReport {
+        try await characterizeFlipFlop(try DFFGenerator().netlist(name: cellName), cellName: cellName)
+    }
+
+    public func characterizeFlipFlop(
+        _ netlist: GateLevelNetlist,
         cellName: String = "dff"
     ) async throws -> SequentialTimingCharacterizationReport {
         guard !outputLoads.isEmpty else { throw CharacterizeError.invalidGrid("outputLoads must not be empty") }
         guard outputLoads.allSatisfy({ $0.isFinite && $0 > 0 }) else {
             throw CharacterizeError.invalidGrid("outputLoads must be finite positive values")
+        }
+        guard let referenceOutputLoad = outputLoads.first else {
+            throw CharacterizeError.invalidGrid("outputLoads must not be empty")
         }
         try validateSupportedDFFTopology(netlist)
         let modelHash = try TimingTopologyHasher.hashModel(model)
@@ -155,10 +193,10 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
         tRise.append(riseTransitionRow)
         tFall.append(fallTransitionRow)
 
-        let setupRise = try await searchSetup(netlist, targetValue: true, outputLoad: outputLoads[0], cellName: cellName)
-        let setupFall = try await searchSetup(netlist, targetValue: false, outputLoad: outputLoads[0], cellName: cellName)
-        let holdRise = try await searchHold(netlist, targetValue: true, outputLoad: outputLoads[0], cellName: cellName)
-        let holdFall = try await searchHold(netlist, targetValue: false, outputLoad: outputLoads[0], cellName: cellName)
+        let setupRise = try await searchSetup(netlist, targetValue: true, outputLoad: referenceOutputLoad, cellName: cellName)
+        let setupFall = try await searchSetup(netlist, targetValue: false, outputLoad: referenceOutputLoad, cellName: cellName)
+        let holdRise = try await searchHold(netlist, targetValue: true, outputLoad: referenceOutputLoad, cellName: cellName)
+        let holdFall = try await searchHold(netlist, targetValue: false, outputLoad: referenceOutputLoad, cellName: cellName)
 
         let setupTime = max(setupRise.value, setupFall.value)
         let holdTime = max(holdRise.value, holdFall.value)
@@ -223,8 +261,10 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
     ) async throws -> (delay: Double, transition: Double) {
         let clocking = clocking()
         let setupLead = setupHoldSearchWindow
+        let output = try netlist.requirePrimaryOutput()
         let deck = buildCaptureDeck(
             netlist,
+            output: output,
             targetValue: targetValue,
             dataLead: setupLead,
             holdOffset: nil,
@@ -243,8 +283,8 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
         guard let clk = probe(netlist.inputs.dropFirst().first ?? "CLK", in: wave) else {
             throw CharacterizeError.probeMissing(node: netlist.inputs.dropFirst().first ?? "CLK")
         }
-        guard let q = probe(netlist.output, in: wave) else {
-            throw CharacterizeError.probeMissing(node: netlist.output)
+        guard let q = probe(output, in: wave) else {
+            throw CharacterizeError.probeMissing(node: output)
         }
 
         let outputDirection: WaveformTiming.Direction = targetValue ? .rising : .falling
@@ -334,15 +374,23 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
         outputLoad: Double
     ) async throws -> Bool {
         let clocking = clocking()
+        let output = try netlist.requirePrimaryOutput()
         let deck = buildCaptureDeck(
             netlist,
+            output: output,
             targetValue: targetValue,
             dataLead: lead,
             holdOffset: nil,
             outputLoad: outputLoad,
             clocking: clocking
         )
-        return try await runBoundaryTrial(deck: deck, netlist: netlist, targetValue: targetValue, stop: clocking.stop).captured
+        return try await runBoundaryTrial(
+            deck: deck,
+            netlist: netlist,
+            output: output,
+            targetValue: targetValue,
+            stop: clocking.stop
+        ).captured
     }
 
     private func holdPasses(
@@ -353,20 +401,29 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
     ) async throws -> Bool {
         let clocking = clocking()
         let setupLead = setupHoldSearchWindow
+        let output = try netlist.requirePrimaryOutput()
         let deck = buildCaptureDeck(
             netlist,
+            output: output,
             targetValue: targetValue,
             dataLead: setupLead,
             holdOffset: hold,
             outputLoad: outputLoad,
             clocking: clocking
         )
-        return try await runBoundaryTrial(deck: deck, netlist: netlist, targetValue: targetValue, stop: clocking.stop).captured
+        return try await runBoundaryTrial(
+            deck: deck,
+            netlist: netlist,
+            output: output,
+            targetValue: targetValue,
+            stop: clocking.stop
+        ).captured
     }
 
     private func runBoundaryTrial(
         deck: String,
         netlist: GateLevelNetlist,
+        output: String,
         targetValue: Bool,
         stop: Double
     ) async throws -> TrialResult {
@@ -379,8 +436,8 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
         guard let wave = result.waveform else {
             throw CharacterizeError.noWaveform(cell: netlist.name, metric: "setupHold")
         }
-        guard let q = probe(netlist.output, in: wave) else {
-            throw CharacterizeError.probeMissing(node: netlist.output)
+        guard let q = probe(output, in: wave) else {
+            throw CharacterizeError.probeMissing(node: output)
         }
         let final = q.values.last ?? 0
         return TrialResult(captured: (final >= model.supplyVoltage / 2) == targetValue, deck: deck, waveform: wave)
@@ -409,6 +466,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
 
     private func buildCaptureDeck(
         _ netlist: GateLevelNetlist,
+        output: String,
         targetValue: Bool,
         dataLead: Double,
         holdOffset: Double?,
@@ -433,8 +491,8 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
         lines.append("VCLK \(clockPin) 0 PULSE(0 \(eng(vdd)) \(eng(clocking.firstClockStart)) \(eng(clocking.clockEdgeTime)) \(eng(clocking.clockEdgeTime)) \(eng(clocking.clockHigh)) \(eng(clocking.period)))")
         lines.append("VD \(dataPin) 0 PULSE(\(eng(oldValue ? vdd : 0)) \(eng(targetValue ? vdd : 0)) \(eng(dataRiseStart)) \(eng(clocking.dataEdgeTime)) \(eng(clocking.dataEdgeTime)) \(eng(dataHighWidth)) \(eng(clocking.stop * 2)))")
         lines += emitDevices(netlist)
-        lines.append("CL \(netlist.output) 0 \(eng(outputLoad))")
-        lines += initialStateLines(netlist, oldValue: oldValue)
+        lines.append("CL \(output) 0 \(eng(outputLoad))")
+        lines += initialStateLines(netlist, output: output, oldValue: oldValue)
         lines.append(model.nmosCard)
         lines.append(model.pmosCard)
         return lines.joined(separator: "\n") + "\n"
@@ -460,12 +518,13 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
     }
 
     private func validateSupportedDFFTopology(_ netlist: GateLevelNetlist) throws {
-        guard netlist.inputs.count >= 2, !netlist.outputs.isEmpty else {
+        guard netlist.inputs.count >= 2 else {
             throw CharacterizeError.unsupportedSequentialTopology(
                 cell: netlist.name,
                 reason: "expected D and CLK inputs plus one Q output"
             )
         }
+        let output = try netlist.requirePrimaryOutput()
         let prefix = netlist.name
         let requiredDrivenNets: Set<String> = [
             "\(prefix)_clkb",
@@ -478,7 +537,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
             "\(prefix)_s_nd",
             "\(prefix)_s_ndb",
             "\(prefix)_s_qb",
-            netlist.output,
+            output,
         ]
         let missing = requiredDrivenNets.subtracting(netlist.drivenNets)
         guard missing.isEmpty else {
@@ -506,7 +565,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
         return total
     }
 
-    private func initialStateLines(_ netlist: GateLevelNetlist, oldValue: Bool) -> [String] {
+    private func initialStateLines(_ netlist: GateLevelNetlist, output: String, oldValue: Bool) -> [String] {
         let vdd = model.supplyVoltage
         let old = oldValue ? vdd : 0
         let inverted = oldValue ? 0 : vdd
@@ -523,7 +582,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
             ("\(prefix)_s_nd", high),
             ("\(prefix)_s_ndb", high),
             ("\(prefix)_s_qb", inverted),
-            (netlist.output, old),
+            (output, old),
         ]
         return values.flatMap { net, value -> [String] in
             let biasNode = value >= vdd / 2 ? "vdd" : "0"

@@ -65,6 +65,7 @@ struct NgspiceRunnerTests {
             #!/usr/bin/env perl
             print "ngspice parent exited\\n";
             open my $raw, ">", "\(rawURL.path(percentEncoded: false))";
+            print $raw "Title: mock raw\\n";
             close $raw;
             my $pid = fork();
             if (!defined $pid) {
@@ -99,6 +100,184 @@ struct NgspiceRunnerTests {
 
             #expect(result == rawURL)
             #expect(!FileManager.default.fileExists(atPath: childFinished.path(percentEncoded: false)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runRejectsStaleRawWhenProcessDoesNotRewriteOutput() async throws {
+        let root = try makeTemporaryRoot("stale-raw")
+        defer { removeTemporaryRoot(root) }
+
+        let rawURL = root.appending(path: "output.raw")
+        try "stale raw\n".write(to: rawURL, atomically: true, encoding: .utf8)
+        let executable = try writeExecutable(
+            named: "mock-ngspice-no-raw",
+            in: root,
+            contents: """
+            #!/bin/sh
+            printf 'ngspice exited without writing raw\\n'
+            exit 0
+            """
+        )
+        let netlist = root.appending(path: "input.spice")
+        try "* no-op\n.end\n".write(to: netlist, atomically: true, encoding: .utf8)
+
+        try await ProcessTimeoutTestGate.shared.withExclusiveAccess {
+            let runner = NgspiceRunner(
+                timeoutSeconds: 5.0,
+                terminationGraceSeconds: 0.05,
+                executablePath: executable.path(percentEncoded: false),
+                concurrencyGate: nil
+            )
+            do {
+                _ = try await runner.run(
+                    netlistURL: netlist,
+                    rawURL: rawURL,
+                    workingDirectory: root,
+                    cancellation: CancellationToken()
+                )
+                Issue.record("Expected missing RAW output failure")
+            } catch let error as StudioError {
+                guard case .simulationFailure(let message) = error else {
+                    Issue.record("Expected simulationFailure, got \(error)")
+                    return
+                }
+                #expect(message.contains("did not produce RAW output"))
+                #expect(!FileManager.default.fileExists(atPath: rawURL.path(percentEncoded: false)))
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runRejectsRawDirectoryWithoutLaunchingProcess() async throws {
+        let root = try makeTemporaryRoot("raw-directory")
+        defer { removeTemporaryRoot(root) }
+
+        let rawURL = root.appending(path: "output.raw")
+        try FileManager.default.createDirectory(at: rawURL, withIntermediateDirectories: true)
+        let launchMarker = root.appending(path: "launched")
+        let executable = try writeExecutable(
+            named: "mock-ngspice-marker",
+            in: root,
+            contents: """
+            #!/bin/sh
+            touch "\(launchMarker.path(percentEncoded: false))"
+            exit 0
+            """
+        )
+        let netlist = root.appending(path: "input.spice")
+        try "* no-op\n.end\n".write(to: netlist, atomically: true, encoding: .utf8)
+
+        try await ProcessTimeoutTestGate.shared.withExclusiveAccess {
+            let runner = NgspiceRunner(
+                timeoutSeconds: 5.0,
+                terminationGraceSeconds: 0.05,
+                executablePath: executable.path(percentEncoded: false),
+                concurrencyGate: nil
+            )
+            do {
+                _ = try await runner.run(
+                    netlistURL: netlist,
+                    rawURL: rawURL,
+                    workingDirectory: root,
+                    cancellation: CancellationToken()
+                )
+                Issue.record("Expected RAW directory failure")
+            } catch let error as StudioError {
+                guard case .simulationFailure(let message) = error else {
+                    Issue.record("Expected simulationFailure, got \(error)")
+                    return
+                }
+                #expect(message.contains("RAW output path is a directory"))
+                #expect(FileManager.default.fileExists(atPath: rawURL.path(percentEncoded: false)))
+                #expect(!FileManager.default.fileExists(atPath: launchMarker.path(percentEncoded: false)))
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runRejectsMissingNetlistWithoutLaunchingProcess() async throws {
+        let root = try makeTemporaryRoot("missing-netlist")
+        defer { removeTemporaryRoot(root) }
+
+        let launchMarker = root.appending(path: "launched")
+        let executable = try writeExecutable(
+            named: "mock-ngspice-marker",
+            in: root,
+            contents: """
+            #!/bin/sh
+            touch "\(launchMarker.path(percentEncoded: false))"
+            exit 0
+            """
+        )
+        let netlist = root.appending(path: "missing.spice")
+
+        try await ProcessTimeoutTestGate.shared.withExclusiveAccess {
+            let runner = NgspiceRunner(
+                timeoutSeconds: 5.0,
+                terminationGraceSeconds: 0.05,
+                executablePath: executable.path(percentEncoded: false),
+                concurrencyGate: nil
+            )
+            do {
+                _ = try await runner.run(
+                    netlistURL: netlist,
+                    rawURL: root.appending(path: "output.raw"),
+                    workingDirectory: root,
+                    cancellation: CancellationToken()
+                )
+                Issue.record("Expected missing netlist failure")
+            } catch let error as StudioError {
+                guard case .simulationFailure(let message) = error else {
+                    Issue.record("Expected simulationFailure, got \(error)")
+                    return
+                }
+                #expect(message.contains("netlist input is not a file"))
+                #expect(!FileManager.default.fileExists(atPath: launchMarker.path(percentEncoded: false)))
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runRejectsEmptyRawOutput() async throws {
+        let root = try makeTemporaryRoot("empty-raw")
+        defer { removeTemporaryRoot(root) }
+
+        let rawURL = root.appending(path: "output.raw")
+        let executable = try writeExecutable(
+            named: "mock-ngspice-empty-raw",
+            in: root,
+            contents: """
+            #!/bin/sh
+            : > "\(rawURL.path(percentEncoded: false))"
+            exit 0
+            """
+        )
+        let netlist = root.appending(path: "input.spice")
+        try "* no-op\n.end\n".write(to: netlist, atomically: true, encoding: .utf8)
+
+        try await ProcessTimeoutTestGate.shared.withExclusiveAccess {
+            let runner = NgspiceRunner(
+                timeoutSeconds: 5.0,
+                terminationGraceSeconds: 0.05,
+                executablePath: executable.path(percentEncoded: false),
+                concurrencyGate: nil
+            )
+            do {
+                _ = try await runner.run(
+                    netlistURL: netlist,
+                    rawURL: rawURL,
+                    workingDirectory: root,
+                    cancellation: CancellationToken()
+                )
+                Issue.record("Expected empty RAW output failure")
+            } catch let error as StudioError {
+                guard case .simulationFailure(let message) = error else {
+                    Issue.record("Expected simulationFailure, got \(error)")
+                    return
+                }
+                #expect(message.contains("empty RAW output"))
+            }
         }
     }
 

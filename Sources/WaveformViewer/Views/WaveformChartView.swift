@@ -381,7 +381,9 @@ private final class ScrollCaptureNSView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) {
+        return nil
+    }
 
     override func scrollWheel(with event: NSEvent) {
         let delta = event.scrollingDeltaX

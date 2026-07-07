@@ -16,12 +16,18 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
     case waiverEditVerificationDesignSpecNotFound(runID: String)
     case waiverEditVerificationLayoutDocumentNotFound(runID: String)
     case waiverEditVerificationInputMissing(path: String)
+    case waiverArtifactIntegrityUnverified(path: String, status: String, message: String)
     case artifactPreviewNotFound(runID: String, artifactPath: String)
     case artifactPreviewEscapesProject(path: String)
     case artifactPreviewInputMissing(path: String)
     case artifactPreviewUnreadable(path: String, message: String)
     case artifactPreviewInvalidLimit(limit: Int)
+    case artifactPreviewIntegrityUnverified(path: String, status: String, message: String)
+    case planningArtifactIntegrityUnverified(path: String, status: String, message: String)
+    case signoffArtifactIntegrityUnverified(path: String, status: String, message: String)
     case signoffRepairHintNotFound(runID: String)
+    case signoffRepairHintIntegrityUnverified(path: String, status: String, message: String)
+    case artifactEvaluationEnvelopeIntegrityUnverified(path: String, status: String, message: String)
 
     public var errorDescription: String? {
         switch self {
@@ -55,6 +61,8 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
             "Run \(runID) does not expose a JSON layout-document artifact for post-waiver edit verification."
         case .waiverEditVerificationInputMissing(let path):
             "Post-waiver edit verification input artifact is missing: \(path)"
+        case .waiverArtifactIntegrityUnverified(let path, let status, let message):
+            "Waiver artifact integrity requires verified artifact integrity before review: \(path) status=\(status) \(message)"
         case .artifactPreviewNotFound(let runID, let artifactPath):
             "Run \(runID) does not expose an artifact for preview: \(artifactPath)"
         case .artifactPreviewEscapesProject(let path):
@@ -65,8 +73,18 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
             "Artifact preview input could not be read at \(path): \(message)"
         case .artifactPreviewInvalidLimit(let limit):
             "Artifact preview byte limit must be positive: \(limit)"
+        case .artifactPreviewIntegrityUnverified(let path, let status, let message):
+            "Artifact preview requires verified artifact integrity: \(path) status=\(status) \(message)"
+        case .planningArtifactIntegrityUnverified(let path, let status, let message):
+            "Planning artifact integrity requires verified artifact integrity before projection: \(path) status=\(status) \(message)"
+        case .signoffArtifactIntegrityUnverified(let path, let status, let message):
+            "Signoff artifact integrity must be verified before projection: \(path) status=\(status) \(message)"
         case .signoffRepairHintNotFound(let runID):
             "Run \(runID) does not expose DRC or LVS repair hint reports for signoff repair planning."
+        case .signoffRepairHintIntegrityUnverified(let path, let status, let message):
+            "Signoff repair hint requires verified artifact integrity before planning: \(path) status=\(status) \(message)"
+        case .artifactEvaluationEnvelopeIntegrityUnverified(let path, let status, let message):
+            "Artifact evaluation envelope requires verified artifact integrity: \(path) status=\(status) \(message)"
         }
     }
 }

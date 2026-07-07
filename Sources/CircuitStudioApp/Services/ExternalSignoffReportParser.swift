@@ -38,13 +38,14 @@ public struct ExternalSignoffReportParser: Sendable {
             .split(whereSeparator: \.isNewline)
             .compactMap { parseDiagnostic(line: String($0)) }
 
-        let completed = completionProof(in: rawOutput, diagnostics: &diagnostics)
+        let completed = completionProof(kind: kind, in: rawOutput, diagnostics: &diagnostics)
 
         return ExternalSignoffToolReport(
             kind: kind,
             toolName: toolName,
             success: success,
             completed: completed,
+            parserStyle: style,
             logPath: logPath,
             diagnostics: diagnostics
         )
@@ -60,14 +61,18 @@ public struct ExternalSignoffReportParser: Sendable {
     ///   enumeration) gates the verdict.
     /// - `.netgenLVS`: requires the positive `LVS_RESULT status=match` marker; a
     ///   mismatch or a truncated run lacks it and cannot pass.
-    /// - styles without a marker protocol assume completion (mocks / external tools).
+    /// - `.generic`: requires `SIGNOFF_RESULT status=...`.
+    /// - `.calibreLike`: requires native Calibre result markers for DRC/LVS.
+    /// - ambiguous compatibility styles fall back to the generic result marker
+    ///   unless they can identify an explicit native success/failure marker.
     private func completionProof(
+        kind: ExternalSignoffToolReport.Kind,
         in rawOutput: String,
         diagnostics: inout [ExternalSignoffDiagnostic]
     ) -> Bool {
         switch style {
         case .magicDRC:
-            guard rawOutput.contains("DRC_DONE") else { return false }
+            guard containsStandaloneMarker("DRC_DONE", in: rawOutput) else { return false }
             if let total = summaryTotal(prefix: "DRC_SUMMARY", in: rawOutput),
                total > 0,
                !diagnostics.contains(where: { $0.severity == .error }) {
@@ -80,9 +85,9 @@ public struct ExternalSignoffReportParser: Sendable {
             }
             return true
         case .netgenLVS:
-            return rawOutput.contains("LVS_RESULT status=match")
+            return containsStatusMarker(prefix: "LVS_RESULT", status: "match", in: rawOutput)
         case .magicAntenna:
-            guard rawOutput.contains("ANTENNA_DONE") else { return false }
+            guard containsStandaloneMarker("ANTENNA_DONE", in: rawOutput) else { return false }
             if let total = summaryTotal(prefix: "ANTENNA_SUMMARY", in: rawOutput),
                total > 0,
                !diagnostics.contains(where: { $0.severity == .error }) {
@@ -94,9 +99,126 @@ public struct ExternalSignoffReportParser: Sendable {
                 ))
             }
             return true
-        case .generic, .calibreLike, .magicNetgenLike, .klayoutLike:
-            return true
+        case .generic, .klayoutLike:
+            return genericCompletionProof(in: rawOutput, diagnostics: &diagnostics)
+        case .calibreLike:
+            return calibreCompletionProof(kind: kind, in: rawOutput, diagnostics: &diagnostics)
+        case .magicNetgenLike:
+            return magicNetgenCompletionProof(kind: kind, in: rawOutput, diagnostics: &diagnostics)
         }
+    }
+
+    private func genericCompletionProof(
+        in rawOutput: String,
+        diagnostics: inout [ExternalSignoffDiagnostic]
+    ) -> Bool {
+        for line in rawOutput.split(whereSeparator: \.isNewline) {
+            let text = String(line)
+            guard firstToken(in: text) == "SIGNOFF_RESULT" else { continue }
+            guard let status = keyValueFields(in: text)["status"]?.lowercased() else {
+                diagnostics.append(genericResultDiagnostic(
+                    message: "SIGNOFF_RESULT is missing a status field.",
+                    rawLine: text
+                ))
+                return false
+            }
+            if isPassingStatus(status) {
+                return true
+            }
+            if isFailingStatus(status) {
+                diagnostics.append(genericResultDiagnostic(
+                    message: "SIGNOFF_RESULT reported status=\(status).",
+                    rawLine: text
+                ))
+                return true
+            }
+            diagnostics.append(genericResultDiagnostic(
+                message: "SIGNOFF_RESULT reported unsupported status=\(status).",
+                rawLine: text
+            ))
+            return false
+        }
+        return false
+    }
+
+    private func calibreCompletionProof(
+        kind: ExternalSignoffToolReport.Kind,
+        in rawOutput: String,
+        diagnostics: inout [ExternalSignoffDiagnostic]
+    ) -> Bool {
+        switch kind {
+        case .drc:
+            guard let count = calibreDRCResultCount(in: rawOutput) else {
+                return genericCompletionProof(in: rawOutput, diagnostics: &diagnostics)
+            }
+            if count > 0, !diagnostics.contains(where: { $0.severity == .error }) {
+                diagnostics.append(ExternalSignoffDiagnostic(
+                    severity: .error,
+                    message: "Calibre DRC reported \(count) result(s).",
+                    ruleID: "CALIBRE_DRC_RESULTS",
+                    rawLine: "TOTAL DRC RESULTS GENERATED = \(count)"
+                ))
+            }
+            return true
+        case .lvs:
+            let uppercased = rawOutput.uppercased()
+            if uppercased.contains("LVS INCORRECT") {
+                return true
+            }
+            if uppercased.contains("LVS") && uppercased.contains("CORRECT") {
+                return true
+            }
+            return genericCompletionProof(in: rawOutput, diagnostics: &diagnostics)
+        case .antenna, .density:
+            return genericCompletionProof(in: rawOutput, diagnostics: &diagnostics)
+        }
+    }
+
+    private func magicNetgenCompletionProof(
+        kind: ExternalSignoffToolReport.Kind,
+        in rawOutput: String,
+        diagnostics: inout [ExternalSignoffDiagnostic]
+    ) -> Bool {
+        let uppercased = rawOutput.uppercased()
+        if kind == .lvs {
+            if uppercased.contains("NETLISTS MATCH") || uppercased.contains("CIRCUITS MATCH") {
+                return true
+            }
+            if uppercased.contains("NETLISTS DO NOT MATCH")
+                || uppercased.contains("DO NOT MATCH")
+                || uppercased.contains("NOT EQUIVALENT") {
+                return true
+            }
+        }
+        return genericCompletionProof(in: rawOutput, diagnostics: &diagnostics)
+    }
+
+    private func genericResultDiagnostic(message: String, rawLine: String) -> ExternalSignoffDiagnostic {
+        ExternalSignoffDiagnostic(
+            severity: .error,
+            message: message,
+            ruleID: "SIGNOFF_RESULT",
+            rawLine: rawLine
+        )
+    }
+
+    private func isPassingStatus(_ status: String) -> Bool {
+        ["pass", "passed", "clean", "match", "matched", "success", "ok"].contains(status)
+    }
+
+    private func isFailingStatus(_ status: String) -> Bool {
+        ["fail", "failed", "error", "mismatch", "violation", "violations", "incorrect", "not_equivalent"].contains(status)
+    }
+
+    private func calibreDRCResultCount(in rawOutput: String) -> Int? {
+        for line in rawOutput.split(whereSeparator: \.isNewline) {
+            let text = String(line)
+            guard text.uppercased().contains("TOTAL DRC RESULTS GENERATED") else { continue }
+            let separator: Character = text.contains("=") ? "=" : ":"
+            guard let value = text.split(separator: separator, maxSplits: 1).last else { return nil }
+            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
     }
 
     /// The authoritative violation count from a driver's `<PREFIX> total=<n>` summary
@@ -104,7 +226,7 @@ public struct ExternalSignoffReportParser: Sendable {
     private func summaryTotal(prefix: String, in rawOutput: String) -> Int? {
         for line in rawOutput.split(whereSeparator: \.isNewline) {
             let text = String(line)
-            guard text.contains(prefix) else { continue }
+            guard firstToken(in: text) == prefix else { continue }
             if let total = keyValueFields(in: text)["total"], let n = Int(total) {
                 return n
             }
@@ -112,9 +234,36 @@ public struct ExternalSignoffReportParser: Sendable {
         return nil
     }
 
+    private func containsStandaloneMarker(_ marker: String, in rawOutput: String) -> Bool {
+        rawOutput
+            .split(whereSeparator: \.isNewline)
+            .contains { $0.trimmingCharacters(in: .whitespacesAndNewlines) == marker }
+    }
+
+    private func containsStatusMarker(prefix: String, status: String, in rawOutput: String) -> Bool {
+        for line in rawOutput.split(whereSeparator: \.isNewline) {
+            let text = String(line)
+            guard firstToken(in: text) == prefix else { continue }
+            guard keyValueFields(in: text)["status"] == status else { continue }
+            return true
+        }
+        return false
+    }
+
+    private func firstToken(in line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let token = trimmed.split(whereSeparator: isFieldSeparator).first else {
+            return nil
+        }
+        return String(token)
+    }
+
     private func parseDiagnostic(line: String) -> ExternalSignoffDiagnostic? {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let severity = severity(in: trimmed) else {
+            return nil
+        }
+        if style == .generic, firstToken(in: trimmed) == "SIGNOFF_RESULT" {
             return nil
         }
 

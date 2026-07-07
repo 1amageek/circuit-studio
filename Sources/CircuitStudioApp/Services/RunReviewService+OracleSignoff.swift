@@ -54,9 +54,9 @@ extension RunReviewService {
         document: XcircuiteRetainedSignoffReport,
         artifact: FlowRunReviewArtifact
     ) -> RunReviewSignoffCard {
-        let failedLanes = document.externalOracleResults.filter { !retainedLanePassed($0) }
+        let failedLanes = document.externalOracleResults.filter { !$0.provesRetainedExternalOracleReadiness }
         let passedLaneCount = document.summary.passedExternalOracleLaneCount
-            ?? document.externalOracleResults.filter(retainedLanePassed).count
+            ?? document.passingExternalOracleResults.count
         let blockedLaneCount = document.summary.blockedExternalOracleLaneCount
             ?? document.externalOracleResults.filter { $0.status == "blocked" }.count
         let failedLaneCount = document.summary.failedExternalOracleLaneCount
@@ -65,7 +65,7 @@ extension RunReviewService {
             domain: "Oracle",
             title: "Retained Signoff Oracle Dashboard",
             status: document.status,
-            passed: retainedReportPassed(document) && failedLanes.isEmpty && document.failures.isEmpty,
+            passed: document.provesRetainedExternalOracleInfrastructureReadiness,
             stageID: artifact.stageID,
             artifact: artifact,
             primaryMetrics: [
@@ -488,9 +488,9 @@ extension RunReviewService {
         _ lanes: [XcircuiteRetainedSignoffReport.ExternalOracleResult]
     ) -> [RunReviewSignoffIssue] {
         lanes.compactMap { lane in
-            guard !retainedLanePassed(lane) else {
-                return nil
-            }
+                guard !lane.provesRetainedExternalOracleReadiness else {
+                    return nil
+                }
             return RunReviewSignoffIssue(
                 severity: lane.status == "blocked" ? "warning" : "error",
                 label: "\(lane.domain):retained-oracle-lane",
@@ -547,25 +547,6 @@ extension RunReviewService {
             ("SHA", reference.sha256),
             ("Bytes", reference.byteCount.map(String.init)),
         ])
-    }
-
-    private func retainedReportPassed(_ document: XcircuiteRetainedSignoffReport) -> Bool {
-        switch document.status {
-        case "productionReady", "production-ready", "qualified", "ready":
-            true
-        default:
-            isPassingStatus(document.status)
-        }
-    }
-
-    private func retainedLanePassed(
-        _ lane: XcircuiteRetainedSignoffReport.ExternalOracleResult
-    ) -> Bool {
-        lane.status == "passed"
-            && lane.qualified != false
-            && (lane.readinessFailureCount ?? 0) == 0
-            && (lane.failedCaseCount ?? 0) == 0
-            && (lane.caseCount ?? 0) > 0
     }
 
     private func oracleCompactMetrics(

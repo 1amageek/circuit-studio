@@ -18,6 +18,7 @@ public struct TimedProcessResult: Sendable, Hashable {
 }
 
 public enum TimedProcessError: Error, LocalizedError, Equatable {
+  case invalidConfiguration(String)
   case launchFailed(executablePath: String, message: String)
   case cancelled(
     executablePath: String,
@@ -33,6 +34,8 @@ public enum TimedProcessError: Error, LocalizedError, Equatable {
 
   public var errorDescription: String? {
     switch self {
+    case .invalidConfiguration(let message):
+      return "Invalid process runner configuration: \(message)"
     case .launchFailed(let executablePath, let message):
       return "Process failed to launch: \(executablePath): \(message)"
     case .cancelled(let executablePath, _, _):
@@ -47,6 +50,8 @@ public struct TimedProcessRunner: Sendable {
   public let timeoutSeconds: Double
   public let terminationGraceSeconds: Double
   public let pipeDrainGraceSeconds: Double
+  private static let processTableSnapshotTimeoutSeconds: Double = 0.2
+  private static let processTableSnapshotKillWaitSeconds: Double = 0.1
 
   public init(
     timeoutSeconds: Double = 300,
@@ -76,6 +81,16 @@ public struct TimedProcessRunner: Sendable {
     process: Process,
     shouldCancel: (@Sendable () -> Bool)? = nil
   ) async throws -> TimedProcessResult {
+    guard timeoutSeconds.isFinite, timeoutSeconds > 0 else {
+      throw TimedProcessError.invalidConfiguration("timeoutSeconds must be positive finite seconds")
+    }
+    guard terminationGraceSeconds.isFinite, terminationGraceSeconds >= 0 else {
+      throw TimedProcessError.invalidConfiguration("terminationGraceSeconds must be finite and non-negative")
+    }
+    guard pipeDrainGraceSeconds.isFinite, pipeDrainGraceSeconds >= 0 else {
+      throw TimedProcessError.invalidConfiguration("pipeDrainGraceSeconds must be finite and non-negative")
+    }
+
     let outputPipe = Pipe()
     let errorPipe = Pipe()
     process.standardOutput = outputPipe
@@ -126,8 +141,8 @@ public struct TimedProcessRunner: Sendable {
 
           let out = executionState.standardOutput.withLock { $0 }
           let err = executionState.standardError.withLock { $0 }
-          let stdout = String(data: out, encoding: .utf8) ?? ""
-          let stderr = String(data: err, encoding: .utf8) ?? ""
+          let stdout = Self.utf8String(from: out)
+          let stderr = Self.utf8String(from: err)
 
           if snapshot.didCancel {
             continuation.resume(
@@ -220,6 +235,12 @@ public struct TimedProcessRunner: Sendable {
 
         do {
           try process.run()
+          #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
+            let processGroupID = process.processIdentifier
+            if setpgid(processGroupID, processGroupID) == 0 {
+              executionState.completion.withLock { $0.processGroupID = processGroupID }
+            }
+          #endif
         } catch {
           outputPipe.fileHandleForWriting.closeFile()
           errorPipe.fileHandleForWriting.closeFile()
@@ -245,7 +266,11 @@ public struct TimedProcessRunner: Sendable {
         errorPipe.fileHandleForWriting.closeFile()
 
         if executionState.completion.withLock({ $0.didCancel }) {
-          process.terminate()
+          let processGroupID = executionState.completion.withLock { $0.processGroupID }
+          let descendants = Self.terminate(process: process, processGroupID: processGroupID)
+          executionState.completion.withLock {
+            $0.knownDescendantProcessIDs.formUnion(descendants)
+          }
         }
 
         Task.detached {
@@ -259,19 +284,35 @@ public struct TimedProcessRunner: Sendable {
               if shouldStop { return }
 
               if executionState.completion.withLock({ $0.didCancel }) {
-                process.terminate()
+                let processGroupID = executionState.completion.withLock { $0.processGroupID }
+                let descendants = Self.terminate(process: process, processGroupID: processGroupID)
+                executionState.completion.withLock {
+                  $0.knownDescendantProcessIDs.formUnion(descendants)
+                }
                 break
               }
 
               if let shouldCancel, shouldCancel() {
-                executionState.completion.withLock { $0.didCancel = true }
-                process.terminate()
+                let processGroupID = executionState.completion.withLock { completion -> pid_t? in
+                  completion.didCancel = true
+                  return completion.processGroupID
+                }
+                let descendants = Self.terminate(process: process, processGroupID: processGroupID)
+                executionState.completion.withLock {
+                  $0.knownDescendantProcessIDs.formUnion(descendants)
+                }
                 break
               }
 
               if Date().timeIntervalSince(startedAt) >= timeoutSeconds {
-                executionState.completion.withLock { $0.didTimeout = true }
-                process.terminate()
+                let processGroupID = executionState.completion.withLock { completion -> pid_t? in
+                  completion.didTimeout = true
+                  return completion.processGroupID
+                }
+                let descendants = Self.terminate(process: process, processGroupID: processGroupID)
+                executionState.completion.withLock {
+                  $0.knownDescendantProcessIDs.formUnion(descendants)
+                }
                 break
               }
             }
@@ -285,12 +326,19 @@ public struct TimedProcessRunner: Sendable {
             return
           }
           if executionState.completion.withLock({ $0.didResume }) { return }
-          if process.isRunning {
-            #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
-              kill(process.processIdentifier, SIGKILL)
-            #else
-              process.terminate()
-            #endif
+          let escalation = executionState.completion.withLock { completion -> (Bool, pid_t?, Set<pid_t>) in
+            (
+              !completion.didResume && (completion.didCancel || completion.didTimeout),
+              completion.processGroupID,
+              completion.knownDescendantProcessIDs
+            )
+          }
+          if escalation.0 {
+            Self.kill(
+              process: process,
+              processGroupID: escalation.1,
+              knownDescendants: escalation.2
+            )
           }
           scheduleForcedFinalize()
         }
@@ -304,7 +352,11 @@ public struct TimedProcessRunner: Sendable {
       guard shouldTerminate, process.isRunning else {
         return
       }
-      process.terminate()
+      let processGroupID = executionState.completion.withLock { $0.processGroupID }
+      let descendants = Self.terminate(process: process, processGroupID: processGroupID)
+      executionState.completion.withLock {
+        $0.knownDescendantProcessIDs.formUnion(descendants)
+      }
     }
   }
 
@@ -350,6 +402,124 @@ public struct TimedProcessRunner: Sendable {
       return Data()
     #endif
   }
+
+  @discardableResult
+  private static func terminate(process: Process, processGroupID: pid_t?) -> Set<pid_t> {
+    #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
+      let descendants = signalProcessTree(
+        rootPID: process.processIdentifier,
+        processGroupID: processGroupID,
+        signal: SIGTERM
+      )
+      if let processGroupID {
+        Darwin.kill(-processGroupID, SIGTERM)
+      } else {
+        process.terminate()
+      }
+      return descendants
+    #else
+      process.terminate()
+      return []
+    #endif
+  }
+
+  private static func kill(
+    process: Process,
+    processGroupID: pid_t?,
+    knownDescendants: Set<pid_t>
+  ) {
+    #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
+      signalKnownProcessIDs(knownDescendants, signal: SIGKILL)
+      if process.isRunning {
+        signalProcessTree(rootPID: process.processIdentifier, processGroupID: processGroupID, signal: SIGKILL)
+      }
+      if let processGroupID {
+        Darwin.kill(-processGroupID, SIGKILL)
+      } else if process.isRunning {
+        Darwin.kill(process.processIdentifier, SIGKILL)
+      }
+    #else
+      process.terminate()
+    #endif
+  }
+
+  #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
+    @discardableResult
+    private static func signalProcessTree(rootPID: pid_t, processGroupID: pid_t?, signal: Int32) -> Set<pid_t> {
+      let descendants = Set(descendantProcessIDs(of: rootPID))
+      signalKnownProcessIDs(descendants, signal: signal)
+      Darwin.kill(rootPID, signal)
+      if let processGroupID {
+        Darwin.kill(-processGroupID, signal)
+      }
+      return descendants
+    }
+
+    private static func signalKnownProcessIDs(_ processIDs: Set<pid_t>, signal: Int32) {
+      for pid in processIDs {
+        Darwin.kill(pid, signal)
+      }
+    }
+
+    private static func descendantProcessIDs(of rootPID: pid_t) -> [pid_t] {
+      let process = Process()
+      process.executableURL = URL(filePath: "/bin/ps")
+      process.arguments = ["-axo", "pid=,ppid="]
+      let pipe = Pipe()
+      process.standardOutput = pipe
+      process.standardError = FileHandle.nullDevice
+
+      do {
+        try process.run()
+      } catch {
+        pipe.fileHandleForReading.closeFile()
+        return []
+      }
+
+      guard waitForProcessExit(process, timeoutSeconds: processTableSnapshotTimeoutSeconds) else {
+        Darwin.kill(process.processIdentifier, SIGKILL)
+        _ = waitForProcessExit(process, timeoutSeconds: processTableSnapshotKillWaitSeconds)
+        pipe.fileHandleForReading.closeFile()
+        return []
+      }
+
+      let data = pipe.fileHandleForReading.readDataToEndOfFile()
+      process.waitUntilExit()
+      pipe.fileHandleForReading.closeFile()
+      let output = Self.utf8String(from: data)
+      var childrenByParent: [pid_t: [pid_t]] = [:]
+      for line in output.split(whereSeparator: \.isNewline) {
+        let parts = line.split(whereSeparator: \.isWhitespace)
+        guard parts.count == 2,
+          let pid = pid_t(String(parts[0])),
+          let parent = pid_t(String(parts[1]))
+        else {
+          continue
+        }
+        childrenByParent[parent, default: []].append(pid)
+      }
+
+      var result: [pid_t] = []
+      var stack = childrenByParent[rootPID] ?? []
+      while let pid = stack.popLast() {
+        result.append(pid)
+        stack.append(contentsOf: childrenByParent[pid] ?? [])
+      }
+      return result
+    }
+
+    private static func waitForProcessExit(_ process: Process, timeoutSeconds: Double) -> Bool {
+      let deadline = Date().addingTimeInterval(timeoutSeconds)
+      while process.isRunning && Date() < deadline {
+        usleep(10_000)
+      }
+      return !process.isRunning
+    }
+  #endif
+
+  private static func utf8String(from data: Data) -> String {
+    String(decoding: data, as: UTF8.self)
+  }
 }
 
 private final class TimedProcessExecutionState: Sendable {
@@ -363,6 +533,8 @@ private struct ProcessCompletionState: Sendable {
   var stderrClosed = false
   var processTerminated = false
   var exitCode: Int32 = 0
+  var processGroupID: pid_t?
+  var knownDescendantProcessIDs: Set<pid_t> = []
   var didTimeout = false
   var didCancel = false
   var didResume = false

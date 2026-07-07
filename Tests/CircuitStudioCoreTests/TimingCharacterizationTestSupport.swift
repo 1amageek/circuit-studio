@@ -82,9 +82,10 @@ actor TimingCharacterizationTestCache {
         }
 
         let task = Task {
-            try await TimingCharacterizationCache.shared.cellTiming(
+            let model = try Level1DeviceModel.loadBundledDefault()
+            return try await TimingCharacterizationCache.shared.cellTiming(
                 cell: cell,
-                model: .bundledDefault(),
+                model: model,
                 inputSlews: inputSlews,
                 outputLoads: outputLoads
             ) {
@@ -115,11 +116,14 @@ actor TimingCharacterizationTestCache {
         }
 
         let task = Task {
-            try await TimingCharacterizationCache.shared.sequentialReport(
-                netlist: DFFGenerator().netlist(name: "dff"),
+            let model = try Level1DeviceModel.loadBundledDefault()
+            let technologyContext = try Level1DeviceModel.loadBundledDefaultTechnologyContext()
+            let dffNetlist = try DFFGenerator().netlist(name: "dff")
+            return try await TimingCharacterizationCache.shared.sequentialReport(
+                netlist: dffNetlist,
                 cellName: "dff",
-                model: .bundledDefault(),
-                technologyContext: Level1DeviceModel.bundledDefaultTechnologyContext(),
+                model: model,
+                technologyContext: technologyContext,
                 clockSlew: 80e-12,
                 dataSlew: 80e-12,
                 outputLoads: [1e-15],
@@ -134,7 +138,7 @@ actor TimingCharacterizationTestCache {
                         setupHoldSearchResolution: 20e-12,
                         maxSearchIterations: 4
                     ).characterizeFlipFlop(
-                        DFFGenerator().netlist(name: "dff"),
+                        dffNetlist,
                         cellName: "dff"
                     )
                 }
@@ -189,9 +193,9 @@ actor TimingCharacterizationTestCache {
             let outputLoads = [1e-15, 4e-15, 12e-15]
             var library = TimingLibrary()
             let bases: [CMOSGateNetlist] = [
-                .inverter(name: "inv"),
-                .nand(name: "nand2", inputs: ["A", "B"]),
-                .nor(name: "nor2", inputs: ["A", "B"]),
+                try .inverter(name: "inv"),
+                try .nand(name: "nand2", inputs: ["A", "B"]),
+                try .nor(name: "nor2", inputs: ["A", "B"]),
             ]
             for base in bases {
                 for variant in CellSizing.variants(of: base) {

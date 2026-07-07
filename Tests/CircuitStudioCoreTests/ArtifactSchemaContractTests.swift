@@ -19,7 +19,7 @@ struct ArtifactSchemaContractTests {
 
     @Test("Timing artifact schemas and kinds are strict", .timeLimit(.minutes(1)))
     func timingArtifactSchemasAndKindsAreStrict() throws {
-        let fixtures = ArtifactFixture()
+        let fixtures = try ArtifactFixture()
 
         try expectStrictSchemaEnvelope(TimingLibraryArtifact.self, fixtures.libraryArtifact)
         try expectStrictSchemaEnvelope(STAReportArtifact.self, fixtures.staReportArtifact)
@@ -39,7 +39,7 @@ struct ArtifactSchemaContractTests {
 
     @Test("Timing artifacts encode dates as ISO-8601 strings", .timeLimit(.minutes(1)))
     func timingArtifactDatesUseISO8601Strings() throws {
-        let fixtures = ArtifactFixture()
+        let fixtures = try ArtifactFixture()
         let manifestJSON = try topLevelJSON(fixtures.manifest)
         #expect(manifestJSON["createdAt"] is String)
         let profileSelectionJSON = try topLevelJSON(fixtures.profileSelection)
@@ -106,7 +106,7 @@ struct ArtifactSchemaContractTests {
 
     @Test("Layout trust report rejects inconsistent derived fields", .timeLimit(.minutes(1)))
     func layoutTrustReportRejectsInconsistentDerivedFields() throws {
-        let fixtures = ArtifactFixture()
+        let fixtures = try ArtifactFixture()
         let inconsistentCount = try mutatedTopLevelJSON(
             fixtures.layoutTrustReport,
             key: "ownedShapeCount",
@@ -188,9 +188,32 @@ struct ArtifactSchemaContractTests {
         }
     }
 
+    @Test("Available artifact publication records require digest and byte count at construction", .timeLimit(.minutes(1)))
+    func availableArtifactPublicationRecordsRequireDigestAndByteCountAtConstruction() throws {
+        #expect(throws: ArtifactPublicationRecordValidationError.self) {
+            _ = try ArtifactPublicationRecord(
+                id: "layout-summary",
+                kind: "layout-summary",
+                path: "layout/summary.json",
+                status: .available
+            )
+        }
+
+        #expect(throws: ArtifactPublicationRecordValidationError.self) {
+            _ = try ArtifactPublicationRecord(
+                id: "layout-summary",
+                kind: "layout-summary",
+                path: "layout/summary.json",
+                status: .available,
+                sha256: "invalid",
+                byteCount: 1
+            )
+        }
+    }
+
     @Test("Timing library payload is read through artifact integrity", .timeLimit(.minutes(1)))
     func timingLibraryPayloadIsReadThroughArtifactIntegrity() throws {
-        let fixtures = ArtifactFixture()
+        let fixtures = try ArtifactFixture()
         let runDirectory = FileManager.default.temporaryDirectory
             .appending(path: "timing-integrity-\(UUID().uuidString)")
         defer { removeTemporaryDirectory(runDirectory) }
@@ -227,7 +250,7 @@ struct ArtifactSchemaContractTests {
 
     @Test("Timing artifact optional collections default to empty when omitted", .timeLimit(.minutes(1)))
     func timingArtifactOptionalCollectionsDefaultToEmptyWhenOmitted() throws {
-        let fixtures = ArtifactFixture()
+        let fixtures = try ArtifactFixture()
 
         let manifest = try JSONDecoder().decode(
             TimingArtifactManifest.self,
@@ -263,7 +286,7 @@ struct ArtifactSchemaContractTests {
 
     @Test("Timing artifact writer output decodes with schema wrappers", .timeLimit(.minutes(1)))
     func timingArtifactWriterOutputDecodesWithSchemaWrappers() throws {
-        let fixtures = ArtifactFixture()
+        let fixtures = try ArtifactFixture()
         let runDirectory = FileManager.default.temporaryDirectory
             .appending(path: "artifact-schema-contract-\(UUID().uuidString)")
         defer {
@@ -318,7 +341,7 @@ struct ArtifactSchemaContractTests {
 
     @Test("Layout trust artifact set does not leave partial final artifacts on preflight failure", .timeLimit(.minutes(1)))
     func layoutTrustArtifactSetDoesNotLeavePartialFinalArtifacts() throws {
-        let fixtures = ArtifactFixture()
+        let fixtures = try ArtifactFixture()
         let runDirectory = FileManager.default.temporaryDirectory
             .appending(path: "layout-trust-atomic-\(UUID().uuidString)")
         defer { removeTemporaryDirectory(runDirectory) }
@@ -343,7 +366,7 @@ struct ArtifactSchemaContractTests {
 
     @Test("Timing artifact set does not leave partial final artifacts on preflight failure", .timeLimit(.minutes(1)))
     func timingArtifactSetDoesNotLeavePartialFinalArtifacts() throws {
-        let fixtures = ArtifactFixture()
+        let fixtures = try ArtifactFixture()
         let runDirectory = FileManager.default.temporaryDirectory
             .appending(path: "timing-atomic-\(UUID().uuidString)")
         defer { removeTemporaryDirectory(runDirectory) }
@@ -505,7 +528,7 @@ private struct ArtifactFixture {
     let sequentialReport: SequentialTimingCharacterizationReport
     let layoutTrustReport: LayoutTrustReport
 
-    init() {
+    init() throws {
         let profileReference = TimingModelProfileReference(
             profileID: "unit-profile",
             resourceName: "unit-profile.json"
@@ -635,7 +658,7 @@ private struct ArtifactFixture {
                 records: [
                     LayoutOwnershipRecord(
                         cellName: "unit",
-                        shapeID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                        shapeID: try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001")),
                         layerName: "met1",
                         netID: nil,
                         netName: "a",

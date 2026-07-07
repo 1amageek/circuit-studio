@@ -33,6 +33,8 @@ public struct FlowRunnerCommandOptions: Sendable {
         case applyWaiverEditProposalAndRunPostVerification
         case formulateSignoffRepairPlanningProblem
         case runSignoffRepairCandidateCycle
+        case runGoalLayoutAgent
+        case scaffoldDesignSpec
 
         public func commandKind(usesDesignSpec: Bool) -> DesignFlowCommand.Kind {
             switch self {
@@ -84,6 +86,10 @@ public struct FlowRunnerCommandOptions: Sendable {
                 return .formulateSignoffRepairPlanningProblem
             case .runSignoffRepairCandidateCycle:
                 return .runSignoffRepairCandidateCycle
+            case .runGoalLayoutAgent:
+                return .runGoalLayoutAgent
+            case .scaffoldDesignSpec:
+                return .scaffoldDesignSpec
             }
         }
     }
@@ -180,9 +186,11 @@ public struct FlowRunnerCommandOptions: Sendable {
     public var maxRelativeDelta: Double?
     public var relativeDeltaDenominatorFloor: Double?
     public var domainComparisonLimits: [PostLayoutSignalDomainComparisonLimit] = []
-    public var variableComparisonLimits: [PostLayoutVariableComparisonLimit] = []
+    public var variableComparisonLimits: [CircuitStudioCore.PostLayoutVariableComparisonLimit] = []
     public var oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = []
     public var technologyPackageURL: URL?
+    public var intentSubcktURL: URL?
+    public var designName: String?
     public var approveSignoff = false
     public var showHelp = false
     public var outputFormat = OutputFormat.keyValue
@@ -242,6 +250,14 @@ public struct FlowRunnerCommandOptions: Sendable {
                 try selectMode(.formulateSignoffRepairPlanningProblem)
             case "--run-signoff-repair-candidate-cycle":
                 try selectMode(.runSignoffRepairCandidateCycle)
+            case "--run-goal-layout-agent":
+                try selectMode(.runGoalLayoutAgent)
+            case "--scaffold-design-spec":
+                try selectMode(.scaffoldDesignSpec)
+            case "--subckt":
+                intentSubcktURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--design-name":
+                designName = try Self.value(after: argument, in: arguments, index: &index)
             case "--fixture":
                 fixtureName = try Self.value(after: argument, in: arguments, index: &index)
             case "--design-spec":
@@ -423,14 +439,14 @@ public struct FlowRunnerCommandOptions: Sendable {
     public var projectRootPath: String? {
         switch mode {
         case .listFixtures, .generateNetlist, .simulate, .loadTechnologyPackage, .runPEXExtraction,
-             .inspectTimingModelProfiles:
+             .inspectTimingModelProfiles, .scaffoldDesignSpec:
             return nil
         case .buildTimingLibrary:
             return (outputURL ?? defaultTimingOutputURL).path(percentEncoded: false)
         case .applyDesignEdit, .applyLayoutEdit, .runLayoutTrust, .runVerification, .approveGate, .reviewRoundTrip,
              .selectFailureSuggestedCommand, .applyWaiverEditProposal, .runPostWaiverEditVerification,
              .applyWaiverEditProposalAndRunPostVerification, .runSelectedSuggestedCommand,
-             .formulateSignoffRepairPlanningProblem, .runSignoffRepairCandidateCycle:
+             .formulateSignoffRepairPlanningProblem, .runSignoffRepairCandidateCycle, .runGoalLayoutAgent:
             return outputURL?.path(percentEncoded: false)
         case .runRoundTrip, .summarizeBottlenecks, .summarizeSignoffRepairCandidateCycles,
              .qualifySignoffRepairCandidateCycles:
@@ -507,7 +523,9 @@ public struct FlowRunnerCommandOptions: Sendable {
             signoffRepairHistoryRequiredSelectedObjectiveDomainIDs:
                 signoffRepairHistoryRequiredSelectedObjectiveDomainIDs.isEmpty
                     ? nil
-                    : signoffRepairHistoryRequiredSelectedObjectiveDomainIDs
+                    : signoffRepairHistoryRequiredSelectedObjectiveDomainIDs,
+            intentSubcktPath: intentSubcktURL?.path(percentEncoded: false),
+            designName: designName
         )
     }
 
@@ -539,8 +557,16 @@ public struct FlowRunnerCommandOptions: Sendable {
         guard valueIndex < arguments.count else {
             throw ParseError.missingValue(option)
         }
+        let value = arguments[valueIndex]
+        guard !isOptionToken(value) else {
+            throw ParseError.missingValue(option)
+        }
         index = valueIndex
-        return arguments[valueIndex]
+        return value
+    }
+
+    private static func isOptionToken(_ value: String) -> Bool {
+        value.hasPrefix("--") || value == "-h"
     }
 
     private static func doubleValue(after option: String, in arguments: [String], index: inout Int) throws -> Double {
@@ -598,7 +624,7 @@ public struct FlowRunnerCommandOptions: Sendable {
         after option: String,
         in arguments: [String],
         index: inout Int
-    ) throws -> PostLayoutVariableComparisonLimit {
+    ) throws -> CircuitStudioCore.PostLayoutVariableComparisonLimit {
         let rawValue = try value(after: option, in: arguments, index: &index)
         let parts = rawValue.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2, !parts[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -630,7 +656,7 @@ public struct FlowRunnerCommandOptions: Sendable {
             }
         }
 
-        let limit = PostLayoutVariableComparisonLimit(
+        let limit = CircuitStudioCore.PostLayoutVariableComparisonLimit(
             variableName: parts[0],
             maxAbsoluteDelta: maxAbsoluteDelta,
             maxRelativeDelta: maxRelativeDelta,

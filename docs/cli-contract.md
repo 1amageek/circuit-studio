@@ -60,6 +60,58 @@ Current output keys:
 | `shorts` | Count of net-aware physical shorts. |
 | `opens` | Count of net-aware physical opens. |
 
+## `--run-goal-layout-agent`
+
+Closes a `.subckt` intent through the layout editor's goal-command surface
+(place, bind terminals, select routing layer, finish nets, repair), gates the
+outcome on the editor trust report, live LVS, and goal-log replay determinism,
+and exports a label-carrying GDS plus a machine-readable evidence JSON under
+`<project-root>/.xcircuite/runs/<run-id>/goal-agent/`. A non-closable intent
+fails with the typed failing stage — the command never reports a half-closed
+artifact.
+
+```
+circuit-studio-flow-runner --run-goal-layout-agent \
+  --subckt <intent.subckt> --technology-package <package.json> \
+  --output <project-root> --run-id <run-id> [--design-name <name>] [--json]
+```
+
+Current output keys:
+
+| Key | Value |
+|---|---|
+| `goal_layout_agent` | `closed` or `not-closed`. |
+| `design_name` | Top cell name (defaults to the `.subckt` header name). |
+| `closed` | Boolean closure claim: wired, DRC/connectivity/LVS clean, replay-deterministic. |
+| `evidence` | Path to `goal-agent-evidence.json` (replayable script, per-command goal log, trust axes, GDS path). |
+| `gds` | Path to the exported GDS artifact. |
+
+## `--scaffold-design-spec`
+
+The 作る (author) entry point for design specs. Writes a minimal valid
+`DesignFlowDesignSpec` JSON skeleton so a caller never has to hand-write the
+schema from memory: schemaVersion, name, title, a `vsource` + `ground` + one
+`nmos_l1` component wired into example nets, one `tran` analysis, a matching
+`postLayoutAnalysis`, empty `postLayoutComparisonLimits`, and a tiny valid
+`pexIR` (one grounded capacitor, corner `tt_25c_1v0`). The spec is constructed
+as a typed Swift value, decoded back through `DesignFlowDesignSpec`, and
+`build()` succeeds before the file is written — the scaffold cannot drift from
+the schema. The acceptance contract: `--generate-netlist --design-spec <path>`
+consumes the scaffold unchanged.
+
+```
+circuit-studio-flow-runner --scaffold-design-spec \
+  --output-design-spec <path.json> [--design-name <name>] [--json]
+```
+
+Current output keys:
+
+| Key | Value |
+|---|---|
+| `design_spec_scaffold` | `scaffolded` on success. |
+| `design` | Design name written into the spec (default `new_design`). |
+| `design_spec` | Path of the written design spec JSON. |
+
 ## `--run-verification`
 
 Current output keys related to these gates:

@@ -8,10 +8,14 @@ public struct AccumulatorGenerator: Sendable {
     private let cellLibrary: CMOSGateLibrary
     private let dff: DFFGenerator
 
-    public init(bits: Int = 4, cellLibrary: CMOSGateLibrary = .bundledDefault) {
+    public init(bits: Int = 4, cellLibrary: CMOSGateLibrary) {
         self.bits = bits
         self.cellLibrary = cellLibrary
         self.dff = DFFGenerator(cellLibrary: cellLibrary)
+    }
+
+    public init(bits: Int = 4) throws {
+        self.init(bits: bits, cellLibrary: try CMOSGateLibrary.loadBundledDefault())
     }
 
     private func nand(_ name: String, _ a: String, _ b: String, _ y: String) -> GateLevelNetlist.Instance {

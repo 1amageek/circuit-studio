@@ -62,12 +62,20 @@ public struct GoldenLayoutCorpusService: Sendable {
         public let toolName: String
         public let logURL: URL
         public let success: Bool
+        public let parserStyle: ExternalSignoffReportParser.Style?
 
-        public init(kind: ExternalSignoffToolReport.Kind, toolName: String, logURL: URL, success: Bool) {
+        public init(
+            kind: ExternalSignoffToolReport.Kind,
+            toolName: String,
+            logURL: URL,
+            success: Bool,
+            parserStyle: ExternalSignoffReportParser.Style? = nil
+        ) {
             self.kind = kind
             self.toolName = toolName
             self.logURL = logURL
             self.success = success
+            self.parserStyle = parserStyle
         }
     }
 
@@ -126,7 +134,8 @@ public struct GoldenLayoutCorpusService: Sendable {
                     kind: log.kind,
                     toolName: log.toolName,
                     logURL: log.logURL,
-                    success: log.success
+                    success: log.success,
+                    parserStyle: log.parserStyle
                 )
             }
         )
@@ -168,12 +177,22 @@ public struct GoldenLayoutCorpusService: Sendable {
         guard FileManager.default.fileExists(atPath: logURL.path(percentEncoded: false)) else {
             throw StudioError.fileNotFound(logURL.path(percentEncoded: false))
         }
+        let parserStyle: ExternalSignoffReportParser.Style?
+        if let style = dto.parserStyle {
+            guard let parsedStyle = ExternalSignoffReportParser.Style(rawValue: style) else {
+                throw StudioError.projectLoadFailed("Unsupported signoff parser style in golden layout corpus: \(style)")
+            }
+            parserStyle = parsedStyle
+        } else {
+            parserStyle = nil
+        }
 
         return SignoffLog(
             kind: kind,
             toolName: dto.toolName,
             logURL: logURL,
-            success: dto.success
+            success: dto.success,
+            parserStyle: parserStyle
         )
     }
 
@@ -218,6 +237,7 @@ private struct SignoffLogDTO: Decodable {
     let toolName: String
     let logFile: String
     let success: Bool
+    let parserStyle: String?
 }
 
 private struct PEXManifestDTO: Decodable {

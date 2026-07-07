@@ -10,6 +10,7 @@ public struct ExternalSignoffCommand: Sendable, Hashable, Codable {
     public let workingDirectory: URL?
     public let logFileName: String?
     public let timeoutSeconds: Double
+    public let parserStyle: ExternalSignoffReportParser.Style?
 
     public init(
         kind: ExternalSignoffToolReport.Kind,
@@ -19,7 +20,8 @@ public struct ExternalSignoffCommand: Sendable, Hashable, Codable {
         environment: [String: String] = [:],
         workingDirectory: URL? = nil,
         logFileName: String? = nil,
-        timeoutSeconds: Double = 300
+        timeoutSeconds: Double = 300,
+        parserStyle: ExternalSignoffReportParser.Style? = nil
     ) {
         self.kind = kind
         self.toolName = toolName
@@ -29,6 +31,7 @@ public struct ExternalSignoffCommand: Sendable, Hashable, Codable {
         self.workingDirectory = workingDirectory
         self.logFileName = logFileName
         self.timeoutSeconds = timeoutSeconds
+        self.parserStyle = parserStyle
     }
 }
 
@@ -62,6 +65,7 @@ public struct ExternalSignoffCommandResult: Sendable, Hashable {
 
 public enum ExternalSignoffCommandError: Error, LocalizedError, Equatable {
     case invalidExecutablePath(String)
+    case invalidLogFileName(String)
     case launchFailed(String)
     case artifactWriteFailed(String)
 
@@ -69,6 +73,8 @@ public enum ExternalSignoffCommandError: Error, LocalizedError, Equatable {
         switch self {
         case .invalidExecutablePath(let path):
             return "Invalid external signoff executable path: \(path)"
+        case .invalidLogFileName(let name):
+            return "Invalid external signoff log file name: \(name)"
         case .launchFailed(let message):
             return "External signoff command failed to launch: \(message)"
         case .artifactWriteFailed(let message):
@@ -113,7 +119,7 @@ public struct ExternalSignoffCommandService: Sendable {
         let exitCode = processResult.exitCode
 
         let commandLine = [executableURL.path(percentEncoded: false)] + command.arguments
-        let logURL = artifactDirectory.appending(path: logFileName(for: command))
+        let logURL = try logURL(for: command, artifactDirectory: artifactDirectory)
         let logContents = renderLog(
             command: command,
             commandLine: commandLine,
@@ -128,7 +134,7 @@ public struct ExternalSignoffCommandService: Sendable {
             throw ExternalSignoffCommandError.artifactWriteFailed(error.localizedDescription)
         }
 
-        let report = parser.parse(
+        let report = parser(for: command.parserStyle).parse(
             kind: command.kind,
             toolName: command.toolName,
             logPath: logURL.path(percentEncoded: false),
@@ -167,15 +173,47 @@ public struct ExternalSignoffCommandService: Sendable {
         return URL(filePath: expanded)
     }
 
-    private func logFileName(for command: ExternalSignoffCommand) -> String {
+    private func logURL(for command: ExternalSignoffCommand, artifactDirectory: URL) throws -> URL {
+        let fileName = try logFileName(for: command)
+        let url = artifactDirectory.appending(path: fileName, directoryHint: .notDirectory)
+        let parent = url.deletingLastPathComponent().standardizedFileURL
+        let artifactRoot = artifactDirectory.standardizedFileURL
+        guard parent.path(percentEncoded: false) == artifactRoot.path(percentEncoded: false) else {
+            throw ExternalSignoffCommandError.invalidLogFileName(fileName)
+        }
+        return url
+    }
+
+    private func logFileName(for command: ExternalSignoffCommand) throws -> String {
         if let logFileName = command.logFileName,
            !logFileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return logFileName
+            let trimmed = logFileName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard isSafeLogFileName(trimmed) else {
+                throw ExternalSignoffCommandError.invalidLogFileName(logFileName)
+            }
+            return trimmed
         }
         let safeToolName = command.toolName.map { character in
             character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "-"
         }
         return "\(command.kind.rawValue)-\(String(safeToolName)).log"
+    }
+
+    private func isSafeLogFileName(_ fileName: String) -> Bool {
+        guard !fileName.isEmpty, fileName != ".", fileName != ".." else {
+            return false
+        }
+        guard !fileName.contains("/"), !fileName.contains("\\") else {
+            return false
+        }
+        return URL(filePath: fileName).lastPathComponent == fileName
+    }
+
+    private func parser(for override: ExternalSignoffReportParser.Style?) -> ExternalSignoffReportParser {
+        if let override {
+            return ExternalSignoffReportParser(style: override)
+        }
+        return parser
     }
 
     private func renderLog(
@@ -186,10 +224,10 @@ public struct ExternalSignoffCommandService: Sendable {
         stderr: String
     ) -> String {
         """
-        tool=\(command.toolName)
-        kind=\(command.kind.rawValue)
-        command=\(commandLine.joined(separator: " "))
-        working_directory=\(command.workingDirectory?.path(percentEncoded: false) ?? "")
+        tool=\(Self.logScalar(command.toolName))
+        kind=\(Self.logScalar(command.kind.rawValue))
+        command=\(commandLine.map(Self.logScalar).joined(separator: " "))
+        working_directory=\(Self.logScalar(command.workingDirectory?.path(percentEncoded: false) ?? ""))
         exit_code=\(exitCode)
 
         [stdout]
@@ -197,5 +235,11 @@ public struct ExternalSignoffCommandService: Sendable {
         [stderr]
         \(stderr)
         """
+    }
+
+    private static func logScalar(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\n", with: "\\n")
     }
 }

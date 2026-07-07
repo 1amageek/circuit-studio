@@ -26,6 +26,11 @@ extension RunReviewService {
             throw RunReviewServiceError.signoffRepairHintNotFound(runID: runID)
         }
 
+        try validateRepairHintInputIntegrity(
+            drcRepairHintPath: drcRepairHintPath,
+            lvsRepairHintPath: lvsRepairHintPath,
+            bundleArtifacts: bundle.artifacts
+        )
         let inputArtifacts = try repairHintInputArtifacts(
             drcRepairHintPath: drcRepairHintPath,
             lvsRepairHintPath: lvsRepairHintPath,
@@ -137,6 +142,48 @@ extension RunReviewService {
         .joined(separator: " ")
         return searchable.contains(token)
             && (searchable.contains("repair-hints") || artifact.path.lowercased().hasSuffix(exactFileName))
+    }
+
+    private func validateRepairHintInputIntegrity(
+        drcRepairHintPath: String?,
+        lvsRepairHintPath: String?,
+        bundleArtifacts: [FlowRunReviewArtifact]
+    ) throws {
+        if let drcRepairHintPath {
+            try validateRepairHintArtifactIntegrity(
+                path: drcRepairHintPath,
+                bundleArtifacts: bundleArtifacts
+            )
+        }
+        if let lvsRepairHintPath {
+            try validateRepairHintArtifactIntegrity(
+                path: lvsRepairHintPath,
+                bundleArtifacts: bundleArtifacts
+            )
+        }
+    }
+
+    private func validateRepairHintArtifactIntegrity(
+        path: String,
+        bundleArtifacts: [FlowRunReviewArtifact]
+    ) throws {
+        guard let artifact = bundleArtifacts.first(where: { $0.path == path }) else {
+            return
+        }
+        guard let integrity = artifact.integrity else {
+            throw RunReviewServiceError.signoffRepairHintIntegrityUnverified(
+                path: path,
+                status: "missing",
+                message: "Artifact integrity was not recorded."
+            )
+        }
+        guard integrity.status == .verified else {
+            throw RunReviewServiceError.signoffRepairHintIntegrityUnverified(
+                path: path,
+                status: integrity.status.rawValue,
+                message: integrity.message
+            )
+        }
     }
 
     private func repairHintInputArtifacts(

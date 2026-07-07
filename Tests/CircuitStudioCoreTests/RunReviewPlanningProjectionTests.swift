@@ -765,4 +765,118 @@ struct RunReviewPlanningProjectionTests {
         #expect(approvedReview.planning.planVerification?.riskReviews.first?.approvalReviews.first?.status == "approved")
         #expect(approvedReview.planning.planVerification?.riskReviews.first?.approvalReviews.first?.reviewer == "reviewer-1")
     }
+
+    @Test func planningProjectionRequiresVerifiedArtifactIntegrity() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("run-review-planning-integrity-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { RunReviewTestSupport.removeTemporaryRoot(root) }
+
+        let runID = "run-planning-integrity"
+        let runDirectoryPath = ".xcircuite/runs/\(runID)"
+        let candidatePlanPath = "\(runDirectoryPath)/planning/candidate-plan.json"
+        let candidatePlan = XcircuiteCandidatePlan(
+            planID: "plan-integrity",
+            problemID: "problem-integrity",
+            runID: runID,
+            strategy: "integrity-regression",
+            executionReadiness: "ready",
+            sourceProblemRef: XcircuitePlanningReference(
+                refID: "problem-ref",
+                kind: "planning-problem"
+            ),
+            steps: [],
+            verificationGates: [],
+            constraints: [],
+            unresolvedObjectives: [],
+            blockers: []
+        )
+        let payload = try RunReviewTestSupport.encodedJSONData(candidatePlan)
+        try FileManager.default.createDirectory(
+            at: root.appending(path: candidatePlanPath).deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try payload.write(to: root.appending(path: candidatePlanPath), options: .atomic)
+        try FileManager.default.createDirectory(
+            at: root.appending(path: runDirectoryPath),
+            withIntermediateDirectories: true
+        )
+        let reference = XcircuiteFileReference(
+            artifactID: "planning-candidate-plan",
+            path: candidatePlanPath,
+            kind: .other,
+            format: .json,
+            sha256: XcircuiteHasher().sha256(data: payload),
+            byteCount: Int64(payload.count),
+            producedByRunID: runID
+        )
+        let artifact = FlowRunReviewArtifact(
+            role: "planning-candidate-plan",
+            artifactID: "planning-candidate-plan",
+            path: candidatePlanPath,
+            kind: .other,
+            format: .json,
+            sha256: reference.sha256,
+            byteCount: reference.byteCount,
+            integrity: FlowRunReviewArtifactIntegrity(
+                status: .sha256Mismatch,
+                expectedSHA256: String(repeating: "a", count: 64),
+                actualSHA256: String(repeating: "b", count: 64),
+                expectedByteCount: 10,
+                actualByteCount: 11,
+                message: "Artifact SHA-256 mismatch"
+            )
+        )
+        let ledger = FlowRunLedger(
+            runID: runID,
+            runDirectory: root.appending(path: runDirectoryPath),
+            runManifest: XcircuiteRunManifest(
+                runID: runID,
+                status: .blocked,
+                artifacts: [reference]
+            ),
+            stages: []
+        )
+        let bundle = FlowRunReviewBundle(
+            runID: runID,
+            status: .blocked,
+            runDirectoryPath: runDirectoryPath,
+            summary: FlowRunLedgerSummary(
+                runID: runID,
+                status: .blocked,
+                runDirectoryPath: runDirectoryPath
+            ),
+            artifacts: [artifact]
+        )
+        let service = RunReviewService(
+            ledgerLoader: PlanningStaticLedgerLoader(ledger: ledger),
+            reviewBundler: PlanningStaticRunReviewBundler(bundle: bundle)
+        )
+
+        let review = try service.loadRun(runID: runID, projectRoot: root)
+
+        #expect(review.planning.candidatePlanArtifact?.path == candidatePlanPath)
+        #expect(review.planning.candidatePlan == nil)
+        #expect(review.planning.decodeIssues.contains {
+            $0.artifactPath == candidatePlanPath
+                && $0.message.lowercased().contains("planning artifact integrity")
+                && $0.message.contains("sha256Mismatch")
+        })
+    }
+}
+
+private struct PlanningStaticLedgerLoader: FlowRunLedgerLoading {
+    let ledger: FlowRunLedger
+
+    func loadRunLedger(runID: String, projectRoot: URL) throws -> FlowRunLedger {
+        ledger
+    }
+}
+
+private struct PlanningStaticRunReviewBundler: FlowRunReviewBundling {
+    let bundle: FlowRunReviewBundle
+
+    func makeReviewBundle(runID: String, projectRoot: URL) throws -> FlowRunReviewBundle {
+        bundle
+    }
 }

@@ -102,7 +102,10 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 fileName: fileName,
                 processConfiguration: processConfiguration
             )
-            let command = detectAnalysis(in: pipeline.netlist) ?? .op
+            let command = try detectAnalysis(
+                in: pipeline.netlist,
+                processConfiguration: processConfiguration
+            ) ?? .op
             let waveform = try await executeAnalysis(
                 command: command,
                 pipeline: pipeline,
@@ -157,6 +160,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         defer { _activeJobID.withLock { $0 = nil } }
 
         do {
+            try validate(command: command, nativeBackend: false)
             if externalSimulator.requiresExternalSimulation(
                 source: source,
                 fileName: fileName,
@@ -419,6 +423,98 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
 
     // MARK: - Analysis Execution
 
+    private func validate(command: AnalysisCommand, nativeBackend: Bool) throws {
+        switch command {
+        case .op, .tf, .pz:
+            return
+
+        case .tran(let spec):
+            try Self.requirePositiveFinite(spec.stopTime, name: "tran.stopTime")
+            if let stepTime = spec.stepTime {
+                try Self.requirePositiveFinite(stepTime, name: "tran.stepTime")
+            }
+            if let maxStep = spec.maxStep {
+                try Self.requirePositiveFinite(maxStep, name: "tran.maxStep")
+            }
+            if let startTime = spec.startTime {
+                try Self.requireNonNegativeFinite(startTime, name: "tran.startTime")
+                if nativeBackend && startTime != 0 {
+                    throw StudioError.simulationFailure(
+                        "Native transient analysis does not support a non-zero start time"
+                    )
+                }
+            }
+
+        case .ac(let spec):
+            try Self.validateFrequencySweep(
+                scaleType: spec.scaleType,
+                numberOfPoints: spec.numberOfPoints,
+                startFrequency: spec.startFrequency,
+                stopFrequency: spec.stopFrequency,
+                analysisName: "ac"
+            )
+
+        case .dcSweep(let spec):
+            try Self.requireFinite(spec.startValue, name: "dc.startValue")
+            try Self.requireFinite(spec.stopValue, name: "dc.stopValue")
+            try Self.requireFinite(spec.stepValue, name: "dc.stepValue")
+            guard spec.stepValue != 0 else {
+                throw StudioError.simulationFailure("DC sweep step cannot be zero")
+            }
+            guard (spec.stopValue - spec.startValue) * spec.stepValue >= 0 else {
+                throw StudioError.simulationFailure(
+                    "DC sweep step direction must move from startValue toward stopValue"
+                )
+            }
+
+        case .noise(let spec):
+            try Self.validateFrequencySweep(
+                scaleType: spec.scaleType,
+                numberOfPoints: spec.numberOfPoints,
+                startFrequency: spec.startFrequency,
+                stopFrequency: spec.stopFrequency,
+                analysisName: "noise"
+            )
+        }
+    }
+
+    private static func validateFrequencySweep(
+        scaleType: ACScale,
+        numberOfPoints: Int,
+        startFrequency: Double,
+        stopFrequency: Double,
+        analysisName: String
+    ) throws {
+        guard numberOfPoints > 0 else {
+            throw StudioError.simulationFailure("\(analysisName) sweep requires at least one point")
+        }
+        try requirePositiveFinite(startFrequency, name: "\(analysisName).startFrequency")
+        try requirePositiveFinite(stopFrequency, name: "\(analysisName).stopFrequency")
+        guard stopFrequency >= startFrequency else {
+            throw StudioError.simulationFailure(
+                "\(analysisName) sweep stopFrequency must be greater than or equal to startFrequency"
+            )
+        }
+    }
+
+    private static func requirePositiveFinite(_ value: Double, name: String) throws {
+        guard value > 0, value.isFinite else {
+            throw StudioError.simulationFailure("\(name) must be positive and finite")
+        }
+    }
+
+    private static func requireNonNegativeFinite(_ value: Double, name: String) throws {
+        guard value >= 0, value.isFinite else {
+            throw StudioError.simulationFailure("\(name) must be non-negative and finite")
+        }
+    }
+
+    private static func requireFinite(_ value: Double, name: String) throws {
+        guard value.isFinite else {
+            throw StudioError.simulationFailure("\(name) must be finite")
+        }
+    }
+
     private func executeAnalysis(
         command: AnalysisCommand,
         pipeline: Pipeline,
@@ -431,6 +527,8 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         let solver = SparseLUSolver()
         let topology = plan.topology.circuitTopology
         let nodeNamesByID = pipeline.nodeNamesByID
+
+        try validate(command: command, nativeBackend: true)
 
         // Robust convergence config for circuits with nonlinear devices
         // (MOSFETs, BJTs, diodes). Slightly elevated gmin and iteration
@@ -522,8 +620,11 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 )
                 pollingTask.cancel()
                 await pollingTask.value
+                if let progressFailure = channel.takeFailure() {
+                    throw progressFailure
+                }
                 return Self.applyingNodeNames(
-                    WaveformData.from(transientResult: result, topology: topology, title: "Transient"),
+                    try WaveformData.from(transientResult: result, topology: topology, title: "Transient"),
                     nodeNamesByID: nodeNamesByID
                 )
             } catch {
@@ -538,8 +639,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             case .decade:
                 sweep = .decade(start: spec.startFrequency, stop: spec.stopFrequency, pointsPerDecade: spec.numberOfPoints)
             case .octave:
-                // CoreSpice lacks a native octave sweep; approximate with decade
-                sweep = .decade(start: spec.startFrequency, stop: spec.stopFrequency, pointsPerDecade: spec.numberOfPoints)
+                sweep = .octave(start: spec.startFrequency, stop: spec.stopFrequency, pointsPerOctave: spec.numberOfPoints)
             case .linear:
                 sweep = .linear(start: spec.startFrequency, stop: spec.stopFrequency, points: spec.numberOfPoints)
             }
@@ -587,8 +687,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
             case .decade:
                 sweep = .decade(start: spec.startFrequency, stop: spec.stopFrequency, pointsPerDecade: spec.numberOfPoints)
             case .octave:
-                // CoreSpice lacks a native octave sweep; approximate with decade
-                sweep = .decade(start: spec.startFrequency, stop: spec.stopFrequency, pointsPerDecade: spec.numberOfPoints)
+                sweep = .octave(start: spec.startFrequency, stop: spec.stopFrequency, pointsPerOctave: spec.numberOfPoints)
             case .linear:
                 sweep = .linear(start: spec.startFrequency, stop: spec.stopFrequency, points: spec.numberOfPoints)
             }
@@ -844,10 +943,17 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
 
         let overrideName = overrideSource?.0.lowercased()
         let overrideValue = overrideSource?.1
+        var didApplyOverride = false
 
         for instance in plan.ir.instances {
             let inst: Instance
             if let overrideName, let overrideValue, instance.name.lowercased() == overrideName {
+                guard instance.typeName == "vsource" || instance.typeName == "isource" else {
+                    throw StudioError.simulationFailure(
+                        "DC sweep source '\(instance.name)' is a \(instance.typeName), not an independent source"
+                    )
+                }
+
                 var params = instance.parameters
                 switch instance.typeName {
                 case "vsource":
@@ -863,6 +969,7 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                     nodes: instance.nodes,
                     parameters: params
                 )
+                didApplyOverride = true
             } else {
                 inst = instance
             }
@@ -871,6 +978,12 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 throw StudioError.deviceBindingFailure("No descriptor for device type: \(inst.typeName)")
             }
             devices.append(try desc.bind(instance: inst, context: &context))
+        }
+
+        if let overrideName, !didApplyOverride {
+            throw StudioError.simulationFailure(
+                "DC sweep source '\(overrideName)' was not found in the compiled circuit"
+            )
         }
 
         return devices
@@ -897,14 +1010,30 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
         } catch {
             throw StudioError.parseFailure("\(error)")
         }
-        return detectAnalyses(in: netlist)
+        return try detectAnalyses(
+            in: netlist,
+            processConfiguration: processConfiguration
+        )
     }
 
-    private func detectAnalysis(in netlist: ParsedNetlist) -> AnalysisCommand? {
-        detectAnalyses(in: netlist).first
+    private func detectAnalysis(
+        in netlist: ParsedNetlist,
+        processConfiguration: ProcessConfiguration?
+    ) throws -> AnalysisCommand? {
+        try detectAnalyses(
+            in: netlist,
+            processConfiguration: processConfiguration
+        ).first
     }
 
-    private func detectAnalyses(in netlist: ParsedNetlist) -> [AnalysisCommand] {
+    private func detectAnalyses(
+        in netlist: ParsedNetlist,
+        processConfiguration: ProcessConfiguration?
+    ) throws -> [AnalysisCommand] {
+        let resolver = try AnalysisValueResolver(
+            netlist: netlist,
+            processConfiguration: processConfiguration
+        )
         var commands: [AnalysisCommand] = []
         for analysis in netlist.analyses {
             switch analysis {
@@ -912,9 +1041,15 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 commands.append(.op)
 
             case .transient(let spec):
-                let stop = spec.stopTime.numericValue ?? 1e-6
-                let step = spec.stepTime?.numericValue
-                commands.append(.tran(TranSpec(stopTime: stop, stepTime: step)))
+                let command = try AnalysisCommand.tran(TranSpec(
+                    stopTime: resolver.positiveFinite(spec.stopTime, name: "tran.stopTime"),
+                    stepTime: resolver.optionalPositiveFinite(spec.stepTime, name: "tran.stepTime"),
+                    startTime: resolver.optionalNonNegativeFinite(spec.startTime, name: "tran.startTime"),
+                    maxStep: resolver.optionalPositiveFinite(spec.maxStep, name: "tran.maxStep"),
+                    useInitialConditions: spec.useInitialConditions
+                ))
+                try validate(command: command, nativeBackend: true)
+                commands.append(command)
 
             case .ac(let spec):
                 let scale: ACScale
@@ -923,23 +1058,24 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 case .octave: scale = .octave
                 case .linear: scale = .linear
                 }
-                commands.append(.ac(ACSpec(
+                let command = try AnalysisCommand.ac(ACSpec(
                     scaleType: scale,
                     numberOfPoints: spec.numberOfPoints,
-                    startFrequency: spec.startFrequency.numericValue ?? 1.0,
-                    stopFrequency: spec.stopFrequency.numericValue ?? 1e6
-                )))
+                    startFrequency: resolver.positiveFinite(spec.startFrequency, name: "ac.startFrequency"),
+                    stopFrequency: resolver.positiveFinite(spec.stopFrequency, name: "ac.stopFrequency")
+                ))
+                try validate(command: command, nativeBackend: true)
+                commands.append(command)
 
             case .dc(let spec):
-                let start = spec.startValue.numericValue ?? 0
-                let stop = spec.stopValue.numericValue ?? 0
-                let step = spec.stepValue.numericValue ?? ((stop - start) / 10.0)
-                commands.append(.dcSweep(DCSweepSpec(
+                let command = try AnalysisCommand.dcSweep(DCSweepSpec(
                     source: spec.source,
-                    startValue: start,
-                    stopValue: stop,
-                    stepValue: step
-                )))
+                    startValue: resolver.finite(spec.startValue, name: "dc.startValue"),
+                    stopValue: resolver.finite(spec.stopValue, name: "dc.stopValue"),
+                    stepValue: resolver.finite(spec.stepValue, name: "dc.stepValue")
+                ))
+                try validate(command: command, nativeBackend: true)
+                commands.append(command)
 
             case .noise(let spec):
                 let scale: ACScale
@@ -948,15 +1084,17 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 case .octave: scale = .octave
                 case .linear: scale = .linear
                 }
-                commands.append(.noise(NoiseSpec(
+                let command = try AnalysisCommand.noise(NoiseSpec(
                     outputNode: spec.outputNode,
                     referenceNode: spec.referenceNode,
                     inputSource: spec.inputSource,
                     scaleType: scale,
                     numberOfPoints: spec.numberOfPoints,
-                    startFrequency: spec.startFrequency.numericValue ?? 1.0,
-                    stopFrequency: spec.stopFrequency.numericValue ?? 1e6
-                )))
+                    startFrequency: resolver.positiveFinite(spec.startFrequency, name: "noise.startFrequency"),
+                    stopFrequency: resolver.positiveFinite(spec.stopFrequency, name: "noise.stopFrequency")
+                ))
+                try validate(command: command, nativeBackend: true)
+                commands.append(command)
 
             case .transferFunction(let spec):
                 commands.append(.tf(TFSpec(output: spec.output, input: spec.input)))
@@ -1022,6 +1160,84 @@ private extension RunStatus {
             return true
         case .pending, .running:
             return false
+        }
+    }
+}
+
+private struct AnalysisValueResolver {
+    private let evaluator: ExpressionEvaluator
+
+    init(
+        netlist: ParsedNetlist,
+        processConfiguration: ProcessConfiguration?
+    ) throws {
+        let context = LoweringContext()
+        let deterministicRandom: @Sendable () -> Double = { 0.5 }
+
+        for control in netlist.controls {
+            if case .function(let name, let parameters, let body, _) = control {
+                context.registerFunction(name: name, parameters: parameters, body: body)
+            }
+        }
+
+        do {
+            try ParameterExpressionResolver(
+                context: context,
+                randomUniform: deterministicRandom
+            ).resolveGlobal(netlist.parameters)
+        } catch {
+            throw StudioError.simulationFailure(
+                "Could not resolve analysis parameter environment: \(error.localizedDescription)"
+            )
+        }
+
+        if let processConfiguration {
+            context.setParameters(processConfiguration.effectiveParameters())
+        }
+
+        self.evaluator = ExpressionEvaluator(
+            context: context,
+            randomUniform: deterministicRandom
+        )
+    }
+
+    func finite(_ value: ParsedParameterValue, name: String) throws -> Double {
+        let result = try evaluate(value, name: name)
+        guard result.isFinite else {
+            throw StudioError.simulationFailure("\(name) must be finite")
+        }
+        return result
+    }
+
+    func positiveFinite(_ value: ParsedParameterValue, name: String) throws -> Double {
+        let result = try finite(value, name: name)
+        guard result > 0 else {
+            throw StudioError.simulationFailure("\(name) must be positive and finite")
+        }
+        return result
+    }
+
+    func optionalPositiveFinite(_ value: ParsedParameterValue?, name: String) throws -> Double? {
+        guard let value else { return nil }
+        return try positiveFinite(value, name: name)
+    }
+
+    func optionalNonNegativeFinite(_ value: ParsedParameterValue?, name: String) throws -> Double? {
+        guard let value else { return nil }
+        let result = try finite(value, name: name)
+        guard result >= 0 else {
+            throw StudioError.simulationFailure("\(name) must be non-negative and finite")
+        }
+        return result
+    }
+
+    private func evaluate(_ value: ParsedParameterValue, name: String) throws -> Double {
+        do {
+            return try evaluator.evaluate(value)
+        } catch {
+            throw StudioError.simulationFailure(
+                "Could not resolve analysis value '\(name)': \(error.localizedDescription)"
+            )
         }
     }
 }

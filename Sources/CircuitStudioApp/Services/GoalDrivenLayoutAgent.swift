@@ -129,11 +129,21 @@ public struct GoalDrivenLayoutAgent {
         if editor.connectivityAnalysis?.opens.isEmpty == false {
             editor.execute(.finishAllNets)
         }
-        let opens = editor.connectivityAnalysis?.opens.count ?? 0
-        guard opens == 0 else {
+        let remainingOpens = editor.connectivityAnalysis?.opens ?? []
+        guard remainingOpens.isEmpty else {
+            var netNames: [String] = []
+            if let cellID = editor.activeCellID,
+               let cell = editor.editor.document.cell(withID: cellID) {
+                let namesByID = Dictionary(
+                    cell.nets.map { ($0.id, $0.name) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                netNames = remainingOpens.map { namesByID[$0.netID] ?? $0.netID.uuidString }
+            }
             throw AgentError.wiringIncomplete(
-                opens: opens,
-                detail: editor.lastError ?? "no surfaced reason"
+                opens: remainingOpens.count,
+                detail: "open nets [\(netNames.joined(separator: ", "))]: "
+                    + (editor.lastError ?? "no surfaced reason")
             )
         }
 
@@ -165,7 +175,7 @@ public struct GoalDrivenLayoutAgent {
         labelNamedNets(editor: editor)
 
         try FileManager.default.createDirectory(at: exportDirectory, withIntermediateDirectories: true)
-        let gdsURL = exportDirectory.appendingPathComponent("\(designName).gds")
+        let gdsURL = exportDirectory.appendingPathComponent("\(Self.artifactFileStem(for: designName)).gds")
         try GDSFormatConverter(tech: tech).exportDocument(editor.editor.document, to: gdsURL, format: .gds)
 
         return Evidence(
@@ -214,5 +224,17 @@ public struct GoalDrivenLayoutAgent {
             editor.activeLayer = pin.layer
             editor.addLabel(text: net.name, at: pin.position)
         }
+    }
+
+    private static func artifactFileStem(for name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let stem = String(trimmed.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? Character(scalar) : "_"
+        })
+        guard !stem.isEmpty, stem != ".", stem != ".." else {
+            return "layout"
+        }
+        return stem
     }
 }

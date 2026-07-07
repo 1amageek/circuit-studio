@@ -146,6 +146,12 @@ public struct LayoutPersistenceService {
             )
         )
         LayoutGenerationDiagnosticsLogger.log(report: report)
+        guard report.availability.isAvailable else {
+            let reason = report.availability.reason ?? report.availability.help
+            project.layoutGenerationError = reason
+            appState.log(reason, kind: .error)
+            return
+        }
         project.generateLayout(service: designFlow, catalog: catalog)
         guard project.layoutGenerationError == nil else { return }
         guard let projectRoot = appState.projectRootURL else { return }

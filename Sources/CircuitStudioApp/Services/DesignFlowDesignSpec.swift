@@ -256,11 +256,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
                 self.id = try container.decode(String.self, forKey: .id)
                 let kindValue = try container.decode(String.self, forKey: .kind)
                 guard let kind = PEXParasiticElement.Kind(rawValue: kindValue) else {
-                    throw DecodingError.dataCorruptedError(
-                        forKey: .kind,
-                        in: container,
-                        debugDescription: "Unsupported parasitic element kind: \(kindValue)"
-                    )
+                    throw DesignFlowDesignSpecError.unsupportedPEXElementKind(kindValue)
                 }
                 self.kind = kind
                 self.nodeA = try container.decode(String.self, forKey: .nodeA)
@@ -351,11 +347,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 let severityValue = try container.decode(String.self, forKey: .severity)
                 guard let severity = PEXArtifactDiagnostic.Severity(rawValue: severityValue) else {
-                    throw DecodingError.dataCorruptedError(
-                        forKey: .severity,
-                        in: container,
-                        debugDescription: "Unsupported PEX diagnostic severity: \(severityValue)"
-                    )
+                    throw DesignFlowDesignSpecError.unsupportedPEXDiagnosticSeverity(severityValue)
                 }
                 self.severity = severity
                 self.message = try container.decode(String.self, forKey: .message)
@@ -842,6 +834,8 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
     case unsupportedPEXResistanceUnit(String)
     case unsupportedPEXCapacitanceUnit(String)
     case unsupportedPEXCoordinateUnit(String)
+    case unsupportedPEXElementKind(String)
+    case unsupportedPEXDiagnosticSeverity(String)
     case invalidPEXCornerID(String)
     case invalidPEXElementID(String)
     case duplicatePEXElementID(String)
@@ -914,6 +908,10 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
             return "Design spec PEX capacitance unit is not supported: \(unit)."
         case .unsupportedPEXCoordinateUnit(let unit):
             return "Design spec PEX coordinate unit is not supported: \(unit)."
+        case .unsupportedPEXElementKind(let kind):
+            return "Design spec PEX element kind is not supported: \(kind)."
+        case .unsupportedPEXDiagnosticSeverity(let severity):
+            return "Design spec PEX diagnostic severity is not supported: \(severity)."
         case .invalidPEXCornerID(let cornerID):
             return "Design spec contains an invalid PEX corner ID: \(cornerID)."
         case .invalidPEXElementID(let id):

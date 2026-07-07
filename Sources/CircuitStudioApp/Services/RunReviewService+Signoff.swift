@@ -236,6 +236,7 @@ extension RunReviewService {
         makeCard: (Document, FlowRunReviewArtifact) -> RunReviewSignoffCard
     ) {
         do {
+            try validateSignoffArtifactIntegrity(artifact)
             let data = try Data(contentsOf: artifactURL(for: artifact, projectRoot: projectRoot))
             let document = try JSONDecoder().decode(Document.self, from: data)
             let artifactKind = signoffArtifactKind(for: artifact)
@@ -279,6 +280,25 @@ extension RunReviewService {
                     artifactPath: artifact.path,
                     message: error.localizedDescription
                 )
+            )
+        }
+    }
+
+    private func validateSignoffArtifactIntegrity(
+        _ artifact: FlowRunReviewArtifact
+    ) throws {
+        guard let integrity = artifact.integrity else {
+            throw RunReviewServiceError.signoffArtifactIntegrityUnverified(
+                path: artifact.path,
+                status: "missing",
+                message: "No recorded artifact integrity state is available."
+            )
+        }
+        guard integrity.status == .verified else {
+            throw RunReviewServiceError.signoffArtifactIntegrityUnverified(
+                path: artifact.path,
+                status: integrity.status.rawValue,
+                message: integrity.message
             )
         }
     }

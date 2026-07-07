@@ -39,6 +39,29 @@ public struct PhysicalSignoffDeck: Sendable {
         public let skippedGatedAxes: [ConstraintVerdict.Axis]
     }
 
+    public enum DeckError: Error, LocalizedError {
+        case invalidDensityWindow(minDensity: Double, maxDensity: Double)
+        case emptyDensityLayers
+        case invalidDensityLayer(String)
+        case invalidIRBudgetFraction(Double)
+        case invalidEMLimit(Double)
+
+        public var errorDescription: String? {
+            switch self {
+            case .invalidDensityWindow(let minDensity, let maxDensity):
+                return "Invalid density window: minDensity=\(minDensity), maxDensity=\(maxDensity)."
+            case .emptyDensityLayers:
+                return "Density signoff requires at least one layer in the policy."
+            case .invalidDensityLayer(let layer):
+                return "Invalid density layer name in signoff policy: '\(layer)'."
+            case .invalidIRBudgetFraction(let fraction):
+                return "IR budget fraction must be finite and in the range (0, 1]: \(fraction)."
+            case .invalidEMLimit(let limit):
+                return "EM current-density limit must be finite and positive: \(limit)."
+            }
+        }
+    }
+
     private let policy: Policy
     private let runGatedTools: Bool
 
@@ -56,6 +79,7 @@ public struct PhysicalSignoffDeck: Sendable {
         schematicNetlist: URL,
         artifactDirectory: URL
     ) async throws -> Outcome {
+        try validatePolicy()
         try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
         var verdicts: [ConstraintVerdict] = []
         var claims: [TapeoutEvidenceBundle.Claim] = []
@@ -221,5 +245,37 @@ public struct PhysicalSignoffDeck: Sendable {
             url: URL(fileURLWithPath: path),
             runDirectory: runDirectory
         )
+    }
+
+    private func validatePolicy() throws {
+        guard policy.irBudgetFraction.isFinite,
+              policy.irBudgetFraction > 0,
+              policy.irBudgetFraction <= 1 else {
+            throw DeckError.invalidIRBudgetFraction(policy.irBudgetFraction)
+        }
+        guard policy.emLimitAmperesPerMeter.isFinite,
+              policy.emLimitAmperesPerMeter > 0 else {
+            throw DeckError.invalidEMLimit(policy.emLimitAmperesPerMeter)
+        }
+        let minDensity = policy.densityWindow.minDensity
+        let maxDensity = policy.densityWindow.maxDensity
+        guard minDensity.isFinite,
+              maxDensity.isFinite,
+              minDensity >= 0,
+              maxDensity <= 1,
+              minDensity <= maxDensity else {
+            throw DeckError.invalidDensityWindow(minDensity: minDensity, maxDensity: maxDensity)
+        }
+        guard !policy.densityWindow.layers.isEmpty else {
+            throw DeckError.emptyDensityLayers
+        }
+        for layer in policy.densityWindow.layers {
+            let trimmed = layer.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  trimmed == layer,
+                  !layer.contains(",") else {
+                throw DeckError.invalidDensityLayer(layer)
+            }
+        }
     }
 }

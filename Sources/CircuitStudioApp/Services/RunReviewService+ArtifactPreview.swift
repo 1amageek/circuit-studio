@@ -18,7 +18,43 @@ extension RunReviewService {
                 artifactPath: artifactPath
             )
         }
+        return try makeArtifactPreview(
+            artifact: artifact,
+            projectRoot: projectRoot,
+            maxBytes: maxBytes
+        )
+    }
+
+    public func loadArtifactPreview(
+        runID: String,
+        artifact: FlowRunReviewArtifact,
+        projectRoot: URL,
+        maxBytes: Int = 4096
+    ) throws -> RunReviewArtifactPreview {
+        guard maxBytes > 0 else {
+            throw RunReviewServiceError.artifactPreviewInvalidLimit(limit: maxBytes)
+        }
+        let bundle = try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+        guard let resolvedArtifact = bundle.artifacts.first(where: { isSameArtifact($0, as: artifact) }) else {
+            throw RunReviewServiceError.artifactPreviewNotFound(
+                runID: runID,
+                artifactPath: artifact.path
+            )
+        }
+        return try makeArtifactPreview(
+            artifact: resolvedArtifact,
+            projectRoot: projectRoot,
+            maxBytes: maxBytes
+        )
+    }
+
+    private func makeArtifactPreview(
+        artifact: FlowRunReviewArtifact,
+        projectRoot: URL,
+        maxBytes: Int
+    ) throws -> RunReviewArtifactPreview {
         let url = try previewURL(for: artifact, projectRoot: projectRoot)
+        try validateArtifactPreviewIntegrity(artifact)
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
             throw RunReviewServiceError.artifactPreviewInputMissing(path: artifact.path)
         }
@@ -46,6 +82,37 @@ extension RunReviewService {
             parseIssue: structured.issue,
             waveformPreview: structured.waveform
         )
+    }
+
+    private func isSameArtifact(
+        _ candidate: FlowRunReviewArtifact,
+        as artifact: FlowRunReviewArtifact
+    ) -> Bool {
+        candidate.path == artifact.path
+            && candidate.role == artifact.role
+            && candidate.artifactID == artifact.artifactID
+            && candidate.stageID == artifact.stageID
+            && candidate.kind == artifact.kind
+            && candidate.format == artifact.format
+    }
+
+    private func validateArtifactPreviewIntegrity(
+        _ artifact: FlowRunReviewArtifact
+    ) throws {
+        guard let integrity = artifact.integrity else {
+            throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
+                path: artifact.path,
+                status: "missing",
+                message: "No recorded artifact integrity state is available."
+            )
+        }
+        guard integrity.status == .verified else {
+            throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
+                path: artifact.path,
+                status: integrity.status.rawValue,
+                message: integrity.message
+            )
+        }
     }
 
     private func previewURL(

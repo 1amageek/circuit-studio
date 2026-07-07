@@ -34,7 +34,7 @@ public struct CellTimingCharacterizer: Sendable {
     private let logic = GateLevelLogicSimulator()
 
     public init(
-        model: Level1DeviceModel = .bundledDefault(),
+        model: Level1DeviceModel,
         simulation: SimulationServiceProtocol = SimulationService(),
         inputSlews: [Double] = [20e-12, 80e-12, 320e-12],
         outputLoads: [Double] = [0.5e-15, 2e-15, 8e-15]
@@ -43,6 +43,19 @@ public struct CellTimingCharacterizer: Sendable {
         self.simulation = simulation
         self.inputSlews = inputSlews
         self.outputLoads = outputLoads
+    }
+
+    public init(
+        simulation: SimulationServiceProtocol = SimulationService(),
+        inputSlews: [Double] = [20e-12, 80e-12, 320e-12],
+        outputLoads: [Double] = [0.5e-15, 2e-15, 8e-15]
+    ) throws {
+        self.init(
+            model: try Level1DeviceModel.loadBundledDefault(),
+            simulation: simulation,
+            inputSlews: inputSlews,
+            outputLoads: outputLoads
+        )
     }
 
     /// Characterize every input pin of `cell` into a `CellTiming`.

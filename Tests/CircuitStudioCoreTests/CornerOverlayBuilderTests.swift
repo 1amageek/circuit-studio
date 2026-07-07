@@ -108,6 +108,28 @@ struct CornerOverlayBuilderTests {
         }
     }
 
+    @Test("Unreadable source values are reported instead of trapping")
+    func unreadableSourceValuesAreReported() {
+        let malformed = WaveformData(
+            metadata: SimulationMetadata(
+                analysisType: .transient,
+                pointCount: 2,
+                variableCount: 1
+            ),
+            sweepVariable: .time(index: 0),
+            sweepValues: [0, 1],
+            variables: [.voltage(node: "out", index: 0)],
+            realData: [[1.0], []]
+        )
+
+        #expect(throws: CornerOverlayBuilder.OverlayError.missingRealValue(variable: 0, point: 1)) {
+            try CornerOverlayBuilder().build(sources: [
+                .init(label: "bad", waveform: malformed),
+                .init(label: "good", waveform: transientWaveform(sweep: [0, 1], values: [0, 1])),
+            ])
+        }
+    }
+
     // MARK: - Fixtures
 
     private func transientWaveform(sweep: [Double], values: [Double]) -> WaveformData {

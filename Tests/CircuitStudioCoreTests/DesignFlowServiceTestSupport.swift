@@ -14,6 +14,7 @@ enum DesignFlowServiceTestSupport {
             contents: """
             #!/bin/sh
             printf '[INFO] rule=DRC_CLEAN message="clean drc"\\n'
+            printf 'SIGNOFF_RESULT status=pass\\n'
             exit 0
             """
         )
@@ -23,6 +24,7 @@ enum DesignFlowServiceTestSupport {
             contents: """
             #!/bin/sh
             printf '[INFO] rule=LVS_MATCH message="clean lvs"\\n'
+            printf 'SIGNOFF_RESULT status=pass\\n'
             exit 0
             """
         )
@@ -412,10 +414,11 @@ enum DesignFlowServiceTestSupport {
     ) async throws {
         let inputSlews = [40e-12, 200e-12]
         let outputLoads = [1e-15, 4e-15, 12e-15]
+        let cellLibrary = try CMOSGateLibrary.loadBundledDefault()
         let cells = [
-            CMOSGateLibrary.bundledDefault.inverter(name: "inv"),
-            CMOSGateLibrary.bundledDefault.nand(name: "nand2", inputs: ["A", "B"]),
-            CMOSGateLibrary.bundledDefault.nor(name: "nor2", inputs: ["A", "B"]),
+            cellLibrary.inverter(name: "inv"),
+            cellLibrary.nand(name: "nand2", inputs: ["A", "B"]),
+            cellLibrary.nor(name: "nor2", inputs: ["A", "B"]),
         ]
         for (index, cell) in cells.enumerated() {
             _ = try await TimingCharacterizationCache.shared.cellTiming(
@@ -433,7 +436,7 @@ enum DesignFlowServiceTestSupport {
             }
         }
     
-        let dffNetlist = DFFGenerator(cellLibrary: .bundledDefault).netlist(name: "dff")
+        let dffNetlist = DFFGenerator(cellLibrary: cellLibrary).netlist(name: "dff")
         _ = try await TimingCharacterizationCache.shared.sequentialReport(
             netlist: dffNetlist,
             cellName: "dff",

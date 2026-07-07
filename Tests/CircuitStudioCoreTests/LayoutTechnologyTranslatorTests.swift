@@ -32,7 +32,8 @@ struct LayoutTechnologyTranslatorTests {
     @Test("Bundled Sky130 LayoutTech is loaded from the resource artifact")
     func bundledLayoutTechLoadsFromResource() throws {
         let tech = try Sky130LayoutTech.loadTech()
-        #expect(tech == Sky130LayoutTech.tech())
+        let supportTech = try Sky130LayoutTech.tech()
+        #expect(tech == supportTech)
         #expect(tech.grid == 0.005)
         #expect(tech.layers.count == 17)
         #expect(tech.layerDefinition(for: Sky130LayoutTech.layer("met1"))?.gdsLayer == 68)
@@ -83,8 +84,9 @@ struct LayoutTechnologyTranslatorTests {
         let profile = try LayoutTechnologyTranslationProfile.bundled(
             resourceName: sky130TranslationProfileResourceName
         )
+        let targetTechnologyResourceName = try Sky130LayoutTech.resourceName()
         #expect(profile.profileID == "sky130.generic-layout-translation.v1")
-        #expect(profile.targetTechnologyResourceName == Sky130LayoutTech.resourceName)
+        #expect(profile.targetTechnologyResourceName == targetTechnologyResourceName)
         #expect(profile.sourceLayers.active == "ACTIVE")
         #expect(profile.sourceLayers.contact == "CONTACT")
         #expect(profile.targetLayers.localInterconnect.name == "li1")

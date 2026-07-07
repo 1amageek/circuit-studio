@@ -23,10 +23,14 @@ struct FlowRunnerCLITests {
         let layoutURL = root.appending(path: "layout.json")
         try writeTrustedLayout(to: layoutURL)
         let outputRoot = root.appending(path: "out")
+        // The layout technology must be explicit — the sampleProcess
+        // fallback was a silent default and is gone by contract.
+        let packageURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
         let result = try await DesignFlowService().execute(DesignFlowCommand(
             kind: .runLayoutTrust,
             projectRootPath: outputRoot.path(percentEncoded: false),
             runID: "layout-trust-cli",
+            technologyPackagePath: packageURL.path(percentEncoded: false),
             layoutDocumentPath: layoutURL.path(percentEncoded: false)
         ))
         let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
@@ -1130,7 +1134,7 @@ struct FlowRunnerCLITests {
 
         #expect(keys["application_action_id"] == "waiver-edit-proposal-application-1")
         #expect(keys["verification_action_id"] == "")
-        #expect(keys["action_id"] == "waiver-edit-proposal-verification-1")
+        #expect(keys["action_id"] == "waiver-edit-proposal-application-1")
     }
 
     @Test("apply-waiver-edit output prefers recorded action IDs over message fallback", .timeLimit(.minutes(1)))
@@ -1271,6 +1275,13 @@ struct FlowRunnerCLITests {
     func conflictingRunnerModesAreRejected() {
         #expect(throws: FlowRunnerCommandOptions.ParseError.conflictingModes) {
             _ = try FlowRunnerCommandOptions(arguments: ["--run-layout-trust", "--run-verification"])
+        }
+    }
+
+    @Test("value options reject a following option token as a missing value", .timeLimit(.minutes(1)))
+    func valueOptionsRejectFollowingOptionToken() {
+        #expect(throws: FlowRunnerCommandOptions.ParseError.missingValue("--output")) {
+            _ = try FlowRunnerCommandOptions(arguments: ["--run-verification", "--output", "--json"])
         }
     }
 

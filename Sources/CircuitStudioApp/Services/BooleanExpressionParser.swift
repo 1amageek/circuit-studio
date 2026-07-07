@@ -43,7 +43,7 @@ public struct BooleanExpressionParser: Sendable {
 
     /// Parse and technology-map to a placed-and-routable gate-level netlist.
     public func netlist(_ source: String, name: String, output: String = "y") throws -> GateLevelNetlist {
-        BooleanGateMapper().map(try parse(source), name: name, output: output)
+        try BooleanGateMapper().map(try parse(source), name: name, output: output)
     }
 
     // MARK: - tokens

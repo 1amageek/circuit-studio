@@ -162,7 +162,7 @@ public struct StaticTimingAnalyzer: Sendable {
             let holdSlack = dataEarly - ff.holdTime
             endpoints.append(EndpointSlack(endpoint: dff.d, dataArrival: dataLate, required: required,
                                            setupSlack: setupSlack, earliestArrival: dataEarly, holdSlack: holdSlack))
-            if worstEndpoint == nil || setupSlack < worstEndpoint!.slack {
+            if worstEndpoint.map({ setupSlack < $0.slack }) ?? true {
                 worstEndpoint = (setupSlack, dff.d)
             }
         }

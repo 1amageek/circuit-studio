@@ -11,7 +11,8 @@ struct SequentialTimingCharacterizerTests {
         #expect(report.status == .passed)
         #expect(report.kind == "sequential-characterization-report")
         #expect(report.technology.modelProfile?.profileID == "sky130.level1-device-model.v1")
-        #expect(report.technology.modelProfile?.resourceName == Level1DeviceModel.bundledDefaultProfileResourceName())
+        let expectedResourceName = try Level1DeviceModel.loadBundledDefaultProfileResourceName()
+        #expect(report.technology.modelProfile?.resourceName == expectedResourceName)
         let clockSlew = try #require(report.characterizationGrid.clockSlews.first)
         #expect(report.timing.clkToQRise.lookup(inputSlew: clockSlew, outputLoad: 1e-15) > 0)
         #expect(report.timing.clkToQFall.lookup(inputSlew: clockSlew, outputLoad: 1e-15) > 0)
@@ -24,12 +25,13 @@ struct SequentialTimingCharacterizerTests {
     }
 
     @Test("Unsupported sequential topology is rejected before simulation", .timeLimit(.minutes(1)))
-    func unsupportedSequentialTopologyThrows() async {
-        let characterizer = SequentialTimingCharacterizer(outputLoads: [1e-15])
+    func unsupportedSequentialTopologyThrows() async throws {
+        let characterizer = try SequentialTimingCharacterizer(outputLoads: [1e-15])
+        let unsupportedNetlist = try GateLevelNetlist.and2(name: "not_dff")
 
         await #expect(throws: SequentialTimingCharacterizer.CharacterizeError.self) {
             _ = try await characterizer.characterizeFlipFlop(
-                GateLevelNetlist.and2(name: "not_dff"),
+                unsupportedNetlist,
                 cellName: "not_dff"
             )
         }
@@ -37,7 +39,7 @@ struct SequentialTimingCharacterizerTests {
 
     @Test("Mismatched technology context is rejected before simulation", .timeLimit(.minutes(1)))
     func mismatchedTechnologyContextThrows() async throws {
-        let model = Level1DeviceModel.bundledDefault()
+        let model = try Level1DeviceModel.loadBundledDefault()
         let expectedHash = try TimingTopologyHasher.hashModel(model)
         let mismatchedTechnology = TimingTechnologyContext(
             processName: "unit",
@@ -47,7 +49,7 @@ struct SequentialTimingCharacterizerTests {
             deviceModelHash: "wrong-hash",
             modelProfile: TimingModelProfileReference(profileID: "wrong-profile")
         )
-        let characterizer = SequentialTimingCharacterizer(
+        let characterizer = try SequentialTimingCharacterizer(
             model: model,
             technologyContext: mismatchedTechnology,
             outputLoads: [1e-15]

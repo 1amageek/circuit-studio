@@ -69,8 +69,9 @@ public struct ExternalSignoffToolReport: Sendable, Hashable, Codable {
     /// present): `DRC_DONE` for Magic DRC, `LVS_RESULT status=match` for Netgen LVS.
     /// A pass requires this — the absence of error diagnostics alone is not enough,
     /// so a tool that exits 0 with empty/truncated output cannot be a false pass.
-    /// Styles without a marker protocol (mocks, external tools) report `true`.
+    /// Generic logs require an explicit `SIGNOFF_RESULT status=...` line.
     public let completed: Bool
+    public let parserStyle: ExternalSignoffReportParser.Style
     public let logPath: String
     public let diagnostics: [ExternalSignoffDiagnostic]
 
@@ -79,6 +80,7 @@ public struct ExternalSignoffToolReport: Sendable, Hashable, Codable {
         toolName: String,
         success: Bool,
         completed: Bool = true,
+        parserStyle: ExternalSignoffReportParser.Style = .generic,
         logPath: String,
         diagnostics: [ExternalSignoffDiagnostic] = []
     ) {
@@ -86,6 +88,7 @@ public struct ExternalSignoffToolReport: Sendable, Hashable, Codable {
         self.toolName = toolName
         self.success = success
         self.completed = completed
+        self.parserStyle = parserStyle
         self.logPath = logPath
         self.diagnostics = diagnostics
     }
@@ -98,7 +101,7 @@ public struct ExternalSignoffToolReport: Sendable, Hashable, Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, toolName, success, completed, logPath, diagnostics
+        case kind, toolName, success, completed, parserStyle, logPath, diagnostics
     }
 
     // Backward-compatible decoding: artifacts written before `completed` existed
@@ -109,6 +112,10 @@ public struct ExternalSignoffToolReport: Sendable, Hashable, Codable {
         toolName = try container.decode(String.self, forKey: .toolName)
         success = try container.decode(Bool.self, forKey: .success)
         completed = try container.decodeIfPresent(Bool.self, forKey: .completed) ?? true
+        parserStyle = try container.decodeIfPresent(
+            ExternalSignoffReportParser.Style.self,
+            forKey: .parserStyle
+        ) ?? .generic
         logPath = try container.decode(String.self, forKey: .logPath)
         diagnostics = try container.decodeIfPresent([ExternalSignoffDiagnostic].self, forKey: .diagnostics) ?? []
     }

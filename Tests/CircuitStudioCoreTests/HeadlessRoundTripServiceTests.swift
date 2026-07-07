@@ -170,9 +170,11 @@ struct HeadlessRoundTripServiceTests {
         let pexManifestURL = root.appending(path: "pex-manifest.json")
         try """
         [INFO] rule=DRC_CLEAN message="clean drc"
+        SIGNOFF_RESULT status=pass
         """.write(to: drcLogURL, atomically: true, encoding: .utf8)
         try """
         [INFO] rule=LVS_MATCH message="clean lvs"
+        SIGNOFF_RESULT status=pass
         """.write(to: lvsLogURL, atomically: true, encoding: .utf8)
         try """
         {"status":"success"}
@@ -628,6 +630,55 @@ struct HeadlessRoundTripServiceTests {
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
+    func designArtifactDirectoryFailureWritesReviewableManifest() async throws {
+        let root = try makeTemporaryRoot("capture-directory")
+        defer { removeTemporaryRoot(root) }
+
+        let designArtifactDirectory = root.appending(path: "design-artifacts")
+        try FileManager.default.createDirectory(at: designArtifactDirectory, withIntermediateDirectories: true)
+        try "not capturable\n".write(
+            to: designArtifactDirectory.appending(path: "nested.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: "capture-directory",
+            title: "Capture directory failure manifest",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .op,
+            pexIR: smallPEXIR(),
+            designArtifactPaths: [designArtifactDirectory.path(percentEncoded: false)]
+        )
+
+        do {
+            _ = try await HeadlessRoundTripService().run(
+                schematic: SchematicPreview.voltageDividerViewModel().document,
+                configuration: configuration
+            )
+            Issue.record("Expected design artifact directory capture failure")
+        } catch StudioError.projectLoadFailed(let message) {
+            #expect(message == "Input artifact must be a regular file: \(designArtifactDirectory.path(percentEncoded: false))")
+        } catch {
+            Issue.record("Expected project load failure, got \(error)")
+        }
+
+        let manifest = try loadManifest(projectRoot: root, runID: "capture-directory")
+        #expect(!manifest.isRoundTripComplete)
+        #expect(!manifest.isReadyForPEX)
+        #expect(manifest.artifacts.isEmpty)
+        #expect(manifest.stages.first { $0.name == "input-artifact-capture" }?.status == .failed)
+        #expect(manifest.stages.first { $0.name == "net-extraction" }?.status == .skipped)
+        #expect(manifest.stages.first { $0.name == "post-layout-comparison" }?.status == .skipped)
+        #expect(manifest.bottleneckSummary?.failedStageName == "input-artifact-capture")
+        #expect(manifest.bottleneckSummary?.recommendations.contains {
+            $0.contains("configured design, signoff, and PEX artifact paths")
+        } == true)
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
     func symlinkedInRunArtifactTargetingExternalFileIsCaptured() async throws {
         let root = try makeTemporaryRoot("capture-symlink")
         defer { removeTemporaryRoot(root) }
@@ -695,6 +746,7 @@ struct HeadlessRoundTripServiceTests {
             lvsContents: """
             #!/bin/sh
             printf '[INFO] rule=LVS_MATCH message="clean lvs"\\n'
+            printf 'SIGNOFF_RESULT status=pass\\n'
             exit 0
             """
         )
@@ -914,6 +966,7 @@ struct HeadlessRoundTripServiceTests {
         #expect(result.preLayoutResult.status == .completed)
         #expect(result.postLayoutResult.status == .completed)
         #expect(Set(result.manifest.stages.map(\.name)).isSuperset(of: [
+            "input-artifact-capture",
             "net-extraction",
             "netlist-generation",
             "pre-layout-simulation",
@@ -1013,6 +1066,7 @@ struct HeadlessRoundTripServiceTests {
         testbench: Testbench,
         postLayoutCommand: AnalysisCommand,
         pexIR: PEXParasiticIR,
+        designArtifactPaths: [String] = [],
         pexArtifactPaths: [String] = [],
         postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
         externalSignoffCommands: [ExternalSignoffCommand] = [],
@@ -1026,6 +1080,7 @@ struct HeadlessRoundTripServiceTests {
             testbench: testbench,
             postLayoutCommand: postLayoutCommand,
             pexIR: pexIR,
+            designArtifactPaths: designArtifactPaths,
             pexArtifactPaths: pexArtifactPaths,
             postLayoutComparisonLimits: postLayoutComparisonLimits,
             externalSignoffCommands: externalSignoffCommands,
@@ -1053,11 +1108,13 @@ struct HeadlessRoundTripServiceTests {
         drcContents: String = """
         #!/bin/sh
         printf '[INFO] rule=DRC_CLEAN message="clean drc"\\n'
+        printf 'SIGNOFF_RESULT status=pass\\n'
         exit 0
         """,
         lvsContents: String = """
         #!/bin/sh
         printf '[INFO] rule=LVS_MATCH message="clean lvs"\\n'
+        printf 'SIGNOFF_RESULT status=pass\\n'
         exit 0
         """
     ) throws -> [ExternalSignoffCommand] {

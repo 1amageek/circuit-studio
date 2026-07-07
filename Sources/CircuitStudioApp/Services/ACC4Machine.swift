@@ -23,9 +23,13 @@ public struct ACC4Machine: Sendable {
     public let memoryWords: Int
     private let sim = GateLevelLogicSimulator()
 
-    public init(generator: ACC4CPUGenerator = ACC4CPUGenerator(), memoryWords: Int = 16) {
+    public init(generator: ACC4CPUGenerator, memoryWords: Int = 16) {
         self.generator = generator
         self.memoryWords = memoryWords
+    }
+
+    public init(memoryWords: Int = 16) throws {
+        self.init(generator: try ACC4CPUGenerator(), memoryWords: memoryWords)
     }
 
     private func value(_ state: [String: Bool], _ names: [String]) -> Int {
@@ -35,7 +39,7 @@ public struct ACC4Machine: Sendable {
     /// Run `program` for `cycles` clocks on the gate-level core; returns the present
     /// (PC, ACC) per cycle. Throws if the core's write-enable disagrees with the ISA.
     public func run(_ program: [ACC4Instruction], cycles: Int) throws -> [ACC4Reference.CycleState] {
-        let netlist = generator.sequentialNetlist()
+        let netlist = try generator.sequentialNetlist()
         var state = sim.initialState(netlist)
         var mem = [Int](repeating: 0, count: memoryWords)
         var trace: [ACC4Reference.CycleState] = []

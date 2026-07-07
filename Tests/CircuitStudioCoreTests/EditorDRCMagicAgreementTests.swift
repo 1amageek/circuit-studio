@@ -73,7 +73,7 @@ struct EditorDRCMagicAgreementTests {
         // see, repaired in-process, must satisfy Magic too — otherwise
         // the editor would 'fix' designs into states the signoff tool
         // still rejects.
-        let tech = Sky130LayoutTech.tech()
+        let tech = try Sky130LayoutTech.tech()
         var document = Self.document(cell: "agree_repair", shapes: [
             Self.rect("met1", 0, 0, 2.0, 0.20),
             Self.rect("met1", 0, 0.30, 2.0, 0.20),
@@ -112,7 +112,7 @@ struct EditorDRCMagicAgreementTests {
         cell: String,
         expectClean: Bool
     ) async throws {
-        let tech = Sky130LayoutTech.tech()
+        let tech = try Sky130LayoutTech.tech()
         let editorViolations = LayoutDRCService().run(document: document, tech: tech).violations
         let editorClean = editorViolations.isEmpty
         #expect(

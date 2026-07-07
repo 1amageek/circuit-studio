@@ -17,8 +17,12 @@ public struct ACC4CPUGenerator: Sendable {
     public let bits = 4
     private let cellLibrary: CMOSGateLibrary
 
-    public init(cellLibrary: CMOSGateLibrary = .bundledDefault) {
+    public init(cellLibrary: CMOSGateLibrary) {
         self.cellLibrary = cellLibrary
+    }
+
+    public init() throws {
+        self.init(cellLibrary: try CMOSGateLibrary.loadBundledDefault())
     }
 
     // Net-name conventions (also the LVS port names).
@@ -43,18 +47,18 @@ public struct ACC4CPUGenerator: Sendable {
 
     /// Build the combinational datapath + control into `b`. Reads the input/register nets,
     /// drives acc_d[], pc_d[], zero and we.
-    private func buildCombinational(_ b: NANDGateBuilder) {
+    private func buildCombinational(_ b: NANDGateBuilder) throws {
         let d = operandInputs, rd = memReadInputs
 
         // Decode opcode (op2 op1 op0) into one-hot controls.
         b.inv("op0", "op0b"); b.inv("op1", "op1b"); b.inv("op2", "op2b")
-        b.andN(["op2b", "op1b", "op0"], "isLDI")   // 001
-        b.andN(["op2b", "op1", "op0b"], "isLDA")   // 010
-        b.andN(["op2b", "op1", "op0"], "we")       // 011 STA -> write-enable
-        b.andN(["op2", "op1b", "op0b"], "isADD")   // 100
-        b.andN(["op2", "op1b", "op0"], "isSUB")    // 101
-        b.andN(["op2", "op1", "op0b"], "isJMP")    // 110
-        b.andN(["op2", "op1", "op0"], "isJZ")      // 111
+        try b.andN(["op2b", "op1b", "op0"], "isLDI")   // 001
+        try b.andN(["op2b", "op1", "op0b"], "isLDA")   // 010
+        try b.andN(["op2b", "op1", "op0"], "we")       // 011 STA -> write-enable
+        try b.andN(["op2", "op1b", "op0b"], "isADD")   // 100
+        try b.andN(["op2", "op1b", "op0"], "isSUB")    // 101
+        try b.andN(["op2", "op1", "op0b"], "isJMP")    // 110
+        try b.andN(["op2", "op1", "op0"], "isJZ")      // 111
         b.or2("isADD", "isSUB", "isArith")
 
         // ALU: ACC + (mem_rdata XOR isSUB) + isSUB  (ADD when isSUB=0, two's-complement SUB when 1).
@@ -117,18 +121,18 @@ public struct ACC4CPUGenerator: Sendable {
 
     /// The sequential model (combinational logic + ACC/PC flip-flop primitives) for cycle
     /// simulation by `GateLevelLogicSimulator`.
-    public func sequentialNetlist(name: String = "acc4", clock: String = "CLK") -> SequentialNetlist {
+    public func sequentialNetlist(name: String = "acc4", clock: String = "CLK") throws -> SequentialNetlist {
         let b = NANDGateBuilder(cellLibrary: cellLibrary)
-        buildCombinational(b)
+        try buildCombinational(b)
         return SequentialNetlist(name: name, combinational: b.instances, dffs: registers(clock: clock),
                                  inputs: inputs, outputs: outputs, clock: clock)
     }
 
     /// The flat gate-level netlist (combinational + ACC/PC flip-flops expanded to gates) for
     /// place & route + DRC/LVS.
-    public func gateLevelNetlist(name: String = "acc4", clock: String = "CLK") -> GateLevelNetlist {
+    public func gateLevelNetlist(name: String = "acc4", clock: String = "CLK") throws -> GateLevelNetlist {
         let b = NANDGateBuilder(cellLibrary: cellLibrary)
-        buildCombinational(b)
+        try buildCombinational(b)
         var insts = b.instances
         let dff = DFFGenerator(cellLibrary: cellLibrary)
         for r in registers(clock: clock) {

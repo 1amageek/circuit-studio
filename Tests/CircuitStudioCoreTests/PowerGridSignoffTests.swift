@@ -12,7 +12,7 @@ struct PowerGridSignoffTests {
 
     @Test("The ACC-4 met1 power grid meets IR-drop budget and EM (tool-independent)")
     func acc4PowerIntegrityPasses() async throws {
-        let model = PowerGridExtractor().extract(ACC4CPUGenerator().gateLevelNetlist())
+        let model = try PowerGridExtractor().extract(ACC4CPUGenerator().gateLevelNetlist())
         let ir = try await IRDropAnalyzer().analyze(model, budgetFraction: 0.05)
         #expect(ir.passed, "IR drop \(ir.maxIRDropVolts * 1000) mV vs budget \(ir.budgetVolts * 1000) mV")
         let em = ElectromigrationChecker().check(model, limitAmperesPerMeter: emLimitAmperesPerMeter)
@@ -22,16 +22,17 @@ struct PowerGridSignoffTests {
     @Test("A too-resistive (li1) grid is caught by IR drop")
     func resistiveGridCaughtByIR() async throws {
         // Same ACC-4 cells but the power rail is left on resistive li1 (12.8 Ω/sq) — IR explodes.
+        let netlist = try ACC4CPUGenerator().gateLevelNetlist()
         let model = PowerGridExtractor(railSheetResistance: 12.8, railWidth: 0.2e-6)
-            .extract(ACC4CPUGenerator().gateLevelNetlist())
+            .extract(netlist)
         let ir = try await IRDropAnalyzer().analyze(model, budgetFraction: 0.05)
         #expect(!ir.passed)
         #expect(ir.maxIRDropFraction > 0.05)
     }
 
     @Test("A thin overloaded rail is caught by electromigration")
-    func thinRailCaughtByEM() {
-        let model = PowerGridExtractor(railWidth: 0.15e-6).extract(ACC4CPUGenerator().gateLevelNetlist())
+    func thinRailCaughtByEM() throws {
+        let model = try PowerGridExtractor(railWidth: 0.15e-6).extract(ACC4CPUGenerator().gateLevelNetlist())
         let em = ElectromigrationChecker().check(model, limitAmperesPerMeter: emLimitAmperesPerMeter)
         #expect(!em.passed, "worst \(em.worstDensity) A/m should exceed \(emLimitAmperesPerMeter)")
         // The hot spot is the feed segment carrying the whole design's current.
@@ -41,7 +42,7 @@ struct PowerGridSignoffTests {
     @Test("The IR-drop solve agrees with the ngspice oracle (trust anchor)",
           .enabled(if: IRDropValidator.ngspiceAvailable()), .timeLimit(.minutes(3)))
     func irDropMatchesNgspice() async throws {
-        let model = PowerGridExtractor().extract(ACC4CPUGenerator().gateLevelNetlist())
+        let model = try PowerGridExtractor().extract(ACC4CPUGenerator().gateLevelNetlist())
         let agreement = try await IRDropValidator().validate(model, toleranceV: 5e-3)
         #expect(agreement.consistent, "max CoreSpice-vs-ngspice divergence \(agreement.maxDivergenceV * 1000) mV")
     }

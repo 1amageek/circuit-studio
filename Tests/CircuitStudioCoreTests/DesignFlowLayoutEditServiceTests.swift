@@ -263,6 +263,61 @@ struct DesignFlowLayoutEditServiceTests {
         }
     }
 
+    @Test func setShapeNetRejectsStaleNetIDInsteadOfFallingBackToName() throws {
+        var layout = singleCellLayout()
+        let shape = LayoutShape(
+            layer: m1,
+            geometry: .rect(LayoutRect(
+                origin: LayoutPoint(x: 0, y: 0),
+                size: LayoutSize(width: 1, height: 1)
+            ))
+        )
+        layout.cells[0].nets = [LayoutNet(name: "out")]
+        layout.cells[0].shapes = [shape]
+        let staleNetID = UUID()
+        let script = DesignFlowLayoutEditScript(edits: [
+            DesignFlowLayoutEdit(
+                kind: .setShapeNet,
+                cellName: "TOP",
+                elementID: shape.id,
+                netID: staleNetID,
+                netName: "out"
+            ),
+        ])
+
+        #expect(throws: DesignFlowLayoutEditError.unknownNet(staleNetID.uuidString)) {
+            try DesignFlowLayoutEditService().apply(script: script, to: layout)
+        }
+    }
+
+    @Test func setShapeNetRejectsMismatchedNetIDAndName() throws {
+        var layout = singleCellLayout()
+        let shape = LayoutShape(
+            layer: m1,
+            geometry: .rect(LayoutRect(
+                origin: LayoutPoint(x: 0, y: 0),
+                size: LayoutSize(width: 1, height: 1)
+            ))
+        )
+        let outNet = LayoutNet(name: "out")
+        let vddNet = LayoutNet(name: "vdd")
+        layout.cells[0].nets = [outNet, vddNet]
+        layout.cells[0].shapes = [shape]
+        let script = DesignFlowLayoutEditScript(edits: [
+            DesignFlowLayoutEdit(
+                kind: .setShapeNet,
+                cellName: "TOP",
+                elementID: shape.id,
+                netID: vddNet.id,
+                netName: "out"
+            ),
+        ])
+
+        #expect(throws: DesignFlowLayoutEditError.netReferenceMismatch(id: vddNet.id, name: "out")) {
+            try DesignFlowLayoutEditService().apply(script: script, to: layout)
+        }
+    }
+
     // MARK: - Cell and instance hierarchy
 
     @Test func addCellThenInstanceBuildsHierarchy() throws {

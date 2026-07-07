@@ -5,17 +5,20 @@ public struct ExternalSignoffLogArtifact: Sendable, Hashable {
     public let toolName: String
     public let logURL: URL
     public let success: Bool
+    public let parserStyle: ExternalSignoffReportParser.Style?
 
     public init(
         kind: ExternalSignoffToolReport.Kind,
         toolName: String,
         logURL: URL,
-        success: Bool
+        success: Bool,
+        parserStyle: ExternalSignoffReportParser.Style? = nil
     ) {
         self.kind = kind
         self.toolName = toolName
         self.logURL = logURL
         self.success = success
+        self.parserStyle = parserStyle
     }
 }
 
@@ -67,12 +70,19 @@ public struct ExternalSignoffArtifactService: Sendable {
             throw ExternalSignoffArtifactError.readFailed(error.localizedDescription)
         }
 
-        return parser.parse(
+        return parser(for: artifact.parserStyle).parse(
             kind: artifact.kind,
             toolName: artifact.toolName,
             logPath: path,
             rawOutput: contents,
             success: artifact.success
         )
+    }
+
+    private func parser(for override: ExternalSignoffReportParser.Style?) -> ExternalSignoffReportParser {
+        if let override {
+            return ExternalSignoffReportParser(style: override)
+        }
+        return parser
     }
 }

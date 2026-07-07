@@ -8,11 +8,11 @@ import Testing
 struct NetAwareLayoutEvaluatorTests {
 
     @Test("Same-layer geometry owned by different nets is reported as a physical short")
-    func detectsSameLayerShort() {
+    func detectsSameLayerShort() throws {
         let report = NetAwareLayoutEvaluator().evaluate(shapes: [
             owned("a", rect("met3", 0.0, 0.0, 1.15, 0.30)),
             owned("b", rect("met3", 0.85, 0.0, 1.15, 0.30)),
-        ], tech: Sky130LayoutTech.tech())
+        ], tech: try Sky130LayoutTech.tech())
 
         #expect(!report.passed)
         #expect(report.shorts.count == 1)
@@ -21,32 +21,32 @@ struct NetAwareLayoutEvaluatorTests {
     }
 
     @Test("Different routing layers may cross without a cut-layer bridge")
-    func allowsLayerCrossingWithoutBridge() {
+    func allowsLayerCrossingWithoutBridge() throws {
         let report = NetAwareLayoutEvaluator().evaluate(shapes: [
             owned("h", rect("met3", -0.15, -0.15, 2.30, 0.30)),
             owned("v", rect("met4", 0.85, -1.15, 0.30, 2.30)),
-        ], tech: Sky130LayoutTech.tech())
+        ], tech: try Sky130LayoutTech.tech())
 
         #expect(report.passed)
     }
 
     @Test("Cut-layer bridge connects the same net across adjacent conductors")
-    func connectsThroughVia() {
+    func connectsThroughVia() throws {
         let report = NetAwareLayoutEvaluator().evaluate(shapes: [
             owned("n", rect("met3", -0.25, -0.25, 0.50, 0.50)),
             owned("n", rect("via3", -0.10, -0.10, 0.20, 0.20)),
             owned("n", rect("met4", -0.25, -0.25, 0.50, 0.50)),
-        ], tech: Sky130LayoutTech.tech())
+        ], tech: try Sky130LayoutTech.tech())
 
         #expect(report.passed)
     }
 
     @Test("Disconnected geometry owned by one net is reported as an open")
-    func detectsOpen() {
+    func detectsOpen() throws {
         let report = NetAwareLayoutEvaluator().evaluate(shapes: [
             owned("n", rect("met3", 0.0, 0.0, 0.50, 0.30)),
             owned("n", rect("met3", 2.0, 0.0, 0.50, 0.30)),
-        ], tech: Sky130LayoutTech.tech())
+        ], tech: try Sky130LayoutTech.tech())
 
         #expect(!report.passed)
         #expect(report.opens.count == 1)
@@ -55,7 +55,7 @@ struct NetAwareLayoutEvaluatorTests {
     }
 
     @Test("Tagged shape evaluation fails loud when a generated shape has no net owner")
-    func taggedEvaluationRequiresNetOwner() {
+    func taggedEvaluationRequiresNetOwner() throws {
         let tagged = rect("met3", 0.0, 0.0, 0.50, 0.30, properties: [
             NetAwareLayoutEvaluator.netNameProperty: "n"
         ])
@@ -63,7 +63,7 @@ struct NetAwareLayoutEvaluatorTests {
 
         let report = NetAwareLayoutEvaluator().evaluateTaggedShapes(
             [tagged, unowned],
-            tech: Sky130LayoutTech.tech()
+            tech: try Sky130LayoutTech.tech()
         )
 
         #expect(!report.passed)
@@ -71,10 +71,10 @@ struct NetAwareLayoutEvaluatorTests {
     }
 
     @Test("Owned-shape evaluation treats blank net names as unowned geometry")
-    func ownedEvaluationRejectsBlankNetOwner() {
+    func ownedEvaluationRejectsBlankNetOwner() throws {
         let report = NetAwareLayoutEvaluator().evaluate(shapes: [
             owned(" ", rect("met3", 0.0, 0.0, 0.50, 0.30)),
-        ], tech: Sky130LayoutTech.tech())
+        ], tech: try Sky130LayoutTech.tech())
 
         #expect(!report.passed)
         #expect(report.unownedShapes.count == 1)

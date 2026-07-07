@@ -46,11 +46,8 @@ public struct ExternalSpicePreprocessor: Sendable {
     var lines = source.split(whereSeparator: \.isNewline).map { String($0) }
     processedLines.reserveCapacity(lines.count)
 
-    if let extracted = extractPreOsdiPaths(
-      from: lines, baseURL: fileBaseURL, includePaths: includePaths)
-    {
-      osdiLibraries.append(contentsOf: extracted)
-    }
+    osdiLibraries.append(contentsOf: try extractPreOsdiPaths(
+      from: lines, baseURL: fileBaseURL, includePaths: includePaths))
 
     lines = stripControlSections(lines)
     lines = stripEnd(lines)
@@ -99,6 +96,10 @@ public struct ExternalSpicePreprocessor: Sendable {
         continue
       }
 
+      if lower.hasPrefix(".pre_osdi") {
+        continue
+      }
+
       processedLines.append(line)
     }
 
@@ -115,7 +116,7 @@ public struct ExternalSpicePreprocessor: Sendable {
       )
     }
 
-    let allOSDI = osdiLibraries + compiledOSDI
+    let allOSDI = uniqueURLs(osdiLibraries + compiledOSDI)
     let verilogAModels = collectVerilogAModelNames(
       from: processedLines,
       compiledModuleNames: verilogAModuleNames,
@@ -261,20 +262,37 @@ public struct ExternalSpicePreprocessor: Sendable {
     from lines: [String],
     baseURL: URL?,
     includePaths: [String]
-  ) -> [URL]? {
+  ) throws -> [URL] {
     var results: [URL] = []
     for line in lines {
       let trimmed = line.trimmingCharacters(in: .whitespaces)
       let lower = trimmed.lowercased()
       guard lower.hasPrefix(".pre_osdi") else { continue }
       let tokens = tokenizePreservingQuotes(trimmed)
-      guard tokens.count >= 2 else { continue }
+      guard tokens.count >= 2 else {
+        throw StudioError.simulationFailure(
+          "Invalid .pre_osdi directive: expected an OSDI library path."
+        )
+      }
       let path = tokens[1]
-      if let resolved = resolveIncludePath(path, baseURL: baseURL, includePaths: includePaths) {
-        results.append(resolved)
+      guard let resolved = resolveIncludePath(path, baseURL: baseURL, includePaths: includePaths) else {
+        throw StudioError.simulationFailure("Unable to resolve .pre_osdi library path: \(path)")
+      }
+      results.append(resolved)
+    }
+    return results
+  }
+
+  private func uniqueURLs(_ urls: [URL]) -> [URL] {
+    var seen: Set<String> = []
+    var result: [URL] = []
+    for url in urls {
+      let key = url.standardizedFileURL.path
+      if seen.insert(key).inserted {
+        result.append(url)
       }
     }
-    return results.isEmpty ? nil : results
+    return result
   }
 
   private func collectVerilogAModelNames(

@@ -102,7 +102,7 @@ struct SignoffRunner {
                 if let base = options.value("--artifacts") {
                     cellOptions = cellOptions.with(
                         key: "--artifacts",
-                        value: batchCellArtifactDirectory(base: base, cell: cell)
+                        value: try batchCellArtifactDirectory(base: base, cell: cell)
                     )
                 }
                 let passed = try await evaluate(cellOptions)
@@ -187,7 +187,7 @@ struct SignoffRunner {
         ) { index, _ in
             guard index < cells.count else { return nil }
             let cell = cells[index]
-            let base = artifacts.appending(path: cell)
+            let base = try artifacts.appending(path: artifactPathSegment(forCell: cell))
             let gds = try await layoutService.materialize(cell: cell, into: base.appending(path: "layout"))
             let schematic = try provider.schematic(forCell: cell, into: base.appending(path: "schematic"))
             return SignoffIterationLoop.Candidate(layoutGDS: gds, topCell: cell, schematicNetlist: schematic)
@@ -408,8 +408,24 @@ struct SignoffRunner {
             .filter { !$0.isEmpty }
     }
 
-    static func batchCellArtifactDirectory(base: String, cell: String) -> String {
-        URL(filePath: base).appending(path: cell).path(percentEncoded: false)
+    static func batchCellArtifactDirectory(base: String, cell: String) throws -> String {
+        try URL(filePath: base)
+            .appending(path: artifactPathSegment(forCell: cell))
+            .path(percentEncoded: false)
+    }
+
+    static func artifactPathSegment(forCell cell: String) throws -> String {
+        let trimmed = cell.trimmingCharacters(in: .whitespacesAndNewlines)
+        let invalid = trimmed.isEmpty
+            || trimmed == "."
+            || trimmed == ".."
+            || trimmed.contains("/")
+            || trimmed.contains("\\")
+            || trimmed.rangeOfCharacter(from: .controlCharacters) != nil
+        guard !invalid else {
+            throw CLIError(code: 1, message: "invalid cell name for artifact directory: \(cell)")
+        }
+        return trimmed
     }
 
     private static func emitJSON(_ object: [String: Any]) throws {

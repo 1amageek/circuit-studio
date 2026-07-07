@@ -324,10 +324,7 @@ public final class AppState {
     /// Show a save panel and write the SPICE source to a new file.
     public func saveSPICEFileAs() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "cir")!,
-            .init(filenameExtension: "spice")!,
-        ]
+        panel.allowedContentTypes = FileContentTypes.spiceSave
         panel.nameFieldStringValue = spiceFileName ?? "untitled.cir"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }

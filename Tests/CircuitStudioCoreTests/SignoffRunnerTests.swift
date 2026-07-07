@@ -34,7 +34,7 @@ struct SignoffRunnerTests {
     }
 
     @Test("Batch check isolates each cell under the requested artifact root")
-    func batchCheckNamespacesCellArtifacts() {
+    func batchCheckNamespacesCellArtifacts() throws {
         let base = "/tmp/signoff-artifacts"
 
         #expect(SignoffRunner.parseCellList(" inv_1, nand2_1 ,, sky130_fd_sc_hd__buf_1 ") == [
@@ -43,8 +43,23 @@ struct SignoffRunnerTests {
             "sky130_fd_sc_hd__buf_1",
         ])
         #expect(
-            SignoffRunner.batchCellArtifactDirectory(base: base, cell: "sky130_fd_sc_hd__inv_1")
+            try SignoffRunner.batchCellArtifactDirectory(base: base, cell: "sky130_fd_sc_hd__inv_1")
                 == "/tmp/signoff-artifacts/sky130_fd_sc_hd__inv_1"
         )
+    }
+
+    @Test("Batch and iterate artifact cell segments reject path traversal")
+    func artifactCellSegmentsRejectPathTraversal() throws {
+        #expect(try SignoffRunner.artifactPathSegment(forCell: " sky130_fd_sc_hd__inv_1 ") == "sky130_fd_sc_hd__inv_1")
+
+        #expect(throws: SignoffRunner.CLIError.self) {
+            _ = try SignoffRunner.artifactPathSegment(forCell: "../escape")
+        }
+        #expect(throws: SignoffRunner.CLIError.self) {
+            _ = try SignoffRunner.artifactPathSegment(forCell: "cells/INV")
+        }
+        #expect(throws: SignoffRunner.CLIError.self) {
+            _ = try SignoffRunner.batchCellArtifactDirectory(base: "/tmp/signoff-artifacts", cell: "..")
+        }
     }
 }

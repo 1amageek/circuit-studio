@@ -70,10 +70,30 @@ extension RunReviewService {
         _ artifact: FlowRunReviewArtifact,
         projectRoot: URL
     ) throws -> XcircuiteArtifactEnvelope {
+        try validateArtifactEvaluationEnvelopeIntegrity(artifact)
         let data = try Data(contentsOf: artifactEvaluationURL(for: artifact, projectRoot: projectRoot))
         let envelope = try JSONDecoder().decode(XcircuiteArtifactEnvelope.self, from: data)
         try XcircuiteArtifactEnvelopeValidator().validate(envelope)
         return envelope
+    }
+
+    private func validateArtifactEvaluationEnvelopeIntegrity(
+        _ artifact: FlowRunReviewArtifact
+    ) throws {
+        guard let integrity = artifact.integrity else {
+            throw RunReviewServiceError.artifactEvaluationEnvelopeIntegrityUnverified(
+                path: artifact.path,
+                status: "missing",
+                message: "No recorded artifact integrity state is available."
+            )
+        }
+        guard integrity.status == .verified else {
+            throw RunReviewServiceError.artifactEvaluationEnvelopeIntegrityUnverified(
+                path: artifact.path,
+                status: integrity.status.rawValue,
+                message: integrity.message
+            )
+        }
     }
 
     private func artifactEvaluationURL(

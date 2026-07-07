@@ -11,10 +11,10 @@ struct GateLevelLogicSimulatorTests {
     private let sim = GateLevelLogicSimulator()
 
     @Test("Static-CMOS cells evaluate to their boolean function")
-    func cellsEvaluateCorrectly() {
-        let nand2 = CMOSGateNetlist.nand(name: "nand2", inputs: ["A", "B"])
-        let nor2 = CMOSGateNetlist.nor(name: "nor2", inputs: ["A", "B"])
-        let inv = CMOSGateNetlist.inverter(name: "inv")
+    func cellsEvaluateCorrectly() throws {
+        let nand2 = try CMOSGateNetlist.nand(name: "nand2", inputs: ["A", "B"])
+        let nor2 = try CMOSGateNetlist.nor(name: "nor2", inputs: ["A", "B"])
+        let inv = try CMOSGateNetlist.inverter(name: "inv")
         for a in [false, true] {
             for b in [false, true] {
                 let g: (String) -> Bool = { $0 == "A" ? a : b }
@@ -28,7 +28,7 @@ struct GateLevelLogicSimulatorTests {
     @Test("A mapped Boolean circuit simulates to its truth table")
     func combinationalTruthTable() throws {
         // Y = (a AND b) OR c, synthesized to NAND/NOR/INV by the mapper.
-        let gl = BooleanGateMapper().map(.or(.and(.input("a"), .input("b")), .input("c")), name: "aoi", output: "y")
+        let gl = try BooleanGateMapper().map(.or(.and(.input("a"), .input("b")), .input("c")), name: "aoi", output: "y")
         let seq = SequentialNetlist(name: "aoi", combinational: gl.instances, dffs: [],
                                     inputs: gl.inputs, outputs: ["y"])
         for combo in 0..<8 {
@@ -52,19 +52,39 @@ struct GateLevelLogicSimulatorTests {
 
     @Test("M2 functional: a 4-bit clocked accumulator adds its input every cycle")
     func accumulatorAccumulates() throws {
-        let seq = AccumulatorGenerator(bits: 4).sequentialNetlist(name: "acc")
-        func run(addend: Int, cycles n: Int) -> [Int] {
+        let seq = try AccumulatorGenerator(bits: 4).sequentialNetlist(name: "acc")
+        func run(addend: Int, cycles n: Int) throws -> [Int] {
             let vec = (0..<4).reduce(into: [String: Bool]()) { $0["in\($1)"] = (addend >> $1) & 1 == 1 }
-            let trace = try! sim.simulate(seq, cycles: Array(repeating: vec, count: n))
+            let trace = try sim.simulate(seq, cycles: Array(repeating: vec, count: n))
             return trace.map { t in (0..<4).reduce(0) { $0 | ((t["acc\($1)"] ?? false) ? (1 << $1) : 0) } }
         }
-        #expect(run(addend: 1, cycles: 6) == [0, 1, 2, 3, 4, 5])
-        #expect(run(addend: 3, cycles: 7) == [0, 3, 6, 9, 12, 15, 2])   // mod 16
+        let plusOne = try run(addend: 1, cycles: 6)
+        let plusThree = try run(addend: 3, cycles: 7)
+        #expect(plusOne == [0, 1, 2, 3, 4, 5])
+        #expect(plusThree == [0, 3, 6, 9, 12, 15, 2])   // mod 16
+    }
+
+    @Test("Gate-level netlist decoding rejects missing outputs")
+    func gateLevelNetlistDecodingRejectsMissingOutputs() {
+        let json = Data("""
+        {
+          "name": "invalid",
+          "instances": [],
+          "inputs": ["a"],
+          "outputs": [],
+          "vpwr": "VPWR",
+          "vgnd": "VGND"
+        }
+        """.utf8)
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(GateLevelNetlist.self, from: json)
+        }
     }
 
     @Test("M3 functional: the 4-bit ALU matches its truth table for ADD/SUB/AND/OR")
     func aluTruthTable() throws {
-        let seq = ALUGenerator(bits: 4).combinationalModel()
+        let seq = try ALUGenerator(bits: 4).combinationalModel()
         for av in 0..<16 {
             for bv in 0..<16 {
                 for op in 0..<4 {
@@ -89,7 +109,7 @@ struct GateLevelLogicSimulatorTests {
     func toggleFlipFlop() throws {
         let seq = SequentialNetlist(
             name: "toggle",
-            combinational: [.init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "q", "Y": "dn"])],
+            combinational: [.init(name: "g0", cell: try .inverter(name: "inv"), netMap: ["A": "q", "Y": "dn"])],
             dffs: [.init(name: "ff0", d: "dn", clk: "clk", q: "q")],
             inputs: [], outputs: ["q"])
         let trace = try sim.simulate(seq, cycles: Array(repeating: [:], count: 6))

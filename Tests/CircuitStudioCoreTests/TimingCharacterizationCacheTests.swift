@@ -13,11 +13,12 @@ struct TimingCharacterizationCacheTests {
         }
 
         let cache = TimingCharacterizationCache(directory: directory)
-        let cell = CMOSGateNetlist.inverter(name: "inv")
+        let cell = try CMOSGateNetlist.inverter(name: "inv")
+        let model = try Level1DeviceModel.loadBundledDefault()
         let counter = CallCounter()
         let first = try await cache.cellTiming(
             cell: cell,
-            model: .bundledDefault(),
+            model: model,
             inputSlews: [40e-12],
             outputLoads: [1e-15]
         ) {
@@ -26,7 +27,7 @@ struct TimingCharacterizationCacheTests {
         }
         let second = try await cache.cellTiming(
             cell: cell,
-            model: .bundledDefault(),
+            model: model,
             inputSlews: [40e-12],
             outputLoads: [1e-15]
         ) {
@@ -47,13 +48,15 @@ struct TimingCharacterizationCacheTests {
         }
 
         let cache = TimingCharacterizationCache(directory: directory)
-        let netlist = DFFGenerator().netlist(name: "dff")
+        let netlist = try DFFGenerator().netlist(name: "dff")
+        let model = try Level1DeviceModel.loadBundledDefault()
+        let technologyContext = try Level1DeviceModel.loadBundledDefaultTechnologyContext()
         let counter = CallCounter()
         let first = try await cache.sequentialReport(
             netlist: netlist,
             cellName: "dff",
-            model: .bundledDefault(),
-            technologyContext: Level1DeviceModel.bundledDefaultTechnologyContext(),
+            model: model,
+            technologyContext: technologyContext,
             clockSlew: 80e-12,
             dataSlew: 80e-12,
             outputLoads: [1e-15],
@@ -67,8 +70,8 @@ struct TimingCharacterizationCacheTests {
         let second = try await cache.sequentialReport(
             netlist: netlist,
             cellName: "dff",
-            model: .bundledDefault(),
-            technologyContext: Level1DeviceModel.bundledDefaultTechnologyContext(),
+            model: model,
+            technologyContext: technologyContext,
             clockSlew: 80e-12,
             dataSlew: 80e-12,
             outputLoads: [1e-15],
@@ -93,9 +96,9 @@ struct TimingCharacterizationCacheTests {
         }
 
         let cache = TimingCharacterizationCache(directory: directory)
-        let model = Level1DeviceModel.bundledDefault()
-        let netlist = DFFGenerator().netlist(name: "dff")
-        let defaultContext = Level1DeviceModel.bundledDefaultTechnologyContext()
+        let model = try Level1DeviceModel.loadBundledDefault()
+        let netlist = try DFFGenerator().netlist(name: "dff")
+        let defaultContext = try Level1DeviceModel.loadBundledDefaultTechnologyContext()
         let externalContext = TimingTechnologyContext(
             processName: defaultContext.processName,
             cornerID: defaultContext.cornerID,
@@ -152,7 +155,8 @@ struct TimingCharacterizationCacheTests {
 
         #expect(defaultReport.timing.setupTime == 20e-12)
         #expect(externalReport.timing.setupTime == 40e-12)
-        #expect(defaultReport.technology.modelProfile?.resourceName == Level1DeviceModel.bundledDefaultProfileResourceName())
+        let expectedResourceName = try Level1DeviceModel.loadBundledDefaultProfileResourceName()
+        #expect(defaultReport.technology.modelProfile?.resourceName == expectedResourceName)
         #expect(externalReport.technology.modelProfile?.path == "/tmp/external-timing-profile.json")
         #expect(await counter.value() == 2)
     }
@@ -168,15 +172,17 @@ struct TimingCharacterizationCacheTests {
         let cache = TimingCharacterizationCache(directory: directory)
         let inputSlews = [40e-12, 200e-12]
         let outputLoads = [1e-15, 4e-15, 12e-15]
+        let model = try Level1DeviceModel.loadBundledDefault()
+        let technologyContext = try Level1DeviceModel.loadBundledDefaultTechnologyContext()
         let cells: [CMOSGateNetlist] = [
-            .inverter(name: "inv"),
-            .nand(name: "nand2", inputs: ["A", "B"]),
-            .nor(name: "nor2", inputs: ["A", "B"]),
+            try .inverter(name: "inv"),
+            try .nand(name: "nand2", inputs: ["A", "B"]),
+            try .nor(name: "nor2", inputs: ["A", "B"]),
         ]
         for (index, cell) in cells.enumerated() {
             _ = try await cache.cellTiming(
                 cell: cell,
-                model: .bundledDefault(),
+                model: model,
                 inputSlews: inputSlews,
                 outputLoads: outputLoads
             ) {
@@ -184,12 +190,12 @@ struct TimingCharacterizationCacheTests {
             }
         }
 
-        let dffNetlist = DFFGenerator().netlist(name: "dff")
+        let dffNetlist = try DFFGenerator().netlist(name: "dff")
         _ = try await cache.sequentialReport(
             netlist: dffNetlist,
             cellName: "dff",
-            model: .bundledDefault(),
-            technologyContext: Level1DeviceModel.bundledDefaultTechnologyContext(),
+            model: model,
+            technologyContext: technologyContext,
             clockSlew: 80e-12,
             dataSlew: 80e-12,
             outputLoads: outputLoads,
@@ -227,14 +233,14 @@ struct TimingCharacterizationCacheTests {
         }
 
         let cache = TimingCharacterizationCache(directory: directory)
-        let cell = CMOSGateNetlist.inverter(name: "inv")
+        let cell = try CMOSGateNetlist.inverter(name: "inv")
         let leaderStarted = AsyncGate()
         let secondCalled = AsyncGate()
         let gate = AsyncGate()
         let first = Task {
             try await cache.cellTiming(
                 cell: cell,
-                model: .bundledDefault(),
+                model: try Level1DeviceModel.loadBundledDefault(),
                 inputSlews: [40e-12],
                 outputLoads: [1e-15]
             ) {
@@ -251,7 +257,7 @@ struct TimingCharacterizationCacheTests {
             await secondCalled.open()
             return try await cache.cellTiming(
                 cell: cell,
-                model: .bundledDefault(),
+                model: try Level1DeviceModel.loadBundledDefault(),
                 inputSlews: [40e-12],
                 outputLoads: [1e-15]
             ) {
@@ -273,6 +279,94 @@ struct TimingCharacterizationCacheTests {
         let secondResult = await second.result
         #expect(Self.isPersistenceFailure(firstResult))
         #expect(Self.isPersistenceFailure(secondResult))
+    }
+
+    @Test("Corrupt cache artifact read failure exposes structured diagnostic", .timeLimit(.minutes(1)))
+    func corruptCacheArtifactReadFailureExposesStructuredDiagnostic() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("timing-characterization-cache-corrupt-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            Self.removeTemporaryDirectoryIfPresent(directory)
+        }
+
+        let cache = TimingCharacterizationCache(directory: directory)
+        let cell = try CMOSGateNetlist.inverter(name: "inv")
+        let model = try Level1DeviceModel.loadBundledDefault()
+        _ = try await cache.cellTiming(
+            cell: cell,
+            model: model,
+            inputSlews: [40e-12],
+            outputLoads: [1e-15]
+        ) {
+            Self.cellTimingFixture(cellName: "inv", value: 10e-12)
+        }
+
+        let cellArtifactDirectory = directory.appendingPathComponent("cells", isDirectory: true)
+        let artifacts = try FileManager.default.contentsOfDirectory(
+            at: cellArtifactDirectory,
+            includingPropertiesForKeys: nil
+        )
+        let artifactURL = try #require(artifacts.first)
+        let original = try String(contentsOf: artifactURL, encoding: .utf8)
+        let corrupted = original.replacingOccurrences(
+            of: "\"cell-timing-characterization-cache\"",
+            with: "\"unexpected-timing-cache-kind\""
+        )
+        try corrupted.write(to: artifactURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await cache.cellTiming(
+                cell: cell,
+                model: model,
+                inputSlews: [40e-12],
+                outputLoads: [1e-15]
+            ) {
+                Issue.record("Corrupt cache artifact should fail before recomputing timing.")
+                return Self.cellTimingFixture(cellName: "inv", value: 20e-12)
+            }
+            Issue.record("Corrupt cache artifact unexpectedly returned a timing result.")
+        } catch let error as TimingCharacterizationCache.CacheError {
+            let diagnostic = error.diagnostic
+            #expect(diagnostic.code == "TIMING_CACHE_KIND_MISMATCH")
+            #expect(diagnostic.operation == "read-cache-artifact")
+            #expect(URL(fileURLWithPath: diagnostic.path).resolvingSymlinksInPath().path == artifactURL.resolvingSymlinksInPath().path)
+            #expect(diagnostic.suggestedActions.contains("quarantine-invalid-timing-cache-artifact"))
+            #expect(error.code == diagnostic.code)
+        } catch {
+            Issue.record("Unexpected corrupt cache error: \(error)")
+        }
+    }
+
+    @Test("Cache persistence failure exposes structured diagnostic", .timeLimit(.minutes(1)))
+    func cachePersistenceFailureExposesStructuredDiagnostic() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("timing-characterization-cache-diagnostic-file-\(UUID().uuidString)", isDirectory: false)
+        let created = FileManager.default.createFile(atPath: directory.path, contents: Data())
+        #expect(created)
+        defer {
+            Self.removeTemporaryDirectoryIfPresent(directory)
+        }
+
+        let cache = TimingCharacterizationCache(directory: directory)
+        do {
+            _ = try await cache.cellTiming(
+                cell: try CMOSGateNetlist.inverter(name: "inv"),
+                model: try Level1DeviceModel.loadBundledDefault(),
+                inputSlews: [40e-12],
+                outputLoads: [1e-15]
+            ) {
+                Self.cellTimingFixture(cellName: "inv", value: 10e-12)
+            }
+            Issue.record("Unwritable cache directory unexpectedly persisted a timing result.")
+        } catch let error as TimingCharacterizationCache.CacheError {
+            let diagnostic = error.diagnostic
+            #expect(diagnostic.code == "TIMING_CACHE_DIRECTORY_CREATION_FAILED")
+            #expect(diagnostic.operation == "create-cache-directory")
+            #expect(diagnostic.suggestedActions.contains("select-writable-timing-cache-directory"))
+            #expect(error.suggestedActions == diagnostic.suggestedActions)
+        } catch {
+            Issue.record("Unexpected persistence error: \(error)")
+        }
     }
 
     private static func cellTimingFixture(cellName: String, value: Double) -> CellTiming {
@@ -312,8 +406,14 @@ struct TimingCharacterizationCacheTests {
         outputLoads: [Double] = [1e-15],
         setupHoldSearchWindow: Double = 300e-12,
         setupHoldSearchResolution: Double = 20e-12,
-        technology: TimingTechnologyContext = Level1DeviceModel.bundledDefaultTechnologyContext()
+        technology: TimingTechnologyContext? = nil
     ) throws -> SequentialTimingCharacterizationReport {
+        let resolvedTechnology: TimingTechnologyContext
+        if let technology {
+            resolvedTechnology = technology
+        } else {
+            resolvedTechnology = try Level1DeviceModel.loadBundledDefaultTechnologyContext()
+        }
         let timing = SequentialTiming(
             clkToQRise: try singleSlewLUT(outputLoads: outputLoads, value: 100e-12),
             clkToQFall: try singleSlewLUT(outputLoads: outputLoads, value: 110e-12),
@@ -328,7 +428,7 @@ struct TimingCharacterizationCacheTests {
             cellName: "dff",
             topologyHash: try TimingTopologyHasher.hash(netlist),
             activeClockEdge: .rising,
-            technology: technology,
+            technology: resolvedTechnology,
             characterizationGrid: SequentialTimingCharacterizationGrid(
                 clockSlews: [80e-12],
                 dataSlews: [80e-12],

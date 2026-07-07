@@ -73,7 +73,7 @@ extension DesignFlowService {
             readyForPEX: verificationResult.readyForPEX,
             technologyPackageID: verificationResult.technologyPackageID,
             technologyPackagePath: verificationResult.technologyPackagePath,
-            actionLogPath: actionLogPath(projectRoot: projectRoot, runID: runID),
+            actionLogPath: try actionLogPath(projectRoot: projectRoot, runID: runID),
             layoutTrustPassed: verificationResult.layoutTrustPassed,
             layoutTrustReportPath: verificationResult.layoutTrustReportPath,
             layoutTrustReport: verificationResult.layoutTrustReport,
@@ -114,7 +114,7 @@ extension DesignFlowService {
             kind: command.kind,
             runID: runID,
             projectRootPath: projectRootPath,
-            actionLogPath: actionLogPath(projectRoot: projectRoot, runID: runID),
+            actionLogPath: try actionLogPath(projectRoot: projectRoot, runID: runID),
             actionRecordIDs: [record.actionID],
             message: record.actionID
         )

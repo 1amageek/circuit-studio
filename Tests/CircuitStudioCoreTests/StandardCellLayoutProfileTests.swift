@@ -8,9 +8,10 @@ struct StandardCellLayoutProfileTests {
     @Test("Bundled standard-cell layout profile loads inverter policy from resource")
     func bundledStandardCellLayoutProfileLoadsInverterPolicy() throws {
         let profile = try Self.bundledProfile()
+        let targetTechnologyResourceName = try Sky130LayoutTech.resourceName()
 
         #expect(profile.profileID == "sky130.standard-cell-layout.v1")
-        #expect(profile.targetTechnologyResourceName == Sky130LayoutTech.resourceName)
+        #expect(profile.targetTechnologyResourceName == targetTechnologyResourceName)
         #expect(profile.layers.diffusion.name == "diff")
         #expect(profile.layers.contactCut.purpose == "cut")
         #expect(profile.layers.metal2.name == "met2")
@@ -27,7 +28,7 @@ struct StandardCellLayoutProfileTests {
     @Test("CMOSGateLibrary derives device sizing from standard-cell profile")
     func cmosGateLibraryDerivesDeviceSizingFromStandardCellProfile() throws {
         let profile = try Self.bundledProfile()
-        let library = CMOSGateLibrary(profile: profile)
+        let library = try CMOSGateLibrary.loadBundledDefault()
         let cells = [
             library.inverter(name: "inv_profile"),
             library.nand(name: "nand2_profile", inputs: ["A", "B"]),
@@ -38,11 +39,12 @@ struct StandardCellLayoutProfileTests {
             #expect(cell.devices.allSatisfy { $0.width == profile.generatedCellLayout.deviceWidth })
             #expect(cell.devices.allSatisfy { $0.length == profile.generatedCellLayout.gateLength })
         }
+        #expect(try SpecDrivenCellFlow.loadGridMicrons() == profile.manufacturingGridMicrons)
     }
 
     @Test("BooleanGateMapper uses injected CMOS gate library sizing")
-    func booleanGateMapperUsesInjectedCMOSGateLibrarySizing() {
-        let library = CMOSGateLibrary(deviceSizing: .init(width: 0.73, length: 0.19))
+    func booleanGateMapperUsesInjectedCMOSGateLibrarySizing() throws {
+        let library = try CMOSGateLibrary(deviceSizing: .init(width: 0.73, length: 0.19))
         let mapper = BooleanGateMapper(cellLibrary: library)
         let netlist = mapper.map(.and(.input("a"), .input("b")), name: "and_profiled")
         let devices = netlist.instances.flatMap(\.cell.devices)
@@ -50,6 +52,16 @@ struct StandardCellLayoutProfileTests {
         #expect(!devices.isEmpty)
         #expect(devices.allSatisfy { $0.width == 0.73 })
         #expect(devices.allSatisfy { $0.length == 0.19 })
+    }
+
+    @Test("CMOSGateLibrary device sizing rejects non-positive values")
+    func cmosGateLibraryDeviceSizingRejectsNonPositiveValues() {
+        #expect(throws: CMOSGateLibrary.DeviceSizing.ValidationError.nonPositiveWidth(0)) {
+            _ = try CMOSGateLibrary.DeviceSizing(width: 0, length: 0.19)
+        }
+        #expect(throws: CMOSGateLibrary.DeviceSizing.ValidationError.nonPositiveLength(-0.1)) {
+            _ = try CMOSGateLibrary.DeviceSizing(width: 0.73, length: -0.1)
+        }
     }
 
     @Test("StandardCellLayoutProfile rejects incomplete layer references")
@@ -125,7 +137,7 @@ struct StandardCellLayoutProfileTests {
         let generator = ProfiledStandardCellGenerator(cellID: "missing_cell", profile: profile)
 
         #expect(throws: ProfiledStandardCellGenerator.GeneratorError.missingFixedCell("missing_cell")) {
-            _ = try generator.generateChecked()
+            _ = try generator.generate()
         }
     }
 
@@ -193,12 +205,12 @@ struct StandardCellLayoutProfileTests {
 
         let nandGenerator = ProfiledStandardCellGenerator(cellID: "nand2", profile: profile)
         let norGenerator = ProfiledStandardCellGenerator(cellID: "nor2", profile: profile)
-        let nandDocument = nandGenerator.generate(name: "NAND_CUSTOM")
-        let norDocument = norGenerator.generate(name: "NOR_CUSTOM")
+        let nandDocument = try nandGenerator.generate(name: "NAND_CUSTOM")
+        let norDocument = try norGenerator.generate(name: "NOR_CUSTOM")
         let nandLayers = Set(nandDocument.cells.flatMap { $0.shapes.map(\.layer.name) })
         let norLayers = Set(norDocument.cells.flatMap { $0.shapes.map(\.layer.name) })
-        let nandSchematic = nandGenerator.schematic(name: "NAND_CUSTOM")
-        let norSchematic = norGenerator.schematic(name: "NOR_CUSTOM")
+        let nandSchematic = try nandGenerator.schematic(name: "NAND_CUSTOM")
+        let norSchematic = try norGenerator.schematic(name: "NOR_CUSTOM")
 
         #expect(nandLayers.contains("active_custom"))
         #expect(nandLayers.contains("contact_custom"))
@@ -232,9 +244,10 @@ struct StandardCellLayoutProfileTests {
             deviceModels: .init(nmos: "custom_nfet", pmos: "custom_pfet")
         )
         let synth = StandardCellSynthesizer(profile: profile)
-        let layout = try synth.layout(.inverter(name: "INV_DYNAMIC", input: "A", output: "Y"))
+        let cell = try CMOSGateNetlist.inverter(name: "INV_DYNAMIC", input: "A", output: "Y")
+        let layout = try synth.layout(cell)
         let layerNames = Set(layout.shapes.map(\.layer.name))
-        let schematic = synth.schematic(.inverter(name: "INV_DYNAMIC", input: "A", output: "Y"))
+        let schematic = synth.schematic(cell)
 
         #expect(layout.fieldY == profile.generatedCellLayout.fieldY)
         #expect(layout.outputBusY == profile.generatedCellLayout.outputBusY)
@@ -271,13 +284,30 @@ struct StandardCellLayoutProfileTests {
             profile: profile,
             layoutTechnology: technology
         )
-        let netlist = GateLevelNetlist.inverterChain(name: "chain_profiled", stages: 2)
+        let netlist = try GateLevelNetlist.inverterChain(name: "chain_profiled", stages: 2)
         let candidates = try synth.antennaProtectionCandidates(for: netlist)
-        let schematic = synth.referenceSPICE(for: netlist)
+        let schematic = try synth.referenceSPICE(for: netlist)
 
         #expect(candidates.map(\.trackYMicrons).min() == 4.25)
         #expect(schematic.contains("custom_pfet"))
         #expect(schematic.contains("custom_nfet"))
+    }
+
+    @Test("StandardCircuitSynthesizer reports missing spacing rules")
+    func circuitSynthesizerReportsMissingSpacingRules() throws {
+        let profile = try Self.bundledProfile()
+        var technology = try LayoutTechnologyResource.bundled(
+            resourceName: profile.targetTechnologyResourceName
+        )
+        technology.layerRules = []
+        let synth = StandardCircuitSynthesizer(
+            profile: profile,
+            layoutTechnology: technology
+        )
+
+        #expect(throws: StandardCircuitSynthesizer.RouteError.missingMinimumSpacing(layer: "met3")) {
+            _ = try synth.synthesisResult(for: .inverterChain(name: "missing_spacing", stages: 2))
+        }
     }
 
     private static func customProfile(

@@ -25,7 +25,7 @@ struct MultiConstraintSignoffTests {
         // so the only constraint is the real FF→FF path.
         let seq = SequentialNetlist(
             name: "c",
-            combinational: [.init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "q", "Y": "d"])],
+            combinational: [.init(name: "g0", cell: try .inverter(name: "inv"), netMap: ["A": "q", "Y": "d"])],
             dffs: [.init(name: "ff", d: "d", clk: "clk", q: "q")],
             inputs: [], outputs: ["q"], clock: "clk")
         return try StaticTimingAnalyzer(library: constantLibrary()).analyze(seq, clockPeriod: clockPeriod, defaultInputSlew: 1e-11)

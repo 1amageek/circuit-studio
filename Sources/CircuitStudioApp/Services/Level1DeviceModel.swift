@@ -25,60 +25,63 @@ public struct Level1DeviceModel: Sendable, Hashable, Codable {
         self.oxideCapPerArea = oxideCapPerArea
     }
 
-    public static func bundledDefault() -> Level1DeviceModel {
-        bundledDefaultProfile().model
+    public static func loadBundledDefault() throws -> Level1DeviceModel {
+        try loadBundledDefaultProfile().model
     }
 
-    public static func bundledDefaultProfile() -> Level1DeviceModelProfile {
-        do {
-            return try bundledDefaultProfileSelection().profile
-        } catch {
-            preconditionFailure("Bundled default level-1 device model profile is missing or invalid: \(error)")
+    public static func loadBundledDefaultProfile() throws -> Level1DeviceModelProfile {
+        try bundledDefaultProfileSelection().profile
+    }
+
+    public static func loadBundledDefaultTechnologyContext() throws -> TimingTechnologyContext {
+        try bundledDefaultProfileSelection().technologyContext
+    }
+
+    public static func loadBundledDefaultProfileResourceName() throws -> String {
+        let catalog = try TimingModelProfileCatalog.bundled()
+        let entry = try catalog.entry(profileID: nil)
+        guard let resourceName = entry.profileResourceName else {
+            throw TimingModelProfileCatalogError.missingProfileReference(entry.profileID)
         }
+        return resourceName
     }
 
-    public static func bundledDefaultTechnologyContext() -> TimingTechnologyContext {
-        do {
-            return try bundledDefaultProfileSelection().technologyContext
-        } catch {
-            preconditionFailure("Bundled default level-1 device model profile context is invalid: \(error)")
-        }
-    }
-
-    public static func bundledDefaultProfileResourceName() -> String {
-        do {
-            let catalog = try TimingModelProfileCatalog.bundled()
-            let entry = try catalog.entry(profileID: nil)
-            guard let resourceName = entry.profileResourceName else {
-                preconditionFailure("Bundled default level-1 device model profile is not a bundled resource.")
-            }
-            return resourceName
-        } catch {
-            preconditionFailure("Bundled default level-1 device model profile resource is missing: \(error)")
-        }
-    }
-
-    public static func technologyContext(for model: Level1DeviceModel) -> TimingTechnologyContext {
+    public static func technologyContextChecked(for model: Level1DeviceModel) throws -> TimingTechnologyContext {
         do {
             let defaultSelection = try bundledDefaultProfileSelection()
             if model == defaultSelection.profile.model {
                 return defaultSelection.technologyContext
             }
         } catch {
-            // A custom model can still produce an unprofiled context below.
+            // Custom model contexts do not require the bundled default profile.
         }
+        return TimingTechnologyContext(
+            processName: "custom-level1",
+            cornerID: "unspecified",
+            supplyVoltage: model.supplyVoltage,
+            deviceModelID: "custom-level1-device-model",
+            deviceModelHash: try TimingTopologyHasher.hashModel(model)
+        )
+    }
 
-        do {
-            return TimingTechnologyContext(
-                processName: "custom-level1",
-                cornerID: "unspecified",
-                supplyVoltage: model.supplyVoltage,
-                deviceModelID: "custom-level1-device-model",
-                deviceModelHash: try TimingTopologyHasher.hashModel(model)
-            )
-        } catch {
-            preconditionFailure("Custom level-1 device model context is invalid: \(error)")
-        }
+    public static func bundledDefault() throws -> Level1DeviceModel {
+        try loadBundledDefault()
+    }
+
+    public static func bundledDefaultProfile() throws -> Level1DeviceModelProfile {
+        try loadBundledDefaultProfile()
+    }
+
+    public static func bundledDefaultTechnologyContext() throws -> TimingTechnologyContext {
+        try loadBundledDefaultTechnologyContext()
+    }
+
+    public static func bundledDefaultProfileResourceName() throws -> String {
+        try loadBundledDefaultProfileResourceName()
+    }
+
+    public static func technologyContext(for model: Level1DeviceModel) throws -> TimingTechnologyContext {
+        try technologyContextChecked(for: model)
     }
 
     private struct DefaultProfileSelection {

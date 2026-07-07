@@ -14,6 +14,7 @@ public struct SpecToSiliconFlow: Sendable {
     public enum FlowError: Error, LocalizedError, Equatable {
         case missingTimingArtifactRecord(String)
         case missingSequentialTimingGridPoint
+        case invalidArtifactDesignName(String)
 
         public var errorDescription: String? {
             switch self {
@@ -21,6 +22,8 @@ public struct SpecToSiliconFlow: Sendable {
                 return "Timing artifact manifest did not contain required artifact record '\(id)'."
             case .missingSequentialTimingGridPoint:
                 return "Sequential timing report does not contain a clock slew and output load grid point."
+            case .invalidArtifactDesignName(let name):
+                return "Spec-to-silicon design name must be a non-empty file stem containing only letters, digits, underscore, or hyphen: \(name)"
             }
         }
     }
@@ -44,7 +47,7 @@ public struct SpecToSiliconFlow: Sendable {
         public let gdsPath: URL?
     }
 
-    private let generator = ACC4CPUGenerator()
+    private let generator: ACC4CPUGenerator
     private let signoffAvailable: Bool
     private let timingLibraryBuilder: any TimingLibraryBuilding
     private let spiceValidator: any TimingPathValidating
@@ -53,27 +56,37 @@ public struct SpecToSiliconFlow: Sendable {
     /// tests); by default it runs when the toolchain is reachable.
     public init(
         runPhysical: Bool = true,
-        timingLibraryBuilder: any TimingLibraryBuilding = StandardTimingLibraryBuilder(),
-        spiceValidator: any TimingPathValidating = STAvsSPICEValidator()
-    ) {
+        timingLibraryBuilder: (any TimingLibraryBuilding)? = nil,
+        spiceValidator: (any TimingPathValidating)? = nil
+    ) throws {
+        self.generator = try ACC4CPUGenerator()
         self.signoffAvailable = runPhysical
-        self.timingLibraryBuilder = timingLibraryBuilder
-        self.spiceValidator = spiceValidator
+        if let timingLibraryBuilder {
+            self.timingLibraryBuilder = timingLibraryBuilder
+        } else {
+            self.timingLibraryBuilder = try StandardTimingLibraryBuilder()
+        }
+        if let spiceValidator {
+            self.spiceValidator = spiceValidator
+        } else {
+            self.spiceValidator = try STAvsSPICEValidator()
+        }
     }
 
     public func run(_ intent: Intent, artifactDirectory: URL) async throws -> Result {
+        let artifactStem = try validatedArtifactStem(intent.designName)
         try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
         var claims: [TapeoutEvidenceBundle.Claim] = []
 
         // 1) FUNCTIONAL — the gate-level core must match the reference running the program.
         let golden = ACC4Reference().run(intent.program, cycles: intent.cycles)
-        let actual = try ACC4Machine().run(intent.program, cycles: intent.cycles)
+        let actual = try ACC4Machine(generator: generator).run(intent.program, cycles: intent.cycles)
         let functionalPass = actual == golden.trace
         let traceRecord = try ArtifactPublisher(runDirectory: artifactDirectory).publishJSON(
             ACC4FunctionalTraceArtifact(designName: intent.designName, trace: golden.trace),
             id: ACC4FunctionalTraceArtifact.artifactKind,
             kind: ACC4FunctionalTraceArtifact.artifactKind,
-            relativePath: "\(intent.designName).trace.json"
+            relativePath: "\(artifactStem).trace.json"
         )
         claims.append(.init(axis: .functional,
                             statement: "gate-level core matches the reference over \(intent.cycles) cycles",
@@ -86,7 +99,7 @@ public struct SpecToSiliconFlow: Sendable {
         let runID = intent.designName
         let timingBuild = try await timingLibraryBuilder.buildStandardLibrary(runID: runID)
         let library = timingBuild.library
-        let seq = generator.sequentialNetlist()
+        let seq = try generator.sequentialNetlist()
         let report = try StaticTimingAnalyzer(library: library)
             .analyze(seq, clockPeriod: intent.targetClockPeriod, defaultInputSlew: intent.defaultInputSlew)
         let validation = try await spiceValidator.validate(path: report.criticalPath, in: seq, toleranceFraction: 0.25)
@@ -154,7 +167,7 @@ public struct SpecToSiliconFlow: Sendable {
         //    always run (in-process); DRC, LVS, antenna and density run on the real toolchain
         //    when present and are honestly omitted otherwise. Every axis the flow runs is
         //    reported truthfully — a failing axis fails the bundle, never a curated green.
-        let netlist = generator.gateLevelNetlist(name: intent.designName)
+        let netlist = try generator.gateLevelNetlist(name: intent.designName)
         let layoutProfile = try StandardCellLayoutProfileCatalog.loadDefaultProfile()
         let layoutTechnology = try LayoutTechnologyResource.bundled(
             resourceName: layoutProfile.targetTechnologyResourceName
@@ -164,7 +177,7 @@ public struct SpecToSiliconFlow: Sendable {
             layoutTechnology: layoutTechnology
         )
         let synthesis = try synth.synthesisResult(for: netlist)
-        let antennaPlanURL = artifactDirectory.appending(path: "\(intent.designName).antenna-protection.json")
+        let antennaPlanURL = artifactDirectory.appending(path: "\(artifactStem).antenna-protection.json")
         let antennaPlanRecord = try AntennaProtectionArtifactWriter().write(synthesis.antennaProtectionPlan, to: antennaPlanURL)
         claims.append(.init(axis: .antenna,
                             statement: TapeoutEvidenceBundle.Claim.antennaProtectionPlanStatement,
@@ -173,9 +186,9 @@ public struct SpecToSiliconFlow: Sendable {
                             artifact: TapeoutEvidenceArtifact(publicationRecord: antennaPlanRecord),
                             kind: .supportingEvidence))
         let doc = synthesis.document
-        let gds = artifactDirectory.appending(path: "\(intent.designName).gds")
+        let gds = artifactDirectory.appending(path: "\(artifactStem).gds")
         try MaskDataFormatConverter(tech: layoutTechnology).exportDocument(doc, to: gds, format: .gds)
-        let spiceURL = artifactDirectory.appending(path: "\(intent.designName).spice")
+        let spiceURL = artifactDirectory.appending(path: "\(artifactStem).spice")
         try synth.referenceSPICE(for: netlist).write(to: spiceURL, atomically: true, encoding: .utf8)
 
         let runGated = signoffAvailable && LiveSignoffService.locate() != nil
@@ -188,9 +201,20 @@ public struct SpecToSiliconFlow: Sendable {
         let bundle = TapeoutEvidenceBundle(designName: intent.designName,
                                            targetClockPeriod: intent.targetClockPeriod,
                                            claims: claims, gdsPath: gdsURL?.path)
-        let manifestURL = artifactDirectory.appending(path: "\(intent.designName).evidence.json")
+        let manifestURL = artifactDirectory.appending(path: "\(artifactStem).evidence.json")
         try Data((try bundle.jsonManifest()).utf8).write(to: manifestURL)
         return Result(bundle: bundle, gdsPath: gdsURL)
+    }
+
+    private func validatedArtifactStem(_ designName: String) throws -> String {
+        guard !designName.isEmpty else {
+            throw FlowError.invalidArtifactDesignName(designName)
+        }
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+        guard designName.unicodeScalars.allSatisfy({ allowedCharacters.contains($0) }) else {
+            throw FlowError.invalidArtifactDesignName(designName)
+        }
+        return designName
     }
 
     private func sequentialTimingReportPoint(

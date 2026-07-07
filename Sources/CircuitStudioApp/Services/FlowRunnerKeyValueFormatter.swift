@@ -323,8 +323,75 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("plan_verification=\(result.planVerificationPath ?? "")")
             lines.append("rejected_plans=\(result.rejectedPlansPath ?? "")")
             lines.append("cycle_history_summary=\(result.candidateCycleHistorySummaryPath ?? "")")
+        case .runGoalLayoutAgent:
+            lines.append("goal_layout_agent=\(result.message ?? "")")
+            lines.append("design_name=\(result.designName ?? "")")
+            lines.append("run_id=\(result.runID ?? "")")
+            lines.append("project_root=\(result.projectRootPath ?? "")")
+            lines.append("technology_package_id=\(result.technologyPackageID ?? "")")
+            lines.append("closed=\(result.goalAgentClosed ?? false)")
+            lines.append("evidence=\(result.goalAgentEvidencePath ?? "")")
+            lines.append("gds=\(result.exportedLayoutPath ?? "")")
+        case .scaffoldDesignSpec:
+            lines.append("design_spec_scaffold=\(result.message ?? "")")
+            lines.append("design=\(result.designName ?? "")")
+            lines.append("design_spec=\(result.designSpecPath ?? "")")
         }
-        return lines
+        return sanitizedKeyValueLines(lines)
+    }
+
+    private static func sanitizedKeyValueLines(_ lines: [String]) -> [String] {
+        var sanitized: [String] = []
+        var inRawBlock = false
+        sanitized.reserveCapacity(lines.count)
+
+        for line in lines {
+            if line == "netlist_begin" {
+                inRawBlock = true
+                sanitized.append(line)
+                continue
+            }
+            if line == "netlist_end" {
+                inRawBlock = false
+                sanitized.append(line)
+                continue
+            }
+            if inRawBlock {
+                sanitized.append(line)
+                continue
+            }
+            sanitized.append(sanitizedKeyValueLine(line))
+        }
+        return sanitized
+    }
+
+    private static func sanitizedKeyValueLine(_ line: String) -> String {
+        guard let separator = line.firstIndex(of: "=") else {
+            return escapedScalarValue(line)
+        }
+        let key = String(line[..<separator])
+        let value = String(line[line.index(after: separator)...])
+        return "\(key)=\(escapedScalarValue(value))"
+    }
+
+    private static func escapedScalarValue(_ value: String) -> String {
+        var result = ""
+        result.reserveCapacity(value.count)
+        for character in value {
+            switch character {
+            case "\\":
+                result += "\\\\"
+            case "\n":
+                result += "\\n"
+            case "\r":
+                result += "\\r"
+            case "\t":
+                result += "\\t"
+            default:
+                result.append(character)
+            }
+        }
+        return result
     }
 
     private static func appendSignoffRepairCandidateCycleHistorySummary(

@@ -48,8 +48,8 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
     private let sequentialCacheConfiguration: SequentialCacheConfiguration?
 
     public init(
-        model: Level1DeviceModel = .bundledDefault(),
-        cellLibrary: CMOSGateLibrary = .bundledDefault,
+        model: Level1DeviceModel,
+        cellLibrary: CMOSGateLibrary,
         technologyContext: TimingTechnologyContext? = nil,
         inputSlews: [Double] = [40e-12, 200e-12],
         outputLoads: [Double] = [1e-15, 4e-15, 12e-15],
@@ -57,8 +57,13 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
         sequentialCharacterizer: SequentialTimingCharacterizing? = nil,
         cache: TimingCharacterizationCache? = .shared,
         executionPolicy: TimingCharacterizationExecutionPolicy = DirectTimingCharacterizationExecutionPolicy()
-    ) {
-        let resolvedTechnologyContext = technologyContext ?? Level1DeviceModel.technologyContext(for: model)
+    ) throws {
+        let resolvedTechnologyContext: TimingTechnologyContext
+        if let technologyContext {
+            resolvedTechnologyContext = technologyContext
+        } else {
+            resolvedTechnologyContext = try Level1DeviceModel.technologyContextChecked(for: model)
+        }
         self.model = model
         self.cellLibrary = cellLibrary
         self.technologyContext = resolvedTechnologyContext
@@ -72,14 +77,18 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
             inputSlews: inputSlews,
             outputLoads: outputLoads
         )
-        self.sequentialCharacterizer = sequentialCharacterizer ?? SequentialTimingCharacterizer(
-            model: model,
-            technologyContext: resolvedTechnologyContext,
-            outputLoads: outputLoads,
-            setupHoldSearchWindow: 300e-12,
-            setupHoldSearchResolution: 20e-12,
-            maxSearchIterations: 4
-        )
+        if let sequentialCharacterizer {
+            self.sequentialCharacterizer = sequentialCharacterizer
+        } else {
+            self.sequentialCharacterizer = try SequentialTimingCharacterizer(
+                model: model,
+                technologyContext: resolvedTechnologyContext,
+                outputLoads: outputLoads,
+                setupHoldSearchWindow: 300e-12,
+                setupHoldSearchResolution: 20e-12,
+                maxSearchIterations: 4
+            )
+        }
         if sequentialCharacterizer == nil {
             self.sequentialCacheConfiguration = SequentialCacheConfiguration(
                 clockSlew: 80e-12,
@@ -92,6 +101,51 @@ public struct StandardTimingLibraryBuilder: TimingLibraryBuilding {
         } else {
             self.sequentialCacheConfiguration = nil
         }
+    }
+
+    public init(
+        technologyContext: TimingTechnologyContext? = nil,
+        inputSlews: [Double] = [40e-12, 200e-12],
+        outputLoads: [Double] = [1e-15, 4e-15, 12e-15],
+        cellCharacterizer: CellTimingCharacterizer? = nil,
+        sequentialCharacterizer: SequentialTimingCharacterizing? = nil,
+        cache: TimingCharacterizationCache? = .shared,
+        executionPolicy: TimingCharacterizationExecutionPolicy = DirectTimingCharacterizationExecutionPolicy()
+    ) throws {
+        try self.init(
+            model: try Level1DeviceModel.loadBundledDefault(),
+            cellLibrary: try CMOSGateLibrary.loadBundledDefault(),
+            technologyContext: technologyContext,
+            inputSlews: inputSlews,
+            outputLoads: outputLoads,
+            cellCharacterizer: cellCharacterizer,
+            sequentialCharacterizer: sequentialCharacterizer,
+            cache: cache,
+            executionPolicy: executionPolicy
+        )
+    }
+
+    public init(
+        model: Level1DeviceModel,
+        technologyContext: TimingTechnologyContext? = nil,
+        inputSlews: [Double] = [40e-12, 200e-12],
+        outputLoads: [Double] = [1e-15, 4e-15, 12e-15],
+        cellCharacterizer: CellTimingCharacterizer? = nil,
+        sequentialCharacterizer: SequentialTimingCharacterizing? = nil,
+        cache: TimingCharacterizationCache? = .shared,
+        executionPolicy: TimingCharacterizationExecutionPolicy = DirectTimingCharacterizationExecutionPolicy()
+    ) throws {
+        try self.init(
+            model: model,
+            cellLibrary: try CMOSGateLibrary.loadBundledDefault(),
+            technologyContext: technologyContext,
+            inputSlews: inputSlews,
+            outputLoads: outputLoads,
+            cellCharacterizer: cellCharacterizer,
+            sequentialCharacterizer: sequentialCharacterizer,
+            cache: cache,
+            executionPolicy: executionPolicy
+        )
     }
 
     public func buildStandardLibrary(runID: String? = nil) async throws -> StandardTimingLibraryBuildResult {

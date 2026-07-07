@@ -99,6 +99,7 @@ struct PEXCommandServiceTests {
             in: root,
             contents: """
             #!/bin/sh
+            printf '{"status":"failed","reason":"missing corner"}\\n'
             printf 'backend failed\\n' >&2
             exit 7
             """
@@ -110,12 +111,14 @@ struct PEXCommandServiceTests {
             _ = try await service.run(arguments: ["extract"])
             Issue.record("Expected nonZeroExit")
         } catch let error as PEXCommandError {
-            guard case .nonZeroExit(let code, let stderr) = error else {
+            guard case .nonZeroExit(let code, let stdout, let stderr) = error else {
                 Issue.record("Expected nonZeroExit, got \(error)")
                 return
             }
             #expect(code == 7)
+            #expect(stdout == #"{"status":"failed","reason":"missing corner"}"# + "\n")
             #expect(stderr == "backend failed\n")
+            #expect(error.localizedDescription.contains("backend failed"))
         }
     }
 

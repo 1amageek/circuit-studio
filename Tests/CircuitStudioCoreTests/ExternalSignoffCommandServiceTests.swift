@@ -17,6 +17,7 @@ struct ExternalSignoffCommandServiceTests {
             #!/bin/sh
             printf '[INFO] rule=DRC_START message="started"\\n'
             printf '[WARN] rule=MIN_SPACE net=out message="review spacing"\\n' >&2
+            printf 'SIGNOFF_RESULT status=pass\\n'
             printf 'arg_count=%s\\n' "$#"
             exit 0
             """
@@ -100,6 +101,75 @@ struct ExternalSignoffCommandServiceTests {
         ])
     }
 
+    @Test func customLogFileNameCannotEscapeArtifactDirectory() async throws {
+        let root = try makeTemporaryRoot("log-path-escape")
+        defer { removeTemporaryRoot(root) }
+
+        let executable = try writeExecutable(
+            named: "mock-escape",
+            in: root,
+            contents: """
+            #!/bin/sh
+            printf '[INFO] rule=DRC_DONE message="complete"\\n'
+            printf 'SIGNOFF_RESULT status=pass\\n'
+            exit 0
+            """
+        )
+        let artifactDirectory = root.appending(path: "artifacts")
+        let outsideLog = root.appending(path: "escape.log")
+        let command = ExternalSignoffCommand(
+            kind: .drc,
+            toolName: "escape-drc",
+            executablePath: executable.path(percentEncoded: false),
+            logFileName: "../escape.log"
+        )
+
+        do {
+            _ = try await ExternalSignoffCommandService().run(
+                command: command,
+                artifactDirectory: artifactDirectory
+            )
+            Issue.record("Expected invalidLogFileName")
+        } catch let error as ExternalSignoffCommandError {
+            #expect(error == .invalidLogFileName("../escape.log"))
+        }
+        #expect(!FileManager.default.fileExists(atPath: outsideLog.path(percentEncoded: false)))
+    }
+
+    @Test func logHeaderEscapesCommandMetadataNewlines() async throws {
+        let root = try makeTemporaryRoot("log-header-escape")
+        defer { removeTemporaryRoot(root) }
+
+        let executable = try writeExecutable(
+            named: "mock-header",
+            in: root,
+            contents: """
+            #!/bin/sh
+            printf '[INFO] rule=DRC_DONE message="complete"\\n'
+            printf 'SIGNOFF_RESULT status=pass\\n'
+            exit 0
+            """
+        )
+        let artifactDirectory = root.appending(path: "artifacts")
+        let command = ExternalSignoffCommand(
+            kind: .drc,
+            toolName: "mock\nforged=true",
+            executablePath: executable.path(percentEncoded: false),
+            arguments: ["--rule", "MIN\nSPACE"]
+        )
+
+        let result = try await ExternalSignoffCommandService().run(
+            command: command,
+            artifactDirectory: artifactDirectory
+        )
+        let log = try String(contentsOf: result.logURL, encoding: .utf8)
+
+        #expect(log.contains("tool=mock\\nforged=true"))
+        #expect(log.contains("--rule MIN\\nSPACE"))
+        #expect(!log.contains("tool=mock\nforged=true"))
+        #expect(!log.contains("--rule MIN\nSPACE"))
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func largeStdoutAndStderrAreDrainedWithoutDeadlock() async throws {
         let root = try makeTemporaryRoot("large-output")
@@ -112,9 +182,10 @@ struct ExternalSignoffCommandServiceTests {
             #!/usr/bin/env perl
             for my $i (1..2500) {
                 print STDOUT "stdout-$i " . ("x" x 96) . "\\n";
-                print STDERR "stderr-$i " . ("y" x 96) . "\\n";
+            print STDERR "stderr-$i " . ("y" x 96) . "\\n";
             }
             print STDOUT "[INFO] rule=DRC_DONE message=\\"complete\\"\\n";
+            print STDOUT "SIGNOFF_RESULT status=pass\\n";
             print STDERR "[WARN] rule=LARGE_STDERR message=\\"drained\\"\\n";
             exit 0;
             """
@@ -157,6 +228,7 @@ struct ExternalSignoffCommandServiceTests {
             contents: """
             #!/bin/sh
             printf '[INFO] rule=CLEAN message="clean"\\n'
+            printf 'SIGNOFF_RESULT status=pass\\n'
             exit 0
             """
         )

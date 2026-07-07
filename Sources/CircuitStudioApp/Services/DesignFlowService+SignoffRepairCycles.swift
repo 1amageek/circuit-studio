@@ -35,17 +35,11 @@ extension DesignFlowService {
             kind: command.kind,
             runID: runID,
             projectRootPath: projectRootPath,
-            actionLogPath: actionLogPath(projectRoot: projectRoot, runID: runID),
+            actionLogPath: try actionLogPath(projectRoot: projectRoot, runID: runID),
             signoffRepairPlanningResult: result,
-            actionDomainPath: projectRoot
-                .appending(path: result.actionDomainArtifact.path)
-                .path(percentEncoded: false),
-            repairFormulationPath: projectRoot
-                .appending(path: result.repairFormulationArtifact.path)
-                .path(percentEncoded: false),
-            planningProblemPath: projectRoot
-                .appending(path: result.planningProblemArtifact.path)
-                .path(percentEncoded: false),
+            actionDomainPath: try absolutePath(for: result.actionDomainArtifact, projectRoot: projectRoot),
+            repairFormulationPath: try absolutePath(for: result.repairFormulationArtifact, projectRoot: projectRoot),
+            planningProblemPath: try absolutePath(for: result.planningProblemArtifact, projectRoot: projectRoot),
             actionRecordIDs: [result.actionRecord.actionID],
             message: result.actionRecord.actionID
         )
@@ -191,23 +185,23 @@ extension DesignFlowService {
             kind: command.kind,
             runID: runID,
             projectRootPath: projectRootPath,
-            actionLogPath: actionLogPath(projectRoot: projectRoot, runID: runID),
-            designDiffPath: execution.designDiffArtifact.map {
-                absolutePath(for: $0, projectRoot: projectRoot)
+            actionLogPath: try actionLogPath(projectRoot: projectRoot, runID: runID),
+            designDiffPath: try execution.designDiffArtifact.map {
+                try absolutePath(for: $0, projectRoot: projectRoot)
             },
             signoffRepairPlanningResult: planning,
             signoffRepairCandidateCycleResult: cycleResult,
             signoffRepairCandidateCycleHistorySummary: historySummary,
-            actionDomainPath: absolutePath(for: planning.actionDomainArtifact, projectRoot: projectRoot),
-            repairFormulationPath: absolutePath(for: planning.repairFormulationArtifact, projectRoot: projectRoot),
-            planningProblemPath: absolutePath(for: planning.planningProblemArtifact, projectRoot: projectRoot),
-            candidatePlanPath: absolutePath(for: generation.candidatePlanArtifact, projectRoot: projectRoot),
-            planExecutionPath: absolutePath(for: execution.planExecutionArtifact, projectRoot: projectRoot),
-            planVerificationPath: absolutePath(for: verification.planVerificationArtifact, projectRoot: projectRoot),
-            rejectedPlansPath: verification.rejectedPlansArtifact.map {
-                absolutePath(for: $0, projectRoot: projectRoot)
+            actionDomainPath: try absolutePath(for: planning.actionDomainArtifact, projectRoot: projectRoot),
+            repairFormulationPath: try absolutePath(for: planning.repairFormulationArtifact, projectRoot: projectRoot),
+            planningProblemPath: try absolutePath(for: planning.planningProblemArtifact, projectRoot: projectRoot),
+            candidatePlanPath: try absolutePath(for: generation.candidatePlanArtifact, projectRoot: projectRoot),
+            planExecutionPath: try absolutePath(for: execution.planExecutionArtifact, projectRoot: projectRoot),
+            planVerificationPath: try absolutePath(for: verification.planVerificationArtifact, projectRoot: projectRoot),
+            rejectedPlansPath: try verification.rejectedPlansArtifact.map {
+                try absolutePath(for: $0, projectRoot: projectRoot)
             },
-            candidateCycleHistorySummaryPath: absolutePath(for: historySummaryArtifact, projectRoot: projectRoot),
+            candidateCycleHistorySummaryPath: try absolutePath(for: historySummaryArtifact, projectRoot: projectRoot),
             candidateAccepted: verification.accepted,
             actionRecordIDs: [
                 planning.actionRecord.actionID,
@@ -382,7 +376,10 @@ extension DesignFlowService {
         from reference: XcircuiteFileReference,
         projectRoot: URL
     ) throws -> XcircuiteCircuitPlanningProblem {
-        let url = projectRoot.appending(path: reference.path)
+        let url = try XcircuitePackageStore().url(
+            forProjectRelativePath: reference.path,
+            inProjectAt: projectRoot
+        )
         do {
             let data = try Data(contentsOf: url)
             return try JSONDecoder().decode(XcircuiteCircuitPlanningProblem.self, from: data)

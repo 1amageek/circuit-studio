@@ -31,8 +31,12 @@ public struct VerilogStructuralParser: Sendable {
         }
     }
 
-    public init(cellLibrary: CMOSGateLibrary = .bundledDefault) {
+    public init(cellLibrary: CMOSGateLibrary) {
         self.cellLibrary = cellLibrary
+    }
+
+    public init() throws {
+        self.init(cellLibrary: try CMOSGateLibrary.loadBundledDefault())
     }
 
     /// The cell template for a library cell name (its gate + output ports are fixed).

@@ -161,10 +161,10 @@ public enum WaveformPipelineBenchmarkOperations {
             waveform: WaveformBenchmarkFixture.nestedWaveform(offset: 1.0e-6)
         )
 
-        let measuredReference = compareChecksum(
+        let measuredReference = try compareChecksum(
             service.compare(preLayoutResult: preRowMajor, postLayoutResult: postRowMajor)
         )
-        let baselineReference = compareChecksum(
+        let baselineReference = try compareChecksum(
             service.compare(preLayoutResult: preNested, postLayoutResult: postNested)
         )
         try assertClose(
@@ -177,7 +177,7 @@ public enum WaveformPipelineBenchmarkOperations {
             "circuit.postLayoutRowMajorCompare",
             iterationsPerSample: 8
         ) {
-            compareChecksum(
+            try compareChecksum(
                 service.compare(preLayoutResult: preRowMajor, postLayoutResult: postRowMajor)
             )
         }
@@ -186,7 +186,7 @@ public enum WaveformPipelineBenchmarkOperations {
             "circuit.postLayoutNestedCompare",
             iterationsPerSample: 5
         ) {
-            compareChecksum(
+            try compareChecksum(
                 service.compare(preLayoutResult: preNested, postLayoutResult: postNested)
             )
         }
@@ -407,8 +407,10 @@ public enum WaveformPipelineBenchmarkOperations {
         )
     }
 
-    private static func compareChecksum(_ report: PostLayoutComparisonReport) -> Double {
-        precondition(report.status == "compared", "post-layout comparison must complete")
+    private static func compareChecksum(_ report: PostLayoutComparisonReport) throws -> Double {
+        guard report.status == "compared" else {
+            throw BenchmarkError.unexpectedReportStatus(report.status)
+        }
         return report.comparedVariables.reduce(report.maxAbsoluteDelta + report.maxRelativeDelta) { partial, item in
             partial + item.maxAbsoluteDelta + item.maxRelativeDelta
         }

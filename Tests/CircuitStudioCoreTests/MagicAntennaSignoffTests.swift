@@ -66,7 +66,7 @@ struct MagicAntennaSignoffTests {
         let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-antenna-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let gds = dir.appending(path: "\(cell).gds")
-        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(document, to: gds, format: .gds)
+        try MaskDataFormatConverter(tech: try Sky130LayoutTech.tech()).exportDocument(document, to: gds, format: .gds)
 
         let antenna = try #require(MagicAntennaSignoff.locate())
         let result = try await ExternalSignoffCommandService(parser: MagicAntennaSignoff.reportParser).run(

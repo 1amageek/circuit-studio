@@ -16,12 +16,14 @@ struct RunReviewFlowReviewProjectionCard: View {
                     metric("Coverage", "\(projection.coverageRefs.count)")
                     metric("Blocked", "\(projection.blockedItems.count)")
                     metric("Resume", "\(projection.resumeItems.count)")
+                    metric("Integrity", "\(projection.integrityIssueArtifacts.count)")
                     metric("Decisions", "\(decisionCount)")
                 }
                 coverageSection
                 artifactSection("Signoff Ladder", artifacts: projection.signoffLadderArtifacts)
                 artifactSection("Planning Refs", artifacts: projection.planningArtifacts)
                 artifactSection("Retained Refs", artifacts: projection.retainedHistoryArtifacts)
+                artifactSection("Integrity Issues", artifacts: projection.integrityIssueArtifacts)
                 itemSection("Blocked Items", items: projection.blockedItems)
                 itemSection("Resume Items", items: projection.resumeItems)
                 decisionSection("Approval Decisions", actions: projection.approvalActions)
@@ -63,6 +65,11 @@ struct RunReviewFlowReviewProjectionCard: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                            if !domain.unverifiedArtifactPaths.isEmpty {
+                                Text("\(domain.unverifiedArtifactPaths.count) unverified")
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.red)
+                            }
                             Spacer()
                         }
                     }
@@ -90,6 +97,9 @@ struct RunReviewFlowReviewProjectionCard: View {
                             Text(artifact.path)
                                 .font(.caption2)
                                 .lineLimit(1)
+                            Text(artifact.integrity?.status.rawValue ?? "untracked")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(integrityColor(artifact.integrity?.status))
                             Spacer()
                         }
                     }
@@ -193,6 +203,20 @@ struct RunReviewFlowReviewProjectionCard: View {
         case .warning:
             .orange
         case .info:
+            .secondary
+        }
+    }
+
+    private func integrityColor(_ status: FlowRunReviewArtifactIntegrityStatus?) -> Color {
+        switch status {
+        case .verified:
+            .green
+        case .missingDigest, .missingByteCount:
+            .orange
+        case .missingArtifact, .invalidDigest, .invalidByteCount, .byteCountMismatch, .sha256Mismatch,
+             .invalidIdentifier, .noRecordedReference, .invalidPath, .unreadableArtifact:
+            .red
+        case nil:
             .secondary
         }
     }

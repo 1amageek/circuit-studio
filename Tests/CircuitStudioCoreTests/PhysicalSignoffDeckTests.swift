@@ -23,7 +23,7 @@ struct PhysicalSignoffDeckTests {
         let doc = try synth.synthesize(netlist)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let gds = dir.appending(path: "\(netlist.name).gds")
-        try MaskDataFormatConverter(tech: Sky130LayoutTech.tech()).exportDocument(doc, to: gds, format: .gds)
+        try MaskDataFormatConverter(tech: try Sky130LayoutTech.tech()).exportDocument(doc, to: gds, format: .gds)
         let spice = dir.appending(path: "\(netlist.name).spice")
         try synth.referenceSPICE(for: netlist).write(to: spice, atomically: true, encoding: .utf8)
         return (gds, spice)
@@ -32,7 +32,7 @@ struct PhysicalSignoffDeckTests {
     @Test("A small clean design closes the ENTIRE physical deck as one verified verdict",
           .enabled(if: PhysicalSignoffDeckTests.toolchain), .timeLimit(.minutes(8)))
     func smallDesignClosesFullDeck() async throws {
-        let netlist = GateLevelNetlist.and2(name: "deck_and2")
+        let netlist = try GateLevelNetlist.and2(name: "deck_and2")
         let dir = FileManager.default.temporaryDirectory.appending(path: "deck-and2-\(UUID().uuidString)")
         let (gds, spice) = try synthesize(netlist, into: dir)
 
@@ -59,7 +59,7 @@ struct PhysicalSignoffDeckTests {
     @Test("Tool-absent: the deck runs ERC/IR/EM and HONESTLY skips the Magic axes (no fake pass)",
           .timeLimit(.minutes(2)))
     func toolIndependentAxesOnly() async throws {
-        let netlist = GateLevelNetlist.and2(name: "deck_ti")
+        let netlist = try GateLevelNetlist.and2(name: "deck_ti")
         let dir = FileManager.default.temporaryDirectory.appending(path: "deck-ti-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let gds = dir.appending(path: "deck_ti.gds")     // unused when gated tools are off
@@ -74,6 +74,16 @@ struct PhysicalSignoffDeckTests {
         let allPass = outcome.verdicts.allSatisfy { $0.passed }
         #expect(allPass, "ERC/IR/EM must pass for a clean small design")
 
+        let presentBundle = TapeoutEvidenceBundle(designName: netlist.name, targetClockPeriod: nil,
+                                                  claims: outcome.claims, gdsPath: nil)
+        try presentBundle.verify(requiredAxes: [.erc, .ir, .em], runDirectory: dir)
+        for claim in outcome.claims where claim.kind == .signoff {
+            let artifact = try #require(claim.artifact)
+            #expect(artifact.status == .available)
+            #expect(artifact.sha256?.count == 64)
+            #expect((artifact.byteCount ?? -1) >= 0)
+        }
+
         // Requiring a Magic axis that was honestly not run must FAIL — never a silent pass.
         let bundle = TapeoutEvidenceBundle(designName: netlist.name, targetClockPeriod: nil,
                                            claims: outcome.claims, gdsPath: nil)
@@ -82,13 +92,42 @@ struct PhysicalSignoffDeckTests {
         }
     }
 
+    @Test("Invalid deck policy is rejected before writing signoff artifacts",
+          .timeLimit(.minutes(2)))
+    func invalidPolicyRejectedBeforeArtifactWrites() async throws {
+        let netlist = try GateLevelNetlist.and2(name: "deck_invalid_policy")
+        let dir = FileManager.default.temporaryDirectory.appending(path: "deck-invalid-policy-\(UUID().uuidString)")
+        let policy = PhysicalSignoffDeck.Policy(irBudgetFraction: .nan)
+
+        do {
+            _ = try await PhysicalSignoffDeck(policy: policy, runGatedTools: false).run(
+                netlist: netlist,
+                gds: dir.appending(path: "unused.gds"),
+                topCell: netlist.name,
+                schematicNetlist: dir.appending(path: "unused.spice"),
+                artifactDirectory: dir
+            )
+            Issue.record("Expected invalid signoff policy to fail before artifact publication.")
+        } catch let error as PhysicalSignoffDeck.DeckError {
+            if case .invalidIRBudgetFraction = error {
+                #expect(true)
+            } else {
+                Issue.record("Expected invalid IR budget error, got \(error).")
+            }
+        } catch {
+            Issue.record("Expected PhysicalSignoffDeck.DeckError, got \(error).")
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: dir.path(percentEncoded: false)))
+    }
+
     @Test("Scale: the ACC-4 core's generated antenna protection closes the deck's antenna axis",
           .enabled(if: PhysicalSignoffDeckTests.toolchain), .timeLimit(.minutes(8)))
     func acc4AntennaClosedAtScale() async throws {
         // Gate-input met1 risers are same-stage antenna risks. The Sky130 circuit synthesizer
         // now plans and inserts local diffusion ties generically before signoff, so the antenna
         // axis must pass by real Magic evidence.
-        let netlist = ACC4CPUGenerator().gateLevelNetlist(name: "deck_acc4")
+        let netlist = try ACC4CPUGenerator().gateLevelNetlist(name: "deck_acc4")
         let plan = try circuitSynthesizer().antennaProtectionPlan(for: netlist)
         #expect(Set(netlist.inputs).isSubset(of: Set(plan.sites.map(\.net))))
         let dir = FileManager.default.temporaryDirectory.appending(path: "deck-acc4-\(UUID().uuidString)")

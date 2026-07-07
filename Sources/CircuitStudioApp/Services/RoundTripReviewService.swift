@@ -85,9 +85,19 @@ public struct RoundTripReviewService: Sendable {
             title: manifest.title,
             createdAt: manifest.createdAt,
             manifestPath: manifestURL.path(percentEncoded: false),
-            status: status(for: manifest, comparison: comparison, diagnostics: diagnostics),
+            status: status(
+                for: manifest,
+                signoff: signoff,
+                comparison: comparison,
+                diagnostics: diagnostics
+            ),
             isRoundTripComplete: manifest.isRoundTripComplete,
-            isReadyForPEX: manifest.isReadyForPEX,
+            isReadyForPEX: readyForPEX(
+                for: manifest,
+                signoff: signoff,
+                comparison: comparison,
+                diagnostics: diagnostics
+            ),
             stages: stageSummaries,
             artifacts: artifactSummaries,
             externalSignoff: signoff,
@@ -412,10 +422,14 @@ public struct RoundTripReviewService: Sendable {
 
     private func status(
         for manifest: HeadlessRoundTripService.Manifest,
+        signoff: RoundTripReviewSignoffSummary?,
         comparison: RoundTripReviewComparisonSummary?,
         diagnostics: [String]
     ) -> RoundTripReviewSummary.Status {
         if manifest.stages.contains(where: { $0.status == .failed }) {
+            return .failed
+        }
+        if let signoff, !signoff.passed {
             return .failed
         }
         if let comparison, comparison.gateStatus == "failed" {
@@ -424,10 +438,31 @@ public struct RoundTripReviewService: Sendable {
         if !diagnostics.isEmpty {
             return .incomplete
         }
+        if let signoff, !signoff.readyForPEX {
+            return .incomplete
+        }
         if manifest.isRoundTripComplete {
             return .passed
         }
         return .incomplete
+    }
+
+    private func readyForPEX(
+        for manifest: HeadlessRoundTripService.Manifest,
+        signoff: RoundTripReviewSignoffSummary?,
+        comparison: RoundTripReviewComparisonSummary?,
+        diagnostics: [String]
+    ) -> Bool {
+        guard diagnostics.isEmpty, manifest.isReadyForPEX else {
+            return false
+        }
+        if let signoff, !signoff.readyForPEX {
+            return false
+        }
+        if let comparison, comparison.gateStatus == "failed" {
+            return false
+        }
+        return true
     }
 
     private func recommendations(
@@ -442,7 +477,9 @@ public struct RoundTripReviewService: Sendable {
             let message = stage.message.map { ": \($0)" } ?? ""
             recommendations.append("Review failed stage \(stage.name)\(message).")
         }
-        if let signoff, signoff.passed && !signoff.approved {
+        if let signoff, !signoff.passed {
+            recommendations.append("Review failed external signoff reports before approving or using the run for PEX.")
+        } else if let signoff, signoff.passed && !signoff.approved {
             recommendations.append("Approve the passing external signoff review before using it as a PEX gate.")
         }
         if let comparison, comparison.gateStatus == "failed" {

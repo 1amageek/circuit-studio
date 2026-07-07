@@ -46,6 +46,70 @@ struct ExternalSpicePreprocessorTests {
     #expect(!netlist.contains(".include \"\(sourceURL.path)\""))
   }
 
+  @Test("Pre OSDI directives are resolved into the generated control block once")
+  func preOSDIDirectivesAreResolvedIntoGeneratedControlBlockOnce() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "CircuitStudioExternalSpicePreprocessorPreOSDITests-\(UUID().uuidString)")
+    defer { removeCoreTestTemporaryDirectory(directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+    let osdiURL = directory.appending(path: "compact.osdi")
+    try Data("osdi".utf8).write(to: osdiURL)
+
+    let preprocessor = ExternalSpicePreprocessor(openVAFCompiler: RecordingOpenVAFCompiler())
+    let prepared = try await preprocessor.prepare(
+      source: """
+        .pre_osdi "\(osdiURL.path)"
+        .include "\(osdiURL.path)"
+        V1 in 0 DC 1
+        R1 in 0 1k
+        .op
+        .end
+        """,
+      fileName: directory.appending(path: "input.cir").path,
+      processConfiguration: nil,
+      command: nil
+    )
+
+    let netlist = try String(contentsOf: prepared.netlistURL, encoding: .utf8)
+    let expectedDirective = "pre_osdi \"\(osdiURL.path)\""
+
+    #expect(netlist.components(separatedBy: expectedDirective).count == 2)
+    #expect(!netlist.contains(".pre_osdi"))
+    #expect(!netlist.contains(".include \"\(osdiURL.path)\""))
+  }
+
+  @Test("Unresolved pre OSDI directives fail before netlist artifact generation")
+  func unresolvedPreOSDIDirectivesFailBeforeNetlistArtifactGeneration() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "CircuitStudioExternalSpicePreprocessorMissingPreOSDITests-\(UUID().uuidString)")
+    defer { removeCoreTestTemporaryDirectory(directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+    let preprocessor = ExternalSpicePreprocessor(openVAFCompiler: RecordingOpenVAFCompiler())
+
+    do {
+      _ = try await preprocessor.prepare(
+        source: """
+          .pre_osdi "missing.osdi"
+          V1 in 0 DC 1
+          R1 in 0 1k
+          .op
+          .end
+          """,
+        fileName: directory.appending(path: "input.cir").path,
+        processConfiguration: nil,
+        command: nil
+      )
+      Issue.record("Expected unresolved .pre_osdi failure")
+    } catch StudioError.simulationFailure(let message) {
+      #expect(message.contains("Unable to resolve .pre_osdi library path"))
+      #expect(message.contains("missing.osdi"))
+    } catch {
+      Issue.record("Expected simulation failure, got \(error)")
+    }
+  }
+
   @Test("Verilog-A frontend constrains instance prefix rewrites to parsed module types")
   func verilogAFrontendConstrainsInstancePrefixRewrites() async throws {
     let directory = FileManager.default.temporaryDirectory

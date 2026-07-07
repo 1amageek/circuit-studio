@@ -11,18 +11,18 @@ struct ElectricalRuleCheckerTests {
     private let erc = ElectricalRuleChecker()
 
     @Test("The synthesized ACC-4 core and ALU pass ERC (no electrical errors)")
-    func cleanDesignsPass() {
-        let cpu = erc.check(ACC4CPUGenerator().gateLevelNetlist())
+    func cleanDesignsPass() throws {
+        let cpu = try erc.check(ACC4CPUGenerator().gateLevelNetlist())
         #expect(cpu.passed, "ACC-4 ERC errors: \(cpu.errors.map(\.message))")
-        let alu = erc.check(ALUGenerator(bits: 4).gateLevelNetlist())
+        let alu = try erc.check(ALUGenerator(bits: 4).gateLevelNetlist())
         #expect(alu.passed, "ALU ERC errors: \(alu.errors.map(\.message))")
     }
 
     @Test("A floating gate input is caught (read net with no driver)")
-    func floatingInputCaught() {
+    func floatingInputCaught() throws {
         // g0 reads net "x", which is neither driven nor a primary input.
         let netlist = GateLevelNetlist(name: "flt", instances: [
-            .init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "x", "Y": "y"]),
+            .init(name: "g0", cell: try .inverter(name: "inv"), netMap: ["A": "x", "Y": "y"]),
         ], inputs: [], output: "y")
         let report = erc.check(netlist)
         #expect(!report.passed)
@@ -30,10 +30,10 @@ struct ElectricalRuleCheckerTests {
     }
 
     @Test("A driver fight is caught (one net driven by two gates)")
-    func multipleDriversCaught() {
+    func multipleDriversCaught() throws {
         let netlist = GateLevelNetlist(name: "fight", instances: [
-            .init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "a", "Y": "y"]),
-            .init(name: "g1", cell: .inverter(name: "inv"), netMap: ["A": "a", "Y": "y"]),   // also drives y
+            .init(name: "g0", cell: try .inverter(name: "inv"), netMap: ["A": "a", "Y": "y"]),
+            .init(name: "g1", cell: try .inverter(name: "inv"), netMap: ["A": "a", "Y": "y"]),   // also drives y
         ], inputs: ["a"], output: "y")
         let report = erc.check(netlist)
         #expect(!report.passed)
@@ -41,10 +41,10 @@ struct ElectricalRuleCheckerTests {
     }
 
     @Test("An undriven primary output is caught")
-    func undrivenOutputCaught() {
+    func undrivenOutputCaught() throws {
         // g0 drives "m"; the declared output "y" is driven by nothing.
         let netlist = GateLevelNetlist(name: "undr", instances: [
-            .init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "a", "Y": "m"]),
+            .init(name: "g0", cell: try .inverter(name: "inv"), netMap: ["A": "a", "Y": "m"]),
         ], inputs: ["a"], output: "y")
         let report = erc.check(netlist)
         #expect(!report.passed)
@@ -52,11 +52,11 @@ struct ElectricalRuleCheckerTests {
     }
 
     @Test("A dangling net is only a warning (does not fail the check)")
-    func danglingNetIsWarning() {
+    func danglingNetIsWarning() throws {
         // g1 drives "z", which nothing reads and is not the output — wasteful, not fatal.
         let netlist = GateLevelNetlist(name: "dang", instances: [
-            .init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "a", "Y": "y"]),
-            .init(name: "g1", cell: .inverter(name: "inv"), netMap: ["A": "a", "Y": "z"]),
+            .init(name: "g0", cell: try .inverter(name: "inv"), netMap: ["A": "a", "Y": "y"]),
+            .init(name: "g1", cell: try .inverter(name: "inv"), netMap: ["A": "a", "Y": "z"]),
         ], inputs: ["a"], output: "y")
         let report = erc.check(netlist)
         #expect(report.passed, "dangling should not fail: \(report.errors.map(\.message))")

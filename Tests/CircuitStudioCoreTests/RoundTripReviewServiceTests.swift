@@ -26,7 +26,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(makeManifest(
+        try writeJSON(try makeManifest(
             comparisonURL: comparisonURL,
             signoffURL: signoffURL
         ), to: manifestURL)
@@ -68,7 +68,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(makeManifest(
+        try writeJSON(try makeManifest(
             comparisonURL: missingComparisonURL,
             signoffURL: signoffURL
         ), to: manifestURL)
@@ -81,6 +81,39 @@ struct RoundTripReviewServiceTests {
         #expect(summary.diagnostics.contains { $0.contains("post-layout-comparison") })
         #expect(summary.artifacts.contains { $0.kind == "post-layout-comparison" && !$0.exists })
         #expect(summary.recommendations.contains { $0.contains("auditable") })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func verifiedFailedSignoffArtifactFailsReviewStatus() throws {
+        let root = try makeTemporaryRoot("review-failed-signoff-artifact")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: comparisonURL)
+
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeRejectedSignoffReview(), to: signoffURL)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeJSON(try makeManifest(
+            comparisonURL: comparisonURL,
+            signoffURL: signoffURL
+        ), to: manifestURL)
+
+        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+
+        #expect(summary.externalSignoff?.passed == false)
+        #expect(summary.externalSignoff?.readyForPEX == false)
+        #expect(summary.status == .failed)
+        #expect(summary.isReadyForPEX == false)
+        #expect(summary.diagnostics.isEmpty)
+        #expect(summary.recommendations.contains { $0.contains("external signoff") })
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -100,7 +133,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL), to: manifestURL)
+        try writeJSON(try makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL), to: manifestURL)
 
         let failure = FlowRunnerFailureEnvelope(
             errorKind: "runtime",
@@ -180,7 +213,7 @@ struct RoundTripReviewServiceTests {
         let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL), to: manifestURL)
+        try writeJSON(try makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL), to: manifestURL)
 
         let failure = FlowRunnerFailureEnvelope(
             errorKind: "runtime",
@@ -271,7 +304,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        var manifest = makeManifest(comparisonURL: outsideComparisonURL, signoffURL: signoffURL)
+        var manifest = try makeManifest(comparisonURL: outsideComparisonURL, signoffURL: signoffURL)
         manifest = HeadlessRoundTripService.Manifest(
             runID: manifest.runID,
             title: manifest.title,
@@ -326,7 +359,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(makeManifest(
+        try writeJSON(try makeManifest(
             comparisonURL: linkedComparisonURL,
             signoffURL: signoffURL
         ), to: manifestURL)
@@ -356,7 +389,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        var manifest = makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL)
+        var manifest = try makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL)
         let comparisonDigest = try RoundTripArtifactDigest.compute(url: comparisonURL)
         manifest = HeadlessRoundTripService.Manifest(
             runID: manifest.runID,
@@ -452,7 +485,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = originalRunDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(makeManifest(
+        try writeJSON(try makeManifest(
             comparisonURL: comparisonURL,
             signoffURL: signoffURL
         ), to: manifestURL)
@@ -496,7 +529,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(makeManifest(
+        try writeJSON(try makeManifest(
             comparisonURL: comparisonURL,
             signoffURL: signoffURL
         ), to: manifestURL)
@@ -538,7 +571,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(makeManifest(
+        try writeJSON(try makeManifest(
             comparisonURL: comparisonURL,
             signoffURL: signoffURL
         ), to: manifestURL)
@@ -591,7 +624,7 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(makeManifest(
+        try writeJSON(try makeManifest(
             comparisonURL: comparisonURL,
             signoffURL: signoffURL
         ), to: manifestURL)
@@ -632,7 +665,7 @@ struct RoundTripReviewServiceTests {
     private func makeManifest(
         comparisonURL: URL,
         signoffURL: URL
-    ) -> HeadlessRoundTripService.Manifest {
+    ) throws -> HeadlessRoundTripService.Manifest {
         HeadlessRoundTripService.Manifest(
             runID: "review-run",
             title: "Review run",
@@ -644,12 +677,12 @@ struct RoundTripReviewServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed, message: "passed"),
             ],
             artifacts: [
-                makeArtifact(
+                try makeArtifact(
                     kind: "external-signoff-review",
                     url: signoffURL,
                     sourcePath: "/source/external-signoff-review.json"
                 ),
-                makeArtifact(
+                try makeArtifact(
                     kind: "post-layout-comparison",
                     url: comparisonURL
                 ),
@@ -668,8 +701,8 @@ struct RoundTripReviewServiceTests {
         kind: String,
         url: URL,
         sourcePath: String? = nil
-    ) -> HeadlessRoundTripService.Artifact {
-        let digest = try! RoundTripArtifactDigest.compute(url: url)
+    ) throws -> HeadlessRoundTripService.Artifact {
+        let digest = try RoundTripArtifactDigest.compute(url: url)
         return HeadlessRoundTripService.Artifact(
             kind: kind,
             path: url.lastPathComponent,
@@ -754,6 +787,35 @@ struct RoundTripReviewServiceTests {
                     toolName: "replay-drc",
                     success: true,
                     logPath: "/source/drc.log"
+                ),
+                ExternalSignoffToolReport(
+                    kind: .lvs,
+                    toolName: "replay-lvs",
+                    success: true,
+                    logPath: "/source/lvs.log"
+                ),
+            ],
+            approvedBy: "reviewer",
+            approvedAt: Date(timeIntervalSince1970: 1_700_000_001)
+        )
+    }
+
+    private func makeRejectedSignoffReview() -> ExternalSignoffReview {
+        ExternalSignoffReview(
+            reports: [
+                ExternalSignoffToolReport(
+                    kind: .drc,
+                    toolName: "replay-drc",
+                    success: false,
+                    logPath: "/source/drc.log",
+                    diagnostics: [
+                        ExternalSignoffDiagnostic(
+                            severity: .error,
+                            message: "DRC violation",
+                            ruleID: "met1.spacing",
+                            rawLine: "met1.spacing violation"
+                        ),
+                    ]
                 ),
                 ExternalSignoffToolReport(
                     kind: .lvs,

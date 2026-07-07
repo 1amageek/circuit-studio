@@ -13,6 +13,7 @@ struct SignoffAdapterTests {
             contents: """
             #!/bin/sh
             printf '[INFO] rule=DRC_CLEAN message="clean"\\n'
+            printf 'SIGNOFF_RESULT status=pass\\n'
             exit 0
             """
         )

@@ -6,14 +6,28 @@ import Foundation
 /// outputs, register d/q); temporaries are private `_n…` nodes that never collide with
 /// caller nets. Instance names are opaque (`g…`); LVS matches by topology, not by name.
 public final class NANDGateBuilder {
+    public enum BuilderError: Error, LocalizedError, Equatable, Sendable {
+        case emptyAndInput
+
+        public var errorDescription: String? {
+            switch self {
+            case .emptyAndInput:
+                return "andN requires at least one input net."
+            }
+        }
+    }
 
     public private(set) var instances: [GateLevelNetlist.Instance] = []
     private var gateCount = 0
     private var nodeCount = 0
     private let cellLibrary: CMOSGateLibrary
 
-    public init(cellLibrary: CMOSGateLibrary = .bundledDefault) {
+    public init(cellLibrary: CMOSGateLibrary) {
         self.cellLibrary = cellLibrary
+    }
+
+    public convenience init() throws {
+        self.init(cellLibrary: try CMOSGateLibrary.loadBundledDefault())
     }
 
     private func gateName() -> String { defer { gateCount += 1 }; return "g\(gateCount)" }
@@ -51,8 +65,10 @@ public final class NANDGateBuilder {
     public func or2(_ a: String, _ b: String, _ y: String) { let t = node("or"); nor(a, b, t); inv(t, y) }
 
     /// y = AND of all inputs (left-folded and2; a single input is buffered).
-    public func andN(_ ins: [String], _ y: String) {
-        precondition(!ins.isEmpty, "andN needs at least one input")
+    public func andN(_ ins: [String], _ y: String) throws {
+        guard !ins.isEmpty else {
+            throw BuilderError.emptyAndInput
+        }
         if ins.count == 1 { let t = node("buf"); inv(ins[0], t); inv(t, y); return }
         var acc = ins[0]
         for i in 1..<ins.count {

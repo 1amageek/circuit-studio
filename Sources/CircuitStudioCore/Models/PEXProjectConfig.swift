@@ -63,7 +63,7 @@ public struct PEXProjectConfig: Sendable, Codable, Hashable {
         enabled: Bool = true,
         executablePath: String? = nil,
         topCell: String = "TOP",
-        backendID: String = "mock",
+        backendID: String = "",
         corners: [String] = ["tt_25c_1v0"],
         inputs: InputPaths = InputPaths(),
         output: OutputPaths = OutputPaths(),
@@ -86,7 +86,7 @@ public struct PEXProjectConfig: Sendable, Codable, Hashable {
         self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         self.executablePath = try container.decodeIfPresent(String.self, forKey: .executablePath)
         self.topCell = try container.decodeIfPresent(String.self, forKey: .topCell) ?? "TOP"
-        self.backendID = try container.decodeIfPresent(String.self, forKey: .backendID) ?? "mock"
+        self.backendID = try container.decodeIfPresent(String.self, forKey: .backendID) ?? ""
         self.corners = try container.decodeIfPresent([String].self, forKey: .corners) ?? ["tt_25c_1v0"]
         self.inputs = try container.decodeIfPresent(InputPaths.self, forKey: .inputs) ?? InputPaths()
         self.output = try container.decodeIfPresent(OutputPaths.self, forKey: .output) ?? OutputPaths()
@@ -100,5 +100,17 @@ public struct PEXProjectConfig: Sendable, Codable, Hashable {
             return ["tt_25c_1v0"]
         }
         return filtered
+    }
+
+    public var normalizedBackendID: String? {
+        let trimmed = backendID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    public var usesMockBackend: Bool {
+        guard let normalizedBackendID else {
+            return false
+        }
+        return normalizedBackendID.lowercased().hasPrefix("mock")
     }
 }

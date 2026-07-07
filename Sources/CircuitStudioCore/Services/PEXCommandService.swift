@@ -36,6 +36,8 @@ public struct PEXCommandService: Sendable {
             processResult = try await TimedProcessRunner(timeoutSeconds: timeoutSeconds).run(process: process)
         } catch let error as TimedProcessError {
             switch error {
+            case .invalidConfiguration(let message):
+                throw PEXCommandError.invalidConfiguration(message)
             case .launchFailed(_, let message):
                 throw PEXCommandError.launchFailed(message)
             case .cancelled(_, let standardOutput, let standardError):
@@ -62,7 +64,11 @@ public struct PEXCommandService: Sendable {
         )
 
         guard processResult.exitCode == 0 else {
-            throw PEXCommandError.nonZeroExit(code: processResult.exitCode, stderr: processResult.standardError)
+            throw PEXCommandError.nonZeroExit(
+                code: processResult.exitCode,
+                stdout: processResult.standardOutput,
+                stderr: processResult.standardError
+            )
         }
 
         return result

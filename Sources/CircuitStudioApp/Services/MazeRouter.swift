@@ -9,6 +9,7 @@ import LayoutTech
 /// layer, so two nets may cross without a via but never share a wire. Pins reach the
 /// routing grid through the profile-declared pin-access stack.
 public struct MazeRouter: Sendable {
+    private static let maximumGridNodeCount = 1_000_000
 
     public enum MazeError: Error, LocalizedError, Equatable {
         case unroutable(net: String)
@@ -58,20 +59,32 @@ public struct MazeRouter: Sendable {
         self.maxOrderingPasses = maxOrderingPasses ?? profile.geometry.maxOrderingPasses
     }
 
-    public init(pitch: Double? = nil, margin: Double? = nil, maxOrderingPasses: Int? = nil) {
-        do {
-            let profile = try LayoutTechnologyCatalog.loadDefaultRoutingProfile()
-            let technology = try LayoutTechnologyCatalog.loadDefaultTechnology()
-            self.init(
-                profile: profile,
-                layoutTechnology: technology,
-                pitch: pitch,
-                margin: margin,
-                maxOrderingPasses: maxOrderingPasses
-            )
-        } catch {
-            preconditionFailure("Bundled layout routing profile could not be loaded: \(error)")
-        }
+    public static func bundledDefault(
+        pitch: Double? = nil,
+        margin: Double? = nil,
+        maxOrderingPasses: Int? = nil
+    ) throws -> MazeRouter {
+        let profile = try LayoutTechnologyCatalog.loadDefaultRoutingProfile()
+        let technology = try LayoutTechnologyCatalog.loadDefaultTechnology()
+        return MazeRouter(
+            profile: profile,
+            layoutTechnology: technology,
+            pitch: pitch,
+            margin: margin,
+            maxOrderingPasses: maxOrderingPasses
+        )
+    }
+
+    public init(pitch: Double? = nil, margin: Double? = nil, maxOrderingPasses: Int? = nil) throws {
+        let profile = try LayoutTechnologyCatalog.loadDefaultRoutingProfile()
+        let technology = try LayoutTechnologyCatalog.loadDefaultTechnology()
+        self.init(
+            profile: profile,
+            layoutTechnology: technology,
+            pitch: pitch,
+            margin: margin,
+            maxOrderingPasses: maxOrderingPasses
+        )
     }
 
     // A grid node.
@@ -127,8 +140,7 @@ public struct MazeRouter: Sendable {
         let minY = (allPins.map(\.y).min() ?? 0) - margin
         let maxX = (allPins.map(\.x).max() ?? 0) + margin
         let maxY = (allPins.map(\.y).max() ?? 0) + margin
-        let cols = max(2, Int(((maxX - minX) / pitch).rounded(.up)) + 1)
-        let rows = max(2, Int(((maxY - minY) / pitch).rounded(.up)) + 1)
+        let (cols, rows) = try gridDimensions(minX: minX, minY: minY, maxX: maxX, maxY: maxY)
 
         func nodeX(_ c: Int) -> Double { minX + Double(c) * pitch }
         func nodeY(_ r: Int) -> Double { minY + Double(r) * pitch }
@@ -160,6 +172,34 @@ public struct MazeRouter: Sendable {
     }
 
     // MARK: - search
+
+    private func gridDimensions(minX: Double, minY: Double, maxX: Double, maxY: Double) throws -> (cols: Int, rows: Int) {
+        guard minX.isFinite && minY.isFinite && maxX.isFinite && maxY.isFinite else {
+            throw MazeError.invalidConfiguration(reason: "routing bounds must remain finite after margin expansion")
+        }
+        let spanX = maxX - minX
+        let spanY = maxY - minY
+        guard spanX.isFinite && spanY.isFinite && spanX >= 0 && spanY >= 0 else {
+            throw MazeError.invalidConfiguration(reason: "routing bounds must produce finite non-negative spans")
+        }
+        let rawCols = (spanX / pitch).rounded(.up) + 1
+        let rawRows = (spanY / pitch).rounded(.up) + 1
+        guard rawCols.isFinite && rawRows.isFinite && rawCols > 0 && rawRows > 0 else {
+            throw MazeError.invalidConfiguration(reason: "routing grid dimensions must be finite")
+        }
+        guard rawCols <= Double(Self.maximumGridNodeCount) && rawRows <= Double(Self.maximumGridNodeCount) else {
+            throw MazeError.invalidConfiguration(reason: "routing grid exceeds the supported node budget")
+        }
+        let cols = max(2, Int(rawCols))
+        let rows = max(2, Int(rawRows))
+        guard cols <= Int.max / rows else {
+            throw MazeError.invalidConfiguration(reason: "routing grid dimensions overflow")
+        }
+        guard cols * rows <= Self.maximumGridNodeCount else {
+            throw MazeError.invalidConfiguration(reason: "routing grid exceeds the supported node budget")
+        }
+        return (cols, rows)
+    }
 
     private struct State: Hashable { let node: Node; let layer: Layer }
 

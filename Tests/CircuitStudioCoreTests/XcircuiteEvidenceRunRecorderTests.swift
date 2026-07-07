@@ -16,6 +16,16 @@ struct XcircuiteEvidenceRunRecorderTests {
         return root
     }
 
+    private func removeProject(_ root: URL) {
+        do {
+            if FileManager.default.fileExists(atPath: root.path) {
+                try FileManager.default.removeItem(at: root)
+            }
+        } catch {
+            Issue.record("Failed to remove temporary evidence project at \(root.path): \(error)")
+        }
+    }
+
     private func writeFixture(_ text: String, named name: String, in directory: URL) throws -> URL {
         let url = directory.appendingPathComponent(name)
         try text.write(to: url, atomically: true, encoding: .utf8)
@@ -24,7 +34,7 @@ struct XcircuiteEvidenceRunRecorderTests {
 
     @Test func bundleLandsInRunLedgerWithVerifiedCopies() throws {
         let root = try makeProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeProject(root) }
         let scratch = root.appendingPathComponent("scratch")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
 
@@ -93,7 +103,7 @@ struct XcircuiteEvidenceRunRecorderTests {
 
     @Test func failingBundleIsRecordedAsFailed() throws {
         let root = try makeProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeProject(root) }
 
         let bundle = TapeoutEvidenceBundle(
             designName: "TOP",
@@ -115,7 +125,7 @@ struct XcircuiteEvidenceRunRecorderTests {
 
     @Test func tamperedArtifactDigestIsAnIntegrityError() throws {
         let root = try makeProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeProject(root) }
         let scratch = root.appendingPathComponent("scratch")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         let report = try writeFixture("tampered content", named: "drc.rpt", in: scratch)
@@ -145,6 +155,47 @@ struct XcircuiteEvidenceRunRecorderTests {
         #expect(throws: XcircuiteEvidenceRunRecorder.RecorderError.self) {
             try XcircuiteEvidenceRunRecorder().record(
                 bundle, projectRoot: root, runID: "run-evidence-3"
+            )
+        }
+    }
+
+    @Test func tamperedArtifactByteCountIsAnIntegrityError() throws {
+        let root = try makeProject()
+        defer { removeProject(root) }
+        let scratch = root.appendingPathComponent("scratch")
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let report = try writeFixture("byte-count content", named: "drc.rpt", in: scratch)
+        let digest = try XcircuiteHasher().sha256(fileAt: report)
+        let reportBytes = Int64(try Data(contentsOf: report).count)
+
+        let bundle = TapeoutEvidenceBundle(
+            designName: "TOP",
+            targetClockPeriod: 1e-9,
+            claims: [
+                .init(
+                    axis: .drc, statement: "layout is DRC clean", passed: true,
+                    measured: "0 violations",
+                    artifact: TapeoutEvidenceArtifact(
+                        id: "drc-report",
+                        kind: "report",
+                        path: report.path,
+                        status: .available,
+                        sha256: digest,
+                        byteCount: reportBytes + 1
+                    ),
+                    kind: .signoff
+                ),
+            ],
+            gdsPath: nil
+        )
+
+        #expect(throws: XcircuiteEvidenceRunRecorder.RecorderError.artifactByteCountMismatch(
+            id: "drc-report",
+            claimed: reportBytes + 1,
+            actual: reportBytes
+        )) {
+            try XcircuiteEvidenceRunRecorder().record(
+                bundle, projectRoot: root, runID: "run-evidence-4"
             )
         }
     }

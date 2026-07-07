@@ -20,9 +20,10 @@ struct CircuitLoaderTests {
         endmodule
         """
         let n = try VerilogStructuralParser().parse(verilog)
+        let output = try n.requirePrimaryOutput()
         #expect(n.name == "aoi")
         #expect(n.inputs.sorted() == ["a", "b", "c"])
-        #expect(n.output == "y")
+        #expect(output == "y")
         #expect(n.instances.count == 4)
         let g2 = try #require(n.instances.first { $0.name == "g2" })
         #expect(g2.cell.devices.count == 4)               // NOR2 = 4 FETs
@@ -49,10 +50,19 @@ struct CircuitLoaderTests {
     @Test("A Boolean expression maps to a gate-level netlist with the right inputs/output")
     func mapsBooleanToNetlist() throws {
         let n = try BooleanExpressionParser().netlist("(a & b) | c", name: "expr", output: "out")
+        let output = try n.requirePrimaryOutput()
         #expect(n.inputs.sorted() == ["a", "b", "c"])
-        #expect(n.output == "out")
+        #expect(output == "out")
         // AND -> NAND2+INV, OR -> NOR2+INV  => 4 cells.
         #expect(n.instances.count == 4)
+    }
+
+    @Test("A gate-level netlist without outputs fails as typed validation error")
+    func missingPrimaryOutputFailsWithTypedError() {
+        let n = GateLevelNetlist(name: "invalid", instances: [], inputs: ["a"], outputs: [])
+        #expect(throws: GateLevelNetlist.ValidationError.missingOutput(netlistName: "invalid")) {
+            _ = try n.requirePrimaryOutput()
+        }
     }
 
     @Test("A malformed Boolean expression fails loud")

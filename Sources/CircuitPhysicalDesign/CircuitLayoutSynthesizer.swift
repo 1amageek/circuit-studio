@@ -171,6 +171,11 @@ public final class CircuitLayoutSynthesizer {
         let routing = outcome.routing
         var layoutDoc = outcome.document
 
+        // Same-net sliver gaps cannot be rerouted away — the connectivity
+        // that put both shapes there is legitimate — so merge them by
+        // bridging before the final DRC judges the result.
+        SameNetSliverBridger().bridge(document: &layoutDoc, tech: tech)
+
         // The loop's verifier only carries errors; rerun full DRC so the
         // reported result keeps warnings as well.
         var drcResult = LayoutDRCService().run(document: layoutDoc, tech: tech)

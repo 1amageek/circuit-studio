@@ -99,19 +99,20 @@ struct RunReviewSignoffFixture {
         ))
 
         let artifacts = [
-            XcircuiteFileReference(artifactID: "drc-summary", path: drcPath, kind: .report, format: .json),
-            XcircuiteFileReference(artifactID: "drc-raw-log", path: drcLogPath, kind: .report, format: .text),
-            XcircuiteFileReference(artifactID: "drc-repair-hints", path: drcRepairHintPath, kind: .report, format: .json),
+            XcircuiteFileReference(artifactID: "drc-summary", path: drcPath, kind: .report, format: .json, producedByRunID: runID),
+            XcircuiteFileReference(artifactID: "drc-raw-log", path: drcLogPath, kind: .report, format: .text, producedByRunID: runID),
+            XcircuiteFileReference(artifactID: "drc-repair-hints", path: drcRepairHintPath, kind: .report, format: .json, producedByRunID: runID),
             XcircuiteFileReference(
                 artifactID: "evidence-drc-summary-review",
                 path: drcEnvelopePath,
                 kind: .report,
-                format: .json
+                format: .json,
+                producedByRunID: runID
             ),
-            XcircuiteFileReference(artifactID: "lvs-summary", path: lvsPath, kind: .report, format: .json),
-            XcircuiteFileReference(artifactID: "lvs-raw-log", path: lvsLogPath, kind: .report, format: .text),
-            XcircuiteFileReference(artifactID: "lvs-repair-hints", path: lvsRepairHintPath, kind: .report, format: .json),
-            XcircuiteFileReference(artifactID: "pex-summary", path: pexPath, kind: .report, format: .json),
+            XcircuiteFileReference(artifactID: "lvs-summary", path: lvsPath, kind: .report, format: .json, producedByRunID: runID),
+            XcircuiteFileReference(artifactID: "lvs-raw-log", path: lvsLogPath, kind: .report, format: .text, producedByRunID: runID),
+            XcircuiteFileReference(artifactID: "lvs-repair-hints", path: lvsRepairHintPath, kind: .report, format: .json, producedByRunID: runID),
+            XcircuiteFileReference(artifactID: "pex-summary", path: pexPath, kind: .report, format: .json, producedByRunID: runID),
             XcircuiteFileReference(
                 artifactID: "planning-simulation-summary",
                 path: simulationSummaryPath,
@@ -647,8 +648,8 @@ struct RunReviewSignoffFixture {
                               "path": "\(drcPath)",
                               "kind": "report",
                               "format": "json",
-                              "sha256": null,
-                              "byteCount": null,
+                              "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                              "byteCount": 256,
                               "integrityStatus": "verified",
                               "integrityMessage": null
                             }
@@ -664,8 +665,8 @@ struct RunReviewSignoffFixture {
                           "path": "\(rawPrefix)/layout.gds",
                           "kind": "layout",
                           "format": "gds",
-                          "sha256": null,
-                          "byteCount": null,
+                          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                          "byteCount": 1024,
                           "integrityStatus": "verified",
                           "integrityMessage": null
                         }
@@ -678,8 +679,8 @@ struct RunReviewSignoffFixture {
                           "path": "\(drcPath)",
                           "kind": "report",
                           "format": "json",
-                          "sha256": null,
-                          "byteCount": null,
+                          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                          "byteCount": 256,
                           "integrityStatus": "verified",
                           "integrityMessage": null
                         }
@@ -738,8 +739,8 @@ struct RunReviewSignoffFixture {
                               "path": "\(lvsPath)",
                               "kind": "report",
                               "format": "json",
-                              "sha256": null,
-                              "byteCount": null,
+                              "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                              "byteCount": 256,
                               "integrityStatus": "verified",
                               "integrityMessage": null
                             }
@@ -762,8 +763,8 @@ struct RunReviewSignoffFixture {
                           "path": "\(lvsPath)",
                           "kind": "report",
                           "format": "json",
-                          "sha256": null,
-                          "byteCount": null,
+                          "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                          "byteCount": 256,
                           "integrityStatus": "verified",
                           "integrityMessage": null
                         }

@@ -134,13 +134,19 @@ public struct ProjectService: Sendable {
                 "Failed to scan cells directory: \(error.localizedDescription)"
             )
         }
-        return entries
-            .filter { url in
-                let schematic = url.appending(path: Self.cellSchematicFileName)
-                return FileManager.default.fileExists(atPath: schematic.path(percentEncoded: false))
+        var cellNames: [String] = []
+        for url in entries {
+            let schematic = url.appending(path: Self.cellSchematicFileName)
+            guard FileManager.default.fileExists(atPath: schematic.path(percentEncoded: false)) else {
+                continue
             }
-            .map(\.lastPathComponent)
-            .sorted()
+            let cellName = url.lastPathComponent
+            guard CellInterface.isValidSPICEName(cellName) else {
+                throw CellLibraryError.invalidCellName(cellName)
+            }
+            cellNames.append(cellName)
+        }
+        return cellNames.sorted()
     }
 
     func saveCellSchematic(
@@ -312,7 +318,7 @@ public struct ProjectService: Sendable {
 
     /// Saves a SPICE netlist string to the project root.
     func saveNetlist(_ spice: String, named fileName: String, inProjectAt projectRoot: URL) throws {
-        let url = projectRoot.appending(path: fileName)
+        let url = try projectRootFileURL(named: fileName, inProjectAt: projectRoot)
         try packageStore.writeText(spice, to: url)
     }
 
@@ -339,7 +345,7 @@ public struct ProjectService: Sendable {
         to fileName: String,
         inProjectAt projectRoot: URL
     ) throws {
-        let url = projectRoot.appending(path: fileName)
+        let url = try projectRootFileURL(named: fileName, inProjectAt: projectRoot)
         let converter = MaskDataFormatConverter(tech: tech)
         do {
             try converter.exportDocument(document, to: url, format: .oasis)
@@ -374,9 +380,15 @@ public struct ProjectService: Sendable {
     /// artifacts such as `top.oas` when their source layout is cleared.
     /// Removing a file that is not present is a no-op.
     func removeProjectRootFile(named fileName: String, forProjectAt projectRoot: URL) throws {
-        let url = projectRoot.appending(path: fileName)
-        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+        let url = try projectRootFileURL(named: fileName, inProjectAt: projectRoot)
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false), isDirectory: &isDirectory) else {
             return
+        }
+        guard !isDirectory.boolValue else {
+            throw StudioError.projectSaveFailed(
+                "Refusing to remove directory '\(fileName)' through the project root file API."
+            )
         }
         do {
             try FileManager.default.removeItem(at: url)
@@ -628,6 +640,32 @@ public struct ProjectService: Sendable {
         try packageStore.url(forProjectRelativePath: rawPath, inProjectAt: projectRoot)
     }
 
+    private func projectRootFileURL(named fileName: String, inProjectAt projectRoot: URL) throws -> URL {
+        guard isSafeProjectRootFileName(fileName) else {
+            throw StudioError.projectSaveFailed(
+                "Unsafe project root file name '\(fileName)'. Expected a single non-reserved file name."
+            )
+        }
+        return try url(forProjectRelativePath: fileName, inProjectAt: projectRoot)
+    }
+
+    private func isSafeProjectRootFileName(_ fileName: String) -> Bool {
+        guard !fileName.isEmpty, fileName != ".", fileName != ".." else {
+            return false
+        }
+        guard !fileName.hasPrefix("/"),
+              !fileName.hasPrefix("~"),
+              !fileName.contains("/"),
+              !fileName.contains("\\") else {
+            return false
+        }
+        guard fileName != XcircuitePackage.directoryName,
+              fileName != Self.cellsDirectoryName else {
+            return false
+        }
+        return true
+    }
+
     private func renderPEXTOML(config: PEXProjectConfig) -> String {
         var lines: [String] = []
 
@@ -646,7 +684,7 @@ public struct ProjectService: Sendable {
 
         lines.append("")
         lines.append("[runtime]")
-        lines.append("backend = \"\(escapeTOML(config.backendID))\"")
+        lines.append("backend = \"\(escapeTOML(config.normalizedBackendID ?? ""))\"")
         lines.append("max_jobs = \(max(1, config.options.maxParallelJobs))")
         lines.append("include_coupling = \(config.options.includeCouplingCaps)")
 

@@ -26,7 +26,7 @@ struct GoalDrivenLayoutAgentTests {
         let tech = LayoutTechDatabase.sampleProcess()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("goal-agent-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: directory) }
+        defer { Self.removeTemporaryDirectory(directory) }
 
         let agent = GoalDrivenLayoutAgent(designName: "CHAIN", tech: tech)
         let evidence = try agent.close(intent: Self.chainIntent, exportDirectory: directory)
@@ -58,7 +58,7 @@ struct GoalDrivenLayoutAgentTests {
         let tech = LayoutTechDatabase.sampleProcess()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("goal-agent-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: directory) }
+        defer { Self.removeTemporaryDirectory(directory) }
 
         let agent = GoalDrivenLayoutAgent(designName: "EMPTY", tech: tech)
         #expect(throws: GoalDrivenLayoutAgent.AgentError.noIntentDevices) {
@@ -69,6 +69,33 @@ struct GoalDrivenLayoutAgentTests {
                 """,
                 exportDirectory: directory
             )
+        }
+    }
+
+    @Test func designNamePathSegmentsDoNotEscapeExportDirectory() throws {
+        let tech = LayoutTechDatabase.sampleProcess()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("goal-agent-\(UUID().uuidString)")
+        defer { Self.removeTemporaryDirectory(directory) }
+
+        let agent = GoalDrivenLayoutAgent(designName: "../CHAIN/escaped", tech: tech)
+        let evidence = try agent.close(intent: Self.chainIntent, exportDirectory: directory)
+
+        let directoryPath = directory.standardizedFileURL.path(percentEncoded: false)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let gdsPath = evidence.gdsURL.standardizedFileURL.path(percentEncoded: false)
+        #expect(gdsPath.hasPrefix("/" + directoryPath + "/"))
+        #expect(evidence.gdsURL.lastPathComponent == ".._CHAIN_escaped.gds")
+        #expect(FileManager.default.fileExists(atPath: gdsPath))
+    }
+
+    private static func removeTemporaryDirectory(_ url: URL) {
+        do {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+        } catch {
+            Issue.record("Failed to remove temporary goal-agent directory at \(url.path): \(error)")
         }
     }
 }

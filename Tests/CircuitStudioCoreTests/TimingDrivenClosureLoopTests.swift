@@ -29,7 +29,7 @@ struct TimingDrivenClosureLoopTests {
     @Test("The loop closes the ACC-4 core at a clock it initially fails", .timeLimit(.minutes(7)))
     func closesACC4AtTighterClock() async throws {
         let lib = try await sizedLibrary()
-        let seq = ACC4CPUGenerator().sequentialNetlist()
+        let seq = try ACC4CPUGenerator().sequentialNetlist()
         let base = try StaticTimingAnalyzer(library: lib).analyze(seq, clockPeriod: 10e-9, defaultInputSlew: 50e-12)
 
         // Target a clock period below what the base design achieves — it must fail first.

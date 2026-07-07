@@ -36,9 +36,14 @@ struct ProjectServiceTests {
 
         let pex = try service.loadPEXProjectConfig(forProjectAt: root)
         #expect(pex.topCell == "TOP")
-        #expect(pex.backendID == "mock")
+        #expect(pex.backendID == "")
+        #expect(pex.normalizedBackendID == nil)
+        #expect(!pex.usesMockBackend)
         #expect(pex.normalizedCorners == ["tt_25c_1v0"])
         #expect(pex.options.strictValidation)
+
+        let pexTOML = try String(contentsOf: service.pexTOMLURL(inProjectAt: root), encoding: .utf8)
+        #expect(pexTOML.contains("backend = \"\""))
     }
 
     @Test func saveAndLoadWorkspaceCellsAndSimulationConfigs() throws {
@@ -100,6 +105,26 @@ struct ProjectServiceTests {
         #expect(loadedSimulation.selectedAnalysis == .tran(TranSpec(stopTime: 1e-6, stepTime: 1e-9)))
     }
 
+    @Test func listCellNamesRejectsInvalidPersistedCellDirectoryName() throws {
+        let root = try makeTemporaryProjectRoot("invalid-cell-directory")
+        defer { removeTemporaryProjectRoot(root) }
+
+        let service = ProjectService()
+        try service.createProject(at: root)
+
+        let invalidCellDirectory = root.appending(path: "cells/1bad")
+        try FileManager.default.createDirectory(at: invalidCellDirectory, withIntermediateDirectories: true)
+        let schematic = SchematicDocument()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(schematic)
+        try data.write(to: invalidCellDirectory.appending(path: "schematic.json"), options: [.atomic])
+
+        #expect(throws: CellLibraryError.invalidCellName("1bad")) {
+            _ = try service.listCellNames(forProjectAt: root)
+        }
+    }
+
     @Test func legacyStudioSessionManifestIsReadAndMigratedAwayFromProjectManifest() throws {
         let root = try makeTemporaryProjectRoot("legacy-manifest")
         defer { removeTemporaryProjectRoot(root) }
@@ -149,7 +174,7 @@ struct ProjectServiceTests {
         let config = PEXProjectConfig(
             enabled: true,
             topCell: "AMP_TOP",
-            backendID: "mock",
+            backendID: "magic",
             corners: ["tt", "ss"],
             inputs: .init(
                 layout: "layout/amp.oas",
@@ -175,7 +200,7 @@ struct ProjectServiceTests {
         #expect(toml.contains("layout = \"layout/amp.oas\""))
         #expect(toml.contains("netlist = \"netlists/amp.cir\""))
         #expect(toml.contains("top_cell = \"AMP_TOP\""))
-        #expect(toml.contains("backend = \"mock\""))
+        #expect(toml.contains("backend = \"magic\""))
         #expect(toml.contains("max_jobs = 1"))
         #expect(toml.contains("include_coupling = false"))
         #expect(toml.contains("min_cap_f = 1e-15"))
@@ -206,6 +231,47 @@ struct ProjectServiceTests {
         let url = root.appending(path: "netlists/generated/top.cir")
         let loaded = try String(contentsOf: url, encoding: .utf8)
         #expect(loaded == source)
+    }
+
+    @Test func projectRootFileOperationsRejectUnsafeFileNames() throws {
+        let root = try makeTemporaryProjectRoot("unsafe-root-file")
+        defer { removeTemporaryProjectRoot(root) }
+
+        let service = ProjectService()
+        try service.createProject(at: root)
+
+        let unsafeFileNames = [
+            "",
+            ".",
+            "..",
+            "../escape.cir",
+            "nested/top.cir",
+            "/tmp/top.cir",
+            "~/top.cir",
+            "\\tmp\\top.cir",
+            ".xcircuite",
+            "cells"
+        ]
+
+        for fileName in unsafeFileNames {
+            do {
+                try service.saveNetlist("* rejected\n.end\n", named: fileName, inProjectAt: root)
+                Issue.record("Expected unsafe project root file name to be rejected for save: \(fileName)")
+            } catch StudioError.projectSaveFailed(let message) {
+                #expect(message.contains("Unsafe project root file name"))
+            } catch {
+                Issue.record("Unexpected save error for unsafe project root file name \(fileName): \(error)")
+            }
+
+            do {
+                try service.removeProjectRootFile(named: fileName, forProjectAt: root)
+                Issue.record("Expected unsafe project root file name to be rejected for removal: \(fileName)")
+            } catch StudioError.projectSaveFailed(let message) {
+                #expect(message.contains("Unsafe project root file name"))
+            } catch {
+                Issue.record("Unexpected removal error for unsafe project root file name \(fileName): \(error)")
+            }
+        }
     }
 
     @Test func saveMaterializedSchematicWritesCanonicalCellArtifacts() async throws {

@@ -16,6 +16,14 @@ private func makeTemporaryProject() throws -> URL {
     return root
 }
 
+private func removeTemporaryProject(_ root: URL) {
+    do {
+        try FileManager.default.removeItem(at: root)
+    } catch {
+        Issue.record("Failed to remove temporary project root \(root.path(percentEncoded: false)): \(error)")
+    }
+}
+
 @MainActor
 private func makeGeneratedSession() -> StudioSession {
     let project = StudioSession(schematicViewModel: SchematicPreview.cmosInverterViewModel())
@@ -32,7 +40,7 @@ struct LayoutProjectArtifactTests {
     @Test("Layout document, tech, and design unit round-trip through the project")
     func artifactRoundTrip() throws {
         let root = try makeTemporaryProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryProject(root) }
         let service = ProjectService()
 
         let project = makeGeneratedSession()
@@ -60,7 +68,7 @@ struct LayoutProjectArtifactTests {
     @Test("A cell without a saved layout reports none")
     func emptyProjectHasNoLayout() throws {
         let root = try makeTemporaryProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryProject(root) }
         let service = ProjectService()
 
         let cell = StudioSession.defaultCellName
@@ -71,7 +79,7 @@ struct LayoutProjectArtifactTests {
     @Test("removeCellDesignUnit clears a persisted binding and tolerates absence")
     func removeDesignUnit() throws {
         let root = try makeTemporaryProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryProject(root) }
         let service = ProjectService()
         let cell = StudioSession.defaultCellName
 
@@ -146,7 +154,7 @@ struct LayoutPersistRestoreTests {
     @Test("Persisting writes the editor artifacts and the OASIS interchange file")
     func persistWritesArtifacts() throws {
         let root = try makeTemporaryProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryProject(root) }
         let projectService = ProjectService()
         let persistence = LayoutPersistenceService(projectService: projectService)
 
@@ -163,7 +171,7 @@ struct LayoutPersistRestoreTests {
     @Test("Persisting without a design unit removes a stale binding")
     func persistWithoutDesignUnitRemovesBinding() throws {
         let root = try makeTemporaryProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryProject(root) }
         let projectService = ProjectService()
         let persistence = LayoutPersistenceService(projectService: projectService)
 
@@ -183,7 +191,7 @@ struct LayoutPersistRestoreTests {
     @Test("Restore rebuilds the document, binding, and cross-probe, and reads clean")
     func restoreRoundTrip() throws {
         let root = try makeTemporaryProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryProject(root) }
         let persistence = LayoutPersistenceService(projectService: ProjectService())
 
         let saved = makeGeneratedSession()
@@ -216,11 +224,12 @@ struct LayoutPersistRestoreTests {
     @Test("Restoring a project without a layout returns false and changes nothing")
     func restoreWithoutLayout() throws {
         let root = try makeTemporaryProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryProject(root) }
         let persistence = LayoutPersistenceService(projectService: ProjectService())
 
         let project = StudioSession()
-        #expect(try !persistence.restoreLayout(into: project.activeCell, fromProjectAt: root))
+        let didRestore = try persistence.restoreLayout(into: project.activeCell, fromProjectAt: root)
+        #expect(!didRestore)
         #expect(!project.layoutHasContent)
         #expect(project.designUnit == nil)
     }
@@ -228,7 +237,7 @@ struct LayoutPersistRestoreTests {
     @Test("Generating with an open project writes artifacts immediately")
     func generateWithProjectPersistsImmediately() throws {
         let root = try makeTemporaryProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryProject(root) }
         let projectService = ProjectService()
         let persistence = LayoutPersistenceService(projectService: projectService)
 
@@ -248,6 +257,35 @@ struct LayoutPersistRestoreTests {
         #expect(project.layoutGenerationError == nil)
         #expect(projectService.hasCellLayoutDocument(cellName: project.activeCellName, forProjectAt: root))
         #expect(!project.isLayoutDirty, "Generation with an open project lands on disk")
+    }
+
+    @Test("Generation stops when top netlist has no materialized schematic")
+    func generateWithMissingMaterializedSchematicDoesNotPersist() throws {
+        let root = try makeTemporaryProject()
+        defer { removeTemporaryProject(root) }
+        let projectService = ProjectService()
+        try projectService.saveNetlist("* imported netlist\n.op\n.end\n", named: "top.cir", inProjectAt: root)
+        let persistence = LayoutPersistenceService(projectService: projectService)
+
+        let appState = AppState()
+        appState.projectRootURL = root
+        appState.selectedFileURL = root.appending(path: "top.cir")
+        let project = StudioSession(schematicViewModel: SchematicPreview.cmosInverterViewModel())
+        let catalog = DeviceCatalog.standard()
+        let designFlow = DesignFlowService(netlistGenerator: NetlistGenerator(catalog: catalog))
+
+        persistence.generateLayout(
+            project: project,
+            appState: appState,
+            designFlow: designFlow,
+            catalog: catalog
+        )
+
+        #expect(project.layoutGenerationError?.contains("schematic.json is missing") == true)
+        #expect(!project.layoutHasContent)
+        #expect(!projectService.hasCellLayoutDocument(cellName: project.activeCellName, forProjectAt: root))
+        let oasPath = root.appending(path: LayoutPersistenceService.interchangeFileName)
+        #expect(!FileManager.default.fileExists(atPath: oasPath.path(percentEncoded: false)))
     }
 
     @Test("Generating without a project keeps the layout in memory as unsaved")

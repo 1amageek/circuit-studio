@@ -51,10 +51,14 @@ public struct STAvsSPICEValidator: TimingPathValidating {
     private let simulation: SimulationServiceProtocol
     private let logic = GateLevelLogicSimulator()
 
-    public init(model: Level1DeviceModel = .bundledDefault(),
+    public init(model: Level1DeviceModel,
                 simulation: SimulationServiceProtocol = SimulationService()) {
         self.model = model
         self.simulation = simulation
+    }
+
+    public init(simulation: SimulationServiceProtocol = SimulationService()) throws {
+        self.init(model: try Level1DeviceModel.loadBundledDefault(), simulation: simulation)
     }
 
     /// Maximum stages per simulated segment. A deep inverting chain's transient Newton solve

@@ -1,3 +1,4 @@
+import Foundation
 import Synchronization
 
 /// Thread-safe FIFO channel for transient simulation data.
@@ -10,11 +11,22 @@ import Synchronization
 /// arrays via `swap`, so no COW sharing occurs between the simulation
 /// and polling threads.
 public final class TransientProgressChannel: Sendable {
+    public enum AppendError: Error, LocalizedError, Equatable, Sendable {
+        case solutionWidthChanged(expected: Int, actual: Int)
+
+        public var errorDescription: String? {
+            switch self {
+            case .solutionWidthChanged(let expected, let actual):
+                return "Transient solution width changed from \(expected) to \(actual)."
+            }
+        }
+    }
 
     private struct PendingData {
         var timePoints: [Double] = []
         var rowMajorSolutions: [Double] = []
         var sourceVariableCount: Int?
+        var failure: AppendError?
     }
 
     private let pending: Mutex<PendingData>
@@ -26,8 +38,14 @@ public final class TransientProgressChannel: Sendable {
     /// Append a single accepted timestep. Called from the simulation thread.
     public func append(time: Double, solution: [Double]) {
         pending.withLock { s in
+            guard s.failure == nil else {
+                return
+            }
             if let sourceVariableCount = s.sourceVariableCount {
-                precondition(sourceVariableCount == solution.count, "transient solution width must remain stable")
+                guard sourceVariableCount == solution.count else {
+                    s.failure = .solutionWidthChanged(expected: sourceVariableCount, actual: solution.count)
+                    return
+                }
             } else {
                 s.sourceVariableCount = solution.count
             }
@@ -49,6 +67,14 @@ public final class TransientProgressChannel: Sendable {
             swap(&sol, &s.rowMajorSolutions)
             s.sourceVariableCount = nil
             return (tp, sol, sourceVariableCount)
+        }
+    }
+
+    public func takeFailure() -> AppendError? {
+        pending.withLock { s in
+            let failure = s.failure
+            s.failure = nil
+            return failure
         }
     }
 }

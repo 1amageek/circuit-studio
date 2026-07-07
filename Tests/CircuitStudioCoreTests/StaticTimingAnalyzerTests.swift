@@ -38,8 +38,8 @@ struct StaticTimingAnalyzerTests {
         let seq = SequentialNetlist(
             name: "chain",
             combinational: [
-                .init(name: "g0", cell: .inverter(name: "inv"), netMap: ["A": "qa", "Y": "m"]),
-                .init(name: "g1", cell: .inverter(name: "inv"), netMap: ["A": "m", "Y": "db"]),
+                .init(name: "g0", cell: try .inverter(name: "inv"), netMap: ["A": "qa", "Y": "m"]),
+                .init(name: "g1", cell: try .inverter(name: "inv"), netMap: ["A": "m", "Y": "db"]),
             ],
             dffs: [.init(name: "ffA", d: "x", clk: "clk", q: "qa"),
                    .init(name: "ffB", d: "db", clk: "clk", q: "qb")],
@@ -64,7 +64,7 @@ struct StaticTimingAnalyzerTests {
 
     @Test("STA on the ACC-4 core finds the carry-chain critical path and a finite fmax")
     func acc4CriticalPath() throws {
-        let seq = ACC4CPUGenerator().sequentialNetlist()
+        let seq = try ACC4CPUGenerator().sequentialNetlist()
         let lib = constantLibrary(inv: 30e-12, nand2: 60e-12, nor2: 70e-12, clkToQ: 120e-12, setup: 25e-12, hold: 5e-12)
         let report = try StaticTimingAnalyzer(library: lib).analyze(seq, clockPeriod: 5e-9, defaultInputSlew: 1e-11)
 
@@ -86,8 +86,8 @@ struct StaticTimingAnalyzerTests {
         let seq = SequentialNetlist(
             name: "loop",
             combinational: [
-                .init(name: "g0", cell: .nand(name: "nand2", inputs: ["A", "B"]), netMap: ["A": "a", "B": "y", "Y": "n"]),
-                .init(name: "g1", cell: .inverter(name: "inv"), netMap: ["A": "n", "Y": "y"]),
+                .init(name: "g0", cell: try .nand(name: "nand2", inputs: ["A", "B"]), netMap: ["A": "a", "B": "y", "Y": "n"]),
+                .init(name: "g1", cell: try .inverter(name: "inv"), netMap: ["A": "n", "Y": "y"]),
             ],
             dffs: [.init(name: "ff", d: "a", clk: "clk", q: "qa")],
             inputs: [], outputs: ["y"], clock: "clk")

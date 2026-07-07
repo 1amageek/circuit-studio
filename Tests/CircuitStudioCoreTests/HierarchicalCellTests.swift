@@ -589,6 +589,107 @@ struct HierarchicalNetlistTests {
         }
     }
 
+    @Test func missingRequiredDeviceParameterThrows() {
+        let resistor = PlacedComponent(deviceKindID: "resistor", name: "R1", position: .zero)
+        let document = SchematicDocument(components: [resistor], wires: [])
+
+        #expect(throws: NetlistGenerationError.missingRequiredParameter(
+            instanceName: "R1",
+            deviceKindID: "resistor",
+            parameterID: "r"
+        )) {
+            try NetlistGenerator().generate(from: document)
+        }
+    }
+
+    @Test func unknownDeviceParameterThrows() {
+        let resistor = PlacedComponent(
+            deviceKindID: "resistor",
+            name: "R1",
+            position: .zero,
+            parameters: ["resistance": 1000]
+        )
+        let document = SchematicDocument(components: [resistor], wires: [])
+
+        #expect(throws: NetlistGenerationError.unknownParameter(
+            instanceName: "R1",
+            deviceKindID: "resistor",
+            parameterID: "resistance"
+        )) {
+            try NetlistGenerator().generate(from: document)
+        }
+    }
+
+    @Test func outOfRangeDeviceParameterThrows() {
+        let resistor = PlacedComponent(
+            deviceKindID: "resistor",
+            name: "R1",
+            position: .zero,
+            parameters: ["r": 0]
+        )
+        let document = SchematicDocument(components: [resistor], wires: [])
+
+        #expect(throws: NetlistGenerationError.parameterOutOfRange(
+            instanceName: "R1",
+            deviceKindID: "resistor",
+            parameterID: "r",
+            value: 0,
+            lowerBound: 0.001,
+            upperBound: 1e12
+        )) {
+            try NetlistGenerator().generate(from: document)
+        }
+    }
+
+    @Test func nonFiniteDeviceParameterThrows() {
+        let resistor = PlacedComponent(
+            deviceKindID: "resistor",
+            name: "R1",
+            position: .zero,
+            parameters: ["r": .infinity]
+        )
+        let document = SchematicDocument(components: [resistor], wires: [])
+
+        #expect(throws: NetlistGenerationError.invalidParameterValue(
+            instanceName: "R1",
+            deviceKindID: "resistor",
+            parameterID: "r"
+        )) {
+            try NetlistGenerator().generate(from: document)
+        }
+    }
+
+    @Test func sourceWithoutStimulusThrows() {
+        let source = PlacedComponent(deviceKindID: "vsource", name: "V1", position: .zero)
+        let document = SchematicDocument(components: [source], wires: [])
+
+        #expect(throws: NetlistGenerationError.missingSourceStimulus(
+            instanceName: "V1",
+            deviceKindID: "vsource"
+        )) {
+            try NetlistGenerator().generate(from: document)
+        }
+    }
+
+    @Test func incompleteSourceWaveformThrows() {
+        let source = PlacedComponent(
+            deviceKindID: "vsource",
+            name: "V1",
+            position: .zero,
+            parameters: ["pulse_v2": 1.8]
+        )
+        let document = SchematicDocument(components: [source], wires: [])
+
+        #expect(throws: NetlistGenerationError.incompleteSourceWaveform(
+            instanceName: "V1",
+            deviceKindID: "vsource",
+            waveform: "PULSE",
+            missingParameters: ["pulse_v1", "pulse_td", "pulse_tr", "pulse_tf", "pulse_pw", "pulse_per"]
+        )) {
+            try NetlistGenerator().generate(from: document)
+        }
+    }
+
     @Test func childPortRenameKeepsParentWiringConnected() throws {
         // The trust proof for stable pin ids: a parent wires X1 to a child
         // port by the port's stable id. Renaming that child port changes the

@@ -38,7 +38,7 @@ public struct CMOSGateNetlist: Sendable, Hashable, Codable, Identifiable {
             gate: String,
             source: String,
             drain: String,
-            sizing: CMOSGateLibrary.DeviceSizing = CMOSGateLibrary.bundledDefault.deviceSizing
+            sizing: CMOSGateLibrary.DeviceSizing
         ) {
             self.init(
                 name: name,
@@ -87,8 +87,16 @@ public struct CMOSGateNetlist: Sendable, Hashable, Codable, Identifiable {
     public static func inverter(
         name: String = "inverter",
         input: String = "A",
+        output: String = "Y"
+    ) throws -> CMOSGateNetlist {
+        try CMOSGateLibrary.loadBundledDefault().inverter(name: name, input: input, output: output)
+    }
+
+    public static func inverter(
+        name: String = "inverter",
+        input: String = "A",
         output: String = "Y",
-        deviceSizing: CMOSGateLibrary.DeviceSizing = CMOSGateLibrary.bundledDefault.deviceSizing
+        deviceSizing: CMOSGateLibrary.DeviceSizing
     ) -> CMOSGateNetlist {
         CMOSGateNetlist(name: name, devices: [
             Device(name: "MP0", kind: .pmos, gate: input, source: "VPWR", drain: output, sizing: deviceSizing),
@@ -101,8 +109,16 @@ public struct CMOSGateNetlist: Sendable, Hashable, Codable, Identifiable {
     public static func nand(
         name: String,
         inputs: [String],
+        output: String = "Y"
+    ) throws -> CMOSGateNetlist {
+        try CMOSGateLibrary.loadBundledDefault().nand(name: name, inputs: inputs, output: output)
+    }
+
+    public static func nand(
+        name: String,
+        inputs: [String],
         output: String = "Y",
-        deviceSizing: CMOSGateLibrary.DeviceSizing = CMOSGateLibrary.bundledDefault.deviceSizing
+        deviceSizing: CMOSGateLibrary.DeviceSizing
     ) -> CMOSGateNetlist {
         var devices: [Device] = []
         // Parallel PMOS: each input's PMOS ties VPWR -> output.
@@ -123,8 +139,16 @@ public struct CMOSGateNetlist: Sendable, Hashable, Codable, Identifiable {
     public static func nor(
         name: String,
         inputs: [String],
+        output: String = "Y"
+    ) throws -> CMOSGateNetlist {
+        try CMOSGateLibrary.loadBundledDefault().nor(name: name, inputs: inputs, output: output)
+    }
+
+    public static func nor(
+        name: String,
+        inputs: [String],
         output: String = "Y",
-        deviceSizing: CMOSGateLibrary.DeviceSizing = CMOSGateLibrary.bundledDefault.deviceSizing
+        deviceSizing: CMOSGateLibrary.DeviceSizing
     ) -> CMOSGateNetlist {
         var devices: [Device] = []
         // Parallel NMOS: each input's NMOS ties output -> VGND.

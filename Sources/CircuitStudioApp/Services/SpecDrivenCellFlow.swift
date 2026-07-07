@@ -23,7 +23,13 @@ public struct SpecDrivenCellFlow: Sendable {
 
     /// Compatibility access to the bundled profile manufacturing grid.
     public static var gridMicrons: Double {
-        defaultLayoutProfile().manufacturingGridMicrons
+        get throws {
+            try loadGridMicrons()
+        }
+    }
+
+    public static func loadGridMicrons() throws -> Double {
+        try loadDefaultLayoutProfile().manufacturingGridMicrons
     }
 
     public struct Output: Sendable {
@@ -64,25 +70,33 @@ public struct SpecDrivenCellFlow: Sendable {
     public init(
         loop: SpecDrivenDesignLoop = SpecDrivenDesignLoop(),
         signoff: StandardCellSignoffService,
-        layoutProfile: StandardCellLayoutProfile? = nil
+        layoutProfile: StandardCellLayoutProfile
     ) {
         self.loop = loop
         self.signoff = signoff
-        self.layoutProfile = layoutProfile ?? Self.defaultLayoutProfile()
+        self.layoutProfile = layoutProfile
     }
 
-    /// Available only with the real Magic + Netgen + Sky130 toolchain.
-    public static func locate(
+    public init(
+        loop: SpecDrivenDesignLoop = SpecDrivenDesignLoop(),
+        signoff: StandardCellSignoffService
+    ) throws {
+        self.init(loop: loop, signoff: signoff, layoutProfile: try Self.loadDefaultLayoutProfile())
+    }
+
+    public static func locateChecked(
         loop: SpecDrivenDesignLoop = SpecDrivenDesignLoop(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
-    ) -> SpecDrivenCellFlow? {
-        StandardCellSignoffService.locate(
-            technology: defaultLayoutTechnology(),
+    ) throws -> SpecDrivenCellFlow? {
+        let profile = try loadDefaultLayoutProfile()
+        let technology = try loadDefaultLayoutTechnology()
+        return StandardCellSignoffService.locate(
+            technology: technology,
             environment: environment,
             fileManager: fileManager
         )
-            .map { SpecDrivenCellFlow(loop: loop, signoff: $0) }
+        .map { SpecDrivenCellFlow(loop: loop, signoff: $0, layoutProfile: profile) }
     }
 
     /// Size the inverter electrically to meet `spec`, then synthesize and sign off the
@@ -129,19 +143,11 @@ public struct SpecDrivenCellFlow: Sendable {
         )
     }
 
-    private static func defaultLayoutProfile() -> StandardCellLayoutProfile {
-        do {
-            return try StandardCellLayoutProfileCatalog.loadDefaultProfile()
-        } catch {
-            preconditionFailure("Bundled standard-cell layout profile could not be loaded: \(error)")
-        }
+    private static func loadDefaultLayoutProfile() throws -> StandardCellLayoutProfile {
+        try StandardCellLayoutProfileCatalog.loadDefaultProfile()
     }
 
-    private static func defaultLayoutTechnology() -> LayoutTechDatabase {
-        do {
-            return try LayoutTechnologyCatalog.loadDefaultTechnology()
-        } catch {
-            preconditionFailure("Bundled layout technology could not be loaded: \(error)")
-        }
+    private static func loadDefaultLayoutTechnology() throws -> LayoutTechDatabase {
+        try LayoutTechnologyCatalog.loadDefaultTechnology()
     }
 }

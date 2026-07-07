@@ -233,6 +233,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case applyWaiverEditProposalAndRunPostVerification
         case formulateSignoffRepairPlanningProblem
         case runSignoffRepairCandidateCycle
+        case runGoalLayoutAgent
+        case scaffoldDesignSpec
     }
 
     public let kind: Kind
@@ -249,7 +251,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let maxRelativeDelta: Double?
     public let relativeDeltaDenominatorFloor: Double?
     public let domainComparisonLimits: [PostLayoutSignalDomainComparisonLimit]?
-    public let variableComparisonLimits: [PostLayoutVariableComparisonLimit]?
+    public let variableComparisonLimits: [CircuitStudioCore.PostLayoutVariableComparisonLimit]?
     public let oscillationMetricLimits: [PostLayoutOscillationMetricLimit]?
     public let technologyPackagePath: String?
     public let pexConfigPath: String?
@@ -293,6 +295,11 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let signoffRepairHistoryMinimumAcceptedCountPerSelectedObjectiveDomain: Int?
     public let signoffRepairHistoryRequiredSelectedActionDomainIDs: [String]?
     public let signoffRepairHistoryRequiredSelectedObjectiveDomainIDs: [String]?
+    /// `.subckt` intent file for `runGoalLayoutAgent`.
+    public let intentSubcktPath: String?
+    /// Design (top cell) name for `runGoalLayoutAgent`; defaults to the
+    /// `.subckt` header name when absent.
+    public let designName: String?
 
     public init(
         kind: Kind,
@@ -309,7 +316,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         maxRelativeDelta: Double? = nil,
         relativeDeltaDenominatorFloor: Double? = nil,
         domainComparisonLimits: [PostLayoutSignalDomainComparisonLimit] = [],
-        variableComparisonLimits: [PostLayoutVariableComparisonLimit] = [],
+        variableComparisonLimits: [CircuitStudioCore.PostLayoutVariableComparisonLimit] = [],
         oscillationMetricLimits: [PostLayoutOscillationMetricLimit] = [],
         technologyPackagePath: String? = nil,
         pexConfigPath: String? = nil,
@@ -352,7 +359,9 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         signoffRepairHistoryMinimumFeedbackScoreDeltaCount: Int? = nil,
         signoffRepairHistoryMinimumAcceptedCountPerSelectedObjectiveDomain: Int? = nil,
         signoffRepairHistoryRequiredSelectedActionDomainIDs: [String]? = nil,
-        signoffRepairHistoryRequiredSelectedObjectiveDomainIDs: [String]? = nil
+        signoffRepairHistoryRequiredSelectedObjectiveDomainIDs: [String]? = nil,
+        intentSubcktPath: String? = nil,
+        designName: String? = nil
     ) {
         self.kind = kind
         self.fixtureName = fixtureName
@@ -415,6 +424,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
             signoffRepairHistoryRequiredSelectedActionDomainIDs
         self.signoffRepairHistoryRequiredSelectedObjectiveDomainIDs =
             signoffRepairHistoryRequiredSelectedObjectiveDomainIDs
+        self.intentSubcktPath = intentSubcktPath
+        self.designName = designName
     }
 
     public static func listFixtures() -> DesignFlowCommand {
@@ -483,6 +494,13 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let candidateCycleHistorySummaryPath: String?
     public let candidateAccepted: Bool?
     public let actionRecordIDs: [String]?
+    /// `runGoalLayoutAgent`: whether the intent closed (wired, clean,
+    /// LVS-matched, replay-deterministic).
+    public let goalAgentClosed: Bool?
+    /// `runGoalLayoutAgent`: path of the persisted evidence JSON.
+    public let goalAgentEvidencePath: String?
+    /// `runGoalLayoutAgent`: path of the exported GDS artifact.
+    public let exportedLayoutPath: String?
     public let message: String?
 
     public init(
@@ -546,6 +564,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         candidateCycleHistorySummaryPath: String? = nil,
         candidateAccepted: Bool? = nil,
         actionRecordIDs: [String]? = nil,
+        goalAgentClosed: Bool? = nil,
+        goalAgentEvidencePath: String? = nil,
+        exportedLayoutPath: String? = nil,
         message: String? = nil
     ) {
         self.kind = kind
@@ -609,6 +630,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.candidateCycleHistorySummaryPath = candidateCycleHistorySummaryPath
         self.candidateAccepted = candidateAccepted
         self.actionRecordIDs = actionRecordIDs
+        self.goalAgentClosed = goalAgentClosed
+        self.goalAgentEvidencePath = goalAgentEvidencePath
+        self.exportedLayoutPath = exportedLayoutPath
         self.message = message
     }
 }
@@ -639,6 +663,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case timingModelProfileCatalogEntryMismatch(expected: String, actual: String)
     case timingModelProfileCatalogCornerMismatch(profileID: String, declared: String, actual: String)
     case signoffToolchainUnavailable
+    case missingIntentSubcktPath
+    case missingIntentSubcktName
 
     public var errorDescription: String? {
         switch self {
@@ -692,6 +718,10 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
             return "Timing model profile catalog entry '\(profileID)' declares corner '\(declared)' but loaded profile corner is '\(actual)'."
         case .signoffToolchainUnavailable:
             return "Live signoff was requested but the Magic + Netgen + selected PDK toolchain was not found (set MAGIC_BIN/NETGEN_BIN/PDK_ROOT or install the tools)."
+        case .missingIntentSubcktPath:
+            return "Design flow command requires a .subckt intent path."
+        case .missingIntentSubcktName:
+            return "The .subckt intent does not declare a subcircuit name; pass an explicit design name."
         }
     }
 }

@@ -15,6 +15,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
     public enum RecorderError: Error, LocalizedError, Equatable {
         case artifactFileMissing(id: String, path: String)
         case artifactDigestMismatch(id: String, claimed: String, actual: String)
+        case artifactByteCountMismatch(id: String, claimed: Int64, actual: Int64)
 
         public var errorDescription: String? {
             switch self {
@@ -22,6 +23,8 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                 return "Claim artifact '\(id)' is declared available but '\(path)' does not exist."
             case .artifactDigestMismatch(let id, let claimed, let actual):
                 return "Claim artifact '\(id)' digest mismatch: claimed \(claimed), actual \(actual)."
+            case .artifactByteCountMismatch(let id, let claimed, let actual):
+                return "Claim artifact '\(id)' byte count mismatch: claimed \(claimed), actual \(actual)."
             }
         }
     }
@@ -146,6 +149,14 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                 id: artifact.id,
                 claimed: claimed,
                 actual: digest
+            )
+        }
+        let byteCount = try hasher.byteCount(fileAt: destination)
+        if let claimed = artifact.byteCount, claimed != byteCount {
+            throw RecorderError.artifactByteCountMismatch(
+                id: artifact.id,
+                claimed: claimed,
+                actual: byteCount
             )
         }
         return destination

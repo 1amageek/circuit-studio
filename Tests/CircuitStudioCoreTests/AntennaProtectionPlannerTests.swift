@@ -6,7 +6,7 @@ import Testing
 struct AntennaProtectionPlannerTests {
     @Test("Primary gate nets are protected without hardcoded net names", .timeLimit(.minutes(1)))
     func primaryGateNetsAreProtected() throws {
-        let netlist = GateLevelNetlist.inverterChain(name: "chain3", stages: 3, input: "a", output: "y")
+        let netlist = try GateLevelNetlist.inverterChain(name: "chain3", stages: 3, input: "a", output: "y")
         let plan = try circuitSynthesizer().antennaProtectionPlan(for: netlist)
 
         #expect(plan.designName == netlist.name)
@@ -18,7 +18,7 @@ struct AntennaProtectionPlannerTests {
     @Test("The rule set can distinguish local-contact protection from net-budget protection",
           .timeLimit(.minutes(1)))
     func ruleSetSeparatesLocalContactAndBudgetProtection() throws {
-        let netlist = GateLevelNetlist.inverterChain(name: "chain4", stages: 4, input: "in", output: "out")
+        let netlist = try GateLevelNetlist.inverterChain(name: "chain4", stages: 4, input: "in", output: "out")
         let synth = try circuitSynthesizer()
         let defaultPlan = try synth.antennaProtectionPlan(for: netlist)
         let budgetOnlyPlanner = GateLevelAntennaProtectionPlanner(ruleSet: AntennaProtectionRuleSet(
@@ -36,7 +36,7 @@ struct AntennaProtectionPlannerTests {
     @Test("ACC-4 protection targets are derived from topology, not from ACC-specific literals",
           .timeLimit(.minutes(1)))
     func acc4ProtectionTargetsComeFromTopology() throws {
-        let netlist = ACC4CPUGenerator().gateLevelNetlist(name: "acc4_plan")
+        let netlist = try ACC4CPUGenerator().gateLevelNetlist(name: "acc4_plan")
         let plan = try circuitSynthesizer().antennaProtectionPlan(for: netlist)
 
         let protectedNets = Set(plan.sites.map(\.net))
@@ -56,12 +56,12 @@ struct AntennaProtectionPlannerTests {
             instances: [
                 GateLevelNetlist.Instance(
                     name: "a.b",
-                    cell: .inverter(name: "inv0", input: "c"),
+                    cell: try .inverter(name: "inv0", input: "c"),
                     netMap: ["c": "d", "Y": "y0"]
                 ),
                 GateLevelNetlist.Instance(
                     name: "a",
-                    cell: .inverter(name: "inv1", input: "b.c"),
+                    cell: try .inverter(name: "inv1", input: "b.c"),
                     netMap: ["b.c": "d", "Y": "y1"]
                 ),
             ],
@@ -76,7 +76,7 @@ struct AntennaProtectionPlannerTests {
 
     @Test("Synthesized layout materializes one diffusion tie per planned site", .timeLimit(.minutes(1)))
     func synthesizedLayoutMaterializesDiffusionTies() throws {
-        let netlist = GateLevelNetlist.and2(name: "and2_protected")
+        let netlist = try GateLevelNetlist.and2(name: "and2_protected")
         let synth = try circuitSynthesizer()
         let synthesis = try synth.synthesisResult(for: netlist)
         let plan = synthesis.antennaProtectionPlan
@@ -101,7 +101,7 @@ struct AntennaProtectionPlannerTests {
 
     @Test("Planner site geometry must match the routed candidate", .timeLimit(.minutes(1)))
     func plannerSiteGeometryMustMatchRoutedCandidate() throws {
-        let netlist = GateLevelNetlist.and2(name: "and2_inconsistent_protection")
+        let netlist = try GateLevelNetlist.and2(name: "and2_inconsistent_protection")
         let expectedID = try #require(circuitSynthesizer().antennaProtectionCandidates(for: netlist).first?.id)
         let synth = try circuitSynthesizer(antennaProtectionPlanProvider: InconsistentAntennaProtectionPlanner())
 
@@ -112,7 +112,7 @@ struct AntennaProtectionPlannerTests {
 
     @Test("Public plan API validates provider output before returning it", .timeLimit(.minutes(1)))
     func publicPlanAPIValidatesProviderOutputBeforeReturningIt() throws {
-        let netlist = GateLevelNetlist.and2(name: "and2_public_plan_validation")
+        let netlist = try GateLevelNetlist.and2(name: "and2_public_plan_validation")
         let expectedID = try #require(circuitSynthesizer().antennaProtectionCandidates(for: netlist).first?.id)
         let synth = try circuitSynthesizer(antennaProtectionPlanProvider: InconsistentAntennaProtectionPlanner())
 
@@ -123,7 +123,7 @@ struct AntennaProtectionPlannerTests {
 
     @Test("Antenna protection plans are bound to the routed design name", .timeLimit(.minutes(1)))
     func antennaProtectionPlansAreBoundToRoutedDesignName() throws {
-        let netlist = GateLevelNetlist.and2(name: "and2_design_name_validation")
+        let netlist = try GateLevelNetlist.and2(name: "and2_design_name_validation")
         let synth = try circuitSynthesizer(antennaProtectionPlanProvider: WrongDesignAntennaProtectionPlanner())
 
         #expect(throws: StandardCircuitSynthesizer.RouteError.inconsistentAntennaProtectionPlanDesignName(
@@ -141,12 +141,12 @@ struct AntennaProtectionPlannerTests {
             instances: [
                 GateLevelNetlist.Instance(
                     name: "g0",
-                    cell: .inverter(name: "inv"),
+                    cell: try .inverter(name: "inv"),
                     netMap: ["A": "a", "Y": "n"]
                 ),
                 GateLevelNetlist.Instance(
                     name: "g1",
-                    cell: .inverter(name: "inv"),
+                    cell: try .inverter(name: "inv"),
                     netMap: ["A": "b", "Y": "n"]
                 ),
             ],
@@ -161,7 +161,7 @@ struct AntennaProtectionPlannerTests {
 
     @Test("Invalid antenna rule values fail loud", .timeLimit(.minutes(1)))
     func invalidRuleValuesFailLoud() throws {
-        let netlist = GateLevelNetlist.inverterChain(name: "invalid_rule", stages: 2, input: "a", output: "y")
+        let netlist = try GateLevelNetlist.inverterChain(name: "invalid_rule", stages: 2, input: "a", output: "y")
         let planner = GateLevelAntennaProtectionPlanner(ruleSet: AntennaProtectionRuleSet(
             maxSpanPerGateMicrons: .nan
         ))

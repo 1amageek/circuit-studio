@@ -53,6 +53,16 @@ private func makeTemporaryProject() throws -> URL {
     return root
 }
 
+private func removeTemporaryProject(_ root: URL) {
+    do {
+        if FileManager.default.fileExists(atPath: root.path) {
+            try FileManager.default.removeItem(at: root)
+        }
+    } catch {
+        Issue.record("Failed to remove temporary studio session project at \(root.path): \(error)")
+    }
+}
+
 // MARK: - Library shape
 
 @Suite("Studio Session Multi-Cell")
@@ -265,7 +275,7 @@ struct StudioSessionPersistenceRoundTripTests {
     @Test("A multi-cell hierarchy survives save and reopen with its top/active designation")
     func multiCellProjectSurvivesSaveAndReopen() throws {
         let root = try makeTemporaryProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryProject(root) }
         let service = ProjectService()
 
         // Author a two-cell project where Top instantiates Leaf, and the
@@ -320,7 +330,7 @@ struct StudioSessionPersistenceRoundTripTests {
     @Test("A project with no cells on disk reopens as a single empty top cell")
     func emptyProjectReopensWithDefaultCell() throws {
         let root = try makeTemporaryProject()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeTemporaryProject(root) }
         let service = ProjectService()
 
         // No cells were written. App.loadCells resets to a single default cell.

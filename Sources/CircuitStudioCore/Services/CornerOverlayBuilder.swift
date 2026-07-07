@@ -24,6 +24,9 @@ public struct CornerOverlayBuilder: Sendable {
         case unsupportedAnalysis(AnalysisKind)
         case mixedDomains
         case emptySweep
+        case missingVariable(name: String)
+        case missingRealValue(variable: Int, point: Int)
+        case missingComplexValue(variable: Int, point: Int)
 
         public var errorDescription: String? {
             switch self {
@@ -35,6 +38,12 @@ public struct CornerOverlayBuilder: Sendable {
                 return "Corner overlay requires waveforms of the same analysis type"
             case .emptySweep:
                 return "Corner overlay requires non-empty sweeps in every waveform"
+            case .missingVariable(let name):
+                return "Corner overlay could not find waveform variable '\(name)' in its source waveform"
+            case .missingRealValue(let variable, let point):
+                return "Corner overlay could not read real value at variable \(variable), point \(point)"
+            case .missingComplexValue(let variable, let point):
+                return "Corner overlay could not read complex value at variable \(variable), point \(point)"
             }
         }
     }
@@ -80,24 +89,24 @@ public struct CornerOverlayBuilder: Sendable {
                 ))
 
                 guard let variableIndex = waveform.variableIndex(named: variable.name) else {
-                    preconditionFailure("Variable \(variable.name) missing from its own waveform")
+                    throw OverlayError.missingVariable(name: variable.name)
                 }
 
                 if isComplex {
-                    let column = axis.map { x -> (real: Double, imag: Double) in
-                        let real = interpolate(x: x, sweep: waveform.sweepValues) { point in
-                            componentValue(waveform, variableIndex: variableIndex, point: point, imaginary: false)
+                    let column = try axis.map { x -> (real: Double, imag: Double) in
+                        let real = try interpolate(x: x, sweep: waveform.sweepValues) { point in
+                            try componentValue(waveform, variableIndex: variableIndex, point: point, imaginary: false)
                         }
-                        let imag = interpolate(x: x, sweep: waveform.sweepValues) { point in
-                            componentValue(waveform, variableIndex: variableIndex, point: point, imaginary: true)
+                        let imag = try interpolate(x: x, sweep: waveform.sweepValues) { point in
+                            try componentValue(waveform, variableIndex: variableIndex, point: point, imaginary: true)
                         }
                         return (real: real, imag: imag)
                     }
                     complexColumns.append(column)
                 } else {
-                    let column = axis.map { x in
-                        interpolate(x: x, sweep: waveform.sweepValues) { point in
-                            realValue(waveform, variableIndex: variableIndex, point: point)
+                    let column = try axis.map { x in
+                        try interpolate(x: x, sweep: waveform.sweepValues) { point in
+                            try realValue(waveform, variableIndex: variableIndex, point: point)
                         }
                     }
                     realColumns.append(column)
@@ -142,11 +151,9 @@ public struct CornerOverlayBuilder: Sendable {
 
     // MARK: - Value Access
 
-    /// Out-of-bounds here means the waveform's own bookkeeping is broken,
-    /// which must never be papered over with a default value.
-    private func realValue(_ waveform: WaveformData, variableIndex: Int, point: Int) -> Double {
+    private func realValue(_ waveform: WaveformData, variableIndex: Int, point: Int) throws -> Double {
         guard let value = waveform.realValue(variable: variableIndex, point: point) else {
-            preconditionFailure("Missing real value at variable \(variableIndex), point \(point)")
+            throw OverlayError.missingRealValue(variable: variableIndex, point: point)
         }
         return value
     }
@@ -156,9 +163,9 @@ public struct CornerOverlayBuilder: Sendable {
         variableIndex: Int,
         point: Int,
         imaginary: Bool
-    ) -> Double {
+    ) throws -> Double {
         guard let value = waveform.complexValue(variable: variableIndex, point: point) else {
-            preconditionFailure("Missing complex value at variable \(variableIndex), point \(point)")
+            throw OverlayError.missingComplexValue(variable: variableIndex, point: point)
         }
         return imaginary ? value.imag : value.real
     }
@@ -167,21 +174,21 @@ public struct CornerOverlayBuilder: Sendable {
 
     /// Binary-search linear interpolation over a monotonic sweep
     /// (ascending or descending), clamping outside the sweep range.
-    private func interpolate(x: Double, sweep: [Double], value: (Int) -> Double) -> Double {
-        guard sweep.count > 1 else { return value(0) }
+    private func interpolate(x: Double, sweep: [Double], value: (Int) throws -> Double) throws -> Double {
+        guard sweep.count > 1 else { return try value(0) }
         let ascending = sweep[0] <= sweep[sweep.count - 1]
         var low = 0
         var high = sweep.count - 1
         if ascending {
-            if x <= sweep[0] { return value(0) }
-            if x >= sweep[high] { return value(high) }
+            if x <= sweep[0] { return try value(0) }
+            if x >= sweep[high] { return try value(high) }
             while high - low > 1 {
                 let mid = (low + high) / 2
                 if sweep[mid] <= x { low = mid } else { high = mid }
             }
         } else {
-            if x >= sweep[0] { return value(0) }
-            if x <= sweep[high] { return value(high) }
+            if x >= sweep[0] { return try value(0) }
+            if x <= sweep[high] { return try value(high) }
             while high - low > 1 {
                 let mid = (low + high) / 2
                 if sweep[mid] >= x { low = mid } else { high = mid }
@@ -189,8 +196,8 @@ public struct CornerOverlayBuilder: Sendable {
         }
         let x0 = sweep[low]
         let x1 = sweep[high]
-        let y0 = value(low)
-        let y1 = value(high)
+        let y0 = try value(low)
+        let y1 = try value(high)
         guard x1 != x0 else { return y0 }
         return y0 + (y1 - y0) * ((x - x0) / (x1 - x0))
     }

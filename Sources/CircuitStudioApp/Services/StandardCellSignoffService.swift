@@ -39,12 +39,16 @@ public struct StandardCellSignoffService: Sendable {
     ) async throws -> Output {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let gdsURL = directory.appending(path: "\(name).gds")
-        try MaskDataFormatConverter(tech: technology)
-            .exportDocument(generator.generate(name: name), to: gdsURL, format: .gds)
+        let document = try generator.generate(name: name)
+        let schematic = try generator.schematic(name: name)
 
-        let schematicURL = directory.appending(path: "\(name).spice")
-        try generator.schematic(name: name).write(to: schematicURL, atomically: true, encoding: .utf8)
+        let artifactStem = Self.artifactFileStem(for: name)
+        let gdsURL = directory.appending(path: "\(artifactStem).gds")
+        try MaskDataFormatConverter(tech: technology)
+            .exportDocument(document, to: gdsURL, format: .gds)
+
+        let schematicURL = directory.appending(path: "\(artifactStem).spice")
+        try schematic.write(to: schematicURL, atomically: true, encoding: .utf8)
 
         let review = try await signoff.run(
             layoutGDS: gdsURL,
@@ -73,11 +77,12 @@ public struct StandardCellSignoffService: Sendable {
             schematic = generator.schematic(name: name)
         }
 
-        let gdsURL = directory.appending(path: "\(name).gds")
+        let artifactStem = Self.artifactFileStem(for: name)
+        let gdsURL = directory.appending(path: "\(artifactStem).gds")
         try MaskDataFormatConverter(tech: technology)
             .exportDocument(document, to: gdsURL, format: .gds)
 
-        let schematicURL = directory.appending(path: "\(name).spice")
+        let schematicURL = directory.appending(path: "\(artifactStem).spice")
         try schematic.write(to: schematicURL, atomically: true, encoding: .utf8)
 
         let review = try await signoff.run(
@@ -87,5 +92,17 @@ public struct StandardCellSignoffService: Sendable {
             artifactDirectory: directory
         )
         return Output(cellName: name, gdsURL: gdsURL, schematicURL: schematicURL, review: review)
+    }
+
+    private static func artifactFileStem(for name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let stem = String(trimmed.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? Character(scalar) : "_"
+        })
+        guard !stem.isEmpty, stem != ".", stem != ".." else {
+            return "cell"
+        }
+        return stem
     }
 }

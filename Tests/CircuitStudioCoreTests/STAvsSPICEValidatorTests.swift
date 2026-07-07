@@ -18,7 +18,7 @@ struct STAvsSPICEValidatorTests {
     func inverterChainValidates() async throws {
         var lib = TimingLibrary()
         let inv = try await TimingCharacterizationTestCache.shared.characterizeCell(
-            .inverter(name: "inv"),
+            try .inverter(name: "inv"),
             inputSlews: [20e-12, 80e-12, 320e-12],
             outputLoads: [0.5e-15, 2e-15, 8e-15]
         )
@@ -29,7 +29,7 @@ struct STAvsSPICEValidatorTests {
         for i in 0..<4 {
             let inNet = i == 0 ? "qa" : "c\(i)"
             let outNet = i == 3 ? "db" : "c\(i + 1)"
-            insts.append(.init(name: "g\(i)", cell: .inverter(name: "inv"), netMap: ["A": inNet, "Y": outNet]))
+            insts.append(.init(name: "g\(i)", cell: try .inverter(name: "inv"), netMap: ["A": inNet, "Y": outNet]))
         }
         let seq = SequentialNetlist(name: "chain", combinational: insts,
                                     dffs: [.init(name: "ffA", d: "x", clk: "clk", q: "qa"),
@@ -49,23 +49,23 @@ struct STAvsSPICEValidatorTests {
     func acc4CriticalPathValidates() async throws {
         var lib = TimingLibrary()
         lib.add(try await TimingCharacterizationTestCache.shared.characterizeCell(
-            .inverter(name: "inv"),
+            try .inverter(name: "inv"),
             inputSlews: [20e-12, 80e-12, 320e-12],
             outputLoads: [0.5e-15, 2e-15, 8e-15]
         ))
         lib.add(try await TimingCharacterizationTestCache.shared.characterizeCell(
-            .nand(name: "nand2", inputs: ["A", "B"]),
+            try .nand(name: "nand2", inputs: ["A", "B"]),
             inputSlews: [20e-12, 80e-12, 320e-12],
             outputLoads: [0.5e-15, 2e-15, 8e-15]
         ))
         lib.add(try await TimingCharacterizationTestCache.shared.characterizeCell(
-            .nor(name: "nor2", inputs: ["A", "B"]),
+            try .nor(name: "nor2", inputs: ["A", "B"]),
             inputSlews: [20e-12, 80e-12, 320e-12],
             outputLoads: [0.5e-15, 2e-15, 8e-15]
         ))
         lib.flipFlop = flipFlop(dataCap: lib.cells["nand2"]?.inputCapacitance["A"] ?? 1e-15)
 
-        let seq = ACC4CPUGenerator().sequentialNetlist()
+        let seq = try ACC4CPUGenerator().sequentialNetlist()
         let report = try StaticTimingAnalyzer(library: lib).analyze(seq, clockPeriod: 10e-9, defaultInputSlew: 50e-12)
 
         let result = try await TimingCharacterizationTestSupport.withExclusiveSpiceSlot {

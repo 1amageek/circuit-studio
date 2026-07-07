@@ -46,7 +46,7 @@ struct RunReviewArtifactList: View {
         case .missingDigest, .missingByteCount:
             return .orange
         case .missingArtifact, .invalidDigest, .invalidByteCount, .byteCountMismatch, .sha256Mismatch,
-             .invalidPath, .unreadableArtifact:
+             .invalidIdentifier, .noRecordedReference, .invalidPath, .unreadableArtifact:
             return .red
         case nil:
             return .secondary

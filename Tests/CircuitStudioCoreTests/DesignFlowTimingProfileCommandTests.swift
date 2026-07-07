@@ -14,7 +14,7 @@ struct DesignFlowTimingProfileCommandTests {
         let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("timing-model-profile-library")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let profileURL = root.appending(path: "external-timing-profile.json")
-        let profile = Level1DeviceModel.bundledDefaultProfile()
+        let profile = try Level1DeviceModel.loadBundledDefaultProfile()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(profile).write(to: profileURL, options: .atomic)
@@ -95,7 +95,7 @@ struct DesignFlowTimingProfileCommandTests {
         let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("timing-model-profile-corner-mismatch")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let profileURL = root.appending(path: "external-timing-profile.json")
-        let profile = Level1DeviceModel.bundledDefaultProfile()
+        let profile = try Level1DeviceModel.loadBundledDefaultProfile()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(profile).write(to: profileURL, options: .atomic)
@@ -163,7 +163,8 @@ struct DesignFlowTimingProfileCommandTests {
         #expect(inspection.failedProfileCount == 0)
         let profile = try #require(inspection.profiles.first)
         #expect(profile.profileID == "sky130.level1-device-model.v1")
-        #expect(profile.profileResourceName == Level1DeviceModel.bundledDefaultProfileResourceName())
+        let expectedResourceName = try Level1DeviceModel.loadBundledDefaultProfileResourceName()
+        #expect(profile.profileResourceName == expectedResourceName)
         #expect(profile.profilePath == nil)
         #expect(profile.declaredCornerID == "tt")
         #expect(profile.cornerID == "tt")

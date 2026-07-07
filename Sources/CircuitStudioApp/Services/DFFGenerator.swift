@@ -6,8 +6,12 @@ import Foundation
 public struct DFFGenerator: Sendable {
     private let cellLibrary: CMOSGateLibrary
 
-    public init(cellLibrary: CMOSGateLibrary = .bundledDefault) {
+    public init(cellLibrary: CMOSGateLibrary) {
         self.cellLibrary = cellLibrary
+    }
+
+    public init() throws {
+        self.init(cellLibrary: try CMOSGateLibrary.loadBundledDefault())
     }
 
     private func latch(prefix p: String, d: String, en: String, q: String) -> [GateLevelNetlist.Instance] {

@@ -36,6 +36,21 @@ struct MazeRouterTests {
         }
     }
 
+    @Test("Oversized grids are rejected before routing allocation")
+    func oversizedGridIsRejectedBeforeAllocation() throws {
+        do {
+            _ = try MazeRouter(pitch: 0.000_001, margin: 0.0).route([
+                MazeRouter.Net(name: "n0", pins: [
+                    LayoutPoint(x: 0.0, y: 0.0),
+                    LayoutPoint(x: 2.0, y: 0.0),
+                ]),
+            ])
+            Issue.record("Expected an oversized routing grid to fail before allocation.")
+        } catch MazeRouter.MazeError.invalidConfiguration(let reason) {
+            #expect(reason.contains("node budget"))
+        }
+    }
+
     @Test("Invalid net identities are rejected before routing")
     func invalidNetIdentities() throws {
         #expect(throws: MazeRouter.MazeError.self) {
@@ -174,7 +189,7 @@ struct MazeRouterTests {
     }
 
     private func bundledRoutingProfile() throws -> LayoutRoutingProfile {
-        try LayoutRoutingProfile.bundled(resourceName: Sky130LayoutTech.routingProfileResourceName)
+        try LayoutRoutingProfile.bundled(resourceName: try Sky130LayoutTech.routingProfileResourceName())
     }
 
     private func customRoutingProfile() throws -> LayoutRoutingProfile {

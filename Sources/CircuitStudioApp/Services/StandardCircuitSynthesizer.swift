@@ -15,12 +15,15 @@ public struct StandardCircuitSynthesizer: Sendable {
         case noDriver(net: String)
         case unsupportedGeometry
         case duplicateDriverNet(String)
+        case primaryInputDriven(net: String)
+        case undrivenOutput(net: String)
         case duplicateAntennaProtectionCandidateID(String)
         case duplicateAntennaProtectionSiteID(String)
         case unknownAntennaProtectionSiteID(String)
         case inconsistentAntennaProtectionSiteID(String)
         case inconsistentAntennaProtectionPlanDesignName(expected: String, actual: String)
         case missingGateGeometry(instance: String, gate: String)
+        case missingMinimumSpacing(layer: String)
 
         public var errorDescription: String? {
             switch self {
@@ -28,6 +31,8 @@ public struct StandardCircuitSynthesizer: Sendable {
             case .noDriver(let n): return "Internal net \(n) drives a gate but has no driver instance."
             case .unsupportedGeometry: return "A cell produced non-rectangular geometry the placer cannot translate."
             case .duplicateDriverNet(let net): return "Gate-level net \(net) is driven by more than one instance."
+            case .primaryInputDriven(let net): return "Primary input net \(net) is also driven by a gate instance."
+            case .undrivenOutput(let net): return "Primary output net \(net) has no driver instance."
             case .duplicateAntennaProtectionCandidateID(let id): return "Antenna protection candidates contain duplicate site ID \(id)."
             case .duplicateAntennaProtectionSiteID(let id): return "Antenna protection plan contains duplicate site ID \(id)."
             case .unknownAntennaProtectionSiteID(let id): return "Antenna protection plan references unknown site ID \(id)."
@@ -36,6 +41,8 @@ public struct StandardCircuitSynthesizer: Sendable {
                 return "Antenna protection plan design \(actual) does not match routed design \(expected)."
             case .missingGateGeometry(let instance, let gate):
                 return "Cell instance \(instance) is missing gate geometry for gate net \(gate)."
+            case .missingMinimumSpacing(let layer):
+                return "Layer \(layer) rule must define minimum spacing."
             }
         }
     }
@@ -72,17 +79,51 @@ public struct StandardCircuitSynthesizer: Sendable {
 
     // MARK: - placement order
 
-    /// Topologically order instances so every net's driver precedes its sinks.
-    private func ordered(_ netlist: GateLevelNetlist) throws -> [GateLevelNetlist.Instance] {
-        let primaries = Set(netlist.inputs).union([netlist.vpwr, netlist.vgnd])
+    private struct SignalSourceSummary {
+        let driverOf: [String: String]
+    }
+
+    private func validateSignalSources(in netlist: GateLevelNetlist) throws -> SignalSourceSummary {
+        let rails = Set([netlist.vpwr, netlist.vgnd])
+        let primaries = Set(netlist.inputs)
         var driverOf: [String: String] = [:]
         for instance in netlist.instances {
             let net = netlist.driverNet(of: instance)
             guard driverOf[net] == nil else {
                 throw RouteError.duplicateDriverNet(net)
             }
+            guard !primaries.contains(net) else {
+                throw RouteError.primaryInputDriven(net: net)
+            }
             driverOf[net] = instance.name
         }
+
+        var sinkNets: Set<String> = []
+        for instance in netlist.instances {
+            for gate in Set(instance.cell.devices.map(\.gate)) {
+                let net = instance.net(gate)
+                guard !rails.contains(net) else { continue }
+                sinkNets.insert(net)
+            }
+        }
+        for net in sinkNets.sorted() {
+            guard primaries.contains(net) || driverOf[net] != nil else {
+                throw RouteError.noDriver(net: net)
+            }
+        }
+        for net in netlist.outputs.sorted() where !rails.contains(net) {
+            guard driverOf[net] != nil else {
+                throw RouteError.undrivenOutput(net: net)
+            }
+        }
+        return SignalSourceSummary(driverOf: driverOf)
+    }
+
+    /// Topologically order instances so every net's driver precedes its sinks.
+    private func ordered(_ netlist: GateLevelNetlist) throws -> [GateLevelNetlist.Instance] {
+        let sourceSummary = try validateSignalSources(in: netlist)
+        let primaries = Set(netlist.inputs).union([netlist.vpwr, netlist.vgnd])
+        let driverOf = sourceSummary.driverOf
         var result: [GateLevelNetlist.Instance] = []
         var placed = Set<String>()
         var remaining = netlist.instances
@@ -145,11 +186,11 @@ public struct StandardCircuitSynthesizer: Sendable {
         )
     }
 
-    private func minimumSpacing(for role: StandardCellLayoutProfile.LayerRole) -> Double {
+    private func minimumSpacing(for role: StandardCellLayoutProfile.LayerRole) throws -> Double {
         let reference = profile.layerReference(for: role)
         let layer = LayoutLayerID(name: reference.name, purpose: reference.purpose)
         guard let spacing = layoutTechnology.ruleSet(for: layer)?.minSpacing else {
-            preconditionFailure("Layer \(reference.name) rule must define minimum spacing")
+            throw RouteError.missingMinimumSpacing(layer: reference.name)
         }
         return spacing
     }
@@ -162,8 +203,8 @@ public struct StandardCircuitSynthesizer: Sendable {
         profile.circuitRouting
     }
 
-    private var signalTrackPitch: Double {
-        routingPolicy.signalTrackAccessPadWidth
+    private func signalTrackPitch() throws -> Double {
+        try routingPolicy.signalTrackAccessPadWidth
             + minimumSpacing(for: routingPolicy.signalTrackSpacingLayer)
             + routingPolicy.signalTrackRuleMargin
     }
@@ -440,6 +481,7 @@ public struct StandardCircuitSynthesizer: Sendable {
         for netlist: GateLevelNetlist,
         placed: [PlacedCell]
     ) throws -> RouteAnalysis {
+        _ = try validateSignalSources(in: netlist)
         var driverByNet: [String: PlacedCell] = [:]
         for placedCell in placed {
             let net = netlist.driverNet(of: placedCell.inst)
@@ -471,8 +513,9 @@ public struct StandardCircuitSynthesizer: Sendable {
         let allNets = Set(sinkTapsByNet.keys).union(driverByNet.keys)
             .subtracting([netlist.vpwr, netlist.vgnd])
             .sorted()
+        let trackPitch = try signalTrackPitch()
         let trackYByNet = Dictionary(uniqueKeysWithValues: allNets.enumerated().map {
-            ($0.element, routingPolicy.firstSignalTrackY + Double($0.offset) * signalTrackPitch)
+            ($0.element, routingPolicy.firstSignalTrackY + Double($0.offset) * trackPitch)
         })
 
         var spans: [NetSpan] = []
@@ -625,7 +668,8 @@ public struct StandardCircuitSynthesizer: Sendable {
     /// The flattened reference schematic: every cell's transistors with nets remapped to
     /// circuit nets (internal cell nodes uniquified per instance). Ports match the layout
     /// labels by name.
-    public func referenceSPICE(for netlist: GateLevelNetlist) -> String {
+    public func referenceSPICE(for netlist: GateLevelNetlist) throws -> String {
+        _ = try validateSignalSources(in: netlist)
         func resolve(_ inst: GateLevelNetlist.Instance, _ local: String) -> String {
             if local == inst.cell.vpwr { return netlist.vpwr }
             if local == inst.cell.vgnd { return netlist.vgnd }

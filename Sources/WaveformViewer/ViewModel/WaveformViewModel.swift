@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import CoreSpiceWaveform
 import CircuitStudioCore
+import UniformTypeIdentifiers
 
 /// Point data for chart rendering.
 public struct ChartPoint: Identifiable {
@@ -234,10 +235,7 @@ public final class WaveformViewModel {
         guard let waveform = waveformData else { return }
 
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "csv")!,
-            .init(filenameExtension: "raw")!,
-        ]
+        panel.allowedContentTypes = ["csv", "raw"].compactMap { UTType(filenameExtension: $0) }
         panel.nameFieldStringValue = "simulation.csv"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }

@@ -21,23 +21,15 @@ public struct ProfiledStandardCellGenerator: StandardCellGenerator {
         self.profile = profile
     }
 
-    public func generate(name: String) -> LayoutDocument {
-        do {
-            return try generateChecked(name: name)
-        } catch {
-            preconditionFailure("Profiled standard-cell generation failed: \(error)")
-        }
+    public func generate(name: String) throws -> LayoutDocument {
+        try generate(name: Optional(name))
     }
 
-    public func schematic(name: String) -> String {
-        do {
-            return try schematicChecked(name: name)
-        } catch {
-            preconditionFailure("Profiled standard-cell schematic generation failed: \(error)")
-        }
+    public func schematic(name: String) throws -> String {
+        try schematic(name: Optional(name))
     }
 
-    public func generateChecked(name: String? = nil) throws -> LayoutDocument {
+    public func generate(name: String? = nil) throws -> LayoutDocument {
         let cellProfile = try fixedCell()
         let cellName = name ?? cellProfile.defaultName
         var cell = LayoutCell(
@@ -64,7 +56,7 @@ public struct ProfiledStandardCellGenerator: StandardCellGenerator {
         return LayoutDocument(name: cellName, cells: [cell], topCellID: cell.id)
     }
 
-    public func schematicChecked(name: String? = nil) throws -> String {
+    public func schematic(name: String? = nil) throws -> String {
         let cellProfile = try fixedCell()
         let cellName = name ?? cellProfile.defaultName
         var lines = [

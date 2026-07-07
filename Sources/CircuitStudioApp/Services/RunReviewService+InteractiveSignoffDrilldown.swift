@@ -361,21 +361,57 @@ extension RunReviewService {
     private func drilldownArtifactIndex(
         _ sections: [RunReviewInteractiveSignoffDrilldown.Section]
     ) -> [RunReviewInteractiveSignoffDrilldown.ArtifactReference] {
-        var seenPaths = Set<String>()
+        var refsByPath: [String: RunReviewInteractiveSignoffDrilldown.ArtifactReference] = [:]
         let refs = sections.flatMap { section in
             section.items.flatMap { item in
                 item.artifactRefs
                     + item.issues.flatMap(\.artifactRefs)
             }
         }
-        return refs.filter { ref in
-            seenPaths.insert(ref.path).inserted
-        }.sorted { left, right in
+        for ref in refs {
+            if let existing = refsByPath[ref.path] {
+                refsByPath[ref.path] = preferredDrilldownArtifactReference(existing, ref)
+            } else {
+                refsByPath[ref.path] = ref
+            }
+        }
+        return refsByPath.values.sorted { left, right in
             if left.role != right.role {
                 return left.role < right.role
             }
             return left.path < right.path
         }
+    }
+
+    private func preferredDrilldownArtifactReference(
+        _ current: RunReviewInteractiveSignoffDrilldown.ArtifactReference,
+        _ candidate: RunReviewInteractiveSignoffDrilldown.ArtifactReference
+    ) -> RunReviewInteractiveSignoffDrilldown.ArtifactReference {
+        let currentScore = drilldownArtifactReferenceEvidenceScore(current)
+        let candidateScore = drilldownArtifactReferenceEvidenceScore(candidate)
+        if candidateScore != currentScore {
+            return candidateScore > currentScore ? candidate : current
+        }
+        return current
+    }
+
+    private func drilldownArtifactReferenceEvidenceScore(
+        _ ref: RunReviewInteractiveSignoffDrilldown.ArtifactReference
+    ) -> Int {
+        var score = 0
+        if ref.source == "run-ledger" {
+            score += 8
+        }
+        if ref.integrityStatus != nil {
+            score += 4
+        }
+        if ref.sha256 != nil {
+            score += 2
+        }
+        if ref.byteCount != nil {
+            score += 1
+        }
+        return score
     }
 
     private func signoffInteractions(

@@ -21,7 +21,7 @@ struct LayoutTrustEvaluationServiceTests {
             ]),
         ])
 
-        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: Sky130LayoutTech.tech())
+        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: try Sky130LayoutTech.tech())
 
         #expect(report.passed)
         #expect(report.ownedShapeCount == 3)
@@ -40,7 +40,7 @@ struct LayoutTrustEvaluationServiceTests {
             nets: [LayoutNet(id: netID, name: "sig")]
         )
 
-        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: Sky130LayoutTech.tech())
+        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: try Sky130LayoutTech.tech())
 
         #expect(report.passed)
         #expect(report.ownershipMap.records.allSatisfy { $0.netName == "sig" })
@@ -60,7 +60,7 @@ struct LayoutTrustEvaluationServiceTests {
         )
         let document = LayoutDocument(name: "via-trust", cells: [cell], topCellID: cell.id)
 
-        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: Sky130LayoutTech.tech())
+        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: try Sky130LayoutTech.tech())
 
         #expect(report.passed)
         #expect(report.ownedShapeCount == 3)
@@ -74,7 +74,7 @@ struct LayoutTrustEvaluationServiceTests {
             rect("met3", 0.0, 0.0, 1.0, 0.30),
         ])
 
-        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: Sky130LayoutTech.tech())
+        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: try Sky130LayoutTech.tech())
         let artifacts = try LayoutTrustArtifactWriter().write(
             document: document,
             report: report,
@@ -113,7 +113,7 @@ struct LayoutTrustEvaluationServiceTests {
             rect("diff", 0.0, 0.0, 1.0, 0.30),
         ])
 
-        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: Sky130LayoutTech.tech())
+        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: try Sky130LayoutTech.tech())
 
         #expect(report.passed)
         #expect(report.ignoredShapeCount == 1)
@@ -128,7 +128,7 @@ struct LayoutTrustEvaluationServiceTests {
             ]),
         ])
 
-        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: Sky130LayoutTech.tech())
+        let report = try LayoutTrustEvaluationService().evaluate(document: document, tech: try Sky130LayoutTech.tech())
 
         #expect(report.passed)
         #expect(report.exemptShapeCount == 1)

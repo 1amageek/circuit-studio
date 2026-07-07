@@ -214,6 +214,7 @@ public enum FlowRunGovernanceError: Error, LocalizedError, Equatable {
     case missingApprovalTarget
     case missingArtifactForGate(FlowGateID)
     case missingArtifact(URL)
+    case missingApprovalRunDirectory
     case invalidRunID(String)
     case invalidArtifactPath(String)
 
@@ -227,6 +228,8 @@ public enum FlowRunGovernanceError: Error, LocalizedError, Equatable {
             return "Manifest does not contain a target artifact for gate '\(gateID.rawValue)'."
         case .missingArtifact(let url):
             return "Gate approval target artifact does not exist: \(url.path(percentEncoded: false))"
+        case .missingApprovalRunDirectory:
+            return "Gate approval with an explicit target requires a manifest URL or project root and run ID."
         case .invalidRunID(let runID):
             return "Invalid run ID for gate approval: \(runID)"
         case .invalidArtifactPath(let message):
@@ -248,11 +251,17 @@ public struct FlowRunGovernanceService: Sendable {
         }
 
         let manifest = try request.manifestURL.map { try loadManifest($0) }
+        let resolvedRunID = request.runID ?? manifest?.runID
+        if let resolvedRunID {
+            try validateRunID(resolvedRunID)
+        }
         let target = try approvalTarget(
             gateID: request.gateID,
             explicitTargetURL: request.targetArtifactURL,
             manifest: manifest,
-            manifestURL: request.manifestURL
+            manifestURL: request.manifestURL,
+            projectRoot: request.projectRoot,
+            runID: resolvedRunID
         )
         let targetURL = target.url
         guard FileManager.default.fileExists(atPath: targetURL.path(percentEncoded: false)) else {
@@ -261,10 +270,6 @@ public struct FlowRunGovernanceService: Sendable {
 
         let manifestHash = try request.manifestURL.map { try sha256(of: $0) }
         let targetHash = try sha256(of: targetURL)
-        let resolvedRunID = request.runID ?? manifest?.runID
-        if let resolvedRunID {
-            try validateRunID(resolvedRunID)
-        }
         let record = GateApprovalRecord(
             gateID: request.gateID,
             decision: request.decision,
@@ -281,7 +286,11 @@ public struct FlowRunGovernanceService: Sendable {
             waiverIDs: request.waiverIDs,
             note: request.note,
             artifactResolutionWarnings: target.warnings,
-            lineage: request.lineage ?? lineage(from: manifest, manifestURL: request.manifestURL)
+            lineage: request.lineage ?? lineage(
+                from: manifest,
+                manifestURL: request.manifestURL,
+                manifestSHA256: manifestHash
+            )
         )
         let recordURL = approvalRecordURL(
             request: request,
@@ -318,16 +327,30 @@ public struct FlowRunGovernanceService: Sendable {
         gateID: FlowGateID,
         explicitTargetURL: URL?,
         manifest: HeadlessRoundTripService.Manifest?,
-        manifestURL: URL?
+        manifestURL: URL?,
+        projectRoot: URL?,
+        runID: String?
     ) throws -> GateApprovalTarget {
         if let explicitTargetURL {
-            return GateApprovalTarget(
-                url: explicitTargetURL,
-                recordPath: explicitTargetURL.path(percentEncoded: false),
-                pathBase: .absolute,
-                artifactKind: nil,
-                warnings: []
-            )
+            guard let runDirectory = approvalRunDirectory(
+                manifestURL: manifestURL,
+                projectRoot: projectRoot,
+                runID: runID
+            ) else {
+                throw FlowRunGovernanceError.missingApprovalRunDirectory
+            }
+            do {
+                let resolver = RoundTripArtifactResolver(runDirectory: runDirectory)
+                return GateApprovalTarget(
+                    url: explicitTargetURL,
+                    recordPath: try resolver.relativePath(for: explicitTargetURL),
+                    pathBase: .runDirectory,
+                    artifactKind: nil,
+                    warnings: []
+                )
+            } catch {
+                throw FlowRunGovernanceError.invalidArtifactPath(error.localizedDescription)
+            }
         }
         guard let manifest else {
             throw FlowRunGovernanceError.missingApprovalTarget
@@ -367,6 +390,23 @@ public struct FlowRunGovernanceService: Sendable {
         }
     }
 
+    private func approvalRunDirectory(
+        manifestURL: URL?,
+        projectRoot: URL?,
+        runID: String?
+    ) -> URL? {
+        if let manifestURL {
+            return manifestURL.deletingLastPathComponent()
+        }
+        guard let projectRoot, let runID else {
+            return nil
+        }
+        return projectRoot
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: runID)
+    }
+
     private func approvalRecordURL(
         request: GateApprovalRequest,
         runID: String?,
@@ -399,21 +439,16 @@ public struct FlowRunGovernanceService: Sendable {
 
     private func lineage(
         from manifest: HeadlessRoundTripService.Manifest?,
-        manifestURL: URL?
+        manifestURL: URL?,
+        manifestSHA256: String?
     ) -> FlowRunLineage? {
         guard let manifest, let manifestURL else {
             return nil
         }
-        let hash: String?
-        do {
-            hash = try sha256(of: manifestURL)
-        } catch {
-            hash = nil
-        }
         return FlowRunLineage(
             parentRunID: manifest.runID,
             parentManifestPath: manifestURL.path(percentEncoded: false),
-            parentManifestSHA256: hash
+            parentManifestSHA256: manifestSHA256
         )
     }
 

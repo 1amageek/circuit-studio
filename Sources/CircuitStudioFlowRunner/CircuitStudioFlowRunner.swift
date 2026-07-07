@@ -136,16 +136,25 @@ struct CircuitStudioFlowRunner {
                                   Compile DRC/LVS repair hint reports into planning artifacts and record the action
           --run-signoff-repair-candidate-cycle
                                   Compile signoff repair planning artifacts, generate a candidate plan, execute it, and verify it
+          --run-goal-layout-agent
+                                  Close a .subckt intent through layout goal commands (place/bind/finish/repair), gate on trust + replay determinism, and export evidence + GDS
+          --scaffold-design-spec
+                                  Write a minimal valid design spec JSON skeleton to --output-design-spec that --generate-netlist --design-spec consumes unchanged
           default                   Run the full fixture round trip through DesignFlowCommand
 
         Options:
           --fixture NAME   Fixture to run. Default: voltage-divider
           --design-spec PATH
                            Load a structured design spec JSON instead of a built-in fixture
+          --subckt PATH    .subckt intent file for --run-goal-layout-agent
+          --design-name NAME
+                           Top cell name for --run-goal-layout-agent (default: the .subckt header name),
+                           or the design name for --scaffold-design-spec (default: new_design)
           --edit-script PATH
                            JSON design edit script for --apply-design-edit
           --output-design-spec PATH
-                           Edited design spec path for --apply-design-edit
+                           Edited design spec path for --apply-design-edit,
+                           or the scaffold destination for --scaffold-design-spec
           --layout-document PATH
                            Layout document JSON path for --apply-layout-edit, --run-verification, --apply-waiver-edit-and-verify, or --run-post-waiver-edit-verification
           --output-layout-document PATH
@@ -201,7 +210,8 @@ struct CircuitStudioFlowRunner {
           --min-history-feedback-score-deltas COUNT
                            Minimum rejected-feedback score-delta count for --qualify-signoff-repair-cycles. Overrides profile value. Default: 0
           --technology-package PATH
-                           Inject one technology package manifest into netlist, simulation, layout, signoff, and PEX inputs when supported
+                           Inject one technology package manifest into netlist, simulation, layout, signoff, and PEX inputs.
+                           Required for --run-layout-trust and --run-verification.
           --output PATH    Project/output directory. Default: ./round-trip-runs/<fixture-or-design-spec-name>
           --run-id ID      Flow run identifier. Default: fixture name plus timestamp
           --pex-manifest PATH

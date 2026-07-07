@@ -21,13 +21,15 @@
           "kind": "drc",
           "toolName": "golden-calibre",
           "logFile": "golden-calibre-drc-clean.log",
-          "success": true
+          "success": true,
+          "parserStyle": "calibreLike"
         },
         {
           "kind": "lvs",
           "toolName": "golden-calibre",
           "logFile": "golden-calibre-lvs-clean.log",
-          "success": true
+          "success": true,
+          "parserStyle": "calibreLike"
         }
       ],
       "pexManifests": [

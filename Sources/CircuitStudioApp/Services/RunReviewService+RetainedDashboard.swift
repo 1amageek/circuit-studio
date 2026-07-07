@@ -62,10 +62,11 @@ extension RunReviewService {
         runID: String,
         projectRoot: URL
     ) throws -> XcircuiteFileReference {
+        try XcircuiteIdentifierValidator().validate(runID, kind: .runID)
         let bundle = try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
         let projection = retainedDashboardProjection(bundle: bundle)
         let relativePath = ".xcircuite/runs/\(runID)/\(Self.retainedDashboardRelativePath)"
-        let url = projectRoot.appending(path: relativePath)
+        let url = try XcircuitePackage(projectRoot: projectRoot).url(forProjectRelativePath: relativePath)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true

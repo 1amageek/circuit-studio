@@ -311,8 +311,8 @@ extension RunReviewService {
             .missingArtifact
         case .missingDigest, .missingByteCount:
             .staleEvidence
-        case .invalidDigest, .invalidByteCount, .byteCountMismatch, .sha256Mismatch, .invalidPath,
-             .unreadableArtifact:
+        case .invalidDigest, .invalidByteCount, .byteCountMismatch, .sha256Mismatch, .invalidIdentifier,
+             .noRecordedReference, .invalidPath, .unreadableArtifact:
             .integrityMismatch
         }
     }

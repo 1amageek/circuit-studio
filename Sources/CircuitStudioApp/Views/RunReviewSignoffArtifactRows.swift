@@ -10,8 +10,8 @@ struct RunReviewSignoffArtifactRows: View {
     let loadArtifactPreview: (FlowRunReviewArtifact) -> Void
 
     var body: some View {
-        ForEach(artifacts, id: \.path) { artifact in
-            let key = RunReviewArtifactPreviewKey.make(runID: runID, artifactPath: artifact.path)
+        ForEach(artifacts, id: \.self) { artifact in
+            let key = RunReviewArtifactPreviewKey.make(runID: runID, artifact: artifact)
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: artifact.integrity?.status == .verified ? "checkmark.seal.fill" : "doc.text")
                     .foregroundStyle(integrityColor(artifact.integrity?.status))
@@ -197,7 +197,7 @@ struct RunReviewSignoffArtifactRows: View {
         case .missingDigest, .missingByteCount:
             return .orange
         case .missingArtifact, .invalidDigest, .invalidByteCount, .byteCountMismatch, .sha256Mismatch,
-             .invalidPath, .unreadableArtifact:
+             .invalidIdentifier, .noRecordedReference, .invalidPath, .unreadableArtifact:
             return .red
         case nil:
             return .secondary

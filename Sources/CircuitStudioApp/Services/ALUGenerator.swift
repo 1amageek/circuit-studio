@@ -7,9 +7,13 @@ public struct ALUGenerator: Sendable {
     public let bits: Int
     private let cellLibrary: CMOSGateLibrary
 
-    public init(bits: Int = 4, cellLibrary: CMOSGateLibrary = .bundledDefault) {
+    public init(bits: Int = 4, cellLibrary: CMOSGateLibrary) {
         self.bits = bits
         self.cellLibrary = cellLibrary
+    }
+
+    public init(bits: Int = 4) throws {
+        self.init(bits: bits, cellLibrary: try CMOSGateLibrary.loadBundledDefault())
     }
 
     private func nand(_ name: String, _ a: String, _ b: String, _ y: String) -> GateLevelNetlist.Instance {

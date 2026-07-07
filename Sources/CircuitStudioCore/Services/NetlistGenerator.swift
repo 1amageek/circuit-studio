@@ -20,6 +20,30 @@ public enum NetlistGenerationError: Error, Equatable, LocalizedError {
     /// SPICE instance names must be unique within their scope, so this is
     /// rejected rather than emitted as an ambiguous netlist.
     case duplicateInstanceName(cellName: String?, instanceName: String)
+    /// A component carries a parameter that its device schema does not define.
+    case unknownParameter(instanceName: String, deviceKindID: String, parameterID: String)
+    /// A required device parameter is absent from the canonical schematic state.
+    case missingRequiredParameter(instanceName: String, deviceKindID: String, parameterID: String)
+    /// A parameter value is NaN or infinite and cannot be emitted to SPICE safely.
+    case invalidParameterValue(instanceName: String, deviceKindID: String, parameterID: String)
+    /// A parameter value falls outside the schema range.
+    case parameterOutOfRange(
+        instanceName: String,
+        deviceKindID: String,
+        parameterID: String,
+        value: Double,
+        lowerBound: Double,
+        upperBound: Double
+    )
+    /// A source has no DC, AC, PULSE, or SIN stimulus.
+    case missingSourceStimulus(instanceName: String, deviceKindID: String)
+    /// A source waveform has only part of its required parameter group.
+    case incompleteSourceWaveform(
+        instanceName: String,
+        deviceKindID: String,
+        waveform: String,
+        missingParameters: [String]
+    )
 
     public var errorDescription: String? {
         switch self {
@@ -37,6 +61,18 @@ public enum NetlistGenerationError: Error, Equatable, LocalizedError {
         case .duplicateInstanceName(let cellName, let instanceName):
             let location = cellName.map { "cell '\($0)'" } ?? "the top-level schematic"
             return "Duplicate instance name '\(instanceName)' in \(location). Component names must be unique within a schematic."
+        case .unknownParameter(let instanceName, let deviceKindID, let parameterID):
+            return "Component '\(instanceName)' of type '\(deviceKindID)' has unknown parameter '\(parameterID)'."
+        case .missingRequiredParameter(let instanceName, let deviceKindID, let parameterID):
+            return "Component '\(instanceName)' of type '\(deviceKindID)' is missing required parameter '\(parameterID)'."
+        case .invalidParameterValue(let instanceName, let deviceKindID, let parameterID):
+            return "Component '\(instanceName)' of type '\(deviceKindID)' has a non-finite value for parameter '\(parameterID)'."
+        case .parameterOutOfRange(let instanceName, let deviceKindID, let parameterID, let value, let lowerBound, let upperBound):
+            return "Component '\(instanceName)' of type '\(deviceKindID)' has parameter '\(parameterID)' value \(value) outside \(lowerBound)...\(upperBound)."
+        case .missingSourceStimulus(let instanceName, let deviceKindID):
+            return "Source '\(instanceName)' of type '\(deviceKindID)' has no DC, AC, PULSE, or SIN stimulus."
+        case .incompleteSourceWaveform(let instanceName, let deviceKindID, let waveform, let missingParameters):
+            return "Source '\(instanceName)' of type '\(deviceKindID)' has incomplete \(waveform) parameters: \(missingParameters.joined(separator: ", "))."
         }
     }
 }
@@ -268,6 +304,7 @@ public struct NetlistGenerator: Sendable {
                     deviceKindID: component.deviceKindID
                 )
             }
+            try validateParameters(component: component, kind: kind)
 
             let nodeNames = kind.portDefinitions.map { port -> String in
                 let key = "\(component.id):\(port.id)"
@@ -364,6 +401,95 @@ public struct NetlistGenerator: Sendable {
     }
 
     // MARK: - Process Header
+
+    private func validateParameters(component: PlacedComponent, kind: DeviceKind) throws {
+        let schemaByID = Dictionary(uniqueKeysWithValues: kind.parameterSchema.map { ($0.id, $0) })
+        for parameterID in component.parameters.keys.sorted() {
+            guard let schema = schemaByID[parameterID] else {
+                throw NetlistGenerationError.unknownParameter(
+                    instanceName: component.name,
+                    deviceKindID: kind.id,
+                    parameterID: parameterID
+                )
+            }
+            guard let value = component.parameters[parameterID],
+                  value.isFinite else {
+                throw NetlistGenerationError.invalidParameterValue(
+                    instanceName: component.name,
+                    deviceKindID: kind.id,
+                    parameterID: parameterID
+                )
+            }
+            if let range = schema.range,
+               !range.contains(value) {
+                throw NetlistGenerationError.parameterOutOfRange(
+                    instanceName: component.name,
+                    deviceKindID: kind.id,
+                    parameterID: parameterID,
+                    value: value,
+                    lowerBound: range.lowerBound,
+                    upperBound: range.upperBound
+                )
+            }
+        }
+
+        for schema in kind.parameterSchema where schema.isRequired && component.parameters[schema.id] == nil {
+            throw NetlistGenerationError.missingRequiredParameter(
+                instanceName: component.name,
+                deviceKindID: kind.id,
+                parameterID: schema.id
+            )
+        }
+
+        if kind.id == "vsource" || kind.id == "isource" {
+            try validateSourceStimulus(component: component, kind: kind)
+        }
+    }
+
+    private func validateSourceStimulus(component: PlacedComponent, kind: DeviceKind) throws {
+        let hasDC = component.parameters["dc"] != nil
+        let hasAC = component.parameters["ac"] != nil
+        let hasPulse = component.parameters.keys.contains { $0.hasPrefix("pulse_") }
+        let hasSine = component.parameters.keys.contains { $0.hasPrefix("sin_") }
+        guard hasDC || hasAC || hasPulse || hasSine else {
+            throw NetlistGenerationError.missingSourceStimulus(
+                instanceName: component.name,
+                deviceKindID: kind.id
+            )
+        }
+
+        try validateWaveformGroup(
+            component: component,
+            kind: kind,
+            waveform: "PULSE",
+            parameters: ["pulse_v1", "pulse_v2", "pulse_td", "pulse_tr", "pulse_tf", "pulse_pw", "pulse_per"]
+        )
+        try validateWaveformGroup(
+            component: component,
+            kind: kind,
+            waveform: "SIN",
+            parameters: ["sin_vo", "sin_va", "sin_freq", "sin_td", "sin_theta"]
+        )
+    }
+
+    private func validateWaveformGroup(
+        component: PlacedComponent,
+        kind: DeviceKind,
+        waveform: String,
+        parameters: [String]
+    ) throws {
+        let present = parameters.filter { component.parameters[$0] != nil }
+        guard !present.isEmpty else { return }
+        let missing = parameters.filter { component.parameters[$0] == nil }
+        guard missing.isEmpty else {
+            throw NetlistGenerationError.incompleteSourceWaveform(
+                instanceName: component.name,
+                deviceKindID: kind.id,
+                waveform: waveform,
+                missingParameters: missing
+            )
+        }
+    }
 
     private func appendProcessHeader(_ configuration: ProcessConfiguration, to lines: inout [String]) {
         let hasLibraries = (configuration.technology?.libraries.contains { $0.isEnabled }) == true

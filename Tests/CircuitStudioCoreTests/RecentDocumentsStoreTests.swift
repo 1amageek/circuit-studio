@@ -83,6 +83,20 @@ struct RecentDocumentsStoreTests {
         #expect(reloaded.documents.isEmpty)
     }
 
+    @Test func corruptPersistedListLoadsEmptyWithWarning() throws {
+        let suiteName = "RecentDocumentsStoreTests-corrupt-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(Data("not-json".utf8), forKey: "recentDocuments.v1")
+
+        let store = RecentDocumentsStore(defaults: defaults)
+
+        #expect(store.documents.isEmpty)
+        #expect(store.loadWarning?.message.contains("Discarding unreadable recent-documents list") == true)
+    }
+
     // MARK: - Test Context
 
     private struct Context {

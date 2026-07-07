@@ -8,7 +8,7 @@ struct Level1DeviceModelProfileTests {
     @Test("Bundled level-1 device model profile loads timing model data")
     func bundledLevel1DeviceModelProfileLoadsTimingModelData() throws {
         let profile = try Level1DeviceModelProfile.bundled(
-            resourceName: Level1DeviceModel.bundledDefaultProfileResourceName()
+            resourceName: Level1DeviceModel.loadBundledDefaultProfileResourceName()
         )
 
         #expect(profile.profileID == "sky130.level1-device-model.v1")
@@ -25,41 +25,45 @@ struct Level1DeviceModelProfileTests {
 
     @Test("Default level-1 model entry point loads the catalog-selected bundled profile")
     func defaultLevel1ModelEntryPointLoadsBundledProfile() throws {
-        let profile = try Level1DeviceModelProfile.bundled(
-            resourceName: Level1DeviceModel.bundledDefaultProfileResourceName()
-        )
-        let model = Level1DeviceModel.bundledDefault()
+        let profile = try Level1DeviceModel.loadBundledDefaultProfile()
+        let model = try Level1DeviceModel.loadBundledDefault()
 
         #expect(model == profile.model)
     }
 
     @Test("Level-1 device model profile exports timing technology provenance")
     func level1DeviceModelProfileExportsTimingTechnologyProvenance() throws {
+        let resourceName = try Level1DeviceModel.loadBundledDefaultProfileResourceName()
         let profile = try Level1DeviceModelProfile.bundled(
-            resourceName: Level1DeviceModel.bundledDefaultProfileResourceName()
+            resourceName: resourceName
         )
         let context = try profile.technologyContext(
-            resourceName: Level1DeviceModel.bundledDefaultProfileResourceName()
+            resourceName: resourceName
         )
+        let defaultContext = try Level1DeviceModel.loadBundledDefaultTechnologyContext()
+        let checkedContext = try Level1DeviceModel.technologyContextChecked(for: profile.model)
 
         #expect(context.processName == profile.technology.processName)
         #expect(context.cornerID == profile.technology.cornerID)
         #expect(context.deviceModelID == profile.technology.deviceModelID)
         #expect(context.deviceModelHash == (try TimingTopologyHasher.hashModel(profile.model)))
         #expect(context.modelProfile?.profileID == profile.profileID)
-        #expect(context.modelProfile?.resourceName == Level1DeviceModel.bundledDefaultProfileResourceName())
+        #expect(context.modelProfile?.resourceName == resourceName)
+        #expect(defaultContext == context)
+        #expect(checkedContext == context)
     }
 
     @Test("Bundled timing model profile catalog selects the default profile")
     func bundledTimingModelProfileCatalogSelectsDefaultProfile() throws {
         let catalog = try TimingModelProfileCatalog.bundled()
         let entry = try catalog.entry(profileID: nil)
+        let resourceName = try Level1DeviceModel.loadBundledDefaultProfileResourceName()
 
         #expect(catalog.catalogID == "circuit-studio.default-timing-model-profiles.v2")
         #expect(catalog.profiles.count == 3)
         #expect(entry.profileID == "sky130.level1-device-model.v1")
         #expect(entry.cornerID == "tt")
-        #expect(entry.profileResourceName == Level1DeviceModel.bundledDefaultProfileResourceName())
+        #expect(entry.profileResourceName == resourceName)
         #expect(entry.defaultProfile)
     }
 
@@ -155,7 +159,7 @@ struct Level1DeviceModelProfileTests {
             pmosCard: ".model PX PMOS level=1 vto=-0.35 kp=35u",
             oxideCapPerArea: 0.006
         )
-        let context = Level1DeviceModel.technologyContext(for: custom)
+        let context = try Level1DeviceModel.technologyContextChecked(for: custom)
 
         #expect(context.processName == "custom-level1")
         #expect(context.cornerID == "unspecified")

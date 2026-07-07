@@ -481,12 +481,25 @@ struct RunReviewSignoffProjectionTests {
         #expect(proposalSelection.metadata["operation"] == .string("remove-json-object"))
         #expect(proposalSelection.inputs.first?.artifactID == "drc-summary")
 
+        // The verification contract requires an explicit layout technology;
+        // a minimal builtin-only package keeps the rest of the fixture's
+        // behavior (no golden signoff/PEX expectations) unchanged.
+        let packageURL = root.appending(path: "minimal-technology-package.json")
+        try Data("""
+        {
+          "version": 1,
+          "packageID": "minimal-sample-process",
+          "name": "Minimal Sample Process",
+          "layoutTechnology": { "kind": "builtin", "id": "sampleProcess" }
+        }
+        """.utf8).write(to: packageURL, options: .atomic)
         let verificationResult = try await RunReviewService().applyWaiverEditProposalAndRunPostVerification(
             runID: runID,
             waiverReviewID: waiver.waiverReviewID,
             proposalID: proposal.proposalID,
             reviewer: "agent-1",
             note: "Apply waiver cleanup and re-run DRC/LVS.",
+            technologyPackagePath: packageURL.path(percentEncoded: false),
             projectRoot: root
         )
         #expect(verificationResult.kind == .applyWaiverEditProposalAndRunPostVerification)
@@ -826,5 +839,295 @@ struct RunReviewSignoffProjectionTests {
         #expect(projectedHistorySummary.feedbackPenalizedActionIDs == projectedCycle.feedbackPenalizedActionIDs)
         #expect(projectedHistorySummary.feedbackRankChangeCount == projectedCycle.feedbackRankChanges.count)
         #expect(projectedHistorySummary.feedbackScoreDeltaCount == projectedCycle.feedbackScoreDeltas.count)
+    }
+
+    @Test @MainActor func signoffSummaryRequiresVerifiedIntegrity() async throws {
+        let fixture = try await RunReviewSignoffFixture.make()
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
+
+        var bundle = fixture.review.bundle
+        let drcIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcPath })
+        bundle.artifacts[drcIndex].integrity = FlowRunReviewArtifactIntegrity(
+            status: .sha256Mismatch,
+            expectedSHA256: String(repeating: "a", count: 64),
+            actualSHA256: String(repeating: "b", count: 64),
+            expectedByteCount: 10,
+            actualByteCount: 11,
+            message: "Artifact SHA-256 mismatch"
+        )
+
+        let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
+        let review = try service.loadRun(runID: fixture.runID, projectRoot: fixture.root)
+
+        #expect(!review.signoff.cards.contains { $0.domain == "DRC" })
+        #expect(review.signoff.decodeIssues.contains {
+            $0.artifactPath == fixture.drcPath
+                && $0.message.lowercased().contains("signoff artifact integrity")
+                && $0.message.contains("sha256Mismatch")
+        })
+    }
+
+    @Test @MainActor func signoffRepairPlanningRequiresVerifiedRepairHintIntegrity() async throws {
+        let fixture = try await RunReviewSignoffFixture.make()
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
+
+        var bundle = fixture.review.bundle
+        let hintIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcRepairHintPath })
+        bundle.artifacts[hintIndex].integrity = FlowRunReviewArtifactIntegrity(
+            status: .sha256Mismatch,
+            expectedSHA256: String(repeating: "a", count: 64),
+            actualSHA256: String(repeating: "b", count: 64),
+            expectedByteCount: 10,
+            actualByteCount: 11,
+            message: "Artifact SHA-256 mismatch"
+        )
+
+        let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
+        #expect(throws: RunReviewServiceError.signoffRepairHintIntegrityUnverified(
+            path: fixture.drcRepairHintPath,
+            status: "sha256Mismatch",
+            message: "Artifact SHA-256 mismatch"
+        )) {
+            try service.formulateSignoffRepairPlanningProblem(
+                runID: fixture.runID,
+                actorKind: .agent,
+                actorIdentifier: "agent-1",
+                projectRoot: fixture.root
+            )
+        }
+    }
+
+    @Test @MainActor func waiverReviewRequiresVerifiedArtifactIntegrity() async throws {
+        let fixture = try await RunReviewSignoffFixture.make()
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
+
+        var bundle = fixture.review.bundle
+        let drcIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcPath })
+        bundle.artifacts[drcIndex].integrity = FlowRunReviewArtifactIntegrity(
+            status: .sha256Mismatch,
+            expectedSHA256: String(repeating: "a", count: 64),
+            actualSHA256: String(repeating: "b", count: 64),
+            expectedByteCount: 10,
+            actualByteCount: 11,
+            message: "Artifact SHA-256 mismatch"
+        )
+
+        let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
+        let review = try service.loadRun(runID: fixture.runID, projectRoot: fixture.root)
+
+        #expect(review.waivers.items.isEmpty)
+        #expect(review.waivers.decodeIssues.contains {
+            $0.artifactPath == fixture.drcPath
+                && $0.message.lowercased().contains("waiver artifact integrity")
+                && $0.message.contains("sha256Mismatch")
+        })
+    }
+
+    @Test @MainActor func artifactEvaluationEnvelopeRequiresVerifiedIntegrity() async throws {
+        let fixture = try await RunReviewSignoffFixture.make()
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
+
+        var bundle = fixture.review.bundle
+        let envelopeIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcEnvelopePath })
+        bundle.artifacts[envelopeIndex].integrity = FlowRunReviewArtifactIntegrity(
+            status: .sha256Mismatch,
+            expectedSHA256: String(repeating: "a", count: 64),
+            actualSHA256: String(repeating: "b", count: 64),
+            expectedByteCount: 10,
+            actualByteCount: 11,
+            message: "Artifact SHA-256 mismatch"
+        )
+
+        let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
+        let review = try service.loadRun(runID: fixture.runID, projectRoot: fixture.root)
+        let drc = try #require(review.signoff.cards.first { $0.domain == "DRC" })
+
+        #expect(drc.evaluationEvidence.isEmpty)
+        #expect(!drc.detailSections.contains { $0.title == "Artifact Evaluation" })
+        #expect(review.signoff.decodeIssues.contains {
+            $0.artifactPath == fixture.drcEnvelopePath
+                && $0.message.contains("artifact integrity")
+                && $0.message.contains("sha256Mismatch")
+        })
+    }
+
+    @Test @MainActor func artifactPreviewRequiresVerifiedIntegrity() async throws {
+        let fixture = try await RunReviewSignoffFixture.make()
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
+
+        var bundle = fixture.review.bundle
+        let logIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcLogPath })
+        bundle.artifacts[logIndex].integrity = FlowRunReviewArtifactIntegrity(
+            status: .sha256Mismatch,
+            expectedSHA256: String(repeating: "a", count: 64),
+            actualSHA256: String(repeating: "b", count: 64),
+            expectedByteCount: 10,
+            actualByteCount: 11,
+            message: "Artifact SHA-256 mismatch"
+        )
+
+        let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
+        do {
+            _ = try service.loadArtifactPreview(
+                runID: fixture.runID,
+                artifactPath: fixture.drcLogPath,
+                projectRoot: fixture.root,
+                maxBytes: 12
+            )
+            Issue.record("Expected artifact preview to reject unverified artifact integrity.")
+        } catch let error as RunReviewServiceError {
+            if case .artifactPreviewIntegrityUnverified(let path, let status, _) = error {
+                #expect(path == fixture.drcLogPath)
+                #expect(status == "sha256Mismatch")
+            } else {
+                Issue.record("Expected artifact preview integrity error, got \(error).")
+            }
+        } catch {
+            Issue.record("Expected RunReviewServiceError, got \(error).")
+        }
+    }
+
+    @Test @MainActor func interactiveSignoffDrilldownPrefersLedgerArtifactWhenPathsOverlap() async throws {
+        let fixture = try await RunReviewSignoffFixture.make()
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
+
+        let sharedPath = ".xcircuite/runs/\(fixture.runID)/reports/shared-integrity-artifact.json"
+        let designDiffSummary = RunReviewDesignDiffSummary(
+            title: "Overlapping Artifact",
+            actor: "agent",
+            reviewState: "needs-review",
+            changeCount: 0,
+            domains: [],
+            operations: [],
+            baseSnapshot: RunReviewDesignDiffArtifactSummary(
+                artifactID: "shared-design-diff",
+                path: sharedPath,
+                sha256: nil,
+                byteCount: nil
+            ),
+            changes: []
+        )
+        let ledgerArtifact = FlowRunReviewArtifact(
+            role: "drc-summary",
+            artifactID: "shared-ledger-artifact",
+            stageID: "007-drc",
+            path: sharedPath,
+            kind: .report,
+            format: .json,
+            sha256: "expected-sha",
+            byteCount: 128,
+            integrity: FlowRunReviewArtifactIntegrity(
+                status: .sha256Mismatch,
+                expectedSHA256: "expected-sha",
+                actualSHA256: "actual-sha",
+                expectedByteCount: 128,
+                actualByteCount: 128,
+                message: "Digest mismatch"
+            )
+        )
+        let conflictingSignoff = RunReviewSignoffSummary(
+            cards: [
+                RunReviewSignoffCard(
+                    domain: "DRC",
+                    title: "Overlapping DRC Artifact",
+                    status: "failed",
+                    passed: false,
+                    stageID: "007-drc",
+                    artifact: ledgerArtifact,
+                    primaryMetrics: []
+                ),
+            ]
+        )
+        let planning = RunReviewService.PlanningReview(
+            candidatePlanArtifact: fixture.review.planning.candidatePlanArtifact,
+            planVerificationArtifact: fixture.review.planning.planVerificationArtifact,
+            candidatePlan: fixture.review.planning.candidatePlan,
+            planVerification: fixture.review.planning.planVerification,
+            designDiff: fixture.review.planning.designDiff,
+            designDiffSummary: designDiffSummary,
+            correctnessItems: fixture.review.planning.correctnessItems,
+            selectedCommands: fixture.review.planning.selectedCommands,
+            decodeIssues: fixture.review.planning.decodeIssues
+        )
+        let review = RunReviewService.RunReview(
+            runID: fixture.review.runID,
+            status: fixture.review.status,
+            artifacts: fixture.review.artifacts,
+            stages: fixture.review.stages,
+            approvals: fixture.review.approvals,
+            suggestedCommandSelections: fixture.review.suggestedCommandSelections,
+            planning: planning,
+            signoff: conflictingSignoff,
+            waivers: fixture.review.waivers,
+            failureStates: fixture.review.failureStates,
+            flowReview: fixture.review.flowReview,
+            retainedDashboard: fixture.review.retainedDashboard,
+            bundle: fixture.review.bundle
+        )
+
+        let drilldown = fixture.service.interactiveSignoffDrilldown(from: review)
+
+        let indexedArtifact = try #require(drilldown.artifactIndex.first { $0.path == sharedPath })
+        #expect(indexedArtifact.source == "run-ledger")
+        #expect(indexedArtifact.artifactID == "shared-ledger-artifact")
+        #expect(indexedArtifact.integrityStatus == FlowRunReviewArtifactIntegrityStatus.sha256Mismatch.rawValue)
+        #expect(drilldown.failures.contains {
+            $0.failureID == "artifact-integrity:\(sharedPath)"
+                && $0.artifactRefs.first?.source == "run-ledger"
+                && $0.artifactRefs.first?.integrityStatus == FlowRunReviewArtifactIntegrityStatus.sha256Mismatch.rawValue
+        })
+    }
+
+    @Test @MainActor func artifactPreviewCanResolveDuplicatePathByArtifactIdentity() async throws {
+        let fixture = try await RunReviewSignoffFixture.make()
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
+
+        var bundle = fixture.review.bundle
+        let logIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcLogPath })
+        var duplicate = bundle.artifacts[logIndex]
+        duplicate.role = "alias-log"
+        duplicate.stageID = "alias-stage"
+        duplicate.artifactID = "drc-raw-log-alias"
+        bundle.artifacts[logIndex].integrity = FlowRunReviewArtifactIntegrity(
+            status: .sha256Mismatch,
+            expectedSHA256: String(repeating: "a", count: 64),
+            actualSHA256: String(repeating: "b", count: 64),
+            expectedByteCount: 10,
+            actualByteCount: 11,
+            message: "Artifact SHA-256 mismatch"
+        )
+        bundle.artifacts.append(duplicate)
+
+        #expect(
+            RunReviewArtifactPreviewKey.make(runID: fixture.runID, artifact: bundle.artifacts[logIndex])
+                != RunReviewArtifactPreviewKey.make(runID: fixture.runID, artifact: duplicate)
+        )
+
+        let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
+        let preview = try service.loadArtifactPreview(
+            runID: fixture.runID,
+            artifact: duplicate,
+            projectRoot: fixture.root,
+            maxBytes: 12
+        )
+
+        #expect(preview.artifact.artifactID == "drc-raw-log-alias")
+        #expect(preview.text == "DRC_SUMMARY ")
+        #expect(preview.truncated)
+    }
+}
+
+private struct StaticRunReviewBundler: FlowRunReviewBundling {
+    let bundle: FlowRunReviewBundle
+
+    func makeReviewBundle(runID: String, projectRoot: URL) throws -> FlowRunReviewBundle {
+        bundle
     }
 }

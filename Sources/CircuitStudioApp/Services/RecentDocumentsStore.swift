@@ -9,6 +9,14 @@ import Observation
 @MainActor
 @Observable
 public final class RecentDocumentsStore {
+    public struct LoadWarning: Equatable, Sendable {
+        public let message: String
+    }
+
+    private struct LoadResult {
+        let documents: [RecentDocument]
+        let warning: LoadWarning?
+    }
 
     public enum StoreError: Error, LocalizedError {
         /// The system denied security-scoped access to the resolved URL.
@@ -24,6 +32,7 @@ public final class RecentDocumentsStore {
 
     /// Most recently opened first.
     public private(set) var documents: [RecentDocument] = []
+    public private(set) var loadWarning: LoadWarning?
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let limit: Int
@@ -38,7 +47,9 @@ public final class RecentDocumentsStore {
     public init(defaults: UserDefaults = .standard, limit: Int = 10) {
         self.defaults = defaults
         self.limit = limit
-        self.documents = Self.load(from: defaults)
+        let loadResult = Self.load(from: defaults)
+        self.documents = loadResult.documents
+        self.loadWarning = loadResult.warning
     }
 
     /// Records a successful open, moving the document to the front and
@@ -101,17 +112,19 @@ public final class RecentDocumentsStore {
         defaults.set(data, forKey: Self.defaultsKey)
     }
 
-    private static func load(from defaults: UserDefaults) -> [RecentDocument] {
+    private static func load(from defaults: UserDefaults) -> LoadResult {
         guard let data = defaults.data(forKey: defaultsKey) else {
-            return []
+            return LoadResult(documents: [], warning: nil)
         }
         do {
-            return try JSONDecoder().decode([RecentDocument].self, from: data)
+            return LoadResult(documents: try JSONDecoder().decode([RecentDocument].self, from: data), warning: nil)
         } catch {
             // A corrupt or incompatible list is not worth blocking startup
             // over, but losing it must be visible.
-            assertionFailure("Discarding unreadable recent-documents list: \(error)")
-            return []
+            return LoadResult(
+                documents: [],
+                warning: LoadWarning(message: "Discarding unreadable recent-documents list: \(error)")
+            )
         }
     }
 }

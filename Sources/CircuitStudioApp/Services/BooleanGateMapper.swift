@@ -16,8 +16,12 @@ public struct BooleanGateMapper: Sendable {
 
     private let cellLibrary: CMOSGateLibrary
 
-    public init(cellLibrary: CMOSGateLibrary = .bundledDefault) {
+    public init(cellLibrary: CMOSGateLibrary) {
         self.cellLibrary = cellLibrary
+    }
+
+    public init() throws {
+        self.init(cellLibrary: try CMOSGateLibrary.loadBundledDefault())
     }
 
     /// Decompose `expr` into a gate-level netlist whose output net is `output`.

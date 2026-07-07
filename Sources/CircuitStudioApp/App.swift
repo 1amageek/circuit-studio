@@ -327,11 +327,7 @@ public struct CircuitStudioApp: App {
 
     private func openSPICEFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "cir")!,
-            .init(filenameExtension: "spice")!,
-            .plainText,
-        ]
+        panel.allowedContentTypes = FileContentTypes.spiceOpen
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
 
@@ -724,10 +720,7 @@ public struct CircuitStudioApp: App {
     private func exportLayout() {
         let panel = NSSavePanel()
         panel.title = "Export Layout"
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "gds")!,
-            UTType(filenameExtension: "oas")!,
-        ]
+        panel.allowedContentTypes = FileContentTypes.layoutExport
         panel.canCreateDirectories = true
         panel.nameFieldStringValue =
             (appState.projectRootURL?.lastPathComponent ?? project.designName) + ".gds"
@@ -752,11 +745,7 @@ public struct CircuitStudioApp: App {
 
     private func loadTechFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "json")!,
-            UTType(filenameExtension: "lef")!,
-            UTType(filenameExtension: "lyp")!,
-        ]
+        panel.allowedContentTypes = FileContentTypes.technologyImport
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
 
@@ -803,6 +792,14 @@ public struct CircuitStudioApp: App {
                 ?? project.topCellName
             try services.projectService.updatePEXTopCell(topLayoutCellName, forProjectAt: projectRoot)
             let config = try services.projectService.loadPEXProjectConfig(forProjectAt: projectRoot)
+            guard let backendID = config.normalizedBackendID else {
+                appState.log("Configure a PEX backend before running extraction.", kind: .error)
+                return
+            }
+            guard !config.usesMockBackend else {
+                appState.log("PEX backend '\(backendID)' is a mock backend and cannot produce a post-layout circuit.", kind: .error)
+                return
+            }
 
             try services.projectService.saveNetlist(
                 baseNetlist,

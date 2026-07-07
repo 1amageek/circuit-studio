@@ -7,7 +7,8 @@ struct FlowRunnerKeyValueFormatterTests {
 
     private func reviewSummary(
         approvalKind: ExternalSignoffReview.ApprovalKind?,
-        approvedBy: String?
+        approvedBy: String?,
+        recommendations: [String] = []
     ) -> RoundTripReviewSummary {
         RoundTripReviewSummary(
             runID: "run-1",
@@ -32,7 +33,7 @@ struct FlowRunnerKeyValueFormatterTests {
             postLayoutComparison: nil,
             bottleneckSummary: nil,
             diagnostics: [],
-            recommendations: []
+            recommendations: recommendations
         )
     }
 
@@ -74,6 +75,24 @@ struct FlowRunnerKeyValueFormatterTests {
         #expect(lines.contains("signoff_approved=false"))
         #expect(lines.contains("signoff_approval_kind="))
         #expect(lines.contains("signoff_approved_by="))
+    }
+
+    @Test("Key-value output escapes unsafe scalar values")
+    func keyValueOutputEscapesUnsafeScalarValues() {
+        let result = DesignFlowCommandResult(
+            kind: .reviewRoundTrip,
+            roundTripReview: reviewSummary(
+                approvalKind: .human,
+                approvedBy: "layout-reviewer",
+                recommendations: ["inspect DRC result\nrun_id=forged"]
+            )
+        )
+
+        let lines = FlowRunnerKeyValueFormatter.lines(for: result)
+        let physicalLines = lines.joined(separator: "\n").split(separator: "\n").map(String.init)
+
+        #expect(lines.contains("recommendation=inspect DRC result\\nrun_id=forged"))
+        #expect(!physicalLines.contains("run_id=forged"))
     }
 
     @Test("Round-trip output marks flag-driven approval as automated")

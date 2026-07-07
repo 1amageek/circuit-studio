@@ -37,7 +37,8 @@ public struct HierarchicalSynthesizer: Sendable {
         let floor = try GridFloorplanner().tile(docs, columns: columns, name: netlist.name)
 
         // Power rails first in the margins; boundaryNets empty so this is power only.
-        let powered = try InterBlockRouter().route(floor, boundaryNets: [], powerNets: [netlist.vpwr, netlist.vgnd])
+        let powered = try InterBlockRouter.bundledDefault()
+            .route(floor, boundaryNets: [], powerNets: [netlist.vpwr, netlist.vgnd])
         guard var cell = powered.cells.first(where: { $0.id == powered.topCellID }) ?? powered.cells.first else {
             throw SynthError.noTopCell
         }
@@ -53,7 +54,7 @@ public struct HierarchicalSynthesizer: Sendable {
             mazeNets.append(MazeRouter.Net(name: net, pins: labels.map(\.position)))
         }
         if !mazeNets.isEmpty {
-            cell.shapes.append(contentsOf: try MazeRouter().route(mazeNets))
+            cell.shapes.append(contentsOf: try MazeRouter.bundledDefault().route(mazeNets))
         }
 
         // Labels: a routed internal net is no longer a port (drop all its labels); a primary

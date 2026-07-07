@@ -9,6 +9,7 @@ import LayoutEngine
 @MainActor
 public final class HeadlessRoundTripService {
     private static let orderedStageNames = [
+        "input-artifact-capture",
         "net-extraction",
         "netlist-generation",
         "pre-layout-simulation",
@@ -48,14 +49,28 @@ public final class HeadlessRoundTripService {
 
         var stages: [Stage] = []
         var artifacts: [Artifact] = []
+        let inputArtifactCaptureStartedAt = Date()
         do {
-            artifacts.append(contentsOf: try captureInputArtifacts(
+            let capturedArtifacts = try captureInputArtifacts(
                 paths: configuration.designArtifactPaths,
                 kind: "design-spec",
                 runDirectory: runDirectory,
                 subdirectory: "design"
+            )
+            artifacts.append(contentsOf: capturedArtifacts)
+            stages.append(Stage(
+                name: "input-artifact-capture",
+                status: .passed,
+                message: "\(capturedArtifacts.count) artifacts",
+                durationSeconds: duration(since: inputArtifactCaptureStartedAt)
             ))
         } catch {
+            stages.append(Stage(
+                name: "input-artifact-capture",
+                status: .failed,
+                message: error.localizedDescription,
+                durationSeconds: duration(since: inputArtifactCaptureStartedAt)
+            ))
             try failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
@@ -543,7 +558,7 @@ public final class HeadlessRoundTripService {
         }
     }
 
-    public static func validateRunID(_ runID: String) throws {
+    public nonisolated static func validateRunID(_ runID: String) throws {
         let allowedScalars = CharacterSet(
             charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
         )
@@ -612,6 +627,8 @@ public final class HeadlessRoundTripService {
 
     private func recommendation(for stageName: String, reason: String) -> String {
         switch stageName {
+        case "input-artifact-capture":
+            return "\(reason): inspect configured design, signoff, and PEX artifact paths before the flow starts."
         case "net-extraction":
             return "\(reason): inspect schematic wires, labels, pins, and floating or missing nets."
         case "netlist-generation":
@@ -851,8 +868,12 @@ public final class HeadlessRoundTripService {
         return try paths.map { path in
             let sourceURL = URL(filePath: path)
             let sourcePath = sourceURL.path(percentEncoded: false)
-            guard FileManager.default.fileExists(atPath: sourcePath) else {
+            var isDirectory = ObjCBool(false)
+            guard FileManager.default.fileExists(atPath: sourcePath, isDirectory: &isDirectory) else {
                 throw StudioError.projectLoadFailed("Input artifact not found: \(sourcePath)")
+            }
+            guard !isDirectory.boolValue else {
+                throw StudioError.projectLoadFailed("Input artifact must be a regular file: \(sourcePath)")
             }
 
             if isArtifactAlreadyInsideRunDirectory(sourceURL: sourceURL, runDirectory: runDirectory) {
@@ -860,6 +881,14 @@ public final class HeadlessRoundTripService {
             }
 
             let resolvedSourceURL = sourceURL.resolvingSymlinksInPath()
+            let resolvedSourcePath = resolvedSourceURL.path(percentEncoded: false)
+            var resolvedIsDirectory = ObjCBool(false)
+            guard FileManager.default.fileExists(atPath: resolvedSourcePath, isDirectory: &resolvedIsDirectory) else {
+                throw StudioError.projectLoadFailed("Input artifact not found: \(sourcePath)")
+            }
+            guard !resolvedIsDirectory.boolValue else {
+                throw StudioError.projectLoadFailed("Input artifact must be a regular file: \(sourcePath)")
+            }
             let destinationURL = uniqueCaptureURL(
                 for: sourceURL,
                 in: captureDirectory,

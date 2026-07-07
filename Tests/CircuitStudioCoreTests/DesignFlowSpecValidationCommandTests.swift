@@ -365,6 +365,50 @@ struct DesignFlowSpecValidationCommandTests {
         #expect(scaledDesign.pexIR?.elements.first { $0.id == "r_out" }?.value == 1.0)
         #expect(scaledDesign.pexIR?.elements.first { $0.id == "c_out" }?.value == 2.0e-15)
 
+        let unsupportedElementKindURL = root.appending(path: "unsupported-pex-element-kind.json")
+        try DesignFlowServiceTestSupport.writeDesignSpecJSON(
+            DesignFlowServiceTestSupport.agentResistorDividerSpecJSON(
+                pexUnits: "",
+                pexElements: """
+                {
+                  "id": "l_out",
+                  "kind": "inductor",
+                  "nodeA": "out",
+                  "nodeB": "out_pex",
+                  "value": 0.5
+                }
+                """
+            ),
+            to: unsupportedElementKindURL
+        )
+        #expect(throws: DesignFlowDesignSpecError.unsupportedPEXElementKind("inductor")) {
+            _ = try service.loadDesignSpec(unsupportedElementKindURL)
+        }
+
+        let unsupportedDiagnosticSeverityURL = root.appending(path: "unsupported-pex-diagnostic-severity.json")
+        let unsupportedDiagnosticSeverityJSON = DesignFlowServiceTestSupport.agentResistorDividerSpecJSON(
+            pexUnits: "",
+            pexElements: """
+            {
+              "id": "r_out",
+              "kind": "resistor",
+              "nodeA": "out",
+              "nodeB": "out_pex",
+              "value": 0.5
+            }
+            """
+        ).replacingOccurrences(
+            of: "\"diagnostics\": []",
+            with: "\"diagnostics\": [{\"severity\":\"fatal\",\"message\":\"unsupported severity\"}]"
+        )
+        try DesignFlowServiceTestSupport.writeDesignSpecJSON(
+            unsupportedDiagnosticSeverityJSON,
+            to: unsupportedDiagnosticSeverityURL
+        )
+        #expect(throws: DesignFlowDesignSpecError.unsupportedPEXDiagnosticSeverity("fatal")) {
+            _ = try service.loadDesignSpec(unsupportedDiagnosticSeverityURL)
+        }
+
         let missingNodeURL = root.appending(path: "missing-node.json")
         try DesignFlowServiceTestSupport.writeDesignSpecJSON(
             DesignFlowServiceTestSupport.agentResistorDividerSpecJSON(

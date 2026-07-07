@@ -315,6 +315,8 @@ public struct DesignFlowService: Sendable {
             let data = try Data(contentsOf: url)
             let decoder = JSONDecoder()
             return try decoder.decode(DesignFlowDesignSpec.self, from: data)
+        } catch let error as DesignFlowDesignSpecError {
+            throw error
         } catch {
             throw StudioError.projectLoadFailed("Failed to load design spec: \(error.localizedDescription)")
         }
@@ -501,7 +503,7 @@ public struct DesignFlowService: Sendable {
                 signoffRepairCandidateCycleHistoryIndex: report.summary,
                 signoffRepairCandidateCycleHistoryQualification: report,
                 signoffRepairCandidateCycleHistoryQualificationArtifact: artifact,
-                signoffRepairCandidateCycleHistoryQualificationPath: absolutePath(
+                signoffRepairCandidateCycleHistoryQualificationPath: try absolutePath(
                     for: artifact,
                     projectRoot: projectRoot
                 )
@@ -547,6 +549,10 @@ public struct DesignFlowService: Sendable {
             return try formulateSignoffRepairPlanningProblem(command)
         case .runSignoffRepairCandidateCycle:
             return try await runSignoffRepairCandidateCycle(command)
+        case .runGoalLayoutAgent:
+            return try runGoalLayoutAgent(command)
+        case .scaffoldDesignSpec:
+            return try scaffoldDesignSpec(command)
         }
     }
 
@@ -586,11 +592,11 @@ public struct DesignFlowService: Sendable {
         guard let layoutDocumentPath = command.layoutDocumentPath else {
             throw DesignFlowCommandError.missingLayoutDocumentPath
         }
-        let package = try technologyPackage(for: command)
+        let artifactDirectory = try layoutTrustArtifactDirectory(for: command)
+        let package = try requiredTechnologyPackage(for: command)
         let layout = try loadLayoutDocument(URL(filePath: layoutDocumentPath))
-        let tech = try layoutTech(for: package) ?? .sampleProcess()
+        let tech = try layoutTech(for: package)
         let report = try layoutTrustEvaluator.evaluate(document: layout, tech: tech, policy: LayoutOwnershipPolicy())
-        let artifactDirectory = layoutTrustArtifactDirectory(for: command)
         let artifacts = try layoutTrustArtifactWriter.write(
             document: layout,
             report: report,
@@ -601,8 +607,8 @@ public struct DesignFlowService: Sendable {
             kind: command.kind,
             runID: command.runID,
             projectRootPath: command.projectRootPath,
-            technologyPackageID: package?.manifest.packageID,
-            technologyPackagePath: package?.manifestURL.path(percentEncoded: false),
+            technologyPackageID: package.manifest.packageID,
+            technologyPackagePath: package.manifestURL.path(percentEncoded: false),
             layoutTrustPassed: report.passed,
             layoutTrustReportPath: artifacts.layoutTrustReportPath,
             layoutTrustReport: report,
@@ -615,8 +621,9 @@ public struct DesignFlowService: Sendable {
         guard let layoutDocumentPath = command.layoutDocumentPath else {
             throw DesignFlowCommandError.missingLayoutDocumentPath
         }
+        let artifactDirectory = try verificationArtifactDirectory(for: command)
         let verificationInput = try verificationDesign(for: command)
-        let package = try technologyPackage(for: command)
+        let package = try requiredTechnologyPackage(for: command)
         try validateSignoffLogPair(in: command)
         let layout = try loadLayoutDocument(URL(filePath: layoutDocumentPath))
         let loadedDesignUnit = try command.designUnitPath.map { try loadDesignUnit(URL(filePath: $0)) }
@@ -633,7 +640,7 @@ public struct DesignFlowService: Sendable {
                 approvalKind: .automated
             )
             : rawExternalSignoff
-        let tech = try layoutTech(for: package) ?? .sampleProcess()
+        let tech = try layoutTech(for: package)
         let layoutTrustReport = try layoutTrustEvaluator.evaluate(document: layout, tech: tech, policy: LayoutOwnershipPolicy())
         let report = runPrePEXVerification(DesignFlowPrePEXVerificationRequest(
             schematic: verificationInput.schematic,
@@ -645,7 +652,6 @@ public struct DesignFlowService: Sendable {
         ))
         let verificationReport = DesignFlowVerificationReport(report: report, layoutTrust: layoutTrustReport)
 
-        let artifactDirectory = verificationArtifactDirectory(for: command)
         let layoutTrustArtifacts = try layoutTrustArtifactWriter.write(
             document: layout,
             report: layoutTrustReport,
@@ -663,8 +669,8 @@ public struct DesignFlowService: Sendable {
             runID: command.runID,
             projectRootPath: command.projectRootPath,
             readyForPEX: verificationReport.readyForPEX,
-            technologyPackageID: package?.manifest.packageID,
-            technologyPackagePath: package?.manifestURL.path(percentEncoded: false),
+            technologyPackageID: package.manifest.packageID,
+            technologyPackagePath: package.manifestURL.path(percentEncoded: false),
             layoutTrustPassed: layoutTrustReport.passed,
             layoutTrustReportPath: layoutTrustArtifacts.layoutTrustReportPath,
             layoutTrustReport: layoutTrustReport,
@@ -774,13 +780,13 @@ public struct DesignFlowService: Sendable {
             throw DesignFlowCommandError.missingOutputLayoutDocumentPath
         }
 
+        let outputURL = URL(filePath: outputLayoutDocumentPath)
+        let artifactDirectory = try layoutEditArtifactDirectory(for: command, outputURL: outputURL)
         let layout = try loadLayoutDocument(URL(filePath: layoutDocumentPath))
         let script = try loadLayoutEditScript(URL(filePath: editScriptPath))
         let result = try DesignFlowLayoutEditService().apply(script: script, to: layout)
-        let outputURL = URL(filePath: outputLayoutDocumentPath)
         try writeJSON(result.layout, to: outputURL)
 
-        let artifactDirectory = layoutEditArtifactDirectory(for: command, outputURL: outputURL)
         try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
         let actionLogURL = artifactDirectory.appending(path: "actions.jsonl")
         let diffURL = artifactDirectory.appending(path: "layout-diff.json")
@@ -808,13 +814,13 @@ public struct DesignFlowService: Sendable {
             throw DesignFlowCommandError.missingOutputDesignSpecPath
         }
 
+        let outputURL = URL(filePath: outputDesignSpecPath)
+        let artifactDirectory = try designEditArtifactDirectory(for: command, outputURL: outputURL)
         let design = try loadDesignSpec(URL(filePath: designSpecPath))
         let script = try loadDesignEditScript(URL(filePath: editScriptPath))
         let result = try DesignFlowDesignEditService().apply(script: script, to: design)
-        let outputURL = URL(filePath: outputDesignSpecPath)
         try writeJSON(result.designSpec, to: outputURL)
 
-        let artifactDirectory = designEditArtifactDirectory(for: command, outputURL: outputURL)
         try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
         let actionLogURL = artifactDirectory.appending(path: "actions.jsonl")
         let diffURL = artifactDirectory.appending(path: "design-diff.json")
@@ -883,6 +889,7 @@ public struct DesignFlowService: Sendable {
         let externalSignoffReview = try await loadExternalSignoffReview(from: command, package: package)
         let projectRoot = URL(filePath: command.projectRootPath ?? defaultCommandProjectRoot(fixtureName: design.name))
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let resolvedLayoutTech = try package.map { try layoutTech(for: $0) }
 
         let configuration = HeadlessRoundTripService.Configuration(
             projectRoot: projectRoot,
@@ -901,7 +908,7 @@ public struct DesignFlowService: Sendable {
             approvalKind: command.approveSignoff ? .automated : nil,
             createdAt: Date(),
             processConfiguration: package?.processConfiguration,
-            layoutTech: try layoutTech(for: package)
+            layoutTech: resolvedLayoutTech
         )
 
         let result = try await runRoundTrip(DesignFlowRoundTripRequest(
@@ -951,6 +958,7 @@ public struct DesignFlowService: Sendable {
         let externalSignoffReview = try await loadExternalSignoffReview(from: command, package: package)
         let projectRoot = URL(filePath: command.projectRootPath ?? defaultCommandProjectRoot(fixtureName: fixture.name))
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let resolvedLayoutTech = try package.map { try layoutTech(for: $0) }
 
         let configuration = HeadlessRoundTripService.Configuration(
             projectRoot: projectRoot,
@@ -969,7 +977,7 @@ public struct DesignFlowService: Sendable {
             approvalKind: command.approveSignoff ? .automated : nil,
             createdAt: Date(),
             processConfiguration: package?.processConfiguration,
-            layoutTech: try layoutTech(for: package)
+            layoutTech: resolvedLayoutTech
         )
 
         let result = try await runRoundTrip(DesignFlowRoundTripRequest(
@@ -1016,17 +1024,14 @@ public struct DesignFlowService: Sendable {
         return try loadTechnologyPackage(URL(filePath: path))
     }
 
-    private func requiredTechnologyPackage(for command: DesignFlowCommand) throws -> TechnologyPackage {
+    func requiredTechnologyPackage(for command: DesignFlowCommand) throws -> TechnologyPackage {
         guard let package = try technologyPackage(for: command) else {
             throw DesignFlowCommandError.missingTechnologyPackagePath
         }
         return package
     }
 
-    private func layoutTech(for package: TechnologyPackage?) throws -> LayoutTechDatabase? {
-        guard let package else {
-            return nil
-        }
+    func layoutTech(for package: TechnologyPackage) throws -> LayoutTechDatabase {
         return try TechnologyPackageLayoutTechResolver().resolve(package: package)
     }
 

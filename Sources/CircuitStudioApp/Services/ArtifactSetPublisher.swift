@@ -117,7 +117,7 @@ public struct ArtifactSetPublisher: Sendable {
                     data: item.data,
                     sourcePath: item.sourcePath
                 ),
-                record: ArtifactPublicationRecord(
+                record: try ArtifactPublicationRecord(
                     id: item.id,
                     kind: item.kind,
                     path: artifactPath.value,

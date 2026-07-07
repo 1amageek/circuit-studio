@@ -14,7 +14,7 @@ struct RunReviewSignoffWaveformComparisonDrilldown: View {
 
     var body: some View {
         if waveformArtifacts.count >= 2 {
-            let comparisonKey = RunReviewArtifactPreviewKey.make(runID: runID, artifactPath: card.artifact.path)
+            let comparisonKey = RunReviewArtifactPreviewKey.make(runID: runID, artifact: card.artifact)
             let sources = waveformComparisonSources(artifacts: waveformArtifacts)
             let commonSignals = commonWaveformSignalNames(sources)
             DisclosureGroup {
@@ -99,7 +99,7 @@ struct RunReviewSignoffWaveformComparisonDrilldown: View {
         artifacts: [FlowRunReviewArtifact]
     ) -> [RunReviewWaveformComparisonSource] {
         artifacts.compactMap { artifact in
-            let key = RunReviewArtifactPreviewKey.make(runID: runID, artifactPath: artifact.path)
+            let key = RunReviewArtifactPreviewKey.make(runID: runID, artifact: artifact)
             guard let preview = artifactPreviews[key]?.waveformPreview else {
                 return nil
             }
