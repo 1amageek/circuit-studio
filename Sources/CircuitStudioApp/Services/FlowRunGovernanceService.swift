@@ -401,10 +401,14 @@ public struct FlowRunGovernanceService: Sendable {
         guard let projectRoot, let runID else {
             return nil
         }
-        return projectRoot
-            .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
-            .appending(path: runID)
+        do {
+            return try RoundTripRunDirectory.runDirectory(
+                projectRoot: projectRoot,
+                runID: runID
+            )
+        } catch {
+            return nil
+        }
     }
 
     private func approvalRecordURL(

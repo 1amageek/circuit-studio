@@ -629,7 +629,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "approval-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
@@ -689,7 +689,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "approval-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
@@ -738,7 +738,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "approval-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
@@ -790,7 +790,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "failure-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
@@ -864,7 +864,7 @@ struct DesignFlowServiceTests {
 
         let actionLogPath = try #require(result.actionLogPath)
         #expect(FileManager.default.fileExists(atPath: actionLogPath))
-        #expect(actionLogPath.hasSuffix(".xcircuite/flow-runs/failure-run/actions.jsonl"))
+        #expect(actionLogPath.hasSuffix(".xcircuite/runs/failure-run/actions.jsonl"))
         #expect(result.runID == "failure-run")
         #expect(result.manifestPath == manifestURL.path(percentEncoded: false))
         #expect(result.selectedSuggestedCommand?.actor.identifier == "agent-1")
@@ -881,7 +881,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "failure-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
@@ -968,7 +968,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "failure-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
@@ -1035,7 +1035,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "approval-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -1089,7 +1089,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "approval-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
@@ -1139,7 +1139,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "approval-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
@@ -1183,7 +1183,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "approval-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
@@ -1229,7 +1229,7 @@ struct DesignFlowServiceTests {
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "approval-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let verificationURL = runDirectory.appending(path: "physical-verification.json")

@@ -68,14 +68,14 @@ public struct RoundTripBottleneckHistoryService: Sendable {
     }
 
     public func summarize(forProjectAt projectRoot: URL) throws -> Summary {
-        let runsDirectory = projectRoot
-            .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
-        guard FileManager.default.fileExists(atPath: runsDirectory.path(percentEncoded: false)) else {
+        let runsDirectories = RoundTripRunDirectory.existingRunsDirectories(projectRoot: projectRoot)
+        guard !runsDirectories.isEmpty else {
             return emptySummary()
         }
 
-        let manifestURLs = try manifestURLs(in: runsDirectory)
+        let manifestURLs = try runsDirectories.flatMap { directory in
+            try manifestURLs(in: directory)
+        }
         let manifests = try manifestURLs.map { url in
             try readManifest(from: url)
         }

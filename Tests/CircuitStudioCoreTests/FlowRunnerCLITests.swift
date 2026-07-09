@@ -556,8 +556,8 @@ struct FlowRunnerCLITests {
             kind: .selectFailureSuggestedCommand,
             runID: "run-1",
             projectRootPath: "/tmp/flow-output",
-            manifestPath: "/tmp/flow-output/.xcircuite/flow-runs/run-1/round-trip-manifest.json",
-            actionLogPath: "/tmp/flow-output/.xcircuite/flow-runs/run-1/actions.jsonl",
+            manifestPath: "/tmp/flow-output/.xcircuite/runs/run-1/round-trip-manifest.json",
+            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
             selectedSuggestedCommand: XcircuiteSuggestedCommandSelection(
                 actionRecordID: "round-trip-suggested-command-selection-1",
                 runID: "run-1",
@@ -579,8 +579,8 @@ struct FlowRunnerCLITests {
 
         #expect(keys["suggested_command_selection"] == "recorded")
         #expect(keys["run_id"] == "run-1")
-        #expect(keys["manifest"] == "/tmp/flow-output/.xcircuite/flow-runs/run-1/round-trip-manifest.json")
-        #expect(keys["actions"] == "/tmp/flow-output/.xcircuite/flow-runs/run-1/actions.jsonl")
+        #expect(keys["manifest"] == "/tmp/flow-output/.xcircuite/runs/run-1/round-trip-manifest.json")
+        #expect(keys["actions"] == "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl")
         #expect(keys["action_id"] == "round-trip-suggested-command-selection-1")
         #expect(keys["command_id"] == "circuit-studio-flow-runner.review-round-trip")
         #expect(keys["readiness"] == "ready")

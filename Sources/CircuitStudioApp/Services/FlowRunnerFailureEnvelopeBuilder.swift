@@ -74,11 +74,15 @@ public enum FlowRunnerFailureEnvelopeBuilder {
               let projectRoot = options.projectRootPath else {
             return nil
         }
-        let manifestURL = URL(filePath: projectRoot)
-            .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
-            .appending(path: runID)
-            .appending(path: "round-trip-manifest.json")
+        let manifestURL: URL
+        do {
+            manifestURL = try RoundTripRunDirectory.existingManifestURL(
+                projectRoot: URL(filePath: projectRoot),
+                runID: runID
+            )
+        } catch {
+            return nil
+        }
         guard FileManager.default.fileExists(atPath: manifestURL.path(percentEncoded: false)) else {
             return nil
         }

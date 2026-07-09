@@ -277,7 +277,7 @@ struct HeadlessRoundTripServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "comparison-write-failure")
         try FileManager.default.createDirectory(
             at: runDirectory.appending(path: "post-layout-comparison.json"),
@@ -549,7 +549,7 @@ struct HeadlessRoundTripServiceTests {
 
         let manifestURL = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "comparison-invalid-limit")
             .appending(path: "round-trip-manifest.json")
         #expect(!FileManager.default.fileExists(atPath: manifestURL.path(percentEncoded: false)))
@@ -583,7 +583,7 @@ struct HeadlessRoundTripServiceTests {
 
         let flowRunsDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
         #expect(!FileManager.default.fileExists(atPath: flowRunsDirectory.path(percentEncoded: false)))
     }
 
@@ -596,7 +596,7 @@ struct HeadlessRoundTripServiceTests {
         let runID = "capture-prefix"
         let siblingDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "\(runID)-sibling")
         try FileManager.default.createDirectory(at: siblingDirectory, withIntermediateDirectories: true)
         let pexManifestURL = siblingDirectory.appending(path: "pex-manifest.json")
@@ -686,7 +686,7 @@ struct HeadlessRoundTripServiceTests {
         let runID = "capture-symlink"
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: runID)
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -1140,7 +1140,7 @@ struct HeadlessRoundTripServiceTests {
     ) throws -> HeadlessRoundTripService.Manifest {
         let manifestURL = projectRoot
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: runID)
             .appending(path: "round-trip-manifest.json")
         let data = try Data(contentsOf: manifestURL)
@@ -1179,7 +1179,7 @@ struct HeadlessRoundTripServiceTests {
         }
         let url = projectRoot
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: manifest.runID)
             .appending(path: artifact.path)
         let data = try Data(contentsOf: url)
@@ -1195,7 +1195,7 @@ struct HeadlessRoundTripServiceTests {
             }
             let url = projectRoot
                 .appending(path: ".xcircuite")
-                .appending(path: "flow-runs")
+                .appending(path: "runs")
                 .appending(path: manifest.runID)
                 .appending(path: artifact.path)
             let data = try Data(contentsOf: url)
@@ -1223,7 +1223,7 @@ struct HeadlessRoundTripServiceTests {
     ) throws {
         let runDirectory = projectRoot
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: runID)
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
@@ -1264,7 +1264,7 @@ struct HeadlessRoundTripServiceTests {
     private func artifactURL(path: String, projectRoot: URL, runID: String) -> URL {
         let manifestURL = projectRoot
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: runID)
             .appending(path: "round-trip-manifest.json")
         return artifactURL(path: path, manifestURL: manifestURL)

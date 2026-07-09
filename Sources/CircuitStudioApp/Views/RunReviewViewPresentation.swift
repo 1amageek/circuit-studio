@@ -53,43 +53,11 @@ extension RunReviewView {
     }
 
     func reviewItemIcon(_ item: FlowRunReviewItem) -> String {
-        switch item.kind {
-        case .designDiff:
-            return "doc.text.magnifyingglass"
-        case .approvalGate:
-            return "checkmark.seal"
-        case .toolTrust:
-            return "wrench.and.screwdriver"
-        case .stageFailure:
-            return "xmark.octagon"
-        case .stageBlocker:
-            return "pause.circle"
-        case .diagnosticReview:
-            return "exclamationmark.triangle"
-        case .artifactIntegrity:
-            return "checkmark.shield"
-        case .artifactCoverage:
-            return "rectangle.stack.badge.exclamationmark"
-        case .planningCorrectness:
-            return "checklist"
-        case .retainedHistory:
-            return "chart.line.uptrend.xyaxis"
-        case .archiveOrContinue:
-            return "archivebox"
-        case .cancellation:
-            return "stop.circle"
-        }
+        item.reviewSystemImage
     }
 
     func reviewItemColor(_ item: FlowRunReviewItem) -> Color {
-        switch item.severity {
-        case .info:
-            return .secondary
-        case .warning:
-            return .orange
-        case .error:
-            return .red
-        }
+        item.reviewForegroundColor
     }
 
     func failureStateIcon(_ kind: RunReviewFailureStateSummary.Kind) -> String {

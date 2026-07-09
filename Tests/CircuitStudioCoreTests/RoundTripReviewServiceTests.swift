@@ -15,7 +15,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -52,13 +52,46 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func loadReviewByRunIDFallsBackToLegacyFlowRuns() throws {
+        let root = try makeTemporaryRoot("review-legacy-flow-runs")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root
+            .appending(path: ".xcircuite")
+            .appending(path: "flow-runs")
+            .appending(path: "review-run")
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+
+        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
+        try writeJSON(makeComparisonReport(), to: comparisonURL)
+
+        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
+        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
+
+        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        try writeJSON(try makeManifest(
+            comparisonURL: comparisonURL,
+            signoffURL: signoffURL
+        ), to: manifestURL)
+
+        let summary = try RoundTripReviewService().loadReview(
+            forProjectAt: root,
+            runID: "review-run"
+        )
+
+        #expect(summary.status == .passed)
+        #expect(summary.manifestPath == manifestURL.path(percentEncoded: false))
+        #expect(summary.artifacts.allSatisfy { $0.integrityStatus == .verified })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func missingReviewArtifactIsDiagnosticNotLoadFailure() throws {
         let root = try makeTemporaryRoot("review-missing-artifact")
         defer { removeTemporaryRoot(root) }
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -90,7 +123,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -123,7 +156,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -205,7 +238,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
@@ -263,7 +296,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -291,7 +324,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -340,7 +373,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -378,7 +411,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -426,7 +459,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -474,7 +507,7 @@ struct RoundTripReviewServiceTests {
 
         let originalRunDirectory = originalRoot
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: originalRunDirectory, withIntermediateDirectories: true)
 
@@ -492,7 +525,7 @@ struct RoundTripReviewServiceTests {
 
         let movedRunDirectory = movedRoot
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(
             at: movedRunDirectory.deletingLastPathComponent(),
@@ -518,7 +551,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -560,7 +593,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = originalRoot
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
@@ -594,7 +627,7 @@ struct RoundTripReviewServiceTests {
         let summary = try RoundTripReviewService().loadReview(
             manifestURL: movedRoot
                 .appending(path: ".xcircuite")
-                .appending(path: "flow-runs")
+                .appending(path: "runs")
                 .appending(path: "review-run")
                 .appending(path: "round-trip-manifest.json")
         )
@@ -613,7 +646,7 @@ struct RoundTripReviewServiceTests {
 
         let runDirectory = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 

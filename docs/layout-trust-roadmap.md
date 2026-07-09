@@ -175,7 +175,7 @@ The implemented command paths are fixed as follows:
 | `runLayoutTrust` | `<project-root>/.xcircuite/runs/<run-id>/` | `layout/canonical-layout.json`, `layout/ownership-map.json`, `layout/net-aware-report.json`, `layout/layout-trust-report.json` | Not produced. |
 | `runVerification` | `<project-root>/.xcircuite/runs/<run-id>/` | `layout/canonical-layout.json`, `layout/ownership-map.json`, `layout/net-aware-report.json`, `layout/layout-trust-report.json` | `reports/physical-verification.json` |
 
-Existing headless round-trip bundles still use `.xcircuite/flow-runs/<run-id>/`.
+Headless round-trip bundles now use the shared `.xcircuite/runs/<run-id>/` ledger.
 The layout trust file names and JSON schemas are shared between both command-level
 runs and future run-bundle consumers.
 

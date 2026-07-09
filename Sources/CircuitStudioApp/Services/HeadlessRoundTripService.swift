@@ -41,11 +41,10 @@ public final class HeadlessRoundTripService {
             try projectService.createProject(at: configuration.projectRoot)
         }
 
-        let runDirectory = configuration.projectRoot
-            .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
-            .appending(path: configuration.runID)
-        try createDirectory(runDirectory)
+        let runDirectory = try RoundTripRunDirectory.ensureRunDirectory(
+            projectRoot: configuration.projectRoot,
+            runID: configuration.runID
+        )
 
         var stages: [Stage] = []
         var artifacts: [Artifact] = []

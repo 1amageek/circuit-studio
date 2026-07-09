@@ -63,8 +63,8 @@ struct RunReviewPlanningReviewCard: View {
                             .foregroundStyle(.secondary)
                         ForEach(planning.correctnessItems, id: \.itemID) { item in
                             HStack(spacing: 6) {
-                                Image(systemName: reviewItemIcon(item))
-                                    .foregroundStyle(reviewItemColor(item))
+                                Image(systemName: item.reviewSystemImage)
+                                    .foregroundStyle(item.reviewForegroundColor)
                                 Text(item.title)
                                     .font(.caption)
                                 Spacer()
@@ -383,46 +383,6 @@ struct RunReviewPlanningReviewCard: View {
         runID: String
     ) {
         decideRiskApproval(verdict, approvalID, runID)
-    }
-
-    private func reviewItemIcon(_ item: FlowRunReviewItem) -> String {
-        switch item.kind {
-        case .designDiff:
-            return "doc.text.magnifyingglass"
-        case .approvalGate:
-            return "checkmark.seal"
-        case .toolTrust:
-            return "wrench.and.screwdriver"
-        case .stageFailure:
-            return "xmark.octagon"
-        case .stageBlocker:
-            return "pause.circle"
-        case .diagnosticReview:
-            return "exclamationmark.triangle"
-        case .artifactIntegrity:
-            return "checkmark.shield"
-        case .artifactCoverage:
-            return "rectangle.stack.badge.exclamationmark"
-        case .planningCorrectness:
-            return "checklist"
-        case .retainedHistory:
-            return "chart.line.uptrend.xyaxis"
-        case .archiveOrContinue:
-            return "archivebox"
-        case .cancellation:
-            return "stop.circle"
-        }
-    }
-
-    private func reviewItemColor(_ item: FlowRunReviewItem) -> Color {
-        switch item.severity {
-        case .info:
-            return .secondary
-        case .warning:
-            return .orange
-        case .error:
-            return .red
-        }
     }
 
     private func planningStatusBadge(_ status: String) -> some View {

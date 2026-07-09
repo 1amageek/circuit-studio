@@ -41,7 +41,7 @@ flowchart LR
 
 `--run-selected-suggested-command --output <project-root> --run-id <run-id>
 [--command-id <id>]` resolves the selected ready command from
-`.xcircuite/flow-runs/<run-id>/actions.jsonl`, validates the runner prefix,
+`.xcircuite/runs/<run-id>/actions.jsonl`, validates the runner prefix,
 run ID, project root, and manifest path, then dispatches only allowlisted review
 or bottleneck-summary `DesignFlowCommand` values. It does not spawn the selected
 command as a shell process.

@@ -39,7 +39,7 @@ swift run circuit-studio-flow-runner \
   --approve-gate \
   --output /tmp/lsi-dogfood-cmos-inverter-pass \
   --run-id dogfood-cmos-pass-20260515 \
-  --manifest /tmp/lsi-dogfood-cmos-inverter-pass/.xcircuite/flow-runs/dogfood-cmos-pass-20260515/round-trip-manifest.json \
+  --manifest /tmp/lsi-dogfood-cmos-inverter-pass/.xcircuite/runs/dogfood-cmos-pass-20260515/round-trip-manifest.json \
   --approval-gate post-layout-comparison \
   --reviewer dogfood-agent \
   --approval-policy dogfood-post-layout-absolute-delta \
@@ -81,7 +81,7 @@ swift run circuit-studio-flow-runner \
   --approve-gate \
   --output /tmp/lsi-dogfood-cmos-portable-rerun \
   --run-id dogfood-cmos-portable-rerun-20260515 \
-  --manifest /tmp/lsi-dogfood-cmos-portable-rerun/.xcircuite/flow-runs/dogfood-cmos-portable-rerun-20260515/round-trip-manifest.json \
+  --manifest /tmp/lsi-dogfood-cmos-portable-rerun/.xcircuite/runs/dogfood-cmos-portable-rerun-20260515/round-trip-manifest.json \
   --approval-gate post-layout-comparison \
   --reviewer dogfood-agent \
   --approval-policy dogfood-post-layout-absolute-delta \
@@ -173,7 +173,7 @@ error_type=StudioError
 error=Simulation error: Post-layout comparison exceeded configured limits.
 run_id=dogfood-cli-failure-v1-20260516
 project_root=/tmp/lsi-dogfood-cli-failure-v1
-manifest=/tmp/lsi-dogfood-cli-failure-v1/.xcircuite/flow-runs/dogfood-cli-failure-v1-20260516/round-trip-manifest.json
+manifest=/tmp/lsi-dogfood-cli-failure-v1/.xcircuite/runs/dogfood-cli-failure-v1-20260516/round-trip-manifest.json
 stage=post-layout-comparison
 recommendation=Inspect post-layout-comparison.json and adjust the design or comparison limits.
 ```
@@ -227,7 +227,7 @@ swift run circuit-studio-flow-runner \
   --approve-gate \
   --output /tmp/lsi-dogfood-broad-<fixture>-v1 \
   --run-id dogfood-broad-<fixture>-v1-20260516 \
-  --manifest /tmp/lsi-dogfood-broad-<fixture>-v1/.xcircuite/flow-runs/dogfood-broad-<fixture>-v1-20260516/round-trip-manifest.json \
+  --manifest /tmp/lsi-dogfood-broad-<fixture>-v1/.xcircuite/runs/dogfood-broad-<fixture>-v1-20260516/round-trip-manifest.json \
   --approval-gate post-layout-comparison \
   --reviewer dogfood-agent \
   --approval-policy broad-fixture-post-layout \

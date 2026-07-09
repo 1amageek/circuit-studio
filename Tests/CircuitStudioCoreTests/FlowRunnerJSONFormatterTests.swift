@@ -123,9 +123,9 @@ struct FlowRunnerJSONFormatterTests {
             helpHint: nil,
             runID: "run-1",
             projectRoot: "/tmp/flow-output",
-            manifest: "/tmp/flow-output/.xcircuite/flow-runs/run-1/round-trip-manifest.json",
+            manifest: "/tmp/flow-output/.xcircuite/runs/run-1/round-trip-manifest.json",
             stage: "post-layout-comparison",
-            manifestInspectionError: "Failed to inspect manifest '/tmp/flow-output/.xcircuite/flow-runs/run-1/round-trip-manifest.json': malformed JSON.",
+            manifestInspectionError: "Failed to inspect manifest '/tmp/flow-output/.xcircuite/runs/run-1/round-trip-manifest.json': malformed JSON.",
             recommendation: "Inspect the manifest and stage artifacts for the structured failure evidence."
         )
 
@@ -141,7 +141,7 @@ struct FlowRunnerJSONFormatterTests {
         #expect(decoded.runID == "run-1")
         #expect(decoded.projectRoot == "/tmp/flow-output")
         #expect(decoded.stage == "post-layout-comparison")
-        #expect(decoded.manifestInspectionError == "Failed to inspect manifest '/tmp/flow-output/.xcircuite/flow-runs/run-1/round-trip-manifest.json': malformed JSON.")
+        #expect(decoded.manifestInspectionError == "Failed to inspect manifest '/tmp/flow-output/.xcircuite/runs/run-1/round-trip-manifest.json': malformed JSON.")
         #expect(decoded.recommendation.contains("structured failure evidence"))
         #expect(decoded.nextActions.isEmpty)
     }
@@ -161,7 +161,7 @@ struct FlowRunnerJSONFormatterTests {
         let runID = "failed-run"
         let manifestURL = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: runID)
             .appending(path: "round-trip-manifest.json")
         try FileManager.default.createDirectory(
@@ -245,7 +245,7 @@ struct FlowRunnerJSONFormatterTests {
         let runID = "failed-run"
         let manifestURL = root
             .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
+            .appending(path: "runs")
             .appending(path: runID)
             .appending(path: "round-trip-manifest.json")
         try FileManager.default.createDirectory(

@@ -18,11 +18,10 @@ public struct RoundTripReviewService: Sendable {
 
     public func loadReview(forProjectAt projectRoot: URL, runID: String) throws -> RoundTripReviewSummary {
         try Self.validateRunID(runID)
-        let manifestURL = projectRoot
-            .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
-            .appending(path: runID)
-            .appending(path: "round-trip-manifest.json")
+        let manifestURL = try RoundTripRunDirectory.existingManifestURL(
+            projectRoot: projectRoot,
+            runID: runID
+        )
         return try loadReview(manifestURL: manifestURL)
     }
 

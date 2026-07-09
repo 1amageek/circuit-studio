@@ -77,11 +77,10 @@ public struct RoundTripSelectedSuggestedCommandResolver: Sendable {
         projectRoot: URL
     ) throws -> RoundTripResolvedSuggestedCommand {
         try validateRunID(request.runID)
-        let manifestURL = projectRoot
-            .appending(path: ".xcircuite")
-            .appending(path: "flow-runs")
-            .appending(path: request.runID)
-            .appending(path: "round-trip-manifest.json")
+        let manifestURL = try RoundTripRunDirectory.existingManifestURL(
+            projectRoot: projectRoot,
+            runID: request.runID
+        )
         let selection = try selectedCommand(
             runID: request.runID,
             commandID: request.commandID,
