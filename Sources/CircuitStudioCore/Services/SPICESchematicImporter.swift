@@ -25,6 +25,7 @@ public enum SPICESchematicImportError: Error, Equatable, LocalizedError {
     case parseFailed([String])
     case noImportableComponents
     case unsupportedComponents([String])
+    case layoutFailed([String])
 
     public var errorDescription: String? {
         switch self {
@@ -34,6 +35,8 @@ public enum SPICESchematicImportError: Error, Equatable, LocalizedError {
             return "SPICE contains no primitive components that can be materialized into a schematic."
         case .unsupportedComponents(let components):
             return "SPICE contains components that cannot be materialized into a schematic yet: \(components.joined(separator: ", "))."
+        case .layoutFailed(let diagnostics):
+            return "SPICE connectivity could not be materialized into a trustworthy schematic: \(diagnostics.joined(separator: "; "))"
         }
     }
 }
@@ -125,21 +128,18 @@ public struct SPICESchematicImporter: Sendable {
             uniquingKeysWith: { first, _ in first }
         )
         var unsupported: [String] = []
-        var components: [PlacedComponent] = []
-        var pinNodes: [(componentID: UUID, portID: String, node: String, point: CGPoint)] = []
+        var components: [ConnectivityAwareSchematicLayoutEngine.Component] = []
 
         for (index, portName) in ports.enumerated() {
             let component = PlacedComponent(
                 deviceKindID: PortDirection.bidirectional.deviceKindID,
                 name: portName,
-                position: CGPoint(x: -160, y: CGFloat(index) * 80)
+                position: .zero
             )
-            components.append(component)
-            pinNodes.append((
-                componentID: component.id,
-                portID: "pin",
-                node: portName,
-                point: CGPoint(x: component.position.x - 10, y: component.position.y)
+            components.append(ConnectivityAwareSchematicLayoutEngine.Component(
+                placed: component,
+                nodesByPortID: ["pin": portName],
+                sourceOrder: index
             ))
         }
 
@@ -163,7 +163,7 @@ public struct SPICESchematicImporter: Sendable {
             let component = PlacedComponent(
                 deviceKindID: deviceKindID,
                 name: parsed.name,
-                position: componentPosition(for: index),
+                position: .zero,
                 parameters: parameters(
                     for: parsed,
                     kind: kind,
@@ -171,46 +171,23 @@ public struct SPICESchematicImporter: Sendable {
                 ),
                 modelName: parsed.modelName
             )
-            components.append(component)
-
-            for (port, node) in zip(kind.portDefinitions, parsed.nodes) {
-                pinNodes.append((
-                    componentID: component.id,
-                    portID: port.id,
-                    node: node.name,
-                    point: component.position.applying(CGAffineTransform(
-                        translationX: port.position.x,
-                        y: port.position.y
-                    ))
-                ))
-            }
+            components.append(ConnectivityAwareSchematicLayoutEngine.Component(
+                placed: component,
+                nodesByPortID: Dictionary(
+                    uniqueKeysWithValues: zip(kind.portDefinitions, parsed.nodes).map { port, node in
+                        (port.id, node.name)
+                    }
+                ),
+                sourceOrder: ports.count + index
+            ))
         }
 
         guard unsupported.isEmpty else {
             throw SPICESchematicImportError.unsupportedComponents(unsupported.sorted())
         }
 
-        let nets = Dictionary(grouping: pinNodes) { $0.node }
-        let labels = nets.map { node, pins in
-            NetLabel(name: node, position: anchorPoint(for: pins.map(\.point)))
-        }
-        let wires = nets.flatMap { node, pins -> [Wire] in
-            let anchor = anchorPoint(for: pins.map(\.point))
-            return pins.map { pin in
-                Wire(
-                    startPoint: pin.point,
-                    endPoint: anchor,
-                    startPin: PinReference(componentID: pin.componentID, portID: pin.portID),
-                    netName: node
-                )
-            }
-        }
-
-        return SchematicDocument(
-            components: components,
-            wires: wires,
-            labels: labels.sorted { $0.name < $1.name }
-        )
+        return try ConnectivityAwareSchematicLayoutEngine(catalog: catalog)
+            .makeDocument(components: components)
     }
 
     private func deviceKindID(
@@ -324,37 +301,93 @@ public struct SPICESchematicImporter: Sendable {
     ) -> [String: Double] {
         var values: [String: Double] = [:]
         for schema in kind.parameterSchema {
-            if let value = component.parameters[schema.id]?.numericValue {
+            if let value = numericParameter(
+                keys: instanceParameterKeys(schemaID: schema.id, component: component),
+                in: component.parameters
+            ) {
                 values[schema.id] = value
                 continue
             }
-            if let value = component.parameters[schema.id.uppercased()]?.numericValue {
-                values[schema.id] = value
-                continue
-            }
-            if let value = model?.parameters[schema.id]?.numericValue {
-                values[schema.id] = value
-                continue
-            }
-            if let value = model?.parameters[schema.id.uppercased()]?.numericValue {
+            if let model,
+               let value = numericParameter(keys: [schema.id], in: model.parameters) {
                 values[schema.id] = value
             }
         }
         return values
     }
 
-    private func componentPosition(for index: Int) -> CGPoint {
-        let column = index % 4
-        let row = index / 4
-        return CGPoint(x: CGFloat(column) * 160, y: CGFloat(row) * 120)
+    private func instanceParameterKeys(
+        schemaID: String,
+        component: ParsedComponent
+    ) -> [String] {
+        let componentType = component.type
+        guard componentType == .voltageSource || componentType == .currentSource else {
+            return [schemaID]
+        }
+        let parameterKeys = Set(component.parameters.keys.map { $0.lowercased() })
+        let hasPulse = !parameterKeys.isDisjoint(with: [
+            "v1", "v2", "tr", "tf", "pw", "per",
+        ]) || parameterKeys.contains(where: { $0.hasPrefix("pulse_") })
+        let hasSine = !parameterKeys.isDisjoint(with: [
+            "vo", "va", "freq", "phase", "theta",
+        ]) || parameterKeys.contains(where: { $0.hasPrefix("sin_") })
+
+        if schemaID.hasPrefix("pulse_") && !hasPulse {
+            return [schemaID]
+        }
+        if schemaID.hasPrefix("sin_") && !hasSine {
+            return [schemaID]
+        }
+        switch schemaID {
+        case "dc":
+            return [schemaID, componentType == .voltageSource ? "v" : "i"]
+        case "pulse_v1":
+            return [schemaID, "v1"]
+        case "pulse_v2":
+            return [schemaID, "v2"]
+        case "pulse_td":
+            return [schemaID, "td"]
+        case "pulse_tr":
+            return [schemaID, "tr"]
+        case "pulse_tf":
+            return [schemaID, "tf"]
+        case "pulse_pw":
+            return [schemaID, "pw"]
+        case "pulse_per":
+            return [schemaID, "per"]
+        case "sin_vo":
+            return [schemaID, "vo"]
+        case "sin_va":
+            return [schemaID, "va"]
+        case "sin_freq":
+            return [schemaID, "freq"]
+        case "sin_td":
+            return [schemaID, "td"]
+        case "sin_theta":
+            return [schemaID, "theta", "phase"]
+        default:
+            return [schemaID]
+        }
     }
 
-    private func anchorPoint(for points: [CGPoint]) -> CGPoint {
-        guard !points.isEmpty else { return .zero }
-        let x = points.map(\.x).reduce(0, +) / CGFloat(points.count)
-        let y = points.map(\.y).reduce(0, +) / CGFloat(points.count)
-        return CGPoint(x: round(x / 20) * 20, y: round(y / 20) * 20)
+    private func numericParameter(
+        keys: [String],
+        in parameters: [String: ParsedParameterValue]
+    ) -> Double? {
+        for key in keys {
+            if let value = parameters[key]?.numericValue {
+                return value
+            }
+            if let value = parameters[key.lowercased()]?.numericValue {
+                return value
+            }
+            if let value = parameters[key.uppercased()]?.numericValue {
+                return value
+            }
+        }
+        return nil
     }
+
 }
 
 private extension ParsedParameterValue {

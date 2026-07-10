@@ -1,5 +1,6 @@
 import DesignFlowKernel
 import Foundation
+import XcircuitePackage
 
 extension RunReviewService {
     public func loadArtifactPreview(
@@ -53,8 +54,8 @@ extension RunReviewService {
         projectRoot: URL,
         maxBytes: Int
     ) throws -> RunReviewArtifactPreview {
-        let url = try previewURL(for: artifact, projectRoot: projectRoot)
-        try validateArtifactPreviewIntegrity(artifact)
+        let url = try verifiedArtifactURL(for: artifact, projectRoot: projectRoot)
+        try validateArtifactIntegrity(artifact)
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
             throw RunReviewServiceError.artifactPreviewInputMissing(path: artifact.path)
         }
@@ -96,7 +97,7 @@ extension RunReviewService {
             && candidate.format == artifact.format
     }
 
-    private func validateArtifactPreviewIntegrity(
+    func validateArtifactIntegrity(
         _ artifact: FlowRunReviewArtifact
     ) throws {
         guard let integrity = artifact.integrity else {
@@ -115,7 +116,7 @@ extension RunReviewService {
         }
     }
 
-    private func previewURL(
+    func verifiedArtifactURL(
         for artifact: FlowRunReviewArtifact,
         projectRoot: URL
     ) throws -> URL {
@@ -137,6 +138,69 @@ extension RunReviewService {
             throw RunReviewServiceError.artifactPreviewEscapesProject(path: artifact.path)
         }
         return URL(filePath: artifactPath)
+    }
+
+    func loadVerifiedArtifactData(
+        _ artifact: FlowRunReviewArtifact,
+        projectRoot: URL,
+        maxBytes: Int
+    ) throws -> Data {
+        guard maxBytes > 0 else {
+            throw RunReviewServiceError.artifactPreviewInvalidLimit(limit: maxBytes)
+        }
+        try validateArtifactIntegrity(artifact)
+        let url = try verifiedArtifactURL(for: artifact, projectRoot: projectRoot)
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+            throw RunReviewServiceError.artifactPreviewInputMissing(path: artifact.path)
+        }
+        let attributes: [FileAttributeKey: Any]
+        do {
+            attributes = try FileManager.default.attributesOfItem(
+                atPath: url.path(percentEncoded: false)
+            )
+        } catch {
+            throw RunReviewServiceError.artifactPreviewUnreadable(
+                path: artifact.path,
+                message: error.localizedDescription
+            )
+        }
+        let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? artifact.byteCount ?? 0
+        guard byteCount <= Int64(maxBytes) else {
+            throw RunReviewServiceError.artifactPreviewTooLarge(
+                path: artifact.path,
+                byteCount: byteCount,
+                limit: maxBytes
+            )
+        }
+        do {
+            let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+            if let expectedByteCount = artifact.byteCount,
+               Int64(data.count) != expectedByteCount {
+                throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
+                    path: artifact.path,
+                    status: FlowRunReviewArtifactIntegrityStatus.byteCountMismatch.rawValue,
+                    message: "Recorded byte count \(expectedByteCount) does not match \(data.count)."
+                )
+            }
+            if let expectedSHA256 = artifact.sha256 {
+                let actualSHA256 = XcircuiteHasher().sha256(data: data)
+                guard actualSHA256 == expectedSHA256 else {
+                    throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
+                        path: artifact.path,
+                        status: FlowRunReviewArtifactIntegrityStatus.sha256Mismatch.rawValue,
+                        message: "Recorded SHA-256 does not match the current artifact."
+                    )
+                }
+            }
+            return data
+        } catch let error as RunReviewServiceError {
+            throw error
+        } catch {
+            throw RunReviewServiceError.artifactPreviewUnreadable(
+                path: artifact.path,
+                message: error.localizedDescription
+            )
+        }
     }
 
     private func isContained(path: String, byRootPath rootPath: String) -> Bool {
@@ -292,7 +356,7 @@ extension RunReviewService {
                 lastValue: values.last,
                 minValue: values.min(),
                 maxValue: values.max(),
-                samples: Array(samples.prefix(256))
+                samples: waveformDisplaySamples(samples)
             )
         }
         guard !signals.isEmpty else {
@@ -306,6 +370,42 @@ extension RunReviewService {
             sweepEnd: sweepValues.last,
             signals: signals
         )
+    }
+
+    private func waveformDisplaySamples(
+        _ samples: [RunReviewWaveformSamplePreview],
+        limit: Int = 1024
+    ) -> [RunReviewWaveformSamplePreview] {
+        guard samples.count > limit, limit >= 4 else {
+            return samples
+        }
+        let bucketCount = max(1, limit / 2)
+        let bucketSize = Int(ceil(Double(samples.count) / Double(bucketCount)))
+        var selected: [(index: Int, sample: RunReviewWaveformSamplePreview)] = []
+        selected.reserveCapacity(limit + 2)
+
+        for start in stride(from: 0, to: samples.count, by: bucketSize) {
+            let end = min(start + bucketSize, samples.count)
+            guard start < end else { continue }
+            let indices = start..<end
+            guard let minIndex = indices.min(by: {
+                samples[$0].signalValue < samples[$1].signalValue
+            }), let maxIndex = indices.max(by: {
+                samples[$0].signalValue < samples[$1].signalValue
+            }) else {
+                continue
+            }
+            selected.append((minIndex, samples[minIndex]))
+            if maxIndex != minIndex {
+                selected.append((maxIndex, samples[maxIndex]))
+            }
+        }
+
+        selected.append((0, samples[0]))
+        selected.append((samples.count - 1, samples[samples.count - 1]))
+        return Dictionary(selected.map { ($0.index, $0.sample) }, uniquingKeysWith: { first, _ in first })
+            .sorted { $0.key < $1.key }
+            .map(\.value)
     }
 
     private func jsonOutline(_ value: Any) -> String {

@@ -9,12 +9,31 @@ import XcircuitePackage
 /// the decision the flow kernel's approval gate consumes. Humans and
 /// agents read the same record; this view adds nothing to it.
 public struct RunReviewView: View {
+    private enum ReviewSection: String, CaseIterable, Identifiable {
+        case design = "Design"
+        case verification = "Verification"
+        case artifacts = "Artifacts"
+
+        var id: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .design: "cpu"
+            case .verification: "checkmark.shield"
+            case .artifacts: "archivebox"
+            }
+        }
+    }
+
     public let projectRoot: URL
     public let reviewer: String
 
     @State private var runs: [XcircuiteRunSnapshot] = []
     @State private var selectedRunID: String?
     @State private var review: RunReviewService.RunReview?
+    @State private var designEvidence: RunReviewDesignEvidence?
+    @State private var loadingDesignEvidenceSignature: String?
+    @State private var selectedReviewSection: ReviewSection = .design
     @State private var note: String = ""
     @State private var planningApprovalNotes: [String: String] = [:]
     @State private var waiverReviewNotes: [String: String] = [:]
@@ -121,74 +140,130 @@ public struct RunReviewView: View {
                         .font(.subheadline)
                         .textSelection(.enabled)
                 }
-                if !review.bundle.reviewItems.isEmpty {
-                    RunReviewItemList(items: review.bundle.reviewItems)
+
+                Picker("Review section", selection: $selectedReviewSection) {
+                    ForEach(ReviewSection.allCases) { section in
+                        Label(section.rawValue, systemImage: section.icon)
+                            .tag(section)
+                    }
                 }
-                if review.failureStates.hasContent {
-                    RunReviewFailureStateReviewCard(summary: review.failureStates)
-                }
-                if review.retainedDashboard.hasContent {
-                    RunReviewRetainedDashboardCard(projection: review.retainedDashboard)
-                }
-                if review.flowReview.hasContent {
-                    RunReviewFlowReviewProjectionCard(projection: review.flowReview)
-                }
-                if !review.bundle.summary.nextActions.isEmpty {
-                    RunReviewNextActionList(
-                        actions: review.bundle.summary.nextActions,
-                        selections: review.suggestedCommandSelections,
-                        recordSelection: { action, command in
-                            recordSuggestedCommandSelection(
-                                action,
-                                command: command,
-                                runID: review.runID
-                            )
-                        }
-                    )
-                }
-                if review.planning.hasContent {
-                    RunReviewPlanningReviewCard(
-                        planning: review.planning,
-                        runID: review.runID,
-                        planningApprovalNotes: $planningApprovalNotes,
-                        decideRiskApproval: { verdict, approvalID, runID in
-                            decidePlanningRiskApproval(
-                                verdict,
-                                approvalID: approvalID,
-                                runID: runID
-                            )
-                        }
-                    )
-                }
-                if review.signoff.hasContent {
-                    signoffReviewCard(review.signoff, runID: review.runID)
-                }
-                let drilldown = service.interactiveSignoffDrilldown(from: review)
-                if drilldown.hasContent {
-                    RunReviewInteractiveSignoffDrilldownCard(drilldown: drilldown)
-                }
-                if review.waivers.hasContent {
-                    waiverReviewCard(
-                        review.waivers,
-                        runID: review.runID,
-                        verificationContext: waiverEditVerificationContext,
-                        verificationContextError: waiverEditVerificationContextError
-                    )
-                }
-                ForEach(review.stages, id: \.result.stageID) { stage in
-                    RunReviewStageCard(
-                        stage: stage,
-                        note: $note,
-                        decide: { verdict, stageID in
-                            decide(verdict, stageID: stageID, runID: review.runID)
-                        }
-                    )
-                }
-                if !review.bundle.artifacts.isEmpty {
-                    RunReviewArtifactList(artifacts: review.bundle.artifacts)
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 480)
+
+                switch selectedReviewSection {
+                case .design:
+                    designReviewContent(review)
+                case .verification:
+                    verificationReviewContent(review)
+                case .artifacts:
+                    artifactReviewContent(review)
                 }
             }
             .padding()
+        }
+    }
+
+    @ViewBuilder
+    private func designReviewContent(_ review: RunReviewService.RunReview) -> some View {
+        if let designEvidence,
+           designEvidence.runID == review.runID,
+           designEvidence.hasContent {
+            RunReviewDesignEvidenceView(evidence: designEvidence)
+                .id("\(review.runID)#\(designEvidence.sourceSignature)")
+        } else if loadingDesignEvidenceSignature != nil {
+            GroupBox("Design") {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, minHeight: 240)
+            }
+        } else {
+            ContentUnavailableView(
+                "No displayable design artifacts",
+                systemImage: "square.stack.3d.up.slash",
+                description: Text("This run does not contain verified circuit, layout, or waveform artifacts.")
+            )
+            .frame(maxWidth: .infinity, minHeight: 240)
+        }
+    }
+
+    @ViewBuilder
+    private func verificationReviewContent(_ review: RunReviewService.RunReview) -> some View {
+        if !review.bundle.reviewItems.isEmpty {
+            RunReviewItemList(items: review.bundle.reviewItems)
+        }
+        if review.failureStates.hasContent {
+            RunReviewFailureStateReviewCard(summary: review.failureStates)
+        }
+        if review.retainedDashboard.hasContent {
+            RunReviewRetainedDashboardCard(projection: review.retainedDashboard)
+        }
+        if review.flowReview.hasContent {
+            RunReviewFlowReviewProjectionCard(projection: review.flowReview)
+        }
+        if !review.bundle.summary.nextActions.isEmpty {
+            RunReviewNextActionList(
+                actions: review.bundle.summary.nextActions,
+                selections: review.suggestedCommandSelections,
+                recordSelection: { action, command in
+                    recordSuggestedCommandSelection(
+                        action,
+                        command: command,
+                        runID: review.runID
+                    )
+                }
+            )
+        }
+        if review.planning.hasContent {
+            RunReviewPlanningReviewCard(
+                planning: review.planning,
+                runID: review.runID,
+                planningApprovalNotes: $planningApprovalNotes,
+                decideRiskApproval: { verdict, approvalID, runID in
+                    decidePlanningRiskApproval(
+                        verdict,
+                        approvalID: approvalID,
+                        runID: runID
+                    )
+                }
+            )
+        }
+        if review.signoff.hasContent {
+            signoffReviewCard(review.signoff, runID: review.runID)
+        }
+        let drilldown = service.interactiveSignoffDrilldown(from: review)
+        if drilldown.hasContent {
+            RunReviewInteractiveSignoffDrilldownCard(drilldown: drilldown)
+        }
+        if review.waivers.hasContent {
+            waiverReviewCard(
+                review.waivers,
+                runID: review.runID,
+                verificationContext: waiverEditVerificationContext,
+                verificationContextError: waiverEditVerificationContextError
+            )
+        }
+        ForEach(review.stages, id: \.result.stageID) { stage in
+            RunReviewStageCard(
+                stage: stage,
+                note: $note,
+                decide: { verdict, stageID in
+                    decide(verdict, stageID: stageID, runID: review.runID)
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func artifactReviewContent(_ review: RunReviewService.RunReview) -> some View {
+        if review.bundle.artifacts.isEmpty {
+            ContentUnavailableView(
+                "No run artifacts",
+                systemImage: "archivebox"
+            )
+            .frame(maxWidth: .infinity, minHeight: 240)
+        } else {
+            RunReviewArtifactList(artifacts: review.bundle.artifacts)
         }
     }
 
@@ -980,6 +1055,8 @@ public struct RunReviewView: View {
     private func reloadReview() {
         guard let selectedRunID else {
             review = nil
+            designEvidence = nil
+            loadingDesignEvidenceSignature = nil
             waiverEditVerificationContext = nil
             waiverEditVerificationContextError = nil
             loadError = nil
@@ -988,6 +1065,7 @@ public struct RunReviewView: View {
         do {
             let loadedReview = try service.loadRun(runID: selectedRunID, projectRoot: projectRoot)
             review = loadedReview
+            reloadDesignEvidence(for: loadedReview)
             do {
                 waiverEditVerificationContext = try service.waiverEditVerificationContext(
                     review: loadedReview,
@@ -1001,9 +1079,45 @@ public struct RunReviewView: View {
             loadError = nil
         } catch {
             review = nil
+            designEvidence = nil
+            loadingDesignEvidenceSignature = nil
             waiverEditVerificationContext = nil
             waiverEditVerificationContextError = nil
             loadError = error.localizedDescription
+        }
+    }
+
+    private func reloadDesignEvidence(for review: RunReviewService.RunReview) {
+        let signature = service.designEvidenceSignature(bundle: review.bundle)
+        guard !signature.isEmpty else {
+            designEvidence = nil
+            loadingDesignEvidenceSignature = nil
+            return
+        }
+        if designEvidence?.runID == review.runID,
+           designEvidence?.sourceSignature == signature {
+            loadingDesignEvidenceSignature = nil
+            return
+        }
+        guard loadingDesignEvidenceSignature != signature else {
+            return
+        }
+
+        loadingDesignEvidenceSignature = signature
+        let runID = review.runID
+        let bundle = review.bundle
+        Task {
+            let loaded = await service.loadDesignEvidence(
+                runID: runID,
+                bundle: bundle,
+                projectRoot: projectRoot
+            )
+            guard selectedRunID == runID,
+                  loadingDesignEvidenceSignature == signature else {
+                return
+            }
+            designEvidence = loaded
+            loadingDesignEvidenceSignature = nil
         }
     }
 

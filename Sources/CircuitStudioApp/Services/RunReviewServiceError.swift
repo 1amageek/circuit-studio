@@ -21,6 +21,7 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
     case artifactPreviewEscapesProject(path: String)
     case artifactPreviewInputMissing(path: String)
     case artifactPreviewUnreadable(path: String, message: String)
+    case artifactPreviewTooLarge(path: String, byteCount: Int64, limit: Int)
     case artifactPreviewInvalidLimit(limit: Int)
     case artifactPreviewIntegrityUnverified(path: String, status: String, message: String)
     case planningArtifactIntegrityUnverified(path: String, status: String, message: String)
@@ -71,6 +72,8 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
             "Artifact preview input is missing: \(path)"
         case .artifactPreviewUnreadable(let path, let message):
             "Artifact preview input could not be read at \(path): \(message)"
+        case .artifactPreviewTooLarge(let path, let byteCount, let limit):
+            "Artifact preview input exceeds the bounded read limit at \(path): \(byteCount) bytes, limit=\(limit)"
         case .artifactPreviewInvalidLimit(let limit):
             "Artifact preview byte limit must be positive: \(limit)"
         case .artifactPreviewIntegrityUnverified(let path, let status, let message):
