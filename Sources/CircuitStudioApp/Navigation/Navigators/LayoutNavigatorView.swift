@@ -6,6 +6,7 @@ import LayoutTech
 /// Outline of the layout document — cell hierarchy + layers.
 /// Selecting a cell opens it in the layout editor; toggling a layer hides/shows shapes.
 struct LayoutNavigatorView: View {
+    @Bindable var appState: AppState
     @Bindable var viewModel: LayoutEditorViewModel
 
     var body: some View {
@@ -41,6 +42,7 @@ struct LayoutNavigatorView: View {
     private func cellRow(_ cell: LayoutCell) -> some View {
         let isActive = cell.id == viewModel.activeCellID
         return Button {
+            appState.showWorkspace(.layout)
             viewModel.openCell(cell.id)
         } label: {
             HStack(spacing: 6) {
@@ -74,6 +76,7 @@ struct LayoutNavigatorView: View {
         let isActive = viewModel.activeLayer == layer.id
         return HStack(spacing: 6) {
             Button {
+                appState.showWorkspace(.layout)
                 if isHidden {
                     viewModel.hiddenLayers.remove(layer.id)
                 } else {
@@ -96,6 +99,7 @@ struct LayoutNavigatorView: View {
                 )
 
             Button {
+                appState.showWorkspace(.layout)
                 viewModel.activeLayer = layer.id
             } label: {
                 Text(layer.displayName)

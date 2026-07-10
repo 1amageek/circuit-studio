@@ -95,6 +95,17 @@ public struct ContentView: View {
         .sheet(isPresented: $appState.isNewCellSheetPresented) {
             NewCellSheet(appState: appState, project: project)
         }
+        .confirmationDialog(
+            "Save changes before opening another file?",
+            isPresented: pendingProjectItemDialog,
+            titleVisibility: .visible
+        ) {
+            Button("Save Changes") { saveCurrentFileAndOpenPendingItem() }
+            Button("Discard Changes", role: .destructive) { openPendingProjectItem() }
+            Button("Cancel", role: .cancel) { appState.cancelPendingProjectItem() }
+        } message: {
+            Text("Unsaved changes in the current file would otherwise be lost.")
+        }
     }
 
     /// Routes a double-click on a placed cell instance to opening that cell:
@@ -105,8 +116,7 @@ public struct ContentView: View {
         project.cellDescendAction = { cellName in
             do {
                 try project.activateCell(named: cellName)
-                appState.workspace = .schematicCapture
-                appState.schematicMode = .visual
+                appState.showSchematic(.visual)
                 appState.navigatorTab = .schematic
             } catch {
                 appState.log(
@@ -121,9 +131,10 @@ public struct ContentView: View {
     /// subtree holds focus (its canvas handles Delete itself) and for
     /// workspaces without an unambiguous canvas target.
     private var routedDeleteAction: RoutedDeleteAction? {
-        RoutedDeleteCommand.resolve(
-            workspace: appState.workspace,
-            schematicMode: appState.schematicMode,
+        guard let workspace = appState.activeWorkspace else { return nil }
+        return RoutedDeleteCommand.resolve(
+            workspace: workspace,
+            schematicMode: appState.schematicModeContext,
             editorHasKeyFocus: focusedEditorCommands != nil,
             schematic: schematicViewModel,
             layout: layoutViewModel
@@ -135,16 +146,16 @@ public struct ContentView: View {
     @ViewBuilder
     private var editorArea: some View {
         VStack(spacing: 0) {
-            EditorJumpBar(appState: appState)
+            EditorJumpBar(appState: appState, project: project)
             if appState.showDebugArea {
                 VSplitView {
-                    workspaceContent
+                    editorContent
                         .frame(minHeight: 200, maxHeight: .infinity)
                     DebugAreaPane(appState: appState, project: project)
                         .frame(minHeight: 120, idealHeight: 220)
                 }
             } else {
-                workspaceContent
+                editorContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -153,10 +164,10 @@ public struct ContentView: View {
     // MARK: - Workspace Content
 
     @ViewBuilder
-    private var workspaceContent: some View {
-        switch appState.workspace {
-        case .schematicCapture:
-            schematicWorkspaceContent
+    private var editorContent: some View {
+        switch appState.editorDestination {
+        case .schematic(let mode):
+            schematicWorkspaceContent(mode: mode)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .layout:
             layoutContent
@@ -164,6 +175,21 @@ public struct ContentView: View {
             integrationContent
         case .review:
             reviewContent
+        case .projectFile:
+            ProjectFileEditorView(
+                appState: appState,
+                save: saveProjectFile,
+                reload: reloadProjectFile
+            )
+        case .projectDirectory(let url):
+            ProjectDirectoryView(
+                url: url,
+                root: appState.projectRoot,
+                openItem: openProjectItem
+            )
+        case .waveform:
+            WaveformResultView(viewModel: waveformViewModel)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -183,22 +209,22 @@ public struct ContentView: View {
     /// Schematic workspace: the editor, with the waveform pane split below it
     /// once a run has produced a result (edit -> run -> inspect in one view).
     @ViewBuilder
-    private var schematicWorkspaceContent: some View {
+    private func schematicWorkspaceContent(mode: SchematicMode) -> some View {
         if appState.showWaveformPane {
             VSplitView {
-                schematicEditorContent
+                schematicEditorContent(mode: mode)
                     .frame(minHeight: 200, maxHeight: .infinity)
                 waveformPane
                     .frame(minHeight: 160, idealHeight: 280)
             }
         } else {
-            schematicEditorContent
+            schematicEditorContent(mode: mode)
         }
     }
 
     @ViewBuilder
-    private var schematicEditorContent: some View {
-        switch appState.schematicMode {
+    private func schematicEditorContent(mode: SchematicMode) -> some View {
+        switch mode {
         case .visual:
             SchematicEditorView(viewModel: schematicViewModel)
                 .focusedValue(\.editorCommands, schematicEditorCommands)
@@ -447,7 +473,7 @@ public struct ContentView: View {
             runOrStopButton
         }
 
-        if appState.workspace == .layout || appState.workspace == .integration {
+        if appState.activeWorkspace == .layout || appState.activeWorkspace == .integration {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     services.layoutPersistenceService.generateLayout(
@@ -486,7 +512,7 @@ public struct ContentView: View {
     /// Document name with an Xcode-style edited marker when there are
     /// unsaved netlist or schematic changes.
     private var documentTitleLabel: some View {
-        let isDirty = appState.isNetlistDirty || project.hasUnsavedChanges
+        let isDirty = appState.isNetlistDirty || appState.isProjectFileDirty || project.hasUnsavedChanges
         return HStack(spacing: 4) {
             Text(documentTitle)
                 .font(.callout)
@@ -502,22 +528,35 @@ public struct ContentView: View {
     }
 
     private var documentTitle: String {
-        appState.projectRootURL?.lastPathComponent
+        if case .projectFile(let url) = appState.editorDestination {
+            return url.lastPathComponent
+        }
+        return appState.projectRootURL?.lastPathComponent
             ?? appState.spiceFileName
             ?? project.designName
     }
 
     private var workspacePicker: some View {
-        Picker("Workspace", selection: $appState.workspace) {
-            Text("Schematic").tag(Workspace.schematicCapture)
-            Text("Layout").tag(Workspace.layout)
-            Text("Integration").tag(Workspace.integration)
-            Text("Review").tag(Workspace.review)
+        Picker("Workspace", selection: workspaceSelection) {
+            Text("Schematic").tag(Optional(Workspace.schematicCapture))
+            Text("Layout").tag(Optional(Workspace.layout))
+            Text("Integration").tag(Optional(Workspace.integration))
+            Text("Review").tag(Optional(Workspace.review))
         }
         .pickerStyle(.segmented)
         .fixedSize()
         .help("Switch Workspace")
         .accessibilityIdentifier("workspace-picker")
+    }
+
+    private var workspaceSelection: Binding<Workspace?> {
+        Binding(
+            get: { appState.activeWorkspace },
+            set: { workspace in
+                guard let workspace else { return }
+                appState.showWorkspace(workspace)
+            }
+        )
     }
 
     @ViewBuilder
@@ -587,11 +626,11 @@ public struct ContentView: View {
             context: context,
             project: project,
             projectRootURL: appState.projectRootURL,
-            selectedFileURL: appState.selectedFileURL,
+            loadedNetlistURL: appState.loadedNetlistURL,
             projectService: services.projectService,
             catalog: services.catalog,
             layoutEngineCatalog: services.designFlowService.layoutEngineCatalog,
-            workspace: appState.workspace.rawValue,
+            workspace: appState.editorDestination.diagnosticIdentifier,
             netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
                 appState.netlistSchematicMaterializationState
             )
@@ -599,7 +638,7 @@ public struct ContentView: View {
     }
 
     private func logCircuitLayoutAvailability(context: String) {
-        guard appState.workspace == .layout || appState.workspace == .integration else { return }
+        guard appState.activeWorkspace == .layout || appState.activeWorkspace == .integration else { return }
         let signature = layoutGenerationLogSignature
         guard signature != lastLayoutGenerationLogSignature else { return }
         lastLayoutGenerationLogSignature = signature
@@ -608,9 +647,10 @@ public struct ContentView: View {
     }
 
     private var runButtonDisabled: Bool {
-        guard appState.workspace == .schematicCapture else { return true }
+        guard appState.activeWorkspace == .schematicCapture,
+              let mode = appState.activeSchematicMode else { return true }
         if appState.isSimulating { return true }
-        switch appState.schematicMode {
+        switch mode {
         case .visual:
             return schematicViewModel.document.components.isEmpty
                 || schematicViewModel.hasErrors
@@ -630,6 +670,59 @@ public struct ContentView: View {
                 recorder: services.simulationRunRecorder
             )
         }
+    }
+
+    private func openProjectItem(_ url: URL) {
+        appState.requestOpenProjectItem(at: url, using: services.fileSystemService)
+    }
+
+    private var pendingProjectItemDialog: Binding<Bool> {
+        Binding(
+            get: { appState.pendingProjectItemURL != nil },
+            set: { isPresented in
+                if !isPresented {
+                    appState.cancelPendingProjectItem()
+                }
+            }
+        )
+    }
+
+    private func saveCurrentFileAndOpenPendingItem() {
+        do {
+            if appState.isProjectFileDirty {
+                try appState.saveProjectFile(using: services.fileSystemService)
+                try reloadRuntimeConfigurationIfNeeded()
+            } else if appState.isNetlistDirty {
+                try appState.saveSPICEFile()
+            }
+            openPendingProjectItem()
+        } catch {
+            appState.log("Save failed: \(error.localizedDescription)", kind: .error)
+        }
+    }
+
+    private func openPendingProjectItem() {
+        appState.openPendingProjectItem(using: services.fileSystemService)
+    }
+
+    private func saveProjectFile() {
+        do {
+            try appState.saveProjectFile(using: services.fileSystemService)
+            try reloadRuntimeConfigurationIfNeeded()
+            appState.refreshProjectTree(using: services.fileSystemService)
+        } catch {
+            appState.log("Save failed: \(error.localizedDescription)", kind: .error)
+        }
+    }
+
+    private func reloadProjectFile() {
+        appState.reloadProjectFile(using: services.fileSystemService)
+    }
+
+    private func reloadRuntimeConfigurationIfNeeded() throws {
+        guard let url = appState.projectFileDocument?.url,
+              url.lastPathComponent == "tech.json" else { return }
+        try project.loadTechFile(from: url)
     }
 
 }
@@ -658,8 +751,7 @@ private func makePreviewState(
     analysis: AnalysisCommand = .op
 ) -> AppState {
     let state = AppState()
-    state.workspace = .schematicCapture
-    state.schematicMode = schematicMode
+    state.showSchematic(schematicMode)
     state.selectedAnalysis = analysis
     return state
 }
@@ -725,7 +817,7 @@ private func makePreviewState(
 
 #Preview("Integration — CMOS Inverter with Layout") {
     let state = makePreviewState()
-    state.workspace = .integration
+    state.showWorkspace(.integration)
     return ContentView(
         appState: state,
         services: ServiceContainer(),
@@ -738,7 +830,7 @@ private func makePreviewState(
 
 #Preview("Layout — Voltage Divider") {
     let state = makePreviewState()
-    state.workspace = .layout
+    state.showWorkspace(.layout)
     return ContentView(
         appState: state,
         services: ServiceContainer(),
@@ -751,7 +843,7 @@ private func makePreviewState(
 
 #Preview("Integration — Current Mirror with Layout") {
     let state = makePreviewState()
-    state.workspace = .integration
+    state.showWorkspace(.integration)
     return ContentView(
         appState: state,
         services: ServiceContainer(),

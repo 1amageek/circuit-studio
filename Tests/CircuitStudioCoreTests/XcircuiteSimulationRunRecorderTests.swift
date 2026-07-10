@@ -148,7 +148,7 @@ struct XcircuiteSimulationRunRecorderTests {
         defer { removeTemporaryRoot(root) }
         let appState = AppState()
         appState.projectRootURL = root
-        appState.schematicMode = .netlist
+        appState.showSchematic(.netlist)
         appState.spiceSource = ""
         let recorder = XcircuiteSimulationRunRecorder(
             actor: XcircuiteRunActionActor(kind: .human, identifier: "layout-engineer"),

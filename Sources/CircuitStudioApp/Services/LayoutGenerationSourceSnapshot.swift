@@ -7,7 +7,7 @@ struct LayoutGenerationPathResolutionFailure: Sendable, Codable, Equatable {
 
 struct LayoutGenerationSourceSnapshot: Sendable, Codable, Equatable {
     let projectRoot: LayoutGenerationFileSnapshot
-    let selectedFile: LayoutGenerationFileSnapshot
+    let loadedNetlist: LayoutGenerationFileSnapshot
     let xcircuiteProjectManifest: LayoutGenerationFileSnapshot
     let studioSessionManifest: LayoutGenerationFileSnapshot
     let cellsDirectory: LayoutGenerationFileSnapshot
@@ -19,7 +19,7 @@ struct LayoutGenerationSourceSnapshot: Sendable, Codable, Equatable {
 
     static func capture(
         projectRootURL: URL?,
-        selectedFileURL: URL?,
+        loadedNetlistURL: URL?,
         activeCellName: String,
         projectService: ProjectService,
         netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot?
@@ -48,7 +48,7 @@ struct LayoutGenerationSourceSnapshot: Sendable, Codable, Equatable {
 
         return LayoutGenerationSourceSnapshot(
             projectRoot: .capture(projectRootURL),
-            selectedFile: .capture(selectedFileURL),
+            loadedNetlist: .capture(loadedNetlistURL),
             xcircuiteProjectManifest: .capture(xcircuiteProjectManifestURL),
             studioSessionManifest: .capture(studioSessionManifestURL),
             cellsDirectory: .capture(cellsDirectoryURL),

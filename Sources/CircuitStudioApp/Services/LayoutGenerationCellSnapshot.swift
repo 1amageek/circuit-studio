@@ -129,7 +129,7 @@ struct LayoutGenerationCellSnapshot: Sendable, Codable, Equatable {
         guard let source else { return base }
         let loadedNetlistName = source.topNetlist.exists
             ? (source.topNetlist.fileName ?? "top.cir")
-            : (source.selectedFile.fileName ?? "SPICE netlist")
+            : (source.loadedNetlist.fileName ?? "SPICE netlist")
         if source.topNetlist.exists, !source.activeCellSchematic.exists {
             if let materialization = source.netlistMaterialization,
                materialization.status == .failed {
@@ -146,7 +146,7 @@ struct LayoutGenerationCellSnapshot: Sendable, Codable, Equatable {
             )
         }
         if source.projectRoot.path == nil,
-           source.selectedFile.exists,
+           source.loadedNetlist.exists,
            base.code == .emptySchematic {
             return unavailable(
                 code: .missingMaterializedSchematic,

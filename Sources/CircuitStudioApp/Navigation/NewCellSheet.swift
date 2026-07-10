@@ -72,8 +72,7 @@ struct NewCellSheet: View {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             try project.addCell(named: trimmed)
-            appState.workspace = .schematicCapture
-            appState.schematicMode = .visual
+            appState.showSchematic(.visual)
             appState.navigatorTab = .schematic
             appState.log("Created cell '\(trimmed)'", kind: .success)
             dismiss()

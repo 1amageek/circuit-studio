@@ -1,25 +1,32 @@
 import SwiftUI
 
-/// Xcode-style jump bar that sits above the editor content area.
-/// Left: (when schematic) Mode picker.
-/// Center/Right: Breadcrumb showing project › active file.
-///
-/// Workspace switching lives in the window toolbar (ContentView);
-/// the jump bar keeps editor-local context only.
+/// Editor-local navigation derived from the same destination that renders the center pane.
 struct EditorJumpBar: View {
     @Bindable var appState: AppState
+    @Bindable var project: StudioSession
 
     var body: some View {
         HStack(spacing: 8) {
-            if appState.workspace == .schematicCapture {
+            if case .schematic = appState.editorDestination {
                 modePicker
                 Divider().frame(height: 16)
             }
             breadcrumb
             Spacer(minLength: 0)
+            if isTransientDestination {
+                Button {
+                    appState.closeTransientEditor()
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Close Editor")
+            }
         }
         .padding(.horizontal, 10)
-        .frame(height: 26)
+        .frame(height: 28)
         .frame(maxWidth: .infinity)
         .background(.bar)
         .overlay(alignment: .bottom) {
@@ -30,12 +37,12 @@ struct EditorJumpBar: View {
     private var modePicker: some View {
         Menu {
             Button {
-                appState.schematicMode = .visual
+                appState.showSchematic(.visual)
             } label: {
                 Label("Visual", systemImage: "square.grid.3x3")
             }
             Button {
-                appState.schematicMode = .netlist
+                appState.showSchematic(.netlist)
             } label: {
                 Label("Netlist", systemImage: "doc.text")
             }
@@ -53,11 +60,11 @@ struct EditorJumpBar: View {
 
     private var breadcrumb: some View {
         HStack(spacing: 4) {
-            if let project = projectName {
-                crumb(text: project, icon: "folder")
+            if let projectName = appState.projectRootURL?.lastPathComponent {
+                crumb(text: projectName, icon: "folder")
                 chevron
             }
-            crumb(text: fileName, icon: fileIcon)
+            crumb(text: editorTitle, icon: editorIcon)
         }
         .font(.system(size: 12))
         .foregroundStyle(.secondary)
@@ -78,50 +85,47 @@ struct EditorJumpBar: View {
             .foregroundStyle(.tertiary)
     }
 
-    // MARK: - Derived
-
     private var modeIcon: String {
-        switch appState.schematicMode {
-        case .visual: return "square.grid.3x3"
-        case .netlist: return "doc.text"
-        }
+        appState.activeSchematicMode == .visual ? "square.grid.3x3" : "doc.text"
     }
 
     private var modeTitle: String {
-        switch appState.schematicMode {
-        case .visual: return "Visual"
-        case .netlist: return "Netlist"
-        }
+        appState.activeSchematicMode == .visual ? "Visual" : "Netlist"
     }
 
-    private var projectName: String? {
-        appState.projectRootURL?.lastPathComponent
-    }
-
-    private var fileName: String {
-        if appState.workspace == .schematicCapture, appState.schematicMode == .netlist {
-            return appState.spiceFileName ?? "Untitled"
-        }
-        if let url = appState.selectedFileURL {
+    private var editorTitle: String {
+        switch appState.editorDestination {
+        case .schematic(.visual):
+            return project.activeCellName
+        case .schematic(.netlist):
+            return appState.spiceFileName ?? "Untitled Netlist"
+        case .layout:
+            return "\(project.activeCellName) Layout"
+        case .integration:
+            return "\(project.activeCellName) Schematic + Layout"
+        case .review:
+            return "Run Review"
+        case .projectFile(let url), .projectDirectory(let url):
             return url.lastPathComponent
-        }
-        switch appState.workspace {
-        case .schematicCapture: return "Schematic"
-        case .layout: return "Layout"
-        case .integration: return "Schematic + Layout"
-        case .review: return "Run Review"
+        case .waveform:
+            return "Waveform Result"
         }
     }
 
-    private var fileIcon: String {
-        if appState.workspace == .schematicCapture, appState.schematicMode == .netlist {
-            return "doc.text"
-        }
-        switch appState.workspace {
-        case .schematicCapture: return "square.grid.3x3"
+    private var editorIcon: String {
+        switch appState.editorDestination {
+        case .schematic(.visual): return "square.grid.3x3"
+        case .schematic(.netlist): return "doc.text"
         case .layout: return "square.dashed"
         case .integration: return "rectangle.split.2x1"
         case .review: return "checkmark.seal"
+        case .projectFile: return "doc"
+        case .projectDirectory: return "folder"
+        case .waveform: return "waveform.path.ecg"
         }
+    }
+
+    private var isTransientDestination: Bool {
+        appState.activeWorkspace == nil
     }
 }

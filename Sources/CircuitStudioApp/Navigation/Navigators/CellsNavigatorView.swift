@@ -64,10 +64,20 @@ struct CellsNavigatorView: View {
     // MARK: - List
 
     private var cellList: some View {
-        List(selection: selectionBinding) {
+        List {
             ForEach(orderedCells) { workspace in
-                cellRow(workspace)
-                    .tag(workspace.name)
+                Button {
+                    activate(workspace.name)
+                } label: {
+                    cellRow(workspace)
+                        .contentShape(Rectangle())
+                }
+                    .buttonStyle(.plain)
+                    .listRowBackground(
+                        workspace.name == project.activeCellName
+                            ? Color.accentColor.opacity(0.12)
+                            : Color.clear
+                    )
                     .contextMenu { contextMenu(for: workspace) }
             }
         }
@@ -189,16 +199,6 @@ struct CellsNavigatorView: View {
 
     // MARK: - Operations
 
-    private var selectionBinding: Binding<String?> {
-        Binding(
-            get: { project.activeCellName },
-            set: { name in
-                guard let name, name != project.activeCellName else { return }
-                activate(name)
-            }
-        )
-    }
-
     private var deletionDialogBinding: Binding<Bool> {
         Binding(
             get: { cellPendingDeletion != nil },
@@ -209,6 +209,7 @@ struct CellsNavigatorView: View {
     private func activate(_ name: String) {
         do {
             try project.activateCell(named: name)
+            appState.showSchematic(.visual)
         } catch {
             appState.log("Could not open cell '\(name)': \(error.localizedDescription)", kind: .error)
         }

@@ -49,6 +49,28 @@ public struct FileSystemService: Sendable {
 
     /// Read the contents of a file as a UTF-8 string.
     public func readFile(at url: URL) throws -> String {
-        try String(contentsOf: url, encoding: .utf8)
+        do {
+            return try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            throw StudioError.fileReadError(error.localizedDescription)
+        }
+    }
+
+    /// Read a file without assuming a text encoding.
+    public func readData(at url: URL) throws -> Data {
+        do {
+            return try Data(contentsOf: url, options: .mappedIfSafe)
+        } catch {
+            throw StudioError.fileReadError(error.localizedDescription)
+        }
+    }
+
+    /// Atomically write UTF-8 text to a project file.
+    public func writeFile(_ text: String, to url: URL) throws {
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            throw StudioError.projectSaveFailed(error.localizedDescription)
+        }
     }
 }

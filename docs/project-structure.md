@@ -57,17 +57,19 @@ Import/Export では IR 経由で他形式にも対応する。
 
 ```json
 {
-  "version": 1,
-  "activeWorkspace": "schematicCapture",
-  "schematicMode": "visual",
+  "version": 2,
+  "editorDestination": "schematic.visual",
   "panels": {
     "inspector": true,
     "console": false,
     "simulationResults": false
-  },
-  "windowSize": { "width": 1200, "height": 700 }
+  }
 }
 ```
+
+`editorDestination` が中央エディタ表示の SSOT であり、`schematic.visual`、
+`schematic.netlist`、`layout`、`integration`、`review` のいずれかを保存する。
+プロジェクトファイルや波形の一時表示中は、復帰先となる直前の workspace destination を保存する。
 
 ### schematic-placement.json
 

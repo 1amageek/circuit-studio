@@ -269,7 +269,7 @@ struct LayoutPersistRestoreTests {
 
         let appState = AppState()
         appState.projectRootURL = root
-        appState.selectedFileURL = root.appending(path: "top.cir")
+        try appState.loadSPICEFile(url: root.appending(path: "top.cir"))
         let project = StudioSession(schematicViewModel: SchematicPreview.cmosInverterViewModel())
         let catalog = DeviceCatalog.standard()
         let designFlow = DesignFlowService(netlistGenerator: NetlistGenerator(catalog: catalog))

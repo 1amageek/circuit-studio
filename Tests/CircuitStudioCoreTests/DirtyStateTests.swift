@@ -38,7 +38,7 @@ struct DirtyStateTests {
         #expect(appState.isNetlistDirty)
     }
 
-    @Test func clearSPICEFileClearsSelectionAndDirtyBaseline() throws {
+    @Test func clearSPICEFileClearsLoadedNetlistAndDirtyBaseline() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("dirty-test-\(UUID().uuidString).cir")
         try "* loaded netlist\n.end\n".write(to: url, atomically: true, encoding: .utf8)
@@ -62,7 +62,7 @@ struct DirtyStateTests {
         #expect(appState.spiceSource.isEmpty)
         #expect(appState.lastSavedSpiceSource.isEmpty)
         #expect(appState.spiceFileName == nil)
-        #expect(appState.selectedFileURL == nil)
+        #expect(appState.loadedNetlistURL == nil)
         #expect(appState.netlistInfo == nil)
         #expect(!appState.isNetlistDirty)
     }

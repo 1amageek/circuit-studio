@@ -31,9 +31,9 @@ struct NavigatorPane: View {
         case .cells:
             CellsNavigatorView(appState: appState, project: project)
         case .schematic:
-            SchematicNavigatorView(viewModel: project.schematicViewModel)
+            SchematicNavigatorView(appState: appState, viewModel: project.schematicViewModel)
         case .layout:
-            LayoutNavigatorView(viewModel: project.layoutViewModel)
+            LayoutNavigatorView(appState: appState, viewModel: project.layoutViewModel)
         case .issues:
             IssuesNavigatorView(appState: appState, project: project)
         case .simulation:

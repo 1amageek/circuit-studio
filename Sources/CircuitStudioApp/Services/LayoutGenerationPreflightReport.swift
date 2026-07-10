@@ -46,7 +46,7 @@ struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
         context: String,
         project: StudioSession,
         projectRootURL: URL?,
-        selectedFileURL: URL?,
+        loadedNetlistURL: URL?,
         projectService: ProjectService,
         catalog: DeviceCatalog,
         layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog(),
@@ -55,7 +55,7 @@ struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
     ) -> LayoutGenerationPreflightReport {
         let source = LayoutGenerationSourceSnapshot.capture(
             projectRootURL: projectRootURL,
-            selectedFileURL: selectedFileURL,
+            loadedNetlistURL: loadedNetlistURL,
             activeCellName: project.activeCellName,
             projectService: projectService,
             netlistMaterialization: netlistMaterialization
@@ -102,7 +102,7 @@ struct LayoutGenerationPreflightReport: Sendable, Codable, Equatable {
             "code=\(availability.code.rawValue)",
             "reason=\(availability.reason ?? "none")",
             "projectRoot=\(source.projectRoot.displayPath)(exists=\(source.projectRoot.exists))",
-            "selectedFile=\(source.selectedFile.displayPath)(exists=\(source.selectedFile.exists))",
+            "loadedNetlist=\(source.loadedNetlist.displayPath)(exists=\(source.loadedNetlist.exists))",
             "xcircuiteManifest=\(source.xcircuiteProjectManifest.displayPath)(exists=\(source.xcircuiteProjectManifest.exists))",
             "studioSessionManifest=\(source.studioSessionManifest.displayPath)(exists=\(source.studioSessionManifest.exists))",
             "cellsDirectory=\(source.cellsDirectory.displayPath)(exists=\(source.cellsDirectory.exists))",

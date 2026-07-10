@@ -5,6 +5,7 @@ import SchematicEditor
 /// Outline of the active schematic — components grouped by device prefix and net labels.
 /// Selecting a row routes the schematic editor's selection to that element.
 struct SchematicNavigatorView: View {
+    @Bindable var appState: AppState
     @Bindable var viewModel: SchematicViewModel
 
     var body: some View {
@@ -22,7 +23,7 @@ struct SchematicNavigatorView: View {
     }
 
     private var outline: some View {
-        List(selection: selectionBinding) {
+        List {
             componentsSection
             labelsSection
             wiresSection
@@ -40,8 +41,15 @@ struct SchematicNavigatorView: View {
                 ForEach(groups, id: \.title) { group in
                     DisclosureGroup {
                         ForEach(group.items, id: \.id) { component in
-                            componentRow(component)
-                                .tag(component.id)
+                            Button {
+                                appState.showSchematic(.visual)
+                                viewModel.select(component.id)
+                            } label: {
+                                componentRow(component)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(selectionBackground(component.id))
                         }
                     } label: {
                         HStack {
@@ -63,14 +71,21 @@ struct SchematicNavigatorView: View {
         if !viewModel.document.labels.isEmpty {
             Section("Net Labels") {
                 ForEach(viewModel.document.labels) { label in
-                    Label {
-                        Text(label.name.isEmpty ? "(unnamed)" : label.name)
-                            .font(.system(.body, design: .monospaced))
-                    } icon: {
-                        Image(systemName: "tag")
-                            .foregroundStyle(.orange)
+                    Button {
+                        appState.showSchematic(.visual)
+                        viewModel.select(label.id)
+                    } label: {
+                        Label {
+                            Text(label.name.isEmpty ? "(unnamed)" : label.name)
+                                .font(.system(.body, design: .monospaced))
+                        } icon: {
+                            Image(systemName: "tag")
+                                .foregroundStyle(.orange)
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .tag(label.id)
+                    .buttonStyle(.plain)
+                    .listRowBackground(selectionBackground(label.id))
                 }
             }
         }
@@ -82,14 +97,21 @@ struct SchematicNavigatorView: View {
         if !named.isEmpty {
             Section("Named Wires") {
                 ForEach(named) { wire in
-                    Label {
-                        Text(wire.netName ?? "")
-                            .font(.system(.body, design: .monospaced))
-                    } icon: {
-                        Image(systemName: "line.diagonal")
-                            .foregroundStyle(.green)
+                    Button {
+                        appState.showSchematic(.visual)
+                        viewModel.select(wire.id)
+                    } label: {
+                        Label {
+                            Text(wire.netName ?? "")
+                                .font(.system(.body, design: .monospaced))
+                        } icon: {
+                            Image(systemName: "line.diagonal")
+                                .foregroundStyle(.green)
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .tag(wire.id)
+                    .buttonStyle(.plain)
+                    .listRowBackground(selectionBackground(wire.id))
                 }
             }
         }
@@ -131,16 +153,9 @@ struct SchematicNavigatorView: View {
             .sorted { $0.title < $1.title }
     }
 
-    private var selectionBinding: Binding<UUID?> {
-        Binding(
-            get: { viewModel.document.selection.first },
-            set: { id in
-                if let id {
-                    viewModel.select(id)
-                } else {
-                    viewModel.clearSelection()
-                }
-            }
-        )
+    private func selectionBackground(_ id: UUID) -> Color {
+        viewModel.document.selection.contains(id)
+            ? Color.accentColor.opacity(0.12)
+            : Color.clear
     }
 }

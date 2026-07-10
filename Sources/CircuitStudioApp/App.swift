@@ -46,16 +46,24 @@ public struct CircuitStudioApp: App {
                 .keyboardShortcut("n")
             Button("New Project...") { newProject() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(documentReplacementDisabled)
             Divider()
             Button("Open...") { openSPICEFile() }
                 .keyboardShortcut("o")
+                .disabled(documentReplacementDisabled)
             Button("Open Folder...") { openFolder() }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
+                .disabled(documentReplacementDisabled)
             openRecentMenu
             Divider()
             Button("Save") { saveAction() }
                 .keyboardShortcut("s")
-                .disabled(appState.spiceSource.isEmpty && appState.projectRootURL == nil)
+                .disabled(
+                    appState.spiceSource.isEmpty
+                        && appState.projectRootURL == nil
+                        && appState.projectFileDocument == nil
+                        && !project.hasUnsavedChanges
+                )
             Divider()
             Button("Export Layout...") { exportLayout() }
                 .disabled(!project.layoutHasContent)
@@ -70,6 +78,7 @@ public struct CircuitStudioApp: App {
             ForEach(services.recentDocumentsStore.documents) { document in
                 Button(document.displayName) { openRecent(document) }
                     .help(document.abbreviatedPath)
+                    .disabled(documentReplacementDisabled)
             }
             Divider()
             Button("Clear Menu") {
@@ -84,6 +93,10 @@ public struct CircuitStudioApp: App {
             }
             .disabled(services.recentDocumentsStore.documents.isEmpty)
         }
+    }
+
+    private var documentReplacementDisabled: Bool {
+        appState.isSimulating || appState.isRunningPEX
     }
 
     // MARK: - View Menu (panes + navigator tabs)
@@ -139,22 +152,22 @@ public struct CircuitStudioApp: App {
     @CommandsBuilder
     private var workspaceCommands: some Commands {
         CommandMenu("Workspace") {
-            Button("Schematic Capture") { appState.workspace = .schematicCapture }
+            Button("Schematic Capture") { appState.showWorkspace(.schematicCapture) }
                 .keyboardShortcut("1", modifiers: [.command, .control])
-            Button("Layout") { appState.workspace = .layout }
+            Button("Layout") { appState.showWorkspace(.layout) }
                 .keyboardShortcut("2", modifiers: [.command, .control])
-            Button("Integration") { appState.workspace = .integration }
+            Button("Integration") { appState.showWorkspace(.integration) }
                 .keyboardShortcut("3", modifiers: [.command, .control])
-            Button("Review") { appState.workspace = .review }
+            Button("Review") { appState.showWorkspace(.review) }
                 .keyboardShortcut("4", modifiers: [.command, .control])
             Divider()
             // ⌃⌘ to leave ⇧⌘N free for File > New Project.
-            Button("Visual Mode") { appState.schematicMode = .visual }
+            Button("Visual Mode") { appState.showSchematic(.visual) }
                 .keyboardShortcut("v", modifiers: [.command, .control])
-                .disabled(appState.workspace != .schematicCapture)
-            Button("Netlist Mode") { appState.schematicMode = .netlist }
+                .disabled(appState.activeWorkspace != .schematicCapture)
+            Button("Netlist Mode") { appState.showSchematic(.netlist) }
                 .keyboardShortcut("n", modifiers: [.command, .control])
-                .disabled(appState.workspace != .schematicCapture)
+                .disabled(appState.activeWorkspace != .schematicCapture)
         }
     }
 
@@ -192,8 +205,9 @@ public struct CircuitStudioApp: App {
 
     private var runDisabled: Bool {
         if appState.isSimulating { return true }
-        guard appState.workspace == .schematicCapture else { return true }
-        switch appState.schematicMode {
+        guard appState.activeWorkspace == .schematicCapture,
+              let mode = appState.activeSchematicMode else { return true }
+        switch mode {
         case .visual:
             return project.schematicViewModel.document.components.isEmpty
                 || project.schematicViewModel.hasErrors
@@ -227,7 +241,7 @@ public struct CircuitStudioApp: App {
                     designFlow: services.designFlowService,
                     catalog: services.catalog
                 )
-                appState.workspace = .integration
+                appState.showWorkspace(.integration)
             }
             .keyboardShortcut("g", modifiers: [.command, .shift])
             .disabled(!canGenerateLayout)
@@ -274,11 +288,11 @@ public struct CircuitStudioApp: App {
             context: context,
             project: project,
             projectRootURL: appState.projectRootURL,
-            selectedFileURL: appState.selectedFileURL,
+            loadedNetlistURL: appState.loadedNetlistURL,
             projectService: services.projectService,
             catalog: services.catalog,
             layoutEngineCatalog: services.designFlowService.layoutEngineCatalog,
-            workspace: appState.workspace.rawValue,
+            workspace: appState.editorDestination.diagnosticIdentifier,
             netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
                 appState.netlistSchematicMaterializationState
             )
@@ -288,6 +302,8 @@ public struct CircuitStudioApp: App {
     // MARK: - File Operations
 
     private func newProject() {
+        guard !documentReplacementDisabled else { return }
+        guard confirmProjectReplacementIfNeeded() else { return }
         let panel = NSSavePanel()
         panel.title = "New Project"
         panel.nameFieldLabel = "Project Name:"
@@ -309,9 +325,9 @@ public struct CircuitStudioApp: App {
             )
 
             let root = try services.fileSystemService.scanDirectory(at: url)
-            appState.projectRootURL = url
-            appState.projectRoot = root
-            appState.clearSPICEFile()
+            appState.resetProjectScopedState()
+            resetToDefaultCell()
+            appState.setProjectRoot(url, fileTree: root)
 
             loadProjectConfig(from: url)
             autoLoadNetlist(from: url)
@@ -327,6 +343,8 @@ public struct CircuitStudioApp: App {
     }
 
     private func openSPICEFile() {
+        guard !documentReplacementDisabled else { return }
+        guard confirmProjectReplacementIfNeeded() else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = FileContentTypes.spiceOpen
         panel.allowsMultipleSelection = false
@@ -334,7 +352,11 @@ public struct CircuitStudioApp: App {
 
         if panel.runModal() == .OK, let url = panel.url {
             do {
+                _ = try services.fileSystemService.readFile(at: url)
+                appState.resetProjectScopedState()
+                resetToDefaultCell()
                 try appState.loadSPICEFile(url: url)
+                appState.showSchematic(.netlist)
                 Task { @MainActor in
                     await materializeLoadedNetlistIfNeeded(from: nil)
                     LayoutGenerationDiagnosticsLogger.log(
@@ -349,6 +371,8 @@ public struct CircuitStudioApp: App {
     }
 
     private func openFolder() {
+        guard !documentReplacementDisabled else { return }
+        guard confirmProjectReplacementIfNeeded() else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -366,8 +390,9 @@ public struct CircuitStudioApp: App {
 
     private func openProjectFolder(at url: URL) throws {
         let root = try services.fileSystemService.scanDirectory(at: url)
-        appState.projectRootURL = url
-        appState.projectRoot = root
+        appState.resetProjectScopedState()
+        resetToDefaultCell()
+        appState.setProjectRoot(url, fileTree: root)
 
         if services.projectService.isProject(url) {
             loadProjectConfig(from: url)
@@ -385,13 +410,19 @@ public struct CircuitStudioApp: App {
     // MARK: - Open Recent
 
     private func openRecent(_ document: RecentDocument) {
+        guard !documentReplacementDisabled else { return }
+        guard confirmProjectReplacementIfNeeded() else { return }
         do {
             let url = try services.recentDocumentsStore.beginAccess(to: document)
             switch document.kind {
             case .projectFolder:
                 try openProjectFolder(at: url)
             case .netlistFile:
+                _ = try services.fileSystemService.readFile(at: url)
+                appState.resetProjectScopedState()
+                resetToDefaultCell()
                 try appState.loadSPICEFile(url: url)
+                appState.showSchematic(.netlist)
                 Task { @MainActor in
                     await materializeLoadedNetlistIfNeeded(from: nil)
                     LayoutGenerationDiagnosticsLogger.log(
@@ -574,7 +605,7 @@ public struct CircuitStudioApp: App {
         let materializationWarning: String?
         if let projectRoot {
             guard services.projectService.isProject(projectRoot),
-                  appState.selectedFileURL == services.projectService.topNetlistURL(inProjectAt: projectRoot) else {
+                  appState.loadedNetlistURL == services.projectService.topNetlistURL(inProjectAt: projectRoot) else {
                 return
             }
             let resolution = NetlistMaterializationTopCellResolver(
@@ -633,24 +664,81 @@ public struct CircuitStudioApp: App {
     /// instead of silently discarding work.
     private func wireTerminationGuard() {
         appDelegate.hasUnsavedChanges = {
-            appState.isNetlistDirty || project.hasUnsavedChanges
+            appState.isNetlistDirty || appState.isProjectFileDirty || project.hasUnsavedChanges
         }
         appDelegate.performSave = { saveAction() }
     }
 
     private func saveAction() {
+        _ = performSaveAction()
+    }
+
+    private func performSaveAction() -> Bool {
+        if appState.isProjectFileDirty {
+            guard saveSelectedProjectFile() else { return false }
+            if case .projectFile = appState.editorDestination {
+                return true
+            }
+        } else if case .projectFile = appState.editorDestination {
+            return true
+        }
         if let projectRoot = appState.projectRootURL {
-            saveProject(projectRoot: projectRoot)
+            return saveProject(projectRoot: projectRoot)
+        } else if project.hasUnsavedChanges {
+            return saveStandaloneSessionAsProject()
         } else {
             do {
                 try appState.saveSPICEFile()
+                return true
             } catch {
                 appState.log("Save failed: \(error.localizedDescription)", kind: .error)
+                return false
             }
         }
     }
 
-    private func saveProject(projectRoot: URL) {
+    private func saveStandaloneSessionAsProject() -> Bool {
+        let panel = NSSavePanel()
+        panel.title = "Save Project"
+        panel.nameFieldLabel = "Project Name:"
+        panel.nameFieldStringValue = project.designName
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.folder]
+
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            try services.projectService.createProject(at: url)
+            let tree = try services.fileSystemService.scanDirectory(at: url)
+            appState.setProjectRoot(url, fileTree: tree)
+            guard saveProject(projectRoot: url) else { return false }
+            noteRecent(url, kind: .projectFolder)
+            return true
+        } catch {
+            appState.log("Save failed: \(error.localizedDescription)", kind: .error)
+            return false
+        }
+    }
+
+    @discardableResult
+    private func saveSelectedProjectFile() -> Bool {
+        do {
+            try appState.saveProjectFile(using: services.fileSystemService)
+            if let url = appState.projectFileDocument?.url,
+               url.lastPathComponent == "tech.json" {
+                try project.loadTechFile(from: url)
+            }
+            appState.refreshProjectTree(using: services.fileSystemService)
+            return true
+        } catch {
+            appState.log("Save failed: \(error.localizedDescription)", kind: .error)
+            return false
+        }
+    }
+
+    @discardableResult
+    private func saveProject(projectRoot: URL) -> Bool {
         do {
             try services.projectService.ensurePEXProjectFiles(forProjectAt: projectRoot)
 
@@ -708,8 +796,35 @@ public struct CircuitStudioApp: App {
                 workspace.markSchematicSaved()
             }
             appState.log("Project saved", kind: .success)
+            appState.refreshProjectTree(using: services.fileSystemService)
+            return true
         } catch {
             appState.log("Save failed: \(error.localizedDescription)", kind: .error)
+            return false
+        }
+    }
+
+    private func confirmProjectReplacementIfNeeded() -> Bool {
+        guard appState.isNetlistDirty
+                || appState.isProjectFileDirty
+                || project.hasUnsavedChanges else {
+            return true
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Save changes before opening another document?"
+        alert.informativeText = "Unsaved circuit, layout, or project-file changes would otherwise be lost."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Discard Changes")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return performSaveAction()
+        case .alertThirdButtonReturn:
+            return true
+        default:
+            return false
         }
     }
 

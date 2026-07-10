@@ -3,8 +3,7 @@ import Foundation
 /// Persisted workspace configuration stored in `.xcircuite/workspace.json`.
 public struct WorkspaceConfig: Sendable, Codable {
     public var version: Int
-    public var activeWorkspace: String
-    public var schematicMode: String
+    public var editorDestination: String
     public var panels: PanelState
 
     public struct PanelState: Sendable, Codable {
@@ -24,14 +23,12 @@ public struct WorkspaceConfig: Sendable, Codable {
     }
 
     public init(
-        version: Int = 1,
-        activeWorkspace: String = "schematicCapture",
-        schematicMode: String = "netlist",
+        version: Int = 2,
+        editorDestination: String = "schematic.netlist",
         panels: PanelState = PanelState()
     ) {
         self.version = version
-        self.activeWorkspace = activeWorkspace
-        self.schematicMode = schematicMode
+        self.editorDestination = editorDestination
         self.panels = panels
     }
 }

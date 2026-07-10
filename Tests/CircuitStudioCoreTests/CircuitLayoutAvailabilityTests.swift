@@ -121,7 +121,7 @@ struct CircuitLayoutAvailabilityTests {
             context: "test",
             project: project,
             projectRootURL: root,
-            selectedFileURL: root.appending(path: "top.cir"),
+            loadedNetlistURL: root.appending(path: "top.cir"),
             projectService: projectService,
             catalog: .standard(),
             workspace: "layout",
@@ -136,7 +136,7 @@ struct CircuitLayoutAvailabilityTests {
         #expect(message.contains("workspace=layout"))
         #expect(message.contains("code=emptySchematic"))
         #expect(message.contains("projectRoot=\(root.path(percentEncoded: false))(exists=true)"))
-        #expect(message.contains("selectedFile=\(root.appending(path: "top.cir").path(percentEncoded: false))(exists=true)"))
+        #expect(message.contains("loadedNetlist=\(root.appending(path: "top.cir").path(percentEncoded: false))(exists=true)"))
         #expect(message.contains("xcircuiteManifest=\(metadataDirectory.appending(path: "project.json").path(percentEncoded: false))(exists=true)"))
         #expect(message.contains("studioSessionManifest=\(metadataDirectory.appending(path: "studio-session.json").path(percentEncoded: false))(exists=true)"))
         #expect(message.contains("cellsDirectory=\(root.appending(path: "cells").path(percentEncoded: false))(exists=true)"))
@@ -165,7 +165,7 @@ struct CircuitLayoutAvailabilityTests {
         let invalidCell = CellWorkspace(name: "1Invalid")
         let source = LayoutGenerationSourceSnapshot.capture(
             projectRootURL: root,
-            selectedFileURL: nil,
+            loadedNetlistURL: nil,
             activeCellName: invalidCell.name,
             projectService: projectService,
             netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
@@ -212,7 +212,7 @@ struct CircuitLayoutAvailabilityTests {
             context: "test",
             project: project,
             projectRootURL: root,
-            selectedFileURL: root.appending(path: "top.cir"),
+            loadedNetlistURL: root.appending(path: "top.cir"),
             projectService: projectService,
             catalog: .standard(),
             workspace: "layout",
@@ -295,7 +295,7 @@ struct CircuitLayoutAvailabilityTests {
             context: "test",
             project: project,
             projectRootURL: root,
-            selectedFileURL: root.appending(path: "top.cir"),
+            loadedNetlistURL: root.appending(path: "top.cir"),
             projectService: projectService,
             catalog: .standard(),
             workspace: "layout",
@@ -355,7 +355,7 @@ struct CircuitLayoutAvailabilityTests {
             context: "test",
             project: project,
             projectRootURL: root,
-            selectedFileURL: root.appending(path: "top.cir"),
+            loadedNetlistURL: root.appending(path: "top.cir"),
             projectService: projectService,
             catalog: .standard(),
             workspace: "layout",

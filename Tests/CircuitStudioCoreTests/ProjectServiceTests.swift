@@ -31,9 +31,8 @@ struct ProjectServiceTests {
         #expect(packageManifest.contains("\"identity\""))
 
         let workspace = try service.loadWorkspaceConfig(forProjectAt: root)
-        #expect(workspace.version == 1)
-        #expect(workspace.activeWorkspace == "schematicCapture")
-        #expect(workspace.schematicMode == "netlist")
+        #expect(workspace.version == 2)
+        #expect(workspace.editorDestination == "schematic.netlist")
 
         let pex = try service.loadPEXProjectConfig(forProjectAt: root)
         #expect(pex.topCell == "TOP")
@@ -55,8 +54,7 @@ struct ProjectServiceTests {
         try service.createProject(at: root)
 
         let workspace = WorkspaceConfig(
-            activeWorkspace: "layout",
-            schematicMode: "visual",
+            editorDestination: "layout",
             panels: .init(inspector: true, console: true, simulationResults: false)
         )
         try service.saveWorkspaceConfig(workspace, forProjectAt: root)
@@ -77,8 +75,7 @@ struct ProjectServiceTests {
         try service.saveSimulationConfig(simulation, forProjectAt: root)
 
         let loadedWorkspace = try service.loadWorkspaceConfig(forProjectAt: root)
-        #expect(loadedWorkspace.activeWorkspace == "layout")
-        #expect(loadedWorkspace.schematicMode == "visual")
+        #expect(loadedWorkspace.editorDestination == "layout")
         #expect(loadedWorkspace.panels.inspector)
         #expect(loadedWorkspace.panels.console)
         #expect(!loadedWorkspace.panels.simulationResults)

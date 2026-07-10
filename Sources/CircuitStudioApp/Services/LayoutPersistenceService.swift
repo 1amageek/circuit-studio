@@ -136,11 +136,11 @@ public struct LayoutPersistenceService {
             context: "generate-command",
             project: project,
             projectRootURL: appState.projectRootURL,
-            selectedFileURL: appState.selectedFileURL,
+            loadedNetlistURL: appState.loadedNetlistURL,
             projectService: projectService,
             catalog: catalog,
             layoutEngineCatalog: designFlow.layoutEngineCatalog,
-            workspace: appState.workspace.rawValue,
+            workspace: appState.editorDestination.diagnosticIdentifier,
             netlistMaterialization: LayoutGenerationNetlistMaterializationSnapshot(
                 appState.netlistSchematicMaterializationState
             )

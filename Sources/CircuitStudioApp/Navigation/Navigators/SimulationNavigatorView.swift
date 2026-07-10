@@ -35,10 +35,19 @@ struct SimulationNavigatorView: View {
                 Spacer()
             }
             if let error = appState.simulationError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .lineLimit(3)
+                Button {
+                    appState.showSchematic(appState.schematicModeContext)
+                    appState.showDebugArea = true
+                    appState.debugAreaTab = .console
+                } label: {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(3)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Show Simulation Console")
             }
         }
     }
@@ -46,15 +55,22 @@ struct SimulationNavigatorView: View {
     private func analysesSection(_ analyses: [AnalysisSummary]) -> some View {
         Section("Detected Analyses") {
             ForEach(analyses) { analysis in
-                HStack {
-                    Text(analysis.type)
-                        .font(.system(.body))
-                    Spacer()
-                    Text(analysis.label)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                Button {
+                    appState.showSchematic(.netlist)
+                } label: {
+                    HStack {
+                        Text(analysis.type)
+                            .font(.system(.body))
+                        Spacer()
+                        Text(analysis.label)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help("Show in Netlist")
             }
         }
     }
@@ -129,6 +145,7 @@ struct SimulationNavigatorView: View {
             appState.focusWaveform(waveform, source: .history)
             return
         }
+        appState.showSchematic(appState.schematicModeContext)
         appState.showDebugArea = true
         appState.debugAreaTab = .console
     }

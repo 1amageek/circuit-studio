@@ -24,6 +24,7 @@ struct SimulationOutcomeFocusTests {
         #expect(appState.simulationError == nil)
         #expect((appState.simulationResult?.waveform?.pointCount ?? 0) > 1)
         #expect(appState.showWaveformPane)
+        #expect(appState.editorDestination == .waveform)
         // The debug area was auto-opened at run start; the outcome pane replaces it.
         #expect(!appState.showDebugArea)
     }
@@ -66,5 +67,6 @@ struct SimulationOutcomeFocusTests {
         #expect(restored.showWaveformPane)
         #expect(restored.showDebugArea)
         #expect(restored.debugAreaTab == .console)
+        #expect(restored.editorDestination == .schematic(.netlist))
     }
 }

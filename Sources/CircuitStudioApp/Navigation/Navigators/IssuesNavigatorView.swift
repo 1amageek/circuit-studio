@@ -32,16 +32,12 @@ struct IssuesNavigatorView: View {
 
     @ViewBuilder
     private func issueRow(_ row: IssueRow) -> some View {
-        if let action = row.action {
-            Button(action: action) {
-                issueRowContent(row)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Show in layout")
-        } else {
+        Button(action: row.action) {
             issueRowContent(row)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .help("Show Source")
     }
 
     private func issueRowContent(_ row: IssueRow) -> some View {
@@ -70,7 +66,7 @@ struct IssuesNavigatorView: View {
         let title: String
         let detail: String?
         let group: String
-        var action: (() -> Void)? = nil
+        let action: () -> Void
     }
 
     private struct IssueGroup {
@@ -82,13 +78,20 @@ struct IssuesNavigatorView: View {
         var result: [IssueRow] = []
 
         for d in project.schematicViewModel.diagnostics {
+            let componentID = d.componentID
             result.append(IssueRow(
                 id: "schem-\(d.id)",
                 icon: schematicIcon(d.severity),
                 tint: schematicTint(d.severity),
                 title: d.message,
                 detail: nil,
-                group: "Schematic"
+                group: "Schematic",
+                action: {
+                    appState.showSchematic(.visual)
+                    if let componentID {
+                        project.schematicViewModel.select(componentID)
+                    }
+                }
             ))
         }
 
@@ -100,7 +103,8 @@ struct IssuesNavigatorView: View {
                 tint: netlistTint(d.severity),
                 title: d.message,
                 detail: detail,
-                group: "Netlist"
+                group: "Netlist",
+                action: { appState.showSchematic(.netlist) }
             ))
         }
 
@@ -123,7 +127,8 @@ struct IssuesNavigatorView: View {
                 tint: .red,
                 title: error,
                 detail: nil,
-                group: "Simulation"
+                group: "Simulation",
+                action: showSimulationConsole
             ))
         }
 
@@ -134,7 +139,8 @@ struct IssuesNavigatorView: View {
                 tint: .red,
                 title: error,
                 detail: nil,
-                group: "Layout"
+                group: "Layout",
+                action: { appState.showWorkspace(.layout) }
             ))
         }
 
@@ -143,10 +149,14 @@ struct IssuesNavigatorView: View {
 
     /// Brings the layout on screen and zooms to the violation region.
     private func showInLayout(_ violation: LayoutViolation) {
-        if appState.workspace != .layout && appState.workspace != .integration {
-            appState.workspace = .layout
-        }
+        appState.showWorkspace(.layout)
         project.layoutViewModel.focusViolation(violation)
+    }
+
+    private func showSimulationConsole() {
+        appState.showSchematic(appState.schematicModeContext)
+        appState.showDebugArea = true
+        appState.debugAreaTab = .console
     }
 
     private var groupedRows: [IssueGroup] {

@@ -1,8 +1,7 @@
 import SwiftUI
 import CircuitStudioCore
 
-/// File tree navigator for the sidebar.
-/// Displays the project directory as an outline and loads SPICE files on selection.
+/// File tree navigator. Every selection opens a corresponding center editor.
 struct ProjectNavigatorView: View {
     @Bindable var appState: AppState
     let fileSystemService: FileSystemService
@@ -19,21 +18,40 @@ struct ProjectNavigatorView: View {
 
     @ViewBuilder
     private func fileTreeContent(root: FileNode) -> some View {
-        List(selection: $appState.selectedFileURL) {
-            OutlineGroup(root.children ?? [], id: \.id, children: \.children) { node in
-                Label {
-                    Text(node.name)
-                } icon: {
-                    Image(systemName: fileIcon(for: node))
-                        .foregroundStyle(node.isSPICEFile ? .orange : .secondary)
+        VStack(spacing: 0) {
+            PaneSectionHeader(root.name) {
+                Button {
+                    appState.refreshProjectTree(using: fileSystemService)
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
                 }
-                .tag(node.id)
+                .buttonStyle(.plain)
+                .help("Refresh Project Files")
             }
-        }
-        .listStyle(.sidebar)
-        .onChange(of: appState.selectedFileURL) { _, newURL in
-            guard let url = newURL else { return }
-            openSelectedFile(url: url)
+            List {
+                OutlineGroup(root.children ?? [], id: \.id, children: \.children) { node in
+                    Button {
+                        appState.requestOpenProjectItem(at: node.id, using: fileSystemService)
+                    } label: {
+                        Label {
+                            Text(node.name)
+                        } icon: {
+                            Image(systemName: fileIcon(for: node))
+                                .foregroundStyle(node.isSPICEFile ? .orange : .secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(
+                        node.id == appState.projectNavigatorSelection
+                            ? Color.accentColor.opacity(0.12)
+                            : Color.clear
+                    )
+                }
+            }
+            .listStyle(.sidebar)
         }
     }
 
@@ -45,26 +63,19 @@ struct ProjectNavigatorView: View {
         }
     }
 
-    private func openSelectedFile(url: URL) {
-        let ext = url.pathExtension.lowercased()
-        guard ext == "cir" || ext == "spice" || ext == "sp" || ext == "net" || ext == "txt" else {
-            return
-        }
-        do {
-            try appState.loadSPICEFile(url: url)
-            appState.workspace = .schematicCapture
-            appState.schematicMode = .netlist
-        } catch {
-            appState.simulationError = "Failed to load file: \(error.localizedDescription)"
-        }
-    }
-
     private func fileIcon(for node: FileNode) -> String {
         if node.isDirectory {
             return "folder"
         }
         if node.isSPICEFile {
             return "doc.text"
+        }
+        switch node.id.pathExtension.lowercased() {
+        case "json": return "curlybraces"
+        case "toml", "yaml", "yml": return "gearshape"
+        case "gds", "oas": return "square.3.layers.3d"
+        case "spef": return "point.3.connected.trianglepath.dotted"
+        default: break
         }
         return "doc"
     }

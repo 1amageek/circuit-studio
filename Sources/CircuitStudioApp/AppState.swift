@@ -93,8 +93,25 @@ public struct ConsoleEntry: Identifiable, Sendable {
 @MainActor
 public final class AppState {
     // Navigation
-    public var workspace: Workspace = .schematicCapture
-    public var schematicMode: SchematicMode = .netlist
+    public private(set) var editorDestination: EditorDestination = .schematic(.netlist)
+    private var lastWorkspaceDestination: EditorDestination = .schematic(.netlist)
+    private var preferredSchematicMode: SchematicMode = .netlist
+
+    /// The workspace currently visible in the center editor. Transient file and
+    /// waveform destinations intentionally return nil so the toolbar cannot lie.
+    public var activeWorkspace: Workspace? {
+        editorDestination.workspace
+    }
+
+    public var activeSchematicMode: SchematicMode? {
+        editorDestination.schematicMode
+    }
+
+    /// The current schematic mode, or the user's last schematic mode while a
+    /// non-schematic destination is visible.
+    public var schematicModeContext: SchematicMode {
+        activeSchematicMode ?? preferredSchematicMode
+    }
 
     // Pane visibility
     public var showInspector: Bool = false
@@ -113,7 +130,11 @@ public final class AppState {
     // Project
     public var projectRootURL: URL?
     public var projectRoot: FileNode?
-    public var selectedFileURL: URL?
+    public private(set) var projectNavigatorSelection: URL?
+    public private(set) var loadedNetlistURL: URL?
+    public private(set) var projectFileDocument: ProjectFileDocument?
+    public private(set) var projectFileError: String?
+    public private(set) var pendingProjectItemURL: URL?
 
     // SPICE source
     public var spiceSource: String = ""
@@ -125,6 +146,10 @@ public final class AppState {
     /// True when the SPICE source differs from the last loaded/saved content.
     public var isNetlistDirty: Bool {
         spiceSource != lastSavedSpiceSource
+    }
+
+    public var isProjectFileDirty: Bool {
+        projectFileDocument?.isDirty ?? false
     }
 
     // Simulation
@@ -188,13 +213,215 @@ public final class AppState {
 
     public init() {}
 
+    // MARK: - Editor Navigation
+
+    private func show(_ destination: EditorDestination) {
+        editorDestination = destination
+        if destination.workspace != nil {
+            lastWorkspaceDestination = destination
+        }
+        if let mode = destination.schematicMode {
+            preferredSchematicMode = mode
+        }
+    }
+
+    public func showWorkspace(_ workspace: Workspace) {
+        switch workspace {
+        case .schematicCapture:
+            show(.schematic(preferredSchematicMode))
+        case .layout:
+            show(.layout)
+        case .integration:
+            show(.integration)
+        case .review:
+            show(.review)
+        }
+    }
+
+    public func showSchematic(_ mode: SchematicMode) {
+        show(.schematic(mode))
+    }
+
+    private func showWaveform() {
+        show(.waveform)
+    }
+
+    public func closeTransientEditor() {
+        show(lastWorkspaceDestination)
+    }
+
+    private func openProjectItem(
+        at url: URL,
+        using fileSystemService: FileSystemService
+    ) {
+        projectNavigatorSelection = url
+
+        do {
+            let values = try url.resourceValues(forKeys: [.isDirectoryKey])
+            if values.isDirectory == true {
+                projectFileDocument = nil
+                projectFileError = nil
+                show(.projectDirectory(url))
+                return
+            }
+
+            if FileNode(id: url, name: url.lastPathComponent, isDirectory: false).isSPICEFile {
+                try loadSPICEFile(url: url)
+                showSchematic(.netlist)
+                return
+            }
+
+            projectFileDocument = try ProjectFileDocument.load(
+                from: url,
+                using: fileSystemService
+            )
+            projectFileError = nil
+            show(.projectFile(url))
+        } catch {
+            projectFileDocument = nil
+            projectFileError = error.localizedDescription
+            show(.projectFile(url))
+            log("Could not open \(url.lastPathComponent): \(error.localizedDescription)", kind: .error)
+        }
+    }
+
+    public func requestOpenProjectItem(
+        at url: URL,
+        using fileSystemService: FileSystemService
+    ) {
+        if projectFileDocument?.url == url {
+            projectNavigatorSelection = url
+            show(.projectFile(url))
+            return
+        }
+        if loadedNetlistURL == url {
+            projectNavigatorSelection = url
+            showSchematic(.netlist)
+            return
+        }
+
+        let replacesDirtyProjectFile = projectFileDocument?.url != url && isProjectFileDirty
+        let replacesDirtyNetlist = loadedNetlistURL != url && isNetlistDirty
+        guard !replacesDirtyProjectFile && !replacesDirtyNetlist else {
+            pendingProjectItemURL = url
+            return
+        }
+        openProjectItem(at: url, using: fileSystemService)
+    }
+
+    public func openPendingProjectItem(using fileSystemService: FileSystemService) {
+        guard let url = pendingProjectItemURL else { return }
+        pendingProjectItemURL = nil
+        openProjectItem(at: url, using: fileSystemService)
+    }
+
+    public func cancelPendingProjectItem() {
+        pendingProjectItemURL = nil
+    }
+
+    public func setProjectRoot(_ url: URL, fileTree: FileNode) {
+        projectRootURL = url
+        projectRoot = fileTree
+        projectNavigatorSelection = nil
+        projectFileDocument = nil
+        projectFileError = nil
+        pendingProjectItemURL = nil
+    }
+
+    /// Clears every value owned by the current project before another project
+    /// or standalone netlist becomes authoritative.
+    public func resetProjectScopedState() {
+        clearSPICEFile()
+        projectRootURL = nil
+        projectRoot = nil
+        projectNavigatorSelection = nil
+        projectFileDocument = nil
+        projectFileError = nil
+        pendingProjectItemURL = nil
+
+        editorDestination = .schematic(.netlist)
+        lastWorkspaceDestination = .schematic(.netlist)
+        preferredSchematicMode = .netlist
+        showInspector = false
+        showDebugArea = false
+        showWaveformPane = false
+
+        processConfiguration = ProcessConfiguration()
+        selectedAnalysis = .op
+        selectedCornerIDs = []
+        runHistory = []
+        simulationResult = nil
+        simulationError = nil
+        simulationStatus = nil
+        isSimulating = false
+        streamingWaveform = nil
+        focusedWaveform = nil
+        consoleEntries = []
+        pexOutputNetlistURL = nil
+        isRunningPEX = false
+    }
+
+    public func updateProjectFileText(_ text: String) {
+        projectFileDocument?.updateText(text)
+    }
+
+    public func saveProjectFile(using fileSystemService: FileSystemService) throws {
+        guard var document = projectFileDocument,
+              let text = document.text else { return }
+        if document.url.pathExtension.lowercased() == "json" {
+            guard let data = text.data(using: .utf8) else {
+                throw StudioError.projectSaveFailed("The document is not valid UTF-8.")
+            }
+            do {
+                _ = try JSONSerialization.jsonObject(with: data)
+            } catch {
+                throw StudioError.projectSaveFailed("Invalid JSON: \(error.localizedDescription)")
+            }
+        }
+        let onDiskText = try fileSystemService.readFile(at: document.url)
+        guard onDiskText == document.savedText else {
+            throw StudioError.projectSaveFailed(
+                "\(document.url.lastPathComponent) changed on disk. Reload it before saving."
+            )
+        }
+        try fileSystemService.writeFile(text, to: document.url)
+        document.markSaved()
+        projectFileDocument = document
+        log("Saved \(document.url.lastPathComponent)", kind: .success)
+    }
+
+    public func reloadProjectFile(using fileSystemService: FileSystemService) {
+        guard let url = projectFileDocument?.url else { return }
+        do {
+            projectFileDocument = try ProjectFileDocument.load(
+                from: url,
+                using: fileSystemService
+            )
+            projectFileError = nil
+        } catch {
+            projectFileError = error.localizedDescription
+            log("Could not reload \(url.lastPathComponent): \(error.localizedDescription)", kind: .error)
+        }
+    }
+
+    public func refreshProjectTree(using fileSystemService: FileSystemService) {
+        guard let rootURL = projectRootURL else { return }
+        do {
+            projectRoot = try fileSystemService.scanDirectory(at: rootURL)
+        } catch {
+            log("Could not refresh project files: \(error.localizedDescription)", kind: .error)
+        }
+    }
+
     // MARK: - Project Config Extraction / Restoration
 
     /// Extracts current workspace state for persistence.
     public func workspaceConfig() -> WorkspaceConfig {
-        WorkspaceConfig(
-            activeWorkspace: workspace.rawValue,
-            schematicMode: schematicMode.rawValue,
+        let persistedDestination = editorDestination.persistenceIdentifier
+            ?? lastWorkspaceDestination.persistenceIdentifier
+            ?? "schematic.netlist"
+        return WorkspaceConfig(
+            editorDestination: persistedDestination,
             panels: WorkspaceConfig.PanelState(
                 inspector: showInspector,
                 console: showDebugArea && debugAreaTab == .console,
@@ -214,8 +441,7 @@ public final class AppState {
 
     /// Restores workspace state from a persisted config.
     public func apply(_ config: WorkspaceConfig) {
-        workspace = Workspace(rawValue: config.activeWorkspace) ?? .schematicCapture
-        schematicMode = SchematicMode(rawValue: config.schematicMode) ?? .netlist
+        show(EditorDestination(persistenceIdentifier: config.editorDestination) ?? .schematic(.netlist))
         showInspector = config.panels.inspector
         showWaveformPane = config.panels.simulationResults
         if config.panels.console {
@@ -262,7 +488,8 @@ public final class AppState {
         spiceSource = source
         lastSavedSpiceSource = source
         spiceFileName = url.lastPathComponent
-        selectedFileURL = url
+        loadedNetlistURL = url
+        projectNavigatorSelection = url
         netlistSchematicMaterializationState = .none
         simulationResult = nil
         simulationError = nil
@@ -275,7 +502,7 @@ public final class AppState {
         spiceSource = ""
         lastSavedSpiceSource = ""
         spiceFileName = nil
-        selectedFileURL = nil
+        loadedNetlistURL = nil
         netlistSchematicMaterializationState = .none
         netlistInfo = nil
         simulationResult = nil
@@ -312,7 +539,7 @@ public final class AppState {
 
     /// Save the current SPICE source to the already-selected file, or prompt with Save As.
     public func saveSPICEFile() throws {
-        if let url = selectedFileURL {
+        if let url = loadedNetlistURL {
             try spiceSource.write(to: url, atomically: true, encoding: .utf8)
             lastSavedSpiceSource = spiceSource
             log("Saved \(url.lastPathComponent)", kind: .success)
@@ -331,7 +558,8 @@ public final class AppState {
         do {
             try spiceSource.write(to: url, atomically: true, encoding: .utf8)
             lastSavedSpiceSource = spiceSource
-            selectedFileURL = url
+            loadedNetlistURL = url
+            projectNavigatorSelection = url
             spiceFileName = url.lastPathComponent
             log("Saved \(url.lastPathComponent)", kind: .success)
         } catch {
@@ -470,6 +698,7 @@ public final class AppState {
         if reveal {
             showWaveformPane = true
             showDebugArea = false
+            showWaveform()
         }
     }
 
@@ -646,8 +875,9 @@ public final class AppState {
         recorder: any SimulationRunRecording
     ) async {
         let startedAt = Date()
-        let initialSource = schematicMode == .netlist ? spiceSource : nil
-        let initialFileName = schematicMode == .netlist ? spiceFileName : "schematic.cir"
+        let mode = schematicModeContext
+        let initialSource = mode == .netlist ? spiceSource : nil
+        let initialFileName = mode == .netlist ? spiceFileName : "schematic.cir"
         let recordingContext: SimulationRunContext
         do {
             recordingContext = try recorder.begin(
@@ -663,7 +893,7 @@ public final class AppState {
             return
         }
 
-        switch schematicMode {
+        switch mode {
         case .visual:
             let corners = selectedCorners
             guard !corners.isEmpty else {

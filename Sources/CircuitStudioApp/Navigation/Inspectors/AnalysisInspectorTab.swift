@@ -9,16 +9,26 @@ struct AnalysisInspectorTab: View {
     let catalog: DeviceCatalog
 
     var body: some View {
-        Form {
-            typeSection
-            parametersSection
+        Group {
+            if appState.activeWorkspace == .schematicCapture {
+                Form {
+                    typeSection
+                    parametersSection
+                }
+                .formStyle(.grouped)
+            } else {
+                ContentUnavailableView(
+                    "Analysis unavailable",
+                    systemImage: "function",
+                    description: Text("Open a schematic or netlist to configure simulation analysis.")
+                )
+            }
         }
-        .formStyle(.grouped)
     }
 
     /// Source/node candidates from the active design representation.
     private var candidates: AnalysisCandidates {
-        switch appState.schematicMode {
+        switch appState.schematicModeContext {
         case .visual:
             return .from(document: project.schematicViewModel.document, catalog: catalog)
         case .netlist:
