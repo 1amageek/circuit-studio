@@ -77,7 +77,7 @@ public struct RoundTripSelectedSuggestedCommandResolver: Sendable {
         projectRoot: URL
     ) throws -> RoundTripResolvedSuggestedCommand {
         try validateRunID(request.runID)
-        let manifestURL = try RoundTripRunDirectory.existingManifestURL(
+        let manifestURL = try RoundTripRunDirectory.manifestURL(
             projectRoot: projectRoot,
             runID: request.runID
         )

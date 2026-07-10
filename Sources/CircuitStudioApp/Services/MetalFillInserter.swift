@@ -20,13 +20,6 @@ public struct MetalFillInserter: Sendable {
             self.pitch = pitch
         }
 
-        @available(*, deprecated, message: "Use init(layerID:fillSize:pitch:) with a profile-resolved layer.")
-        public init(layerName: String, fillSize: Double, pitch: Double) {
-            self.layerID = LayoutTechnologyResource.layer(layerName)
-            self.fillSize = fillSize
-            self.pitch = pitch
-        }
-
         /// The fill density this grid contributes where it tiles (fillSize² / pitch²).
         public var gridDensity: Double { pitch > 0 ? (fillSize * fillSize) / (pitch * pitch) : 0 }
     }

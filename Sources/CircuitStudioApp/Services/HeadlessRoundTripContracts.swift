@@ -2,12 +2,14 @@ import Foundation
 import CircuitStudioCore
 import CoreSpiceWaveform
 import LayoutTech
+import XcircuitePackage
 
 extension HeadlessRoundTripService {
     public struct Configuration {
         public let projectRoot: URL
         public let runID: String
         public let title: String
+        public let actor: XcircuiteRunActionActor
         public let testbench: Testbench
         public let postLayoutCommand: AnalysisCommand
         public let pexIR: PEXParasiticIR
@@ -34,6 +36,10 @@ extension HeadlessRoundTripService {
             projectRoot: URL,
             runID: String = UUID().uuidString,
             title: String,
+            actor: XcircuiteRunActionActor = XcircuiteRunActionActor(
+                kind: .system,
+                identifier: "headless-round-trip"
+            ),
             testbench: Testbench,
             postLayoutCommand: AnalysisCommand,
             pexIR: PEXParasiticIR,
@@ -56,6 +62,7 @@ extension HeadlessRoundTripService {
             self.projectRoot = projectRoot
             self.runID = runID
             self.title = title
+            self.actor = actor
             self.testbench = testbench
             self.postLayoutCommand = postLayoutCommand
             self.pexIR = pexIR

@@ -150,7 +150,7 @@ public final class AppState {
     public let genericCornerSet: CornerSet = .genericPVT()
     /// Corners (by ID, within `availableCorners`) selected for matrix runs.
     public var selectedCornerIDs: Set<UUID> = []
-    /// Completed matrix batches, oldest first, retained for browsing.
+    /// In-session projection cache of runs already persisted in `.xcircuite`.
     public var runHistory: [AnalysisRunBatch] = []
 
     // Focused waveform (what the waveform pane shows)
@@ -340,9 +340,50 @@ public final class AppState {
     }
 
     /// Run simulation using the loaded SPICE source.
-    public func runSimulation(service: DesignFlowService) async {
+    public func runSimulation(
+        service: DesignFlowService,
+        analysis: AnalysisCommand? = nil,
+        recorder: (any SimulationRunRecording)? = nil
+    ) async {
+        await runSimulationRecorded(
+            service: service,
+            analysis: analysis,
+            recorder: recorder,
+            recordingContext: nil,
+            startedAt: nil
+        )
+    }
+
+    private func runSimulationRecorded(
+        service: DesignFlowService,
+        analysis: AnalysisCommand?,
+        recorder: (any SimulationRunRecording)?,
+        recordingContext: SimulationRunContext?,
+        startedAt: Date?
+    ) async {
         guard !spiceSource.isEmpty else {
             simulationError = "No SPICE source loaded"
+            return
+        }
+
+        let executedAnalysis = analysis ?? selectedAnalysis
+        let start = startedAt ?? Date()
+        let activeRecordingContext: SimulationRunContext?
+        do {
+            if let recordingContext {
+                activeRecordingContext = recordingContext
+            } else {
+                activeRecordingContext = try beginSimulationRecording(
+                    recorder: recorder,
+                    intent: "Run \(executedAnalysis.displayName) simulation.",
+                    source: spiceSource,
+                    fileName: spiceFileName,
+                    startedAt: start
+                )
+            }
+        } catch {
+            simulationError = error.localizedDescription
+            log(error.localizedDescription, kind: .error)
             return
         }
 
@@ -353,7 +394,6 @@ public final class AppState {
         showDebugArea = true
         debugAreaTab = .console
 
-        let start = Date()
         log("Running simulation...")
         let process = processConfiguration.isEmpty ? nil : processConfiguration
 
@@ -379,13 +419,35 @@ public final class AppState {
             ))
             continuation.finish()
             _ = await updateTask.value
-            simulationResult = result
-            let elapsed = String(format: "%.2f", Date().timeIntervalSince(start))
-            log("Completed (\(elapsed)s)", kind: .success)
-            focusSimulationOutcome(result)
+            let record = AnalysisRunRecord(
+                analysis: executedAnalysis,
+                status: result.status,
+                result: result,
+                failureReason: result.status == .failed ? result.logMessages.last : nil,
+                startedAt: result.startedAt,
+                finishedAt: result.finishedAt
+            )
+            if let recorder, let activeRecordingContext {
+                try await recorder.complete(
+                    context: activeRecordingContext,
+                    source: spiceSource,
+                    records: [record]
+                )
+            }
+            runHistory.append(AnalysisRunBatch(
+                runID: activeRecordingContext?.runID,
+                startedAt: start,
+                records: [record]
+            ))
+            applySimulationOutcome(result, startedAt: start)
         } catch {
             continuation.finish()
             updateTask.cancel()
+            recordSimulationFailure(
+                recorder: recorder,
+                context: activeRecordingContext,
+                reason: error.localizedDescription
+            )
             log(error.localizedDescription, kind: .error)
             simulationError = error.localizedDescription
         }
@@ -416,6 +478,7 @@ public final class AppState {
     /// the run start opened. Runs without a waveform (e.g. operating point)
     /// and failed runs keep the console, where their output lives.
     private func focusSimulationOutcome(_ result: SimulationResult) {
+        guard result.status == .completed else { return }
         guard let waveform = result.waveform else { return }
         focusWaveform(waveform, source: .liveRun, reveal: waveform.pointCount > 1)
     }
@@ -425,16 +488,55 @@ public final class AppState {
         document: SchematicDocument,
         library: CellLibrary = CellLibrary(),
         analysisCommand: AnalysisCommand,
-        service: DesignFlowService
+        service: DesignFlowService,
+        recorder: (any SimulationRunRecording)? = nil
     ) async {
+        await runSchematicSimulationRecorded(
+            document: document,
+            library: library,
+            analysisCommand: analysisCommand,
+            service: service,
+            recorder: recorder,
+            recordingContext: nil,
+            startedAt: nil
+        )
+    }
+
+    private func runSchematicSimulationRecorded(
+        document: SchematicDocument,
+        library: CellLibrary,
+        analysisCommand: AnalysisCommand,
+        service: DesignFlowService,
+        recorder: (any SimulationRunRecording)?,
+        recordingContext: SimulationRunContext?,
+        startedAt: Date?
+    ) async {
+        let start = startedAt ?? Date()
+        let activeRecordingContext: SimulationRunContext?
+        do {
+            if let recordingContext {
+                activeRecordingContext = recordingContext
+            } else {
+                activeRecordingContext = try beginSimulationRecording(
+                    recorder: recorder,
+                    intent: "Run \(analysisCommand.displayName) schematic simulation.",
+                    source: nil,
+                    fileName: "schematic.cir",
+                    startedAt: start
+                )
+            }
+        } catch {
+            simulationError = error.localizedDescription
+            log(error.localizedDescription, kind: .error)
+            return
+        }
+
         isSimulating = true
         simulationError = nil
         streamingWaveform = nil
         clearConsole()
         showDebugArea = true
         debugAreaTab = .console
-
-        let start = Date()
 
         log("Generating netlist...")
         let testbench = Testbench(
@@ -468,13 +570,37 @@ public final class AppState {
             log(flowResult.netlist, kind: .output)
             continuation.finish()
             _ = await updateTask.value
-            simulationResult = flowResult.simulationResult
-            let elapsed = String(format: "%.2f", Date().timeIntervalSince(start))
-            log("Completed (\(elapsed)s)", kind: .success)
-            focusSimulationOutcome(flowResult.simulationResult)
+            let record = AnalysisRunRecord(
+                analysis: analysisCommand,
+                status: flowResult.simulationResult.status,
+                result: flowResult.simulationResult,
+                failureReason: flowResult.simulationResult.status == .failed
+                    ? flowResult.simulationResult.logMessages.last
+                    : nil,
+                startedAt: flowResult.simulationResult.startedAt,
+                finishedAt: flowResult.simulationResult.finishedAt
+            )
+            if let recorder, let activeRecordingContext {
+                try await recorder.complete(
+                    context: activeRecordingContext,
+                    source: flowResult.netlist,
+                    records: [record]
+                )
+            }
+            runHistory.append(AnalysisRunBatch(
+                runID: activeRecordingContext?.runID,
+                startedAt: start,
+                records: [record]
+            ))
+            applySimulationOutcome(flowResult.simulationResult, startedAt: start)
         } catch {
             continuation.finish()
             updateTask.cancel()
+            recordSimulationFailure(
+                recorder: recorder,
+                context: activeRecordingContext,
+                reason: error.localizedDescription
+            )
             log(error.localizedDescription, kind: .error)
             simulationError = error.localizedDescription
         }
@@ -484,26 +610,71 @@ public final class AppState {
         isSimulating = false
     }
 
+    private func applySimulationOutcome(
+        _ result: SimulationResult,
+        startedAt: Date
+    ) {
+        simulationResult = result
+        let elapsed = String(format: "%.2f", Date().timeIntervalSince(startedAt))
+        switch result.status {
+        case .completed:
+            log("Completed (\(elapsed)s)", kind: .success)
+        case .failed:
+            let reason = result.logMessages.last ?? "Simulation failed."
+            simulationError = reason
+            log("Failed (\(elapsed)s): \(reason)", kind: .error)
+        case .cancelled:
+            log("Cancelled (\(elapsed)s)", kind: .warning)
+        case .pending, .running:
+            let reason = "Simulation returned without a terminal result."
+            simulationError = reason
+            log("Incomplete (\(elapsed)s): \(reason)", kind: .warning)
+        }
+        focusSimulationOutcome(result)
+    }
+
     // MARK: - Matrix Runs
 
-    /// The single entry point behind Run (⌘R): decides between a legacy
-    /// single run and an analysis × corner matrix based on the current
+    /// The single entry point behind Run (⌘R): decides between a single
+    /// analysis and an analysis × corner matrix based on the current
     /// editor mode, the analyses the source declares, and the selected
     /// corners.
     public func runActiveSimulation(
         schematicDocument: SchematicDocument,
         library: CellLibrary = CellLibrary(),
-        service: DesignFlowService
+        service: DesignFlowService,
+        recorder: any SimulationRunRecording
     ) async {
+        let startedAt = Date()
+        let initialSource = schematicMode == .netlist ? spiceSource : nil
+        let initialFileName = schematicMode == .netlist ? spiceFileName : "schematic.cir"
+        let recordingContext: SimulationRunContext
+        do {
+            recordingContext = try recorder.begin(
+                projectRoot: try requiredProjectRootForSimulation(),
+                intent: "Run the active simulation workflow.",
+                source: initialSource,
+                fileName: initialFileName,
+                startedAt: startedAt
+            )
+        } catch {
+            simulationError = error.localizedDescription
+            log(error.localizedDescription, kind: .error)
+            return
+        }
+
         switch schematicMode {
         case .visual:
             let corners = selectedCorners
             guard !corners.isEmpty else {
-                await runSchematicSimulation(
+                await runSchematicSimulationRecorded(
                     document: schematicDocument,
                     library: library,
                     analysisCommand: selectedAnalysis,
-                    service: service
+                    service: service,
+                    recorder: recorder,
+                    recordingContext: recordingContext,
+                    startedAt: startedAt
                 )
                 return
             }
@@ -520,20 +691,33 @@ public final class AppState {
                     processConfiguration: processConfiguration.isEmpty ? nil : processConfiguration
                 ))
             } catch {
+                recordSimulationFailure(
+                    recorder: recorder,
+                    context: recordingContext,
+                    reason: error.localizedDescription
+                )
                 simulationError = error.localizedDescription
                 log(error.localizedDescription, kind: .error)
                 return
             }
-            await runMatrix(
+            await runMatrixRecorded(
                 source: netlist,
                 fileName: "schematic.cir",
                 analyses: [selectedAnalysis],
-                service: service
+                service: service,
+                recorder: recorder,
+                recordingContext: recordingContext,
+                startedAt: startedAt
             )
 
         case .netlist:
             guard !spiceSource.isEmpty else {
                 simulationError = "No SPICE source loaded"
+                recordSimulationFailure(
+                    recorder: recorder,
+                    context: recordingContext,
+                    reason: "No SPICE source loaded"
+                )
                 return
             }
             let detected: [AnalysisCommand]
@@ -544,20 +728,34 @@ public final class AppState {
                     processConfiguration: processConfiguration.isEmpty ? nil : processConfiguration
                 )
             } catch {
+                recordSimulationFailure(
+                    recorder: recorder,
+                    context: recordingContext,
+                    reason: error.localizedDescription
+                )
                 simulationError = error.localizedDescription
                 log(error.localizedDescription, kind: .error)
                 return
             }
             let analyses = detected.isEmpty ? [.op] : detected
             if selectedCorners.isEmpty && analyses.count <= 1 {
-                await runSimulation(service: service)
+                await runSimulationRecorded(
+                    service: service,
+                    analysis: analyses.first ?? selectedAnalysis,
+                    recorder: recorder,
+                    recordingContext: recordingContext,
+                    startedAt: startedAt
+                )
                 return
             }
-            await runMatrix(
+            await runMatrixRecorded(
                 source: spiceSource,
                 fileName: spiceFileName,
                 analyses: analyses,
-                service: service
+                service: service,
+                recorder: recorder,
+                recordingContext: recordingContext,
+                startedAt: startedAt
             )
         }
     }
@@ -568,8 +766,49 @@ public final class AppState {
         source: String,
         fileName: String?,
         analyses: [AnalysisCommand],
-        service: DesignFlowService
+        service: DesignFlowService,
+        recorder: (any SimulationRunRecording)? = nil
     ) async {
+        await runMatrixRecorded(
+            source: source,
+            fileName: fileName,
+            analyses: analyses,
+            service: service,
+            recorder: recorder,
+            recordingContext: nil,
+            startedAt: nil
+        )
+    }
+
+    private func runMatrixRecorded(
+        source: String,
+        fileName: String?,
+        analyses: [AnalysisCommand],
+        service: DesignFlowService,
+        recorder: (any SimulationRunRecording)?,
+        recordingContext: SimulationRunContext?,
+        startedAt: Date?
+    ) async {
+        let start = startedAt ?? Date()
+        let activeRecordingContext: SimulationRunContext?
+        do {
+            if let recordingContext {
+                activeRecordingContext = recordingContext
+            } else {
+                activeRecordingContext = try beginSimulationRecording(
+                    recorder: recorder,
+                    intent: "Run an analysis and corner matrix.",
+                    source: source,
+                    fileName: fileName,
+                    startedAt: start
+                )
+            }
+        } catch {
+            simulationError = error.localizedDescription
+            log(error.localizedDescription, kind: .error)
+            return
+        }
+
         isSimulating = true
         simulationError = nil
         streamingWaveform = nil
@@ -577,7 +816,6 @@ public final class AppState {
         showDebugArea = true
         debugAreaTab = .console
 
-        let start = Date()
         let corners = selectedCorners
         let runCount = analyses.count * max(corners.count, 1)
         if corners.isEmpty {
@@ -608,7 +846,32 @@ public final class AppState {
         continuation.finish()
         _ = await updateTask.value
 
-        let batch = AnalysisRunBatch(startedAt: start, records: records)
+        do {
+            if let recorder, let activeRecordingContext {
+                try await recorder.complete(
+                    context: activeRecordingContext,
+                    source: source,
+                    records: records
+                )
+            }
+        } catch {
+            recordSimulationFailure(
+                recorder: recorder,
+                context: activeRecordingContext,
+                reason: error.localizedDescription
+            )
+            log(error.localizedDescription, kind: .error)
+            simulationError = error.localizedDescription
+            streamingWaveform = nil
+            simulationStatus = nil
+            isSimulating = false
+            return
+        }
+        let batch = AnalysisRunBatch(
+            runID: activeRecordingContext?.runID,
+            startedAt: start,
+            records: records
+        )
         runHistory.append(batch)
 
         let elapsed = String(format: "%.2f", Date().timeIntervalSince(start))
@@ -629,6 +892,50 @@ public final class AppState {
 
         simulationStatus = nil
         isSimulating = false
+    }
+
+    private func beginSimulationRecording(
+        recorder: (any SimulationRunRecording)?,
+        intent: String,
+        source: String?,
+        fileName: String?,
+        startedAt: Date
+    ) throws -> SimulationRunContext? {
+        guard let recorder else {
+            return nil
+        }
+        return try recorder.begin(
+            projectRoot: try requiredProjectRootForSimulation(),
+            intent: intent,
+            source: source,
+            fileName: fileName,
+            startedAt: startedAt
+        )
+    }
+
+    private func requiredProjectRootForSimulation() throws -> URL {
+        guard let projectRootURL else {
+            throw SimulationRunRecordingError.projectRequired
+        }
+        return projectRootURL
+    }
+
+    private func recordSimulationFailure(
+        recorder: (any SimulationRunRecording)?,
+        context: SimulationRunContext?,
+        reason: String
+    ) {
+        guard let recorder, let context else {
+            return
+        }
+        do {
+            try recorder.fail(context: context, reason: reason)
+        } catch {
+            log(
+                "Failed to persist the simulation failure: \(error.localizedDescription)",
+                kind: .error
+            )
+        }
     }
 
     private func appendRecordLog(_ record: AnalysisRunRecord) {

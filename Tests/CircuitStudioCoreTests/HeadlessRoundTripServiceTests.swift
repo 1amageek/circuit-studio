@@ -3,6 +3,7 @@ import Testing
 import LayoutCore
 import LayoutTech
 import LayoutVerify
+import XcircuitePackage
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 @testable import SchematicEditor
@@ -675,6 +676,14 @@ struct HeadlessRoundTripServiceTests {
         #expect(manifest.bottleneckSummary?.recommendations.contains {
             $0.contains("configured design, signoff, and PEX artifact paths")
         } == true)
+        let canonicalManifest = try XcircuitePackageStore().loadRunManifest(
+            runID: "capture-directory",
+            inProjectAt: root
+        )
+        #expect(canonicalManifest.status == .failed)
+        #expect(canonicalManifest.artifacts.contains {
+            $0.artifactID == "round-trip-manifest"
+        })
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -1021,6 +1030,23 @@ struct HeadlessRoundTripServiceTests {
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(HeadlessRoundTripService.Manifest.self, from: manifestData)
         #expect(manifest == result.manifest)
+
+        let canonicalManifest = try XcircuitePackageStore().loadRunManifest(
+            runID: result.manifest.runID,
+            inProjectAt: roundTrip.projectRoot
+        )
+        #expect(canonicalManifest.status == .succeeded)
+        #expect(canonicalManifest.intent == result.manifest.title)
+        let canonicalArtifactIDs = canonicalManifest.artifacts.compactMap(\.artifactID)
+        #expect(canonicalArtifactIDs.count == canonicalManifest.artifacts.count)
+        #expect(Set(canonicalArtifactIDs).count == canonicalArtifactIDs.count)
+        #expect(canonicalManifest.artifacts.contains {
+            $0.artifactID == "round-trip-manifest"
+                && $0.path.hasSuffix("/round-trip-manifest.json")
+        })
+        #expect(canonicalManifest.artifacts.contains {
+            $0.path.hasSuffix("/post-layout-comparison.json")
+        })
 
         let review = try ExternalSignoffReviewStore().load(forProjectAt: roundTrip.projectRoot)
         #expect(review.approvedBy == "layout-reviewer")

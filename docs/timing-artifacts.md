@@ -45,7 +45,7 @@ flowchart LR
 
 ## Run Directory Layout
 
-Timing artifacts live below the active run directory. Headless round trips and Agent-driven library runs use the shared `.xcircuite/runs/<run-id>/` ledger. Review services keep read-only compatibility for legacy `.xcircuite/flow-runs/<run-id>/` manifests during migration. The format below is relative to the run directory root.
+Timing artifacts live below the active run directory. Headless round trips and Agent-driven library runs use the shared `.xcircuite/runs/<run-id>/` ledger. Review services resolve runs exclusively through the project ledger and canonical run manifest. The format below is relative to the run directory root.
 
 ```text
 <run-dir>/

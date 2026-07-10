@@ -76,7 +76,7 @@ public enum FlowRunnerFailureEnvelopeBuilder {
         }
         let manifestURL: URL
         do {
-            manifestURL = try RoundTripRunDirectory.existingManifestURL(
+            manifestURL = try RoundTripRunDirectory.manifestURL(
                 projectRoot: URL(filePath: projectRoot),
                 runID: runID
             )

@@ -100,25 +100,6 @@ public struct ExternalSignoffToolReport: Sendable, Hashable, Codable {
         success && completed && !diagnostics.contains { $0.severity == .error }
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case kind, toolName, success, completed, parserStyle, logPath, diagnostics
-    }
-
-    // Backward-compatible decoding: artifacts written before `completed` existed
-    // default to `true` (they predate the positive-evidence gate).
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        kind = try container.decode(Kind.self, forKey: .kind)
-        toolName = try container.decode(String.self, forKey: .toolName)
-        success = try container.decode(Bool.self, forKey: .success)
-        completed = try container.decodeIfPresent(Bool.self, forKey: .completed) ?? true
-        parserStyle = try container.decodeIfPresent(
-            ExternalSignoffReportParser.Style.self,
-            forKey: .parserStyle
-        ) ?? .generic
-        logPath = try container.decode(String.self, forKey: .logPath)
-        diagnostics = try container.decodeIfPresent([ExternalSignoffDiagnostic].self, forKey: .diagnostics) ?? []
-    }
 }
 
 public struct ExternalSignoffDiagnostic: Sendable, Hashable, Codable {

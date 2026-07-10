@@ -12,7 +12,7 @@ public struct RunReviewView: View {
     public let projectRoot: URL
     public let reviewer: String
 
-    @State private var runs: [XcircuiteRunReference] = []
+    @State private var runs: [XcircuiteRunSnapshot] = []
     @State private var selectedRunID: String?
     @State private var review: RunReviewService.RunReview?
     @State private var note: String = ""
@@ -35,6 +35,7 @@ public struct RunReviewView: View {
     @State private var loadError: String?
 
     private let service = RunReviewService()
+    private let observer = XcircuiteRunLedgerObserver()
 
     public init(projectRoot: URL, reviewer: String) {
         self.projectRoot = projectRoot
@@ -44,8 +45,23 @@ public struct RunReviewView: View {
     public var body: some View {
         NavigationSplitView {
             List(runs, id: \.runID, selection: $selectedRunID) { run in
-                HStack {
-                    Text(run.runID)
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(run.runID)
+                            .lineLimit(1)
+                        Text("\(run.manifest.actor.identifier) (\(run.manifest.actor.kind.rawValue))")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(
+                            run.manifest.updatedAt,
+                            format: .dateTime.year().month().day().hour().minute()
+                        )
+                        .lineLimit(1)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
                     Spacer()
                     statusBadge(run.status)
                 }
@@ -65,12 +81,11 @@ public struct RunReviewView: View {
             } else {
                 ContentUnavailableView(
                     "Select a run",
-                    systemImage: "list.bullet.rectangle",
-                    description: Text("Every verdict shown here is read from .xcircuite/runs.")
+                    systemImage: "list.bullet.rectangle"
                 )
             }
         }
-        .task { reloadRuns() }
+        .task { await observeRuns() }
         .onChange(of: selectedRunID) { _, _ in reloadReview() }
     }
 
@@ -84,6 +99,27 @@ public struct RunReviewView: View {
                     Text(review.runID).font(.title2).bold()
                     statusBadge(review.status)
                     Spacer()
+                }
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                    GridRow {
+                        Text("Actor")
+                            .foregroundStyle(.secondary)
+                        Text("\(review.actor.identifier) (\(review.actor.kind.rawValue))")
+                    }
+                    lifecycleRow(label: "Created", date: review.createdAt)
+                    lifecycleRow(label: "Updated", date: review.updatedAt)
+                    if let startedAt = review.startedAt {
+                        lifecycleRow(label: "Started", date: startedAt)
+                    }
+                    if let finishedAt = review.finishedAt {
+                        lifecycleRow(label: "Finished", date: finishedAt)
+                    }
+                }
+                .font(.caption)
+                if let intent = review.intent, !intent.isEmpty {
+                    Text(intent)
+                        .font(.subheadline)
+                        .textSelection(.enabled)
                 }
                 if !review.bundle.reviewItems.isEmpty {
                     RunReviewItemList(items: review.bundle.reviewItems)
@@ -153,6 +189,15 @@ public struct RunReviewView: View {
                 }
             }
             .padding()
+        }
+    }
+
+    private func lifecycleRow(label: String, date: Date) -> some View {
+        GridRow {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Text(date, format: .dateTime.year().month().day().hour().minute().second())
+                .textSelection(.enabled)
         }
     }
 
@@ -905,14 +950,31 @@ public struct RunReviewView: View {
 
     // MARK: - Actions
 
-    private func reloadRuns() {
+    @MainActor
+    private func observeRuns() async {
         do {
-            runs = try service.listRuns(projectRoot: projectRoot)
-            loadError = nil
+            let updates = await observer.snapshots(projectRoot: projectRoot)
+            for try await snapshots in updates {
+                guard !Task.isCancelled else {
+                    break
+                }
+                runs = snapshots
+                if let selectedRunID,
+                   !snapshots.contains(where: { $0.runID == selectedRunID }) {
+                    self.selectedRunID = nil
+                }
+                if selectedRunID == nil {
+                    selectedRunID = snapshots.last?.runID
+                } else {
+                    reloadReview()
+                }
+                loadError = nil
+            }
         } catch {
             runs = []
             loadError = error.localizedDescription
         }
+        await observer.shutdown()
     }
 
     private func reloadReview() {

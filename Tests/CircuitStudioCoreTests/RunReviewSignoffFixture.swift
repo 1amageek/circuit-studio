@@ -367,7 +367,8 @@ struct RunReviewSignoffFixture {
                       "rationale": "M1.WIDTH maps to layout.resize-shape because the diagnostic exposes a target shape."
                     }
                   ],
-                  "unsupportedDiagnosticIndexes": []
+                  "unsupportedDiagnosticIndexes": [],
+                  "diagnostics": []
                 }
                 """.utf8
             ),
@@ -444,7 +445,8 @@ struct RunReviewSignoffFixture {
                       "rationale": "DEVICE_COUNT maps to layout.add-label because the mismatch requires layout-side connectivity evidence."
                     }
                   ],
-                  "unsupportedDiagnosticIndexes": []
+                  "unsupportedDiagnosticIndexes": [],
+                  "unsupportedDiagnostics": []
                 }
                 """.utf8
             ),

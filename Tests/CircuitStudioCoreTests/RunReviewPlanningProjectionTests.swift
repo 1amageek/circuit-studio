@@ -830,9 +830,14 @@ struct RunReviewPlanningProjectionTests {
         let ledger = FlowRunLedger(
             runID: runID,
             runDirectory: root.appending(path: runDirectoryPath),
-            runManifest: XcircuiteRunManifest(
+            runManifest: try XcircuiteRunManifest(
                 runID: runID,
                 status: .blocked,
+                actor: XcircuiteRunActionActor(kind: .system, identifier: "planning-test"),
+                createdAt: Date(timeIntervalSince1970: 1_000),
+                updatedAt: Date(timeIntervalSince1970: 1_020),
+                startedAt: Date(timeIntervalSince1970: 1_010),
+                finishedAt: Date(timeIntervalSince1970: 1_020),
                 artifacts: [reference]
             ),
             stages: []

@@ -21,13 +21,6 @@ import LayoutTech
 /// never narrower than the sized device (it can only be as fast or faster).
 public struct SpecDrivenCellFlow: Sendable {
 
-    /// Compatibility access to the bundled profile manufacturing grid.
-    public static var gridMicrons: Double {
-        get throws {
-            try loadGridMicrons()
-        }
-    }
-
     public static func loadGridMicrons() throws -> Double {
         try loadDefaultLayoutProfile().manufacturingGridMicrons
     }

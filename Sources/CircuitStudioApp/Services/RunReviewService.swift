@@ -14,6 +14,12 @@ public struct RunReviewService: Sendable {
     public struct RunReview: Sendable {
         public let runID: String
         public let status: XcircuiteRunStatus
+        public let actor: XcircuiteRunActionActor
+        public let intent: String?
+        public let createdAt: Date
+        public let updatedAt: Date
+        public let startedAt: Date?
+        public let finishedAt: Date?
         public let artifacts: [XcircuiteFileReference]
         public let stages: [StageReview]
         public let approvals: [XcircuiteApprovalRecord]
@@ -82,9 +88,9 @@ public struct RunReviewService: Sendable {
         self.reviewBundler = reviewBundler
     }
 
-    /// Every run the project manifest lists, newest last.
-    public func listRuns(projectRoot: URL) throws -> [XcircuiteRunReference] {
-        try store.loadManifest(forProjectAt: projectRoot).runs
+    /// Every project run resolved from its locator to its canonical manifest, newest last.
+    public func listRuns(projectRoot: URL) throws -> [XcircuiteRunSnapshot] {
+        try store.listRunSnapshots(inProjectAt: projectRoot)
     }
 
     /// The full review picture of one run, straight from the ledger.
@@ -137,6 +143,12 @@ public struct RunReviewService: Sendable {
         return RunReview(
             runID: runID,
             status: Self.xcircuiteStatus(from: bundle.status),
+            actor: ledger.runManifest.actor,
+            intent: ledger.runManifest.intent,
+            createdAt: ledger.runManifest.createdAt,
+            updatedAt: ledger.runManifest.updatedAt,
+            startedAt: ledger.runManifest.startedAt,
+            finishedAt: ledger.runManifest.finishedAt,
             artifacts: ledger.runManifest.artifacts,
             stages: stages,
             approvals: approvals,

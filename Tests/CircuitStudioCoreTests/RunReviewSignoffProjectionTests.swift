@@ -1058,6 +1058,12 @@ struct RunReviewSignoffProjectionTests {
         let review = RunReviewService.RunReview(
             runID: fixture.review.runID,
             status: fixture.review.status,
+            actor: fixture.review.actor,
+            intent: fixture.review.intent,
+            createdAt: fixture.review.createdAt,
+            updatedAt: fixture.review.updatedAt,
+            startedAt: fixture.review.startedAt,
+            finishedAt: fixture.review.finishedAt,
             artifacts: fixture.review.artifacts,
             stages: fixture.review.stages,
             approvals: fixture.review.approvals,

@@ -89,14 +89,11 @@ public struct ProjectService: Sendable {
 
     /// Returns nil when no Circuit Studio session manifest has been saved.
     /// A present but unreadable `studio-session.json` throws so corruption
-    /// surfaces. If the new file is absent, this reads the legacy
-    /// `.xcircuite/project.json` only when that file is clearly the old
-    /// Studio session schema; otherwise `.xcircuite/project.json` is treated
-    /// as the Xcircuite package manifest it now belongs to.
+    /// surfaces. `.xcircuite/project.json` is always the package manifest.
     func loadStudioSessionManifestIfPresent(forProjectAt projectRoot: URL) throws -> StudioSessionManifest? {
         let url = try studioSessionManifestURL(inProjectAt: projectRoot)
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
-            return legacyStudioSessionManifestIfPresent(forProjectAt: projectRoot)
+            return nil
         }
         return try readJSON(StudioSessionManifest.self, from: url)
     }
@@ -538,67 +535,12 @@ public struct ProjectService: Sendable {
         forProjectAt projectRoot: URL,
         topDesignName: String?
     ) throws {
-        try packageStore.ensurePackageDirectory(forProjectAt: projectRoot)
-
-        let manifestURL = xcircuiteProjectManifestURL(inProjectAt: projectRoot)
-        let manifestPath = manifestURL.path(percentEncoded: false)
-        guard FileManager.default.fileExists(atPath: manifestPath) else {
-            try saveDefaultXcircuiteProjectManifest(forProjectAt: projectRoot, topDesignName: topDesignName)
-            return
-        }
-
-        do {
-            var manifest = try packageStore.loadManifest(forProjectAt: projectRoot)
-            if let topDesignName, manifest.identity.topDesignName != topDesignName {
-                manifest.identity.topDesignName = topDesignName
-                try packageStore.saveManifest(manifest, forProjectAt: projectRoot)
-            }
-        } catch {
-            guard let legacyManifest = legacyStudioSessionManifest(at: manifestURL) else {
-                throw StudioError.projectSaveFailed(
-                    "Could not read .xcircuite/project.json as an Xcircuite project manifest: \(error.localizedDescription)"
-                )
-            }
-            try saveDefaultXcircuiteProjectManifest(
-                forProjectAt: projectRoot,
-                topDesignName: topDesignName ?? legacyManifest.topCell
+        try packageStore.createPackage(at: projectRoot)
+        if let topDesignName {
+            try packageStore.updateProjectTopDesignName(
+                topDesignName,
+                inProjectAt: projectRoot
             )
-        }
-    }
-
-    private func saveDefaultXcircuiteProjectManifest(
-        forProjectAt projectRoot: URL,
-        topDesignName: String?
-    ) throws {
-        let displayName = projectRoot.lastPathComponent.isEmpty ? "Untitled" : projectRoot.lastPathComponent
-        let manifest = XcircuiteProjectManifest.makeDefault(
-            displayName: displayName,
-            topDesignName: topDesignName ?? "TOP"
-        )
-        try packageStore.saveManifest(manifest, forProjectAt: projectRoot)
-    }
-
-    private func legacyStudioSessionManifestIfPresent(
-        forProjectAt projectRoot: URL
-    ) -> StudioSessionManifest? {
-        let legacyURL = xcircuiteProjectManifestURL(inProjectAt: projectRoot)
-        guard FileManager.default.fileExists(atPath: legacyURL.path(percentEncoded: false)) else {
-            return nil
-        }
-
-        do {
-            _ = try packageStore.loadManifest(forProjectAt: projectRoot)
-            return nil
-        } catch {
-            return legacyStudioSessionManifest(at: legacyURL)
-        }
-    }
-
-    private func legacyStudioSessionManifest(at url: URL) -> StudioSessionManifest? {
-        do {
-            return try readJSON(StudioSessionManifest.self, from: url)
-        } catch {
-            return nil
         }
     }
 

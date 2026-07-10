@@ -5,7 +5,7 @@
   "profiles": [
     {
       "profileID": "sky130.standard-cell-layout.v1",
-      "displayName": "Sky130 compatibility standard-cell layout profile",
+      "displayName": "Sky130 standard-cell layout profile",
       "processName": "sky130",
       "profileResourceName": "sky130-standard-cell-layout-profile",
       "defaultProfile": true

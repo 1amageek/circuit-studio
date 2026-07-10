@@ -16,6 +16,9 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         case artifactFileMissing(id: String, path: String)
         case artifactDigestMismatch(id: String, claimed: String, actual: String)
         case artifactByteCountMismatch(id: String, claimed: Int64, actual: Int64)
+        case artifactNotRegularFile(id: String, path: String)
+        case duplicateArtifactID(String)
+        case artifactDestinationExists(String)
 
         public var errorDescription: String? {
             switch self {
@@ -25,6 +28,12 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                 return "Claim artifact '\(id)' digest mismatch: claimed \(claimed), actual \(actual)."
             case .artifactByteCountMismatch(let id, let claimed, let actual):
                 return "Claim artifact '\(id)' byte count mismatch: claimed \(claimed), actual \(actual)."
+            case .artifactNotRegularFile(let id, let path):
+                return "Claim artifact '\(id)' must resolve to a regular file: \(path)"
+            case .duplicateArtifactID(let id):
+                return "Claim artifact ID '\(id)' is duplicated in the evidence bundle."
+            case .artifactDestinationExists(let path):
+                return "Evidence capture destination already exists: \(path)"
             }
         }
     }
@@ -55,49 +64,120 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         runID: String
     ) throws -> RecordedRun {
         try store.createPackage(at: projectRoot)
-        let runDirectory = try store.createRunDirectory(for: runID, inProjectAt: projectRoot)
+        let runDirectory = try store.createRunDirectory(
+            for: runID,
+            descriptor: XcircuiteRunDescriptor(
+                actor: XcircuiteRunActionActor(
+                    kind: .system,
+                    identifier: "tapeout-evidence-recorder"
+                ),
+                intent: "Record and verify tapeout evidence."
+            ),
+            inProjectAt: projectRoot
+        )
+        _ = try store.transitionRun(
+            runID: runID,
+            transition: XcircuiteRunTransition(status: .running),
+            inProjectAt: projectRoot
+        )
+        do {
+            return try recordRunningBundle(
+                bundle,
+                projectRoot: projectRoot,
+                runID: runID,
+                runDirectory: runDirectory
+            )
+        } catch {
+            do {
+                let failureReference = try recordFailure(
+                    error,
+                    projectRoot: projectRoot,
+                    runID: runID,
+                    runDirectory: runDirectory
+                )
+                _ = try store.transitionRun(
+                    runID: runID,
+                    transition: XcircuiteRunTransition(
+                        status: .failed,
+                        artifacts: [failureReference]
+                    ),
+                    inProjectAt: projectRoot
+                )
+            } catch let lifecycleError {
+                throw XcircuitePackageError.writeFailed(
+                    "Evidence recording failed with '\(error.localizedDescription)' and the canonical run could not be marked failed: \(lifecycleError.localizedDescription)"
+                )
+            }
+            throw error
+        }
+    }
+
+    private func recordRunningBundle(
+        _ bundle: TapeoutEvidenceBundle,
+        projectRoot: URL,
+        runID: String,
+        runDirectory: URL
+    ) throws -> RecordedRun {
         var artifacts: [XcircuiteFileReference] = []
+        var artifactIDs: Set<String> = []
 
         // The bundle itself is the run's primary report.
+        try reserveArtifactID("tapeout-evidence", in: &artifactIDs)
+        try reserveArtifactID("evidence-error", in: &artifactIDs)
         let evidenceURL = runDirectory.appending(path: "evidence.json")
         try store.writeJSON(bundle, to: evidenceURL, forProjectAt: projectRoot)
-        artifacts.append(try fileReference(
+        try recordArtifact(try fileReference(
             for: evidenceURL,
+            artifactID: "tapeout-evidence",
             projectRoot: projectRoot,
             kind: .report,
             format: .json,
             runID: runID
-        ))
+        ), artifacts: &artifacts, projectRoot: projectRoot, runID: runID)
 
         // Claim artifacts, copied into the immutable capture.
         let artifactsDirectory = runDirectory.appending(path: "artifacts")
         for claim in bundle.claims {
             guard let artifact = claim.artifact, artifact.status == .available else { continue }
-            let copied = try copyArtifact(artifact, into: artifactsDirectory)
-            artifacts.append(try fileReference(
+            try reserveArtifactID(artifact.id, in: &artifactIDs)
+            let copied = try copyArtifact(
+                artifact,
+                into: artifactsDirectory,
+                projectRoot: projectRoot,
+                runID: runID
+            )
+            try recordArtifact(try fileReference(
                 for: copied,
+                artifactID: artifact.id,
                 projectRoot: projectRoot,
                 kind: fileKind(forClaimArtifactKind: artifact.kind),
                 format: fileFormat(forFileAt: copied),
                 runID: runID
-            ))
+            ), artifacts: &artifacts, projectRoot: projectRoot, runID: runID)
         }
 
         if let gdsPath = bundle.gdsPath, !gdsPath.isEmpty {
+            try reserveArtifactID("gds", in: &artifactIDs)
             let gds = TapeoutEvidenceArtifact(
                 id: "gds",
                 kind: "layout",
                 path: gdsPath,
                 status: .available
             )
-            let copied = try copyArtifact(gds, into: artifactsDirectory)
-            artifacts.append(try fileReference(
+            let copied = try copyArtifact(
+                gds,
+                into: artifactsDirectory,
+                projectRoot: projectRoot,
+                runID: runID
+            )
+            try recordArtifact(try fileReference(
                 for: copied,
+                artifactID: gds.id,
                 projectRoot: projectRoot,
                 kind: .layout,
                 format: .gdsii,
                 runID: runID
-            ))
+            ), artifacts: &artifacts, projectRoot: projectRoot, runID: runID)
         }
 
         let status: XcircuiteRunStatus
@@ -110,38 +190,57 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
             status = .failed
         }
 
-        let manifest = XcircuiteRunManifest(runID: runID, status: status, artifacts: artifacts)
-        try store.writeJSON(
-            manifest,
-            to: runDirectory.appending(path: "manifest.json"),
-            forProjectAt: projectRoot
+        let manifest = try store.transitionRun(
+            runID: runID,
+            transition: XcircuiteRunTransition(status: status, artifacts: artifacts),
+            inProjectAt: projectRoot
         )
-
-        var project = try store.loadManifest(forProjectAt: projectRoot)
-        if let index = project.runs.firstIndex(where: { $0.runID == runID }) {
-            project.runs[index].status = status
-        }
-        try store.saveManifest(project, forProjectAt: projectRoot)
 
         return RecordedRun(runID: runID, runDirectory: runDirectory, manifest: manifest)
     }
 
     // MARK: - Internals
 
+    private func recordArtifact(
+        _ reference: XcircuiteFileReference,
+        artifacts: inout [XcircuiteFileReference],
+        projectRoot: URL,
+        runID: String
+    ) throws {
+        artifacts.append(reference)
+        _ = try store.upsertRunArtifacts(
+            [reference],
+            runID: runID,
+            inProjectAt: projectRoot
+        )
+    }
+
     private func copyArtifact(
         _ artifact: TapeoutEvidenceArtifact,
-        into directory: URL
+        into directory: URL,
+        projectRoot: URL,
+        runID: String
     ) throws -> URL {
+        try XcircuiteIdentifierValidator().validate(artifact.id, kind: .artifactID)
         let source = URL(filePath: artifact.path)
         guard FileManager.default.fileExists(atPath: source.path(percentEncoded: false)) else {
             throw RecorderError.artifactFileMissing(id: artifact.id, path: artifact.path)
         }
-        try store.ensureDirectory(at: directory)
-        let destination = directory.appending(path: "\(artifact.id)-\(source.lastPathComponent)")
-        if FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) {
-            try FileManager.default.removeItem(at: destination)
+        let resolvedSource = source.resolvingSymlinksInPath()
+        let sourceValues = try resolvedSource.resourceValues(forKeys: [.isRegularFileKey])
+        guard sourceValues.isRegularFile == true else {
+            throw RecorderError.artifactNotRegularFile(id: artifact.id, path: artifact.path)
         }
-        try FileManager.default.copyItem(at: source, to: destination)
+        try store.ensureDirectory(at: directory)
+        let relativeDestination = "\(XcircuitePackage.directoryName)/runs/\(runID)/artifacts/\(artifact.id)-\(source.lastPathComponent)"
+        let destination = try XcircuitePackage(projectRoot: projectRoot)
+            .url(forProjectRelativePath: relativeDestination)
+        if FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) {
+            throw RecorderError.artifactDestinationExists(
+                destination.path(percentEncoded: false)
+            )
+        }
+        try FileManager.default.copyItem(at: resolvedSource, to: destination)
 
         let digest = try hasher.sha256(fileAt: destination)
         if let claimed = artifact.sha256, claimed != digest {
@@ -164,6 +263,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
 
     private func fileReference(
         for url: URL,
+        artifactID: String,
         projectRoot: URL,
         kind: XcircuiteFileKind,
         format: XcircuiteFileFormat,
@@ -177,14 +277,57 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                 "artifact '\(filePath)' is outside the project root '\(rootPath)'"
             )
         }
-        return XcircuiteFileReference(
-            path: String(filePath.dropFirst(prefix.count)),
+        return try store.fileReference(
+            forProjectRelativePath: String(filePath.dropFirst(prefix.count)),
+            artifactID: artifactID,
             kind: kind,
             format: format,
-            sha256: try hasher.sha256(fileAt: url),
-            byteCount: try hasher.byteCount(fileAt: url),
+            inProjectAt: projectRoot,
             producedByRunID: runID
         )
+    }
+
+    private func reserveArtifactID(
+        _ artifactID: String,
+        in artifactIDs: inout Set<String>
+    ) throws {
+        try XcircuiteIdentifierValidator().validate(artifactID, kind: .artifactID)
+        guard artifactIDs.insert(artifactID).inserted else {
+            throw RecorderError.duplicateArtifactID(artifactID)
+        }
+    }
+
+    private func recordFailure(
+        _ error: Error,
+        projectRoot: URL,
+        runID: String,
+        runDirectory: URL
+    ) throws -> XcircuiteFileReference {
+        let failureURL = runDirectory.appending(path: "evidence-error.json")
+        try store.writeJSON(
+            EvidenceFailure(
+                reason: error.localizedDescription,
+                errorType: String(describing: type(of: error)),
+                recordedAt: Date()
+            ),
+            to: failureURL,
+            forProjectAt: projectRoot
+        )
+        return try fileReference(
+            for: failureURL,
+            artifactID: "evidence-error",
+            projectRoot: projectRoot,
+            kind: .report,
+            format: .json,
+            runID: runID
+        )
+    }
+
+    private struct EvidenceFailure: Sendable, Encodable {
+        let schemaVersion = 1
+        let reason: String
+        let errorType: String
+        let recordedAt: Date
     }
 
     private func fileKind(forClaimArtifactKind kind: String) -> XcircuiteFileKind {

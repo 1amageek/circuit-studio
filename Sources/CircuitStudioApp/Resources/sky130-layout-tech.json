@@ -183,7 +183,8 @@
       "bottomLayer" : { "name" : "diff", "purpose" : "drawing" },
       "cutSize" : { "width" : 0.17, "height" : 0.17 },
       "enclosure" : { "top" : 0.08, "bottom" : 0.06 },
-      "cutSpacing" : 0.17
+      "cutSpacing" : 0.17,
+      "layerGeometries" : []
     },
     {
       "id" : "mcon",
@@ -192,7 +193,8 @@
       "bottomLayer" : { "name" : "li1", "purpose" : "drawing" },
       "cutSize" : { "width" : 0.17, "height" : 0.17 },
       "enclosure" : { "top" : 0.06, "bottom" : 0.0 },
-      "cutSpacing" : 0.19
+      "cutSpacing" : 0.19,
+      "layerGeometries" : []
     },
     {
       "id" : "via",
@@ -201,7 +203,8 @@
       "bottomLayer" : { "name" : "met1", "purpose" : "drawing" },
       "cutSize" : { "width" : 0.15, "height" : 0.15 },
       "enclosure" : { "top" : 0.055, "bottom" : 0.055 },
-      "cutSpacing" : 0.17
+      "cutSpacing" : 0.17,
+      "layerGeometries" : []
     },
     {
       "id" : "via2",
@@ -210,7 +213,8 @@
       "bottomLayer" : { "name" : "met2", "purpose" : "drawing" },
       "cutSize" : { "width" : 0.20, "height" : 0.20 },
       "enclosure" : { "top" : 0.065, "bottom" : 0.085 },
-      "cutSpacing" : 0.20
+      "cutSpacing" : 0.20,
+      "layerGeometries" : []
     },
     {
       "id" : "via3",
@@ -219,26 +223,36 @@
       "bottomLayer" : { "name" : "met3", "purpose" : "drawing" },
       "cutSize" : { "width" : 0.20, "height" : 0.20 },
       "enclosure" : { "top" : 0.065, "bottom" : 0.065 },
-      "cutSpacing" : 0.20
+      "cutSpacing" : 0.20,
+      "layerGeometries" : []
     }
   ],
   "layerRules" : [
-    { "layerID" : { "name" : "nwell", "purpose" : "drawing" }, "minWidth" : 0.84, "minSpacing" : 1.27, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "diff", "purpose" : "drawing" }, "minWidth" : 0.15, "minSpacing" : 0.27, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "tap", "purpose" : "drawing" }, "minWidth" : 0.15, "minSpacing" : 0.27, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "nsdm", "purpose" : "drawing" }, "minWidth" : 0.38, "minSpacing" : 0.38, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "psdm", "purpose" : "drawing" }, "minWidth" : 0.38, "minSpacing" : 0.38, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "poly", "purpose" : "drawing" }, "minWidth" : 0.15, "minSpacing" : 0.21, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "npc", "purpose" : "drawing" }, "minWidth" : 0.27, "minSpacing" : 0.27, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "licon1", "purpose" : "cut" }, "minWidth" : 0.17, "minSpacing" : 0.17, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "li1", "purpose" : "drawing" }, "minWidth" : 0.17, "minSpacing" : 0.17, "minArea" : 0.0561, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "mcon", "purpose" : "cut" }, "minWidth" : 0.17, "minSpacing" : 0.19, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "met1", "purpose" : "drawing" }, "minWidth" : 0.14, "minSpacing" : 0.14, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "via", "purpose" : "drawing" }, "minWidth" : 0.15, "minSpacing" : 0.17, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "met2", "purpose" : "drawing" }, "minWidth" : 0.14, "minSpacing" : 0.14, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "via2", "purpose" : "drawing" }, "minWidth" : 0.20, "minSpacing" : 0.20, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "met3", "purpose" : "drawing" }, "minWidth" : 0.30, "minSpacing" : 0.30, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "via3", "purpose" : "drawing" }, "minWidth" : 0.20, "minSpacing" : 0.20, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 },
-    { "layerID" : { "name" : "met4", "purpose" : "drawing" }, "minWidth" : 0.30, "minSpacing" : 0.30, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0 }
-  ]
+    { "layerID" : { "name" : "nwell", "purpose" : "drawing" }, "minWidth" : 0.84, "minSpacing" : 1.27, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "diff", "purpose" : "drawing" }, "minWidth" : 0.15, "minSpacing" : 0.27, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "tap", "purpose" : "drawing" }, "minWidth" : 0.15, "minSpacing" : 0.27, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "nsdm", "purpose" : "drawing" }, "minWidth" : 0.38, "minSpacing" : 0.38, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "psdm", "purpose" : "drawing" }, "minWidth" : 0.38, "minSpacing" : 0.38, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "poly", "purpose" : "drawing" }, "minWidth" : 0.15, "minSpacing" : 0.21, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "npc", "purpose" : "drawing" }, "minWidth" : 0.27, "minSpacing" : 0.27, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "licon1", "purpose" : "cut" }, "minWidth" : 0.17, "minSpacing" : 0.17, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "li1", "purpose" : "drawing" }, "minWidth" : 0.17, "minSpacing" : 0.17, "minArea" : 0.0561, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "mcon", "purpose" : "cut" }, "minWidth" : 0.17, "minSpacing" : 0.19, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "met1", "purpose" : "drawing" }, "minWidth" : 0.14, "minSpacing" : 0.14, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "via", "purpose" : "drawing" }, "minWidth" : 0.15, "minSpacing" : 0.17, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "met2", "purpose" : "drawing" }, "minWidth" : 0.14, "minSpacing" : 0.14, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "via2", "purpose" : "drawing" }, "minWidth" : 0.20, "minSpacing" : 0.20, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "met3", "purpose" : "drawing" }, "minWidth" : 0.30, "minSpacing" : 0.30, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "via3", "purpose" : "drawing" }, "minWidth" : 0.20, "minSpacing" : 0.20, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false },
+    { "layerID" : { "name" : "met4", "purpose" : "drawing" }, "minWidth" : 0.30, "minSpacing" : 0.30, "minArea" : 0.0, "minDensity" : 0.0, "maxDensity" : 1.0, "maskColors" : [], "requiresRectangular" : false }
+  ],
+  "derivedLayerRules" : [],
+  "spacingRules" : [],
+  "antennaRules" : [],
+  "enclosureRules" : [],
+  "extensionRules" : [],
+  "minimumCutRules" : [],
+  "exactOverlapRules" : [],
+  "forbiddenLayerRules" : [],
+  "contacts" : []
 }

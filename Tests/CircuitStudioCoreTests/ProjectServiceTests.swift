@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
+import XcircuitePackage
 
 @Suite("ProjectService Tests")
 struct ProjectServiceTests {
@@ -125,8 +126,8 @@ struct ProjectServiceTests {
         }
     }
 
-    @Test func legacyStudioSessionManifestIsReadAndMigratedAwayFromProjectManifest() throws {
-        let root = try makeTemporaryProjectRoot("legacy-manifest")
+    @Test func obsoleteStudioSessionManifestIsRejectedWithoutRewritingProjectLedger() throws {
+        let root = try makeTemporaryProjectRoot("obsolete-manifest-rejected")
         defer { removeTemporaryProjectRoot(root) }
 
         let metadataDirectory = root.appending(path: ".xcircuite")
@@ -135,33 +136,28 @@ struct ProjectServiceTests {
             """
             {
               "activeCell" : "Leaf",
-              "topCell" : "LegacyTop",
+              "topCell" : "ObsoleteTop",
               "version" : 1
             }
             """.utf8
         ).write(to: metadataDirectory.appending(path: "project.json"))
 
         let service = ProjectService()
-        let legacy = try #require(try service.loadStudioSessionManifestIfPresent(forProjectAt: root))
-        #expect(legacy.topCell == "LegacyTop")
-        #expect(legacy.activeCell == "Leaf")
+        #expect(try service.loadStudioSessionManifestIfPresent(forProjectAt: root) == nil)
+        #expect(throws: XcircuitePackageError.self) {
+            try service.saveStudioSessionManifest(
+                StudioSessionManifest(topCell: "ObsoleteTop", activeCell: "Leaf"),
+                forProjectAt: root
+            )
+        }
 
-        try service.saveStudioSessionManifest(
-            StudioSessionManifest(topCell: "LegacyTop", activeCell: "Leaf"),
-            forProjectAt: root
-        )
-
-        let migrated = try #require(try service.loadStudioSessionManifestIfPresent(forProjectAt: root))
-        #expect(migrated.topCell == "LegacyTop")
-        #expect(migrated.activeCell == "Leaf")
-
-        let packageManifest = try String(
+        let preserved = try String(
             contentsOf: metadataDirectory.appending(path: "project.json"),
             encoding: .utf8
         )
-        #expect(packageManifest.contains("\"schemaVersion\""))
-        #expect(packageManifest.contains("\"topDesignName\" : \"LegacyTop\""))
-        #expect(fileExists(".xcircuite/studio-session.json", in: root))
+        #expect(preserved.contains("\"topCell\" : \"ObsoleteTop\""))
+        #expect(!preserved.contains("\"schemaVersion\""))
+        #expect(!fileExists(".xcircuite/studio-session.json", in: root))
     }
 
     @Test func savePEXProjectConfigWritesJSONAndTOML() throws {

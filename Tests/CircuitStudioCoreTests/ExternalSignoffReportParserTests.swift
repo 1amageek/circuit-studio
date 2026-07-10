@@ -64,6 +64,16 @@ struct GenericExternalSignoffReportParserTests {
 /// `MagicDRCSignoffTests` integration tests are skipped.
 @Suite("ExternalSignoffReportParser .magicDRC")
 struct ExternalSignoffReportParserTests {
+    @Test func reportArtifactRejectsMissingCompletionEvidence() throws {
+        let data = Data(
+            #"{"kind":"drc","toolName":"Magic","success":true,"parserStyle":"generic","logPath":"drc.log","diagnostics":[]}"#.utf8
+        )
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(ExternalSignoffToolReport.self, from: data)
+        }
+    }
+
 
     private let parser = ExternalSignoffReportParser(style: .magicDRC)
 

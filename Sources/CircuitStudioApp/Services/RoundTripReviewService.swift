@@ -18,7 +18,7 @@ public struct RoundTripReviewService: Sendable {
 
     public func loadReview(forProjectAt projectRoot: URL, runID: String) throws -> RoundTripReviewSummary {
         try Self.validateRunID(runID)
-        let manifestURL = try RoundTripRunDirectory.existingManifestURL(
+        let manifestURL = try RoundTripRunDirectory.manifestURL(
             projectRoot: projectRoot,
             runID: runID
         )

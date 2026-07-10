@@ -180,8 +180,8 @@ struct StandardCellLayoutProfileTests {
         }
     }
 
-    @Test("NAND2 and NOR2 compatibility generators use injected fixed-cell catalog profile")
-    func nandNorCompatibilityGeneratorsUseInjectedCatalogProfile() throws {
+    @Test("NAND2 and NOR2 generators use injected fixed-cell catalog profile")
+    func nandNorGeneratorsUseInjectedCatalogProfile() throws {
         let base = try Self.bundledProfile()
         let profile = try Self.customProfile(
             layers: .init(

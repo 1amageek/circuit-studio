@@ -68,14 +68,12 @@ public struct RoundTripBottleneckHistoryService: Sendable {
     }
 
     public func summarize(forProjectAt projectRoot: URL) throws -> Summary {
-        let runsDirectories = RoundTripRunDirectory.existingRunsDirectories(projectRoot: projectRoot)
-        guard !runsDirectories.isEmpty else {
+        let runsDirectory = RoundTripRunDirectory.runsDirectory(projectRoot: projectRoot)
+        guard directoryExists(runsDirectory) else {
             return emptySummary()
         }
 
-        let manifestURLs = try runsDirectories.flatMap { directory in
-            try manifestURLs(in: directory)
-        }
+        let manifestURLs = try manifestURLs(in: runsDirectory)
         let manifests = try manifestURLs.map { url in
             try readManifest(from: url)
         }
@@ -181,6 +179,15 @@ public struct RoundTripBottleneckHistoryService: Sendable {
         } catch {
             throw StudioError.projectLoadFailed("Failed to decode round-trip manifest: \(error.localizedDescription)")
         }
+    }
+
+    private func directoryExists(_ url: URL) -> Bool {
+        var isDirectory = ObjCBool(false)
+        let exists = FileManager.default.fileExists(
+            atPath: url.path(percentEncoded: false),
+            isDirectory: &isDirectory
+        )
+        return exists && isDirectory.boolValue
     }
 
     private func emptySummary() -> Summary {

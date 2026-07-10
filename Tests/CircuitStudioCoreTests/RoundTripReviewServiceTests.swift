@@ -52,8 +52,8 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func loadReviewByRunIDFallsBackToLegacyFlowRuns() throws {
-        let root = try makeTemporaryRoot("review-legacy-flow-runs")
+    func loadReviewByRunIDRejectsNoncanonicalRunDirectory() throws {
+        let root = try makeTemporaryRoot("review-noncanonical-runs")
         defer { removeTemporaryRoot(root) }
 
         let runDirectory = root
@@ -74,14 +74,17 @@ struct RoundTripReviewServiceTests {
             signoffURL: signoffURL
         ), to: manifestURL)
 
-        let summary = try RoundTripReviewService().loadReview(
-            forProjectAt: root,
-            runID: "review-run"
-        )
-
-        #expect(summary.status == .passed)
-        #expect(summary.manifestPath == manifestURL.path(percentEncoded: false))
-        #expect(summary.artifacts.allSatisfy { $0.integrityStatus == .verified })
+        let canonicalManifestURL = root
+            .appending(path: ".xcircuite")
+            .appending(path: "runs")
+            .appending(path: "review-run")
+            .appending(path: "round-trip-manifest.json")
+        #expect(throws: RoundTripReviewServiceError.missingManifest(canonicalManifestURL)) {
+            try RoundTripReviewService().loadReview(
+                forProjectAt: root,
+                runID: "review-run"
+            )
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))

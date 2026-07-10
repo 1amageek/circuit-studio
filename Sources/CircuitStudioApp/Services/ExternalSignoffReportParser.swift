@@ -63,7 +63,7 @@ public struct ExternalSignoffReportParser: Sendable {
     ///   mismatch or a truncated run lacks it and cannot pass.
     /// - `.generic`: requires `SIGNOFF_RESULT status=...`.
     /// - `.calibreLike`: requires native Calibre result markers for DRC/LVS.
-    /// - ambiguous compatibility styles fall back to the generic result marker
+    /// - ambiguous external report styles fall back to the generic result marker
     ///   unless they can identify an explicit native success/failure marker.
     private func completionProof(
         kind: ExternalSignoffToolReport.Kind,

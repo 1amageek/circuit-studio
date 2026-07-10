@@ -442,7 +442,6 @@ struct RunReviewServiceTests {
         let missingPath = "\(rawPrefix)/missing-report.json"
         let mismatchPath = "\(rawPrefix)/mismatch-report.json"
         let stalePath = "\(rawPrefix)/stale-report.json"
-        let invalidIdentifierPath = "\(rawPrefix)/invalid-identifier-report.json"
         let staleURL = root.appending(path: stalePath)
         try FileManager.default.createDirectory(
             at: staleURL.deletingLastPathComponent(),
@@ -487,12 +486,6 @@ struct RunReviewServiceTests {
                             kind: .report,
                             format: .json
                         ),
-                        XcircuiteFileReference(
-                            artifactID: "invalid identifier report",
-                            path: invalidIdentifierPath,
-                            kind: .report,
-                            format: .json
-                        ),
                     ],
                     artifactPayloads: [
                         mismatchPath: mismatchPayload,
@@ -526,13 +519,6 @@ struct RunReviewServiceTests {
             }
         })
         #expect(mismatch.suggestedActions.contains("rerun-artifact-integrity-gate"))
-
-        let invalidIdentifier = try #require(failureStates.states(of: .integrityMismatch).first {
-            $0.artifactRefs.contains {
-                $0.path == invalidIdentifierPath && $0.integrityStatus == "invalidIdentifier"
-            }
-        })
-        #expect(invalidIdentifier.suggestedActions.contains("rerun-artifact-integrity-gate"))
 
         let stale = try #require(failureStates.states(of: .staleEvidence).first {
             $0.artifactRefs.contains {
@@ -636,41 +622,19 @@ struct RunReviewServiceTests {
             )
         }
 
-        // Second pass over the same run directory: opt in to reuse.
-        _ = try await DefaultFlowOrchestrator().run(
-            request: FlowOperationRequest(
-                projectRoot: root,
-                runID: runID,
-                intent: "Missing review context",
-                stages: [
-                    FlowStageDefinition(stageID: stageID, displayName: "Review"),
-                ],
-                allowExistingRunDirectory: true
-            ),
-            toolRegistry: ToolRegistry(),
-            healthResults: [:],
-            executors: [
-                RunReviewPassingExecutor(
-                    stageID: stageID,
-                    artifacts: [
-                        XcircuiteFileReference(
-                            artifactID: "design-spec",
-                            path: designSpecPath,
-                            kind: .other,
-                            format: .json
-                        ),
-                        XcircuiteFileReference(
-                            artifactID: "layout-document",
-                            path: layoutDocumentPath,
-                            kind: .layout,
-                            format: .json
-                        ),
-                    ],
-                    artifactPayloads: [
-                        designSpecPath: try RunReviewTestSupport.encodedJSONData(RunReviewTestSupport.reviewVerificationDesignSpec()),
-                    ]
+        // Add a deliberately missing artifact reference without rewriting the
+        // already-succeeded run lifecycle or replaying its stage evidence.
+        _ = try XcircuitePackageStore().upsertRunArtifacts(
+            [
+                XcircuiteFileReference(
+                    artifactID: "layout-document",
+                    path: layoutDocumentPath,
+                    kind: .layout,
+                    format: .json
                 ),
-            ]
+            ],
+            runID: runID,
+            inProjectAt: root
         )
 
         let missingFileReview = try service.loadRun(runID: runID, projectRoot: root)

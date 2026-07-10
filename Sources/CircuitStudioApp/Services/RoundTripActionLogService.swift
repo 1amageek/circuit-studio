@@ -204,15 +204,15 @@ public struct RoundTripActionLogService: Sendable {
         projectRootPath: String,
         runID: String
     ) throws {
-        let expectedURLs = try RoundTripRunDirectory.manifestURLCandidates(
+        let expectedURL = try RoundTripRunDirectory.manifestURL(
             projectRoot: URL(filePath: projectRootPath),
             runID: runID
         )
-        let expectedPaths = expectedURLs.map { normalizedPath($0) }
+        let expected = normalizedPath(expectedURL)
         let actual = normalizedPath(manifestURL)
-        guard expectedPaths.contains(actual) else {
+        guard expected == actual else {
             throw RoundTripActionLogServiceError.manifestPathMismatch(
-                expected: expectedPaths.joined(separator: " or "),
+                expected: expected,
                 actual: actual
             )
         }

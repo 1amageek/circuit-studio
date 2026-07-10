@@ -5,6 +5,7 @@ import CoreSpiceWaveform
 import LayoutCore
 import LayoutTech
 import LayoutEngine
+import XcircuitePackage
 
 @MainActor
 public final class HeadlessRoundTripService {
@@ -22,11 +23,14 @@ public final class HeadlessRoundTripService {
     ]
 
     private let layoutEngineCatalog: any LayoutEngineCataloging
+    private let runLedger: any XcircuiteRunLedgerStoring
 
     public init(
-        layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog()
+        layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog(),
+        runLedger: any XcircuiteRunLedgerStoring = XcircuitePackageStore()
     ) {
         self.layoutEngineCatalog = layoutEngineCatalog
+        self.runLedger = runLedger
     }
 
     public func run(
@@ -41,11 +45,48 @@ public final class HeadlessRoundTripService {
             try projectService.createProject(at: configuration.projectRoot)
         }
 
-        let runDirectory = try RoundTripRunDirectory.ensureRunDirectory(
-            projectRoot: configuration.projectRoot,
-            runID: configuration.runID
+        let runDirectory = try runLedger.createRunDirectory(
+            for: configuration.runID,
+            descriptor: XcircuiteRunDescriptor(
+                actor: configuration.actor,
+                intent: configuration.title,
+                createdAt: configuration.createdAt
+            ),
+            inProjectAt: configuration.projectRoot
+        )
+        _ = try runLedger.transitionRun(
+            runID: configuration.runID,
+            transition: XcircuiteRunTransition(status: .running),
+            inProjectAt: configuration.projectRoot
         )
 
+        do {
+            return try await executeRun(
+                schematic: schematic,
+                configuration: configuration,
+                runDirectory: runDirectory
+            )
+        } catch {
+            do {
+                try markRunFailedIfNeeded(
+                    configuration: configuration,
+                    runDirectory: runDirectory,
+                    error: error
+                )
+            } catch let lifecycleError {
+                throw StudioError.projectSaveFailed(
+                    "Headless flow failed with '\(error.localizedDescription)' and the canonical run lifecycle could not be finalized: \(lifecycleError.localizedDescription)"
+                )
+            }
+            throw error
+        }
+    }
+
+    private func executeRun(
+        schematic: SchematicDocument,
+        configuration: Configuration,
+        runDirectory: URL
+    ) async throws -> Result {
         var stages: [Stage] = []
         var artifacts: [Artifact] = []
         let inputArtifactCaptureStartedAt = Date()
@@ -536,6 +577,12 @@ public final class HeadlessRoundTripService {
             artifacts: artifacts
         )
         let manifest = try readManifest(from: manifestURL)
+        try finalizeCanonicalRun(
+            status: .succeeded,
+            domainManifestURL: manifestURL,
+            artifacts: artifacts,
+            configuration: configuration
+        )
 
         return Result(
             manifest: manifest,
@@ -645,7 +692,7 @@ public final class HeadlessRoundTripService {
         case "post-layout-simulation":
             return "\(reason): inspect extracted netlist, PEX element scale, solver diagnostics, and analysis command."
         case "post-layout-comparison":
-            return "\(reason): inspect comparison sweep compatibility, applied limits, and post-layout delta attribution."
+            return "\(reason): inspect comparison sweep alignment, applied limits, and post-layout delta attribution."
         default:
             return "\(reason): inspect \(stageName) artifacts and diagnostics."
         }
@@ -660,7 +707,7 @@ public final class HeadlessRoundTripService {
         error: Error
     ) throws -> Never {
         stages.append(contentsOf: skippedStages(after: stages))
-        _ = try writeManifest(
+        let manifestURL = try writeManifest(
             configuration: configuration,
             runDirectory: runDirectory,
             isRoundTripComplete: false,
@@ -668,7 +715,182 @@ public final class HeadlessRoundTripService {
             stages: stages,
             artifacts: artifacts
         )
+        try finalizeCanonicalRun(
+            status: .failed,
+            domainManifestURL: manifestURL,
+            artifacts: artifacts,
+            configuration: configuration
+        )
         throw error
+    }
+
+    private func markRunFailedIfNeeded(
+        configuration: Configuration,
+        runDirectory: URL,
+        error: Error
+    ) throws {
+        let manifest = try runLedger.loadRunManifest(
+            runID: configuration.runID,
+            inProjectAt: configuration.projectRoot
+        )
+        guard manifest.status == .running else {
+            return
+        }
+        let failureURL = runDirectory.appending(path: "headless-error.json")
+        try writeJSON(
+            UncaughtFailure(
+                runID: configuration.runID,
+                reason: error.localizedDescription,
+                errorType: String(describing: type(of: error)),
+                recordedAt: Date()
+            ),
+            to: failureURL
+        )
+        let hasher = XcircuiteHasher()
+        let failureReference = XcircuiteFileReference(
+            artifactID: "headless-error",
+            path: "\(XcircuitePackage.directoryName)/runs/\(configuration.runID)/headless-error.json",
+            kind: .report,
+            format: .json,
+            sha256: try hasher.sha256(fileAt: failureURL),
+            byteCount: try hasher.byteCount(fileAt: failureURL),
+            producedByRunID: configuration.runID
+        )
+        let integrity = XcircuiteFileReferenceVerifier().verify(
+            failureReference,
+            projectRoot: configuration.projectRoot
+        )
+        guard integrity.status == .verified else {
+            throw StudioError.projectSaveFailed(
+                "Headless failure artifact integrity failed: \(integrity.message)"
+            )
+        }
+        _ = try runLedger.transitionRun(
+            runID: configuration.runID,
+            transition: XcircuiteRunTransition(
+                status: .failed,
+                artifacts: [failureReference]
+            ),
+            inProjectAt: configuration.projectRoot
+        )
+    }
+
+    private struct UncaughtFailure: Sendable, Encodable {
+        let schemaVersion = 1
+        let runID: String
+        let reason: String
+        let errorType: String
+        let recordedAt: Date
+    }
+
+    private func finalizeCanonicalRun(
+        status: XcircuiteRunStatus,
+        domainManifestURL: URL,
+        artifacts: [Artifact],
+        configuration: Configuration
+    ) throws {
+        let references = try canonicalArtifactReferences(
+            domainManifestURL: domainManifestURL,
+            artifacts: artifacts,
+            configuration: configuration
+        )
+        _ = try runLedger.transitionRun(
+            runID: configuration.runID,
+            transition: XcircuiteRunTransition(status: status, artifacts: references),
+            inProjectAt: configuration.projectRoot
+        )
+    }
+
+    private func canonicalArtifactReferences(
+        domainManifestURL: URL,
+        artifacts: [Artifact],
+        configuration: Configuration
+    ) throws -> [XcircuiteFileReference] {
+        let runPrefix = "\(XcircuitePackage.directoryName)/runs/\(configuration.runID)"
+        var references = artifacts.map { artifact in
+            XcircuiteFileReference(
+                artifactID: canonicalArtifactID(for: artifact),
+                path: "\(runPrefix)/\(artifact.path)",
+                kind: canonicalFileKind(for: artifact.kind),
+                format: canonicalFileFormat(for: artifact.path),
+                sha256: artifact.sha256,
+                byteCount: artifact.byteCount,
+                producedByRunID: configuration.runID
+            )
+        }
+        let hasher = XcircuiteHasher()
+        references.append(XcircuiteFileReference(
+            artifactID: "round-trip-manifest",
+            path: "\(runPrefix)/round-trip-manifest.json",
+            kind: .report,
+            format: .json,
+            sha256: try hasher.sha256(fileAt: domainManifestURL),
+            byteCount: try hasher.byteCount(fileAt: domainManifestURL),
+            producedByRunID: configuration.runID
+        ))
+
+        for reference in references {
+            let integrity = XcircuiteFileReferenceVerifier().verify(
+                reference,
+                projectRoot: configuration.projectRoot
+            )
+            guard integrity.status == .verified else {
+                throw StudioError.projectSaveFailed(
+                    "Canonical run artifact integrity failed for \(reference.path): \(integrity.message)"
+                )
+            }
+        }
+        return references
+    }
+
+    private func canonicalArtifactID(for artifact: Artifact) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let sanitizedKind = String(artifact.kind.unicodeScalars.map {
+            allowed.contains($0) ? Character(String($0)) : "-"
+        })
+        let kind = sanitizedKind.isEmpty ? "headless-artifact" : sanitizedKind
+        let pathDigest = XcircuiteHasher()
+            .sha256(data: Data(artifact.path.utf8))
+            .prefix(12)
+        return "\(kind)-\(pathDigest)"
+    }
+
+    private func canonicalFileKind(for kind: String) -> XcircuiteFileKind {
+        if kind.contains("netlist") {
+            return .netlist
+        }
+        if kind.contains("waveform") {
+            return .waveform
+        }
+        if kind.contains("pex") || kind.contains("parasitic") {
+            return .parasitic
+        }
+        if kind.contains("layout") || kind == "design-unit" {
+            return .layout
+        }
+        if kind.contains("report")
+            || kind.contains("verification")
+            || kind.contains("signoff")
+            || kind.contains("comparison") {
+            return .report
+        }
+        return .other
+    }
+
+    private func canonicalFileFormat(for path: String) -> XcircuiteFileFormat {
+        switch URL(filePath: path).pathExtension.lowercased() {
+        case "cir", "sp", "spice", "net": return .spice
+        case "gds", "gdsii": return .gdsii
+        case "oas", "oasis": return .oasis
+        case "lef": return .lef
+        case "def": return .def
+        case "spef": return .spef
+        case "json": return .json
+        case "raw": return .raw
+        case "csv": return .csv
+        case "txt", "log", "rpt", "md": return .text
+        default: return .unknown
+        }
     }
 
     private func skippedStages(after stages: [Stage]) -> [Stage] {

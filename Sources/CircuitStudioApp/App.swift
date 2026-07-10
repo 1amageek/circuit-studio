@@ -209,7 +209,8 @@ public struct CircuitStudioApp: App {
             await appState.runActiveSimulation(
                 schematicDocument: project.schematicViewModel.document,
                 library: project.cellLibrary,
-                service: services.designFlowService
+                service: services.designFlowService,
+                recorder: services.simulationRunRecorder
             )
         }
     }

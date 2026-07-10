@@ -5,7 +5,7 @@
   "technologies": [
     {
       "technologyID": "sky130.layout-tech.v1",
-      "displayName": "Sky130 compatibility layout technology",
+      "displayName": "Sky130 layout technology",
       "processName": "sky130",
       "technologyResourceName": "sky130-layout-tech",
       "routingProfileResourceName": "sky130-layout-routing-profile",

@@ -1,4 +1,6 @@
 import CircuitStudioCore
+import Foundation
+import XcircuitePackage
 
 /// Dependency injection container for all services.
 @MainActor
@@ -14,6 +16,7 @@ public final class ServiceContainer {
     public let layoutPersistenceService: LayoutPersistenceService
     public let pexCommandService: PEXCommandService
     public let recentDocumentsStore: RecentDocumentsStore
+    public let simulationRunRecorder: any SimulationRunRecording
 
     public init() {
         let catalog = DeviceCatalog.standard()
@@ -33,5 +36,8 @@ public final class ServiceContainer {
         self.layoutPersistenceService = LayoutPersistenceService(projectService: projectService)
         self.pexCommandService = PEXCommandService()
         self.recentDocumentsStore = RecentDocumentsStore()
+        self.simulationRunRecorder = XcircuiteSimulationRunRecorder(
+            actor: XcircuiteRunActionActor(kind: .human, identifier: NSUserName())
+        )
     }
 }

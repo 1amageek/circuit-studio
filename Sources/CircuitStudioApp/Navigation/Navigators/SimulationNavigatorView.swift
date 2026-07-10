@@ -2,8 +2,8 @@ import SwiftUI
 import CircuitStudioCore
 import CoreSpiceWaveform
 
-/// Summary of the current simulation plus a browsable history of matrix
-/// batches: every analysis × corner record stays selectable after later runs.
+/// Summary of the current simulation plus waveform-rich results cached for the
+/// current app session. Durable run history is owned by the `.xcircuite` ledger.
 struct SimulationNavigatorView: View {
     @Bindable var appState: AppState
     @State private var expandedBatchIDs: Set<UUID> = []
@@ -62,7 +62,7 @@ struct SimulationNavigatorView: View {
     // MARK: - Run History
 
     private var runHistorySection: some View {
-        Section("Run History") {
+        Section("Session Results") {
             ForEach(appState.runHistory.reversed()) { batch in
                 DisclosureGroup(isExpanded: batchExpansionBinding(batch.id)) {
                     ForEach(batch.records) { record in
@@ -79,7 +79,15 @@ struct SimulationNavigatorView: View {
     private func batchLabel(_ batch: AnalysisRunBatch) -> some View {
         let completed = batch.records.filter { $0.status == .completed }.count
         return HStack {
-            Text(batch.startedAt, format: .dateTime.hour().minute().second())
+            VStack(alignment: .leading, spacing: 1) {
+                Text(batch.startedAt, format: .dateTime.hour().minute().second())
+                if let runID = batch.runID {
+                    Text(runID)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
             Spacer()
             Text("\(completed)/\(batch.records.count)")
                 .font(.caption)

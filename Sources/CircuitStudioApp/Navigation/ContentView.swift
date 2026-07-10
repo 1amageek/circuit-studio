@@ -626,7 +626,8 @@ public struct ContentView: View {
             await appState.runActiveSimulation(
                 schematicDocument: schematicViewModel.document,
                 library: project.cellLibrary,
-                service: services.designFlowService
+                service: services.designFlowService,
+                recorder: services.simulationRunRecorder
             )
         }
     }
