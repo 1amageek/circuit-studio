@@ -196,7 +196,10 @@ public struct ContentView: View {
     @ViewBuilder
     private var reviewContent: some View {
         if let projectRoot = appState.projectRootURL {
-            RunReviewView(projectRoot: projectRoot, reviewer: NSUserName())
+            ReviewWorkspaceView(
+                projectRoot: projectRoot,
+                services: services
+            )
         } else {
             ContentUnavailableView(
                 "Open a project to review runs",

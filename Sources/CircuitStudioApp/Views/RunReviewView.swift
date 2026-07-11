@@ -64,10 +64,12 @@ public struct RunReviewView: View {
     public init(
         projectRoot: URL,
         reviewer: String,
+        initialRunID: String? = nil,
         artifactResourceLoader: any RunReviewArtifactResourceLoading = RunReviewArtifactResourceLoader()
     ) {
         self.projectRoot = projectRoot
         self.reviewer = reviewer
+        _selectedRunID = State(initialValue: initialRunID)
         self.artifactResourceLoader = artifactResourceLoader
     }
 

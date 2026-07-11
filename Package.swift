@@ -34,6 +34,11 @@ let package = Package(
             url: "https://github.com/1amageek/mac-component.git",
             revision: "d3aee65b8dd73a838bcfba124e7c1afe520b97bb"
         ),
+        .package(
+            url: "https://github.com/1amageek/database-framework.git",
+            exact: "26.0629.0",
+            traits: ["SQLite"]
+        ),
     ],
     targets: [
         .target(
@@ -78,8 +83,17 @@ let package = Package(
             ]
         ),
         .target(
+            name: "CircuitStudioActivity",
+            dependencies: [
+                .product(name: "Database", package: "database-framework"),
+                .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
+                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
+            ]
+        ),
+        .target(
             name: "CircuitStudioApp",
             dependencies: [
+                "CircuitStudioActivity",
                 .product(name: "XcircuitePackage", package: "XcircuitePackage"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
@@ -183,6 +197,14 @@ let package = Package(
                 .product(name: "LayoutEngine", package: "semiconductor-layout"),
                 .product(name: "LayoutTech", package: "semiconductor-layout"),
                 .product(name: "LayoutVerify", package: "semiconductor-layout"),
+            ]
+        ),
+        .testTarget(
+            name: "CircuitStudioActivityTests",
+            dependencies: [
+                "CircuitStudioActivity",
+                .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
+                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]
         ),
     ]

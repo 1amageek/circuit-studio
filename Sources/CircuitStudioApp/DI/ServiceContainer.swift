@@ -1,4 +1,5 @@
 import CircuitStudioCore
+import CircuitStudioActivity
 import Foundation
 import XcircuitePackage
 
@@ -17,6 +18,7 @@ public final class ServiceContainer {
     public let pexCommandService: PEXCommandService
     public let recentDocumentsStore: RecentDocumentsStore
     public let simulationRunRecorder: any SimulationRunRecording
+    public let activityService: ActivityService
 
     public init() {
         let catalog = DeviceCatalog.standard()
@@ -39,5 +41,6 @@ public final class ServiceContainer {
         self.simulationRunRecorder = XcircuiteSimulationRunRecorder(
             actor: XcircuiteRunActionActor(kind: .human, identifier: NSUserName())
         )
+        self.activityService = ActivityService()
     }
 }

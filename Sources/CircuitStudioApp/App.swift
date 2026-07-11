@@ -329,6 +329,7 @@ public struct CircuitStudioApp: App {
             appState.resetProjectScopedState()
             resetToDefaultCell()
             appState.setProjectRoot(url, fileTree: root)
+            reconcileActivity(for: url)
 
             loadProjectConfig(from: url)
             autoLoadNetlist(from: url)
@@ -397,6 +398,7 @@ public struct CircuitStudioApp: App {
 
         if services.projectService.isProject(url) {
             loadProjectConfig(from: url)
+            reconcileActivity(for: url)
         }
 
         autoLoadNetlist(from: url)
@@ -405,6 +407,20 @@ public struct CircuitStudioApp: App {
             LayoutGenerationDiagnosticsLogger.log(
                 report: makeLayoutGenerationPreflightReport(context: "project-open")
             )
+        }
+    }
+
+    private func reconcileActivity(for projectRoot: URL) {
+        let activityService = services.activityService
+        Task { @MainActor in
+            do {
+                _ = try await activityService.reconcile(projectRoot: projectRoot)
+            } catch {
+                appState.log(
+                    "Activity index unavailable: \(error.localizedDescription)",
+                    kind: .warning
+                )
+            }
         }
     }
 
@@ -713,6 +729,7 @@ public struct CircuitStudioApp: App {
             try services.projectService.createProject(at: url)
             let tree = try services.fileSystemService.scanDirectory(at: url)
             appState.setProjectRoot(url, fileTree: tree)
+            reconcileActivity(for: url)
             guard saveProject(projectRoot: url) else { return false }
             noteRecent(url, kind: .projectFolder)
             return true
