@@ -24,6 +24,7 @@ public struct CircuitStudioApp: App {
                 project: project
             )
             .frame(minWidth: 800, minHeight: 500)
+            .circuitStudioArtifactRenderers()
             .onAppear { wireTerminationGuard() }
         }
         .defaultSize(width: 1200, height: 700)

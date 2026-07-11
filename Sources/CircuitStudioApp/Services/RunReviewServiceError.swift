@@ -24,6 +24,11 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
     case artifactPreviewTooLarge(path: String, byteCount: Int64, limit: Int)
     case artifactPreviewInvalidLimit(limit: Int)
     case artifactPreviewIntegrityUnverified(path: String, status: String, message: String)
+    case artifactResourceNotFound(runID: String, artifactPath: String)
+    case artifactResourceEscapesProject(path: String)
+    case artifactResourceInputMissing(path: String)
+    case artifactResourceUnreadable(path: String, message: String)
+    case artifactResourceIntegrityUnverified(path: String, status: String, message: String)
     case planningArtifactIntegrityUnverified(path: String, status: String, message: String)
     case signoffArtifactIntegrityUnverified(path: String, status: String, message: String)
     case signoffRepairHintNotFound(runID: String)
@@ -78,6 +83,16 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
             "Artifact preview byte limit must be positive: \(limit)"
         case .artifactPreviewIntegrityUnverified(let path, let status, let message):
             "Artifact preview requires verified artifact integrity: \(path) status=\(status) \(message)"
+        case .artifactResourceNotFound(let runID, let artifactPath):
+            "Run \(runID) does not expose the requested artifact: \(artifactPath)"
+        case .artifactResourceEscapesProject(let path):
+            "Artifact is outside the project root: \(path)"
+        case .artifactResourceInputMissing(let path):
+            "Artifact is missing or is not a regular file: \(path)"
+        case .artifactResourceUnreadable(let path, let message):
+            "Artifact could not be verified at \(path): \(message)"
+        case .artifactResourceIntegrityUnverified(let path, let status, let message):
+            "Artifact rendering requires current verified integrity: \(path) status=\(status) \(message)"
         case .planningArtifactIntegrityUnverified(let path, let status, let message):
             "Planning artifact integrity requires verified artifact integrity before projection: \(path) status=\(status) \(message)"
         case .signoffArtifactIntegrityUnverified(let path, let status, let message):

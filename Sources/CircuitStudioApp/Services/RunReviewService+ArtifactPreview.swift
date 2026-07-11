@@ -85,7 +85,7 @@ extension RunReviewService {
         )
     }
 
-    private func isSameArtifact(
+    func isSameArtifact(
         _ candidate: FlowRunReviewArtifact,
         as artifact: FlowRunReviewArtifact
     ) -> Bool {
@@ -137,7 +137,7 @@ extension RunReviewService {
         guard isContained(path: canonicalArtifactPath, byRootPath: canonicalRootPath) else {
             throw RunReviewServiceError.artifactPreviewEscapesProject(path: artifact.path)
         }
-        return URL(filePath: artifactPath)
+        return URL(filePath: canonicalArtifactPath)
     }
 
     func loadVerifiedArtifactData(

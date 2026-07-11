@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "CircuitStudioCore", targets: ["CircuitStudioCore"]),
         .library(name: "SchematicEditor", targets: ["SchematicEditor"]),
         .library(name: "WaveformViewer", targets: ["WaveformViewer"]),
+        .library(name: "CircuitArtifactRenderer", targets: ["CircuitArtifactRenderer"]),
         .library(name: "CircuitPhysicalDesign", targets: ["CircuitPhysicalDesign"]),
         .library(name: "CircuitStudioApp", targets: ["CircuitStudioApp"]),
         .executable(name: "circuit-studio-flow-runner", targets: ["CircuitStudioFlowRunner"]),
@@ -21,6 +22,10 @@ let package = Package(
         .package(path: "../CoreSpice"),
         .package(path: "../semiconductor-layout"),
         .package(path: "../PEXEngine"),
+        .package(
+            url: "https://github.com/1amageek/swift-artifact.git",
+            exact: "0.17.0"
+        ),
         .package(
             url: "https://github.com/1amageek/swift-openvaf.git",
             revision: "3037901f3c59ecdd41f4d87b2cf3adb62d9395c1"
@@ -50,6 +55,18 @@ let package = Package(
             dependencies: ["CircuitStudioCore"]
         ),
         .target(
+            name: "CircuitArtifactRenderer",
+            dependencies: [
+                "CircuitStudioCore",
+                "WaveformViewer",
+                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
+                .product(name: "CoreSpiceIO", package: "CoreSpice"),
+                .product(name: "ArtifactCore", package: "swift-artifact"),
+                .product(name: "ArtifactRenderer", package: "swift-artifact"),
+                .product(name: "ArtifactView", package: "swift-artifact"),
+            ]
+        ),
+        .target(
             name: "CircuitPhysicalDesign",
             dependencies: [
                 "CircuitStudioCore",
@@ -69,8 +86,11 @@ let package = Package(
                 .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
                 "CircuitStudioCore",
                 "CircuitPhysicalDesign",
+                "CircuitArtifactRenderer",
                 "SchematicEditor",
                 "WaveformViewer",
+                .product(name: "ArtifactView", package: "swift-artifact"),
+                .product(name: "ArtifactNativeRenderer", package: "swift-artifact"),
                 .product(name: "LayoutEditor", package: "semiconductor-layout"),
                 .product(name: "LayoutAutoGen", package: "semiconductor-layout"),
                 .product(name: "LayoutCore", package: "semiconductor-layout"),
@@ -113,6 +133,15 @@ let package = Package(
             dependencies: [
                 "CircuitStudioApp",
                 .product(name: "PEXEngine", package: "PEXEngine"),
+            ]
+        ),
+        .testTarget(
+            name: "CircuitArtifactRendererTests",
+            dependencies: [
+                "CircuitArtifactRenderer",
+                .product(name: "ArtifactCore", package: "swift-artifact"),
+                .product(name: "ArtifactRenderer", package: "swift-artifact"),
+                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]
         ),
         .testTarget(

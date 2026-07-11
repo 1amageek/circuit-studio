@@ -165,6 +165,42 @@ SwiftUI View
 
 独自形式が不要な理由: すべてのデータフローが IR を経由するため、ファイル形式はプラガブルであり、アプリケーションロジックはフォーマットに依存しない。
 
+## Artifact rendering の責務境界
+
+artifact 表示でも、ファイル形式・検証・描画を単一の View に集約しない。
+`XcircuiteFileKind` と `XcircuiteFileFormat` を run ledger 上の分類 SSOT とし、表示用 MIME は利用側の adapter が決定する。
+
+```mermaid
+flowchart LR
+  Ledger["Xcircuite run ledger\nkind / format / digest"]
+  Gate["RunReviewService\ncontainment / current digest"]
+  Canvas["ArtifactCanvas(url:)\nfile resolution"]
+  Adapter["CircuitArtifactRenderer\nkind + format -> MIME"]
+  Parser["CoreSpice / domain parser\nfile -> canonical IR"]
+  View["Domain View\nIR -> interaction"]
+
+  Ledger --> Gate
+  Gate --> Canvas
+  Adapter --> Canvas
+  Canvas --> Parser
+  Parser --> View
+```
+
+| Owner | Responsibility |
+|-------|----------------|
+| `XcircuitePackage` | `kind` / `format` / path / SHA-256 / byte count を永続化する。SwiftUI と MIME を知らない |
+| `swift-artifact` | URL 解決、一般 MIME 検出、renderer registry、汎用形式の Renderer を提供する。EDA 固有形式を持たない |
+| `CircuitArtifactRenderer` | Xcircuite 分類を利用側 MIME に変換し、EDA ファイルを canonical IR に復元して描画する |
+| `RunReviewService` | ledger 上の同一 artifact を再解決し、project containment と現在の SHA-256 / byte count を検証する |
+| `CircuitStudioApp` | composition root で Renderer を一度だけ登録し、検証済み URL の選択・loading・failure state を管理する |
+
+波形 CSV と ngspice RAW は、それぞれ `application/vnd.xcircuite.waveform+csv` と
+`application/vnd.xcircuite.waveform-raw` に解決する。CSV は CoreSpice の `CSVWaveformReader`、
+RAW は ngspice RAW parser を通して `WaveformData` に復元し、`WaveformViewer` が同じ IR を表示する。
+
+HTML / React など実行可能な Web artifact は、digest が一致するだけでは安全な実行コンテンツとは判断できない。
+CircuitStudio で登録する場合は、Renderer 追加とは別に navigation、network、script、file access の policy を定義する。
+
 ## PEX 連携ファイル
 
 PEXEngine の導入時、CircuitStudio は以下のファイルをプロジェクト内に揃える。

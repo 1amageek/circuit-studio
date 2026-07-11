@@ -43,6 +43,10 @@ public struct RunReviewView: View {
     @State private var waiverEditVerificationContextError: String?
     @State private var artifactPreviews: [String: RunReviewArtifactPreview] = [:]
     @State private var artifactPreviewErrors: [String: String] = [:]
+    @State private var selectedArtifact: FlowRunReviewArtifact?
+    @State private var artifactResource: RunReviewArtifactResource?
+    @State private var artifactResourceIsLoading = false
+    @State private var artifactResourceError: String?
     @State private var waveformSignalSelections: [String: Set<String>] = [:]
     @State private var waveformComparisonSelections: [String: String] = [:]
     @State private var signoffRepairPlanningInFlight: Set<String> = []
@@ -55,10 +59,16 @@ public struct RunReviewView: View {
 
     private let service = RunReviewService()
     private let observer = XcircuiteRunLedgerObserver()
+    private let artifactResourceLoader: any RunReviewArtifactResourceLoading
 
-    public init(projectRoot: URL, reviewer: String) {
+    public init(
+        projectRoot: URL,
+        reviewer: String,
+        artifactResourceLoader: any RunReviewArtifactResourceLoading = RunReviewArtifactResourceLoader()
+    ) {
         self.projectRoot = projectRoot
         self.reviewer = reviewer
+        self.artifactResourceLoader = artifactResourceLoader
     }
 
     public var body: some View {
@@ -105,7 +115,10 @@ public struct RunReviewView: View {
             }
         }
         .task { await observeRuns() }
-        .onChange(of: selectedRunID) { _, _ in reloadReview() }
+        .onChange(of: selectedRunID) { _, _ in
+            resetArtifactSelection()
+            reloadReview()
+        }
     }
 
     // MARK: - Detail
@@ -263,7 +276,17 @@ public struct RunReviewView: View {
             )
             .frame(maxWidth: .infinity, minHeight: 240)
         } else {
-            RunReviewArtifactList(artifacts: review.bundle.artifacts)
+            RunReviewArtifactBrowser(
+                runID: review.runID,
+                artifacts: review.bundle.artifacts,
+                selectedArtifact: $selectedArtifact,
+                resource: artifactResource,
+                isLoading: artifactResourceIsLoading,
+                errorMessage: artifactResourceError
+            )
+            .task(id: ArtifactResourceLoadID(runID: review.runID, artifact: selectedArtifact)) {
+                await loadSelectedArtifactResource(runID: review.runID)
+            }
         }
     }
 
@@ -1359,5 +1382,52 @@ public struct RunReviewView: View {
         for artifact in artifacts {
             loadArtifactPreview(artifact, runID: runID)
         }
+    }
+
+    @MainActor
+    private func loadSelectedArtifactResource(runID: String) async {
+        guard let selectedArtifact else {
+            artifactResource = nil
+            artifactResourceError = nil
+            artifactResourceIsLoading = false
+            return
+        }
+
+        let requestedArtifact = selectedArtifact
+        artifactResource = nil
+        artifactResourceError = nil
+        artifactResourceIsLoading = true
+        defer {
+            if self.selectedArtifact == requestedArtifact {
+                artifactResourceIsLoading = false
+            }
+        }
+
+        do {
+            let resource = try await artifactResourceLoader.load(
+                runID: runID,
+                artifact: requestedArtifact,
+                projectRoot: projectRoot
+            )
+            guard !Task.isCancelled, self.selectedArtifact == requestedArtifact else { return }
+            artifactResource = resource
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled, self.selectedArtifact == requestedArtifact else { return }
+            artifactResourceError = error.localizedDescription
+        }
+    }
+
+    private func resetArtifactSelection() {
+        selectedArtifact = nil
+        artifactResource = nil
+        artifactResourceIsLoading = false
+        artifactResourceError = nil
+    }
+
+    private struct ArtifactResourceLoadID: Hashable {
+        let runID: String
+        let artifact: FlowRunReviewArtifact?
     }
 }
