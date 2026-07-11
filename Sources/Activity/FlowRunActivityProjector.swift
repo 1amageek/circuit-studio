@@ -2,7 +2,7 @@ import DesignFlowKernel
 import Foundation
 import XcircuitePackage
 
-public struct XcircuiteActivityProjector: Sendable {
+public struct FlowRunActivityProjector: Sendable {
     private static let maximumArtifactReferences = 64
     private static let maximumDiagnostics = 32
     private static let maximumDiagnosticMessageBytes = 1_024

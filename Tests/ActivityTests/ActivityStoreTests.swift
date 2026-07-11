@@ -1,4 +1,4 @@
-import CircuitStudioActivity
+import Activity
 import DesignFlowKernel
 import Foundation
 import Testing
@@ -83,7 +83,7 @@ struct ActivityStoreTests {
 
     @Test("Projector keeps activity identity unique across runs")
     func projectorScopesIdentityToRun() throws {
-        let projector = XcircuiteActivityProjector()
+        let projector = FlowRunActivityProjector()
         let first = try makeLedger(runID: "run-first")
         let second = try makeLedger(runID: "run-second")
 
@@ -116,7 +116,7 @@ struct ActivityStoreTests {
             )
         ]
 
-        let activities = XcircuiteActivityProjector().project(
+        let activities = FlowRunActivityProjector().project(
             projectID: "project-1",
             ledger: ledger
         )

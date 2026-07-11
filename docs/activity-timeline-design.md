@@ -78,7 +78,7 @@ flowchart TD
 
   subgraph AppInfrastructure["CircuitStudio app infrastructure"]
     Loader["FlowRunLedgerLoader"]
-    Projector["XcircuiteActivityProjector"]
+    Projector["FlowRunActivityProjector"]
     Recorder["AppActivityRecorder"]
     Store["SQLiteActivityStore"]
   end
@@ -105,20 +105,20 @@ flowchart TD
 
 ## Package Structure
 
-Add an internal SwiftPM target named `CircuitStudioActivity`.
+Add an internal SwiftPM target named `Activity`.
 
 ```text
-CircuitStudioActivity
+Activity
   -> Database (database-framework, SQLite trait)
   -> DesignFlowKernel
   -> XcircuitePackage
 
 CircuitStudioApp
-  -> CircuitStudioActivity
+  -> Activity
   -> existing app and EDA targets
 ```
 
-`CircuitStudioActivity` is app infrastructure despite being a separate target. It must not be added as a dependency of `CoreSpice`, `semiconductor-layout`, `DRCEngine`, `LVSEngine`, `PEXEngine`, `XcircuitePackage`, or `DesignFlowKernel`.
+`Activity` is app infrastructure despite being a separate target. It must not be added as a dependency of `CoreSpice`, `semiconductor-layout`, `DRCEngine`, `LVSEngine`, `PEXEngine`, `XcircuitePackage`, or `DesignFlowKernel`.
 
 The dependency should be pinned to the released API used by the design:
 
@@ -223,7 +223,7 @@ sequenceDiagram
   participant UI as CircuitStudio
   participant PackageStore as XcircuitePackageStore
   participant Loader as FlowRunLedgerLoader
-  participant Projector as XcircuiteActivityProjector
+  participant Projector as FlowRunActivityProjector
   participant Store as SQLiteActivityStore
 
   UI->>Store: prepare database and migrate
@@ -348,8 +348,8 @@ The first release should prioritize chronological scanning, failed/blocked filte
 
 | Milestone | Deliverable | Verification |
 |---:|---|---|
-| 1 | Add database-framework with SQLite trait, `CircuitStudioActivity`, application-support path resolver, V1 schema, protocols, and actor store. | In-memory CRUD, ordering, filtering, file-backed reopen, and migration tests. |
-| 2 | Implement `XcircuiteActivityProjector` and deterministic reconciliation through `FlowRunLedgerLoader`. | Idempotent repeated import, incremental run update, no duplicate approvals, artifact reference, and corrupt-ledger rejection tests. |
+| 1 | Add database-framework with SQLite trait, `Activity`, application-support path resolver, V1 schema, protocols, and actor store. | In-memory CRUD, ordering, filtering, file-backed reopen, and migration tests. |
+| 2 | Implement `FlowRunActivityProjector` and deterministic reconciliation through `FlowRunLedgerLoader`. | Idempotent repeated import, incremental run update, no duplicate approvals, artifact reference, and corrupt-ledger rejection tests. |
 | 3 | Add Activity service lifecycle to `ServiceContainer` and project-open reconciliation. | Project switching, missing manifest, database unavailable, and cancellation tests. |
 | 4 | Add Timeline mode to Review and navigation into the existing run/artifact review. | View-model tests and focused UI tests for empty, loading, degraded, filtered, and populated states. |
 | 5 | Add direct app recording at orchestration boundaries not already represented by run evidence. | Successful, failed, cancelled, redacted-command, and recorder-failure tests. |

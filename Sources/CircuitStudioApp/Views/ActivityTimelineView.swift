@@ -1,4 +1,4 @@
-import CircuitStudioActivity
+import Activity
 import Foundation
 import SwiftUI
 

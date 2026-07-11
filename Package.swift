@@ -83,7 +83,7 @@ let package = Package(
             ]
         ),
         .target(
-            name: "CircuitStudioActivity",
+            name: "Activity",
             dependencies: [
                 .product(name: "Database", package: "database-framework"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
@@ -93,7 +93,7 @@ let package = Package(
         .target(
             name: "CircuitStudioApp",
             dependencies: [
-                "CircuitStudioActivity",
+                "Activity",
                 .product(name: "XcircuitePackage", package: "XcircuitePackage"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
@@ -200,9 +200,9 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "CircuitStudioActivityTests",
+            name: "ActivityTests",
             dependencies: [
-                "CircuitStudioActivity",
+                "Activity",
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]

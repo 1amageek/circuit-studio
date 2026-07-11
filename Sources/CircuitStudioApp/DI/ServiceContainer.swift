@@ -1,5 +1,5 @@
 import CircuitStudioCore
-import CircuitStudioActivity
+import Activity
 import Foundation
 import XcircuitePackage
 

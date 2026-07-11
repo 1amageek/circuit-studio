@@ -6,13 +6,13 @@ public actor ActivityService: ActivityRecording, ActivityQuerying {
     private let store: SQLiteActivityStore
     private let packageStore: XcircuitePackageStore
     private let ledgerLoader: FlowRunLedgerLoader
-    private let projector: XcircuiteActivityProjector
+    private let projector: FlowRunActivityProjector
 
     public init(
         store: SQLiteActivityStore = SQLiteActivityStore(),
         packageStore: XcircuitePackageStore = XcircuitePackageStore(),
         ledgerLoader: FlowRunLedgerLoader = FlowRunLedgerLoader(),
-        projector: XcircuiteActivityProjector = XcircuiteActivityProjector()
+        projector: FlowRunActivityProjector = FlowRunActivityProjector()
     ) {
         self.store = store
         self.packageStore = packageStore
