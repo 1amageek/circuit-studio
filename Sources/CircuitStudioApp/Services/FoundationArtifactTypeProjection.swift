@@ -9,7 +9,6 @@ import DesignFlowKernel
 enum FoundationArtifactTypeProjection {
     enum ConversionError: Error {
         case byteCountOutOfRange(String)
-        case missingDigest(String)
         case invalidLocation(String)
     }
 
