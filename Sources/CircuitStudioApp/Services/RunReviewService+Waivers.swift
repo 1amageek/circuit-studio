@@ -1,7 +1,7 @@
 import DesignFlowKernel
 import Foundation
+import CircuiteFoundation
 import Xcircuite
-import DesignFlowKernel
 
 extension RunReviewService {
     public func decideWaiverReview(
@@ -156,10 +156,10 @@ extension RunReviewService {
             "operation": .string(proposal.operation),
             "summary": .string(proposal.summary),
             "risk": .string(proposal.risk),
-            "beforeSHA256": .string(appliedEdit.beforeReference.sha256 ?? ""),
-            "afterSHA256": .string(appliedEdit.afterReference.sha256 ?? ""),
-            "beforeByteCount": .number(Double(appliedEdit.beforeReference.byteCount ?? 0)),
-            "afterByteCount": .number(Double(appliedEdit.afterReference.byteCount ?? 0)),
+            "beforeSHA256": .string(appliedEdit.beforeReference.sha256),
+            "afterSHA256": .string(appliedEdit.afterReference.sha256),
+            "beforeByteCount": .number(Double(appliedEdit.beforeReference.byteCount)),
+            "afterByteCount": .number(Double(appliedEdit.afterReference.byteCount)),
             "note": .string(note),
         ]
         if let waiverID = proposal.waiverID {
@@ -181,9 +181,9 @@ extension RunReviewService {
             status: .succeeded,
             inputs: [
                 fileReference(from: item.artifact),
-                appliedEdit.beforeReference,
+                try FoundationArtifactTypeProjection.legacyReference(appliedEdit.beforeReference),
             ],
-            outputs: [appliedEdit.afterReference],
+            outputs: [try FoundationArtifactTypeProjection.legacyReference(appliedEdit.afterReference)],
             metadata: metadata
         )
         try store.appendRunAction(record, inProjectAt: projectRoot)
@@ -287,6 +287,9 @@ extension RunReviewService {
             metadata["stageID"] = .string(stageID)
         }
 
+        let supplementaryLegacyReferences = try [layoutTrustReference, feedback.rejectedPlansRef]
+            .compactMap { $0 }
+            .map(FoundationArtifactTypeProjection.legacyReference)
         let record = XcircuiteRunActionRecord(
             actionID: "waiver-edit-proposal-verification-\(UUID().uuidString)",
             runID: runID,
@@ -296,13 +299,13 @@ extension RunReviewService {
             status: .succeeded,
             inputs: [
                 fileReference(from: item.artifact),
-                targetReference,
+                try FoundationArtifactTypeProjection.legacyReference(targetReference),
             ],
             outputs: [
-                verificationReference,
-                feedback.candidatePlanRef,
-                feedback.planVerificationRef,
-            ] + [layoutTrustReference, feedback.rejectedPlansRef].compactMap { $0 },
+                try FoundationArtifactTypeProjection.legacyReference(verificationReference),
+                try FoundationArtifactTypeProjection.legacyReference(feedback.candidatePlanRef),
+                try FoundationArtifactTypeProjection.legacyReference(feedback.planVerificationRef),
+            ] + supplementaryLegacyReferences,
             metadata: metadata
         )
         try store.appendRunAction(record, inProjectAt: projectRoot)
@@ -657,10 +660,10 @@ extension RunReviewService {
         artifactID: String,
         kind: XcircuiteFileKind,
         format: XcircuiteFileFormat
-    ) throws -> XcircuiteFileReference {
+    ) throws -> ArtifactReference {
         let path = try projectRelativePath(for: url, projectRoot: projectRoot)
         let hasher = XcircuiteHasher()
-        return XcircuiteFileReference(
+        let legacy = XcircuiteFileReference(
             artifactID: artifactID,
             path: path,
             kind: kind,
@@ -668,6 +671,13 @@ extension RunReviewService {
             sha256: try hasher.sha256(fileAt: url),
             byteCount: try hasher.byteCount(fileAt: url)
         )
+        guard let reference = FoundationArtifactTypeProjection.reference(legacy) else {
+            throw RunReviewServiceError.artifactReferenceProjectionFailed(
+                path: path,
+                message: "Generated verification artifact has invalid integrity metadata."
+            )
+        }
+        return reference
     }
 
     private func recordWaiverEditPlanningFeedback(
@@ -675,10 +685,10 @@ extension RunReviewService {
         waiverReviewID: String,
         proposalID: String,
         application: RunReviewWaiverEditApplication,
-        targetReference: XcircuiteFileReference,
+        targetReference: ArtifactReference,
         verificationReport: DesignFlowVerificationReport,
-        verificationReference: XcircuiteFileReference,
-        layoutTrustReference: XcircuiteFileReference?,
+        verificationReference: ArtifactReference,
+        layoutTrustReference: ArtifactReference?,
         projectRoot: URL
     ) throws -> WaiverEditPlanningFeedback {
         let safeProposalID = safeIdentifierComponent(proposalID)
@@ -772,12 +782,14 @@ extension RunReviewService {
             .map(\.gateID)
         let accepted = verificationReport.readyForPEX && failedGateIDs.isEmpty
         let artifactRefs = [targetReference, verificationReference] + [layoutTrustReference].compactMap { $0 }
+        let legacyArtifactRefs = try artifactRefs.map(FoundationArtifactTypeProjection.legacyReference)
+        let legacyCandidatePlanRef = try FoundationArtifactTypeProjection.legacyReference(candidatePlanRef)
         let planVerification = XcircuitePlanVerification(
             problemID: problemID,
             planID: planID,
             runID: runID,
             verificationMode: "post-waiver-edit",
-            candidatePlanRef: candidatePlanRef,
+            candidatePlanRef: legacyCandidatePlanRef,
             stepResults: [
                 XcircuitePlanVerificationStepResult(
                     stepID: stepID,
@@ -788,11 +800,11 @@ extension RunReviewService {
                     status: accepted ? "passed" : "failed",
                     gateIDs: gateIDs,
                     diagnostics: diagnostics,
-                    producedArtifactRefs: artifactRefs
+                    producedArtifactRefs: legacyArtifactRefs
                 ),
             ],
             gateResults: gateResults,
-            artifactRefs: artifactRefs,
+            artifactRefs: legacyArtifactRefs,
             diagnostics: diagnostics,
             accepted: accepted,
             nextActions: accepted ? [] : failedGateIDs.map { "repair-verification-gate:\($0)" }
@@ -824,17 +836,23 @@ extension RunReviewService {
             sourceParameterCandidateIDs: [],
             failedStepIDs: [stepID],
             failedGateIDs: failedGateIDs,
-            candidatePlanRef: candidatePlanRef,
-            planVerificationRef: planVerificationRef,
-            artifactRefs: artifactRefs,
+            candidatePlanRef: legacyCandidatePlanRef,
+            planVerificationRef: try FoundationArtifactTypeProjection.legacyReference(planVerificationRef),
+            artifactRefs: legacyArtifactRefs,
             diagnostics: diagnostics,
             nextActions: failedGateIDs.map { "repair-verification-gate:\($0)" }
         )
-        let rejectedPlansRef = try XcircuitePlanningArtifactStore(packageStore: store).appendRejectedPlan(
+        let rejectedPlansLegacyRef = try XcircuitePlanningArtifactStore(packageStore: store).appendRejectedPlan(
             rejectedRecord,
             runID: runID,
             projectRoot: projectRoot
         )
+        guard let rejectedPlansRef = FoundationArtifactTypeProjection.reference(rejectedPlansLegacyRef) else {
+            throw RunReviewServiceError.artifactReferenceProjectionFailed(
+                path: rejectedPlansLegacyRef.path,
+                message: "Rejected-plan artifact has invalid integrity metadata."
+            )
+        }
         return WaiverEditPlanningFeedback(
             status: "rejected-plan-recorded",
             candidatePlanRef: candidatePlanRef,
@@ -849,14 +867,14 @@ extension RunReviewService {
         artifactID: String,
         runID: String,
         projectRoot: URL
-    ) throws -> XcircuiteFileReference {
+    ) throws -> ArtifactReference {
         let url = projectRoot.appending(path: path)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         try store.writeJSON(value, to: url, forProjectAt: projectRoot)
-        let reference = try store.fileReference(
+        let legacyReference = try store.fileReference(
             forProjectRelativePath: path,
             artifactID: artifactID,
             kind: .other,
@@ -864,7 +882,13 @@ extension RunReviewService {
             inProjectAt: projectRoot,
             producedByRunID: runID
         )
-        try store.upsertRunArtifact(reference, runID: runID, inProjectAt: projectRoot)
+        try store.upsertRunArtifact(legacyReference, runID: runID, inProjectAt: projectRoot)
+        guard let reference = FoundationArtifactTypeProjection.reference(legacyReference) else {
+            throw RunReviewServiceError.artifactReferenceProjectionFailed(
+                path: path,
+                message: "Planning feedback artifact has invalid integrity metadata."
+            )
+        }
         return reference
     }
 
@@ -950,16 +974,23 @@ extension RunReviewService {
     private func waiverEditTargetReference(
         application: RunReviewWaiverEditApplication,
         projectRoot: URL
-    ) throws -> XcircuiteFileReference {
+    ) throws -> ArtifactReference {
         let targetURL = try waiverEditTargetURL(path: application.targetPath, projectRoot: projectRoot)
         let hasher = XcircuiteHasher()
-        return XcircuiteFileReference(
+        let legacy = XcircuiteFileReference(
             path: application.targetPath,
             kind: .other,
             format: fileFormat(for: application.targetPath),
             sha256: hasher.sha256(data: try Data(contentsOf: targetURL)),
             byteCount: try hasher.byteCount(fileAt: targetURL)
         )
+        guard let reference = FoundationArtifactTypeProjection.reference(legacy) else {
+            throw RunReviewServiceError.artifactReferenceProjectionFailed(
+                path: application.targetPath,
+                message: "Waiver edit target has invalid integrity metadata."
+            )
+        }
+        return reference
     }
 
     private func projectRelativePath(for url: URL, projectRoot: URL) throws -> String {
@@ -1044,7 +1075,7 @@ extension RunReviewService {
         }
 
         let hasher = XcircuiteHasher()
-        let beforeReference = XcircuiteFileReference(
+        let beforeLegacyReference = XcircuiteFileReference(
             path: proposal.targetPath,
             kind: .other,
             format: fileFormat(for: proposal.targetPath),
@@ -1052,17 +1083,21 @@ extension RunReviewService {
             byteCount: Int64(beforeData.count)
         )
         try afterData.write(to: targetURL, options: .atomic)
-        let afterReference = XcircuiteFileReference(
+        let afterLegacyReference = XcircuiteFileReference(
             path: proposal.targetPath,
             kind: .other,
             format: fileFormat(for: proposal.targetPath),
             sha256: hasher.sha256(data: afterData),
             byteCount: Int64(afterData.count)
         )
-        return AppliedWaiverEdit(
-            beforeReference: beforeReference,
-            afterReference: afterReference
-        )
+        guard let beforeReference = FoundationArtifactTypeProjection.reference(beforeLegacyReference),
+              let afterReference = FoundationArtifactTypeProjection.reference(afterLegacyReference) else {
+            throw RunReviewServiceError.artifactReferenceProjectionFailed(
+                path: proposal.targetPath,
+                message: "Waiver edit artifact has invalid integrity metadata."
+            )
+        }
+        return AppliedWaiverEdit(beforeReference: beforeReference, afterReference: afterReference)
     }
 
     private func waiverEditTargetURL(path: String, projectRoot: URL) throws -> URL {

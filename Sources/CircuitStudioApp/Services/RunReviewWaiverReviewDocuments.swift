@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import DesignFlowKernel
 
 enum WaiverArtifactKind {
@@ -7,15 +8,15 @@ enum WaiverArtifactKind {
 }
 
 struct AppliedWaiverEdit: Sendable, Hashable {
-    let beforeReference: XcircuiteFileReference
-    let afterReference: XcircuiteFileReference
+    let beforeReference: ArtifactReference
+    let afterReference: ArtifactReference
 }
 
 struct WaiverEditPlanningFeedback: Sendable, Hashable {
     let status: String
-    let candidatePlanRef: XcircuiteFileReference
-    let planVerificationRef: XcircuiteFileReference
-    let rejectedPlansRef: XcircuiteFileReference?
+    let candidatePlanRef: ArtifactReference
+    let planVerificationRef: ArtifactReference
+    let rejectedPlansRef: ArtifactReference?
 }
 
 struct DRCWaiverReviewDocument: Decodable {
