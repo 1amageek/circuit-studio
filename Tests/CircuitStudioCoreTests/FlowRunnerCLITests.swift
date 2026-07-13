@@ -691,7 +691,7 @@ struct FlowRunnerCLITests {
     }
 
     @Test("signoff repair planning output exposes planner artifacts", .timeLimit(.minutes(1)))
-    func signoffRepairPlanningOutputIncludesPlannerArtifacts() {
+    func signoffRepairPlanningOutputIncludesPlannerArtifacts() throws {
         let actionRecord = XcircuiteRunActionRecord(
             actionID: "signoff-repair-planning-1",
             runID: "run-1",
@@ -705,23 +705,17 @@ struct FlowRunnerCLITests {
             problemID: "signoff-repair-problem-run-1",
             drcRepairHintPath: ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json",
             lvsRepairHintPath: ".xcircuite/runs/run-1/stages/001/raw/lvs-repair-hints.json",
-            actionDomainArtifact: XcircuiteFileReference(
+            actionDomainArtifact: try RunReviewTestSupport.foundationArtifactReference(
                 artifactID: "planning-action-domain-snapshot",
-                path: ".xcircuite/runs/run-1/planning/action-domain-snapshot.json",
-                kind: .other,
-                format: .json
+                path: ".xcircuite/runs/run-1/planning/action-domain-snapshot.json"
             ),
-            repairFormulationArtifact: XcircuiteFileReference(
+            repairFormulationArtifact: try RunReviewTestSupport.foundationArtifactReference(
                 artifactID: "planning-repair-plan-formulation",
-                path: ".xcircuite/runs/run-1/planning/repair-formulation.json",
-                kind: .other,
-                format: .json
+                path: ".xcircuite/runs/run-1/planning/repair-formulation.json"
             ),
-            planningProblemArtifact: XcircuiteFileReference(
+            planningProblemArtifact: try RunReviewTestSupport.foundationArtifactReference(
                 artifactID: "planning-problem",
-                path: ".xcircuite/runs/run-1/planning/problem.json",
-                kind: .other,
-                format: .json
+                path: ".xcircuite/runs/run-1/planning/problem.json"
             ),
             sourceReports: [],
             actionRecord: actionRecord
@@ -769,23 +763,17 @@ struct FlowRunnerCLITests {
             problemID: "signoff-repair-problem-run-1",
             drcRepairHintPath: ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json",
             lvsRepairHintPath: nil,
-            actionDomainArtifact: XcircuiteFileReference(
+            actionDomainArtifact: try RunReviewTestSupport.foundationArtifactReference(
                 artifactID: "planning-action-domain-snapshot",
-                path: ".xcircuite/runs/run-1/planning/action-domain-snapshot.json",
-                kind: .other,
-                format: .json
+                path: ".xcircuite/runs/run-1/planning/action-domain-snapshot.json"
             ),
-            repairFormulationArtifact: XcircuiteFileReference(
+            repairFormulationArtifact: try RunReviewTestSupport.foundationArtifactReference(
                 artifactID: "planning-repair-plan-formulation",
-                path: ".xcircuite/runs/run-1/planning/repair-formulation.json",
-                kind: .other,
-                format: .json
+                path: ".xcircuite/runs/run-1/planning/repair-formulation.json"
             ),
-            planningProblemArtifact: XcircuiteFileReference(
+            planningProblemArtifact: try RunReviewTestSupport.foundationArtifactReference(
                 artifactID: "planning-problem",
-                path: ".xcircuite/runs/run-1/planning/problem.json",
-                kind: .other,
-                format: .json
+                path: ".xcircuite/runs/run-1/planning/problem.json"
             ),
             sourceReports: [],
             actionRecord: actionRecord

@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import Xcircuite
 import DesignFlowKernel
 
@@ -8,9 +9,9 @@ public struct RunReviewSignoffRepairPlanningResult: Sendable, Hashable, Codable 
     public let problemID: String
     public let drcRepairHintPath: String?
     public let lvsRepairHintPath: String?
-    public let actionDomainArtifact: XcircuiteFileReference
-    public let repairFormulationArtifact: XcircuiteFileReference
-    public let planningProblemArtifact: XcircuiteFileReference
+    public let actionDomainArtifact: ArtifactReference
+    public let repairFormulationArtifact: ArtifactReference
+    public let planningProblemArtifact: ArtifactReference
     public let sourceReports: [XcircuiteSignoffRepairFormulationResult.SourceReport]
     public let actionRecord: XcircuiteRunActionRecord
 
@@ -20,9 +21,9 @@ public struct RunReviewSignoffRepairPlanningResult: Sendable, Hashable, Codable 
         problemID: String,
         drcRepairHintPath: String?,
         lvsRepairHintPath: String?,
-        actionDomainArtifact: XcircuiteFileReference,
-        repairFormulationArtifact: XcircuiteFileReference,
-        planningProblemArtifact: XcircuiteFileReference,
+        actionDomainArtifact: ArtifactReference,
+        repairFormulationArtifact: ArtifactReference,
+        planningProblemArtifact: ArtifactReference,
         sourceReports: [XcircuiteSignoffRepairFormulationResult.SourceReport],
         actionRecord: XcircuiteRunActionRecord
     ) {

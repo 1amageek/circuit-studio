@@ -143,8 +143,19 @@ enum FoundationArtifactTypeProjection {
             kind: kind,
             format: format,
             sha256: value.digest.hexadecimalValue,
-            byteCount: Int64(value.byteCount)
+            byteCount: Int64(value.byteCount),
+            producedByRunID: producedRunID(from: path),
         )
+    }
+
+    private static func producedRunID(from path: String) -> String? {
+        let components = path.split(separator: "/").map(String.init)
+        guard components.count > 2,
+              components[0] == XcircuitePackage.directoryName,
+              components[1] == "runs" else {
+            return nil
+        }
+        return components[2]
     }
 
     private static func legacyKindRawValue(_ value: ArtifactKind) -> String {

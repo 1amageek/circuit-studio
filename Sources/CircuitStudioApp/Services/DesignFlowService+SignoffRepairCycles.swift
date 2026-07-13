@@ -277,11 +277,11 @@ extension DesignFlowService {
             actor: XcircuiteRunActionActor(kind: actorKind, identifier: actorIdentifier),
             actionKind: "review.runSignoffRepairCandidateCycle",
             status: verification.accepted ? .succeeded : .blocked,
-            inputs: [
+            inputs: try [
                 planning.actionDomainArtifact,
                 planning.repairFormulationArtifact,
                 planning.planningProblemArtifact,
-            ],
+            ].map(FoundationArtifactTypeProjection.legacyReference),
             outputs: outputs,
             metadata: [
                 "candidateCycleIndex": .number(Double(cycleIndex)),
@@ -376,7 +376,7 @@ extension DesignFlowService {
     }
 
     private func planningProblem(
-        from reference: XcircuiteFileReference,
+        from reference: ArtifactReference,
         projectRoot: URL
     ) throws -> XcircuiteCircuitPlanningProblem {
         let url = try XcircuitePackageStore().url(
