@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CircuiteFoundation
 import DesignFlowKernel
 import LayoutCore
 import ToolQualification
@@ -34,16 +35,69 @@ struct RunReviewPassingExecutor: FlowStageExecutor {
             resolvedArtifacts[index].byteCount = Int64(payload.count)
         }
 
+        let canonicalArtifacts = try resolvedArtifacts.map(
+            RunReviewTestSupport.foundationArtifactReference(from:)
+        )
         return FlowStageResult(
             stageID: stage.stageID,
             status: .succeeded,
             gates: [FlowGateResult(gateID: "drc", status: .passed)],
-            artifacts: resolvedArtifacts
+            artifacts: canonicalArtifacts
         )
     }
 }
 
+enum RunReviewTestSupportError: Error {
+    case invalidArtifactReference(String)
+}
+
 enum RunReviewTestSupport {
+    static func foundationArtifactReference(
+        from value: XcircuiteFileReference
+    ) throws -> ArtifactReference {
+        if let canonical = FoundationArtifactTypeProjection.reference(value) {
+            return canonical
+        }
+        guard let kind = FoundationArtifactTypeProjection.kind(value.kind),
+              let format = FoundationArtifactTypeProjection.format(value.format) else {
+            throw RunReviewTestSupportError.invalidArtifactReference(value.path)
+        }
+        return try foundationArtifactReference(
+            artifactID: value.artifactID ?? "derived-\(value.path.hashValue)",
+            path: value.path,
+            kind: kind,
+            format: format,
+            byteCount: value.byteCount.map { max(0, $0) } ?? 0
+        )
+    }
+
+    static func foundationArtifactReference(
+        artifactID: String,
+        path: String,
+        kind: ArtifactKind = .report,
+        format: ArtifactFormat = .json,
+        byteCount: Int64 = 0
+    ) throws -> ArtifactReference {
+        let location = try ArtifactLocation(workspaceRelativePath: path)
+        let locator = ArtifactLocator(
+            location: location,
+            role: .output,
+            kind: kind,
+            format: format
+        )
+        let digest = try ContentDigest(
+            algorithm: .sha256,
+            hexadecimalValue: String(repeating: "0", count: 64)
+        )
+        let id = try ArtifactID(rawValue: artifactID)
+        return ArtifactReference(
+            id: id,
+            locator: locator,
+            digest: digest,
+            byteCount: UInt64(byteCount)
+        )
+    }
+
     static func feedbackPenalizedActionIDs(
         from trace: XcircuiteSymbolicPlannerTrace
     ) -> [String] {
@@ -142,21 +196,23 @@ enum RunReviewTestSupport {
         artifactID: String,
         root: URL,
         runID: String
-    ) throws -> XcircuiteFileReference {
+    ) throws -> ArtifactReference {
         try FileManager.default.createDirectory(
             at: root.appending(path: path).deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         try data.write(to: root.appending(path: path), options: .atomic)
-        let reference = try XcircuitePackageStore().fileReference(
+        let reference = try XcircuitePackageStore().makeArtifactReference(
             forProjectRelativePath: path,
             artifactID: artifactID,
+            role: .output,
             kind: .other,
             format: .json,
             inProjectAt: root,
-            producedByRunID: runID
+            producedByRunID: runID,
+            verifiedByRunID: nil
         )
-        try XcircuitePackageStore().upsertRunArtifact(reference, runID: runID, inProjectAt: root)
+        try XcircuitePackageStore().registerArtifact(reference, runID: runID, inProjectAt: root)
         return reference
     }
     

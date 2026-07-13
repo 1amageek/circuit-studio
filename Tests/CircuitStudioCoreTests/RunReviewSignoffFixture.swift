@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import DesignFlowKernel
 import ToolQualification
 import Xcircuite
@@ -228,11 +229,9 @@ struct RunReviewSignoffFixture {
                 artifactID: "drc-summary",
                 role: "drc-summary",
                 stageID: stageID,
-                reference: XcircuiteFileReference(
+                reference: try RunReviewTestSupport.foundationArtifactReference(
                     artifactID: "drc-summary",
-                    path: drcPath,
-                    kind: .report,
-                    format: .json
+                    path: drcPath
                 ),
                 evaluationSpec: XcircuiteEvaluationSpec(
                     specID: "drc-summary-evaluation-spec",

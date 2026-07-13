@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import LayoutCore
 import Testing
 import Xcircuite
@@ -754,7 +755,7 @@ struct FlowRunnerCLITests {
     }
 
     @Test("signoff repair candidate cycle output exposes candidate artifacts", .timeLimit(.minutes(1)))
-    func signoffRepairCandidateCycleOutputIncludesCandidateArtifacts() {
+    func signoffRepairCandidateCycleOutputIncludesCandidateArtifacts() throws {
         let actionRecord = XcircuiteRunActionRecord(
             actionID: "signoff-repair-planning-1",
             runID: "run-1",
@@ -796,11 +797,9 @@ struct FlowRunnerCLITests {
             planID: "candidate-plan-1",
             executionReadiness: "ready",
             problemPath: ".xcircuite/runs/run-1/planning/problem.json",
-            candidatePlanArtifact: XcircuiteFileReference(
+            candidatePlanArtifact: try foundationArtifactReference(
                 artifactID: "planning-candidate-plan",
                 path: ".xcircuite/runs/run-1/planning/candidate-plan.json",
-                kind: .other,
-                format: .json
             ),
             symbolicPlannerTrace: XcircuiteSymbolicPlannerTrace(
                 runID: "run-1",
@@ -888,17 +887,13 @@ struct FlowRunnerCLITests {
             problemID: "signoff-repair-problem-run-1",
             planID: "candidate-plan-1",
             candidatePlanPath: ".xcircuite/runs/run-1/planning/candidate-plan.json",
-            planExecutionArtifact: XcircuiteFileReference(
+            planExecutionArtifact: try foundationArtifactReference(
                 artifactID: "planning-plan-execution",
                 path: ".xcircuite/runs/run-1/planning/plan-execution.json",
-                kind: .other,
-                format: .json
             ),
-            designDiffArtifact: XcircuiteFileReference(
+            designDiffArtifact: try foundationArtifactReference(
                 artifactID: "design-diff",
                 path: ".xcircuite/runs/run-1/design-diff.json",
-                kind: .other,
-                format: .json
             ),
             producedArtifacts: [],
             nextActions: []
@@ -910,11 +905,9 @@ struct FlowRunnerCLITests {
             planID: "candidate-plan-1",
             accepted: true,
             candidatePlanPath: ".xcircuite/runs/run-1/planning/candidate-plan.json",
-            planVerificationArtifact: XcircuiteFileReference(
+            planVerificationArtifact: try foundationArtifactReference(
                 artifactID: "planning-plan-verification",
                 path: ".xcircuite/runs/run-1/planning/plan-verification.json",
-                kind: .other,
-                format: .json
             ),
             nextActions: []
         )
@@ -1314,6 +1307,29 @@ struct FlowRunnerCLITests {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(layout).write(to: url, options: .atomic)
+    }
+
+    private func foundationArtifactReference(
+        artifactID: String,
+        path: String
+    ) throws -> ArtifactReference {
+        let location = try ArtifactLocation(workspaceRelativePath: path)
+        let locator = ArtifactLocator(
+            location: location,
+            role: .output,
+            kind: .other,
+            format: .json
+        )
+        let digest = try ContentDigest(
+            algorithm: .sha256,
+            hexadecimalValue: String(repeating: "0", count: 64)
+        )
+        return ArtifactReference(
+            id: try ArtifactID(rawValue: artifactID),
+            locator: locator,
+            digest: digest,
+            byteCount: 0
+        )
     }
 
     private func keyValueOutput(_ output: String) -> [String: String] {
