@@ -441,6 +441,10 @@ struct FlowRunnerCLITests {
         ))
 
         #expect(result.signoffRepairCandidateCycleHistoryQualification?.passed == true)
+        #expect(
+            result.signoffRepairCandidateCycleHistoryQualification?.artifactReference
+                == result.signoffRepairCandidateCycleHistoryQualificationArtifact
+        )
         #expect(result.signoffRepairCandidateCycleHistoryQualification?.failedGateIDs.isEmpty == true)
         #expect(result.signoffRepairCandidateCycleHistoryQualification?.profileID == "candidate-cycle-history-qualified")
         #expect(result.signoffRepairCandidateCycleHistoryQualification?.profilePath == profileURL.path(percentEncoded: false))
@@ -481,7 +485,24 @@ struct FlowRunnerCLITests {
             RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Report.self,
             from: Data(contentsOf: URL(filePath: qualificationPath))
         )
-        #expect(persistedReport == result.signoffRepairCandidateCycleHistoryQualification)
+        let resultReport = try #require(result.signoffRepairCandidateCycleHistoryQualification)
+        #expect(persistedReport.status == resultReport.status)
+        #expect(persistedReport.passed == resultReport.passed)
+        #expect(persistedReport.profileID == resultReport.profileID)
+        #expect(persistedReport.profileTitle == resultReport.profileTitle)
+        #expect(persistedReport.profilePath == resultReport.profilePath)
+        #expect(persistedReport.request == resultReport.request)
+        #expect(persistedReport.summary == resultReport.summary)
+        #expect(persistedReport.gates == resultReport.gates)
+        #expect(persistedReport.failedGateIDs == resultReport.failedGateIDs)
+        #expect(persistedReport.missingSelectedActionDomainIDs == resultReport.missingSelectedActionDomainIDs)
+        #expect(persistedReport.missingSelectedObjectiveDomainIDs == resultReport.missingSelectedObjectiveDomainIDs)
+        #expect(
+            persistedReport.underqualifiedSelectedObjectiveDomainIDs
+                == resultReport.underqualifiedSelectedObjectiveDomainIDs
+        )
+        #expect(persistedReport.recommendations == resultReport.recommendations)
+        #expect(persistedReport.artifactReference == nil)
         let qualificationArtifact = try #require(result.signoffRepairCandidateCycleHistoryQualificationArtifact)
         #expect(qualificationArtifact.artifactID == RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID)
         #expect(qualificationArtifact.path == ".xcircuite/retained/signoff-repair-cycle-history-qualification.json")

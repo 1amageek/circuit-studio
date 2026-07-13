@@ -1,5 +1,5 @@
-import DesignFlowKernel
 import Foundation
+import CircuiteFoundation
 import DesignFlowKernel
 
 extension RunReviewService {
@@ -61,7 +61,7 @@ extension RunReviewService {
     public func persistRetainedDashboardProjection(
         runID: String,
         projectRoot: URL
-    ) throws -> XcircuiteFileReference {
+    ) throws -> ArtifactReference {
         try XcircuiteIdentifierValidator().validate(runID, kind: .runID)
         let bundle = try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
         let projection = retainedDashboardProjection(bundle: bundle)
@@ -76,7 +76,7 @@ extension RunReviewService {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(projection)
         try data.write(to: url, options: .atomic)
-        let reference = try store.fileReference(
+        let legacyReference = try store.fileReference(
             forProjectRelativePath: relativePath,
             artifactID: Self.retainedDashboardArtifactID,
             kind: .other,
@@ -84,7 +84,13 @@ extension RunReviewService {
             inProjectAt: projectRoot,
             producedByRunID: runID
         )
-        try store.upsertRunArtifact(reference, runID: runID, inProjectAt: projectRoot)
+        try store.upsertRunArtifact(legacyReference, runID: runID, inProjectAt: projectRoot)
+        guard let reference = FoundationArtifactTypeProjection.reference(legacyReference) else {
+            throw RunReviewServiceError.artifactReferenceProjectionFailed(
+                path: legacyReference.path,
+                message: "Persisted retained dashboard artifact has invalid integrity, kind, or format metadata."
+            )
+        }
         return reference
     }
 

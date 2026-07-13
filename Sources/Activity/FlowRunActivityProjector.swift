@@ -1,7 +1,6 @@
 import CircuiteFoundation
 import DesignFlowKernel
 import Foundation
-import DesignFlowKernel
 
 public struct FlowRunActivityProjector: Sendable {
     private static let maximumArtifactReferences = 64
@@ -389,6 +388,13 @@ public struct FlowRunActivityProjector: Sendable {
         _ reference: XcircuiteFileReference,
         direction: Activity.ArtifactDirection
     ) -> Activity.ArtifactReference {
+        if let foundationReference = foundationArtifactReference(from: reference) {
+            return activityArtifact(foundationReference, direction: direction)
+        }
+
+        // Keep incomplete legacy records visible in the activity feed. They
+        // cannot be represented by Foundation until integrity metadata exists,
+        // so retain the frozen projection only at this presentation boundary.
         Activity.ArtifactReference(
             path: reference.path,
             role: reference.artifactID ?? reference.kind.rawValue,
@@ -398,6 +404,28 @@ public struct FlowRunActivityProjector: Sendable {
             byteCount: reference.byteCount,
             direction: direction
         )
+    }
+
+    private func foundationArtifactReference(
+        from reference: XcircuiteFileReference
+    ) -> CircuiteFoundation.ArtifactReference? {
+        guard let digest = reference.sha256,
+              let byteCount = reference.byteCount,
+              byteCount >= 0 else {
+            return nil
+        }
+        do {
+            return try FoundationArtifactReferenceFactory.make(
+                artifactID: reference.artifactID,
+                path: reference.path,
+                kind: reference.kind,
+                format: reference.format,
+                sha256: digest,
+                byteCount: byteCount
+            )
+        } catch {
+            return nil
+        }
     }
 
     private func activityArtifact(
@@ -538,5 +566,61 @@ public struct FlowRunActivityProjector: Sendable {
             result.append(contentsOf: scalarValue)
         }
         return "\(result)…"
+    }
+}
+
+private enum FoundationArtifactReferenceFactory {
+    static func make(
+        artifactID: String?,
+        path: String,
+        kind: XcircuiteFileKind,
+        format: XcircuiteFileFormat,
+        sha256: String,
+        byteCount: Int64
+    ) throws -> CircuiteFoundation.ArtifactReference {
+        let location: ArtifactLocation
+        if path.hasPrefix("/") {
+            location = try ArtifactLocation(fileURL: URL(filePath: path))
+        } else {
+            location = try ArtifactLocation(workspaceRelativePath: path)
+        }
+        let foundationKind = try ArtifactKind(rawValue: foundationKindRawValue(kind))
+        let foundationFormat = try ArtifactFormat(rawValue: foundationFormatRawValue(format))
+        let digest = try ContentDigest(
+            algorithm: .sha256,
+            hexadecimalValue: sha256
+        )
+        let id = try artifactID.map { try ArtifactID(rawValue: $0) }
+        let role = ArtifactRole(rawValue: artifactID ?? kind.rawValue) ?? .legacyUnspecified
+        return ArtifactReference(
+            id: id,
+            locator: ArtifactLocator(
+                location: location,
+                role: role,
+                kind: foundationKind,
+                format: foundationFormat
+            ),
+            digest: digest,
+            byteCount: UInt64(byteCount)
+        )
+    }
+
+    private static func foundationKindRawValue(_ kind: XcircuiteFileKind) -> String {
+        switch kind {
+        case .powerIntent: return "power-intent"
+        case .timingLibrary: return "timing-library"
+        case .testPattern: return "test-pattern"
+        case .ruleDeck: return "rule-deck"
+        case .designDiff: return "design-diff"
+        case .parasitic: return "parasitics"
+        default: return kind.rawValue
+        }
+    }
+
+    private static func foundationFormatRawValue(_ format: XcircuiteFileFormat) -> String {
+        switch format {
+        case .systemVerilog: return "system-verilog"
+        default: return format.rawValue.lowercased()
+        }
     }
 }

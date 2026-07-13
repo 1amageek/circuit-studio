@@ -564,18 +564,12 @@ public struct DesignFlowService: Sendable {
                 profile: profile,
                 profilePath: profilePath
             )
-            let legacyArtifact = try qualificationService.persist(report, forProjectAt: projectRoot)
-            guard let artifact = FoundationArtifactTypeProjection.reference(legacyArtifact) else {
-                throw RunReviewServiceError.artifactReferenceProjectionFailed(
-                    path: legacyArtifact.path,
-                    message: "Persisted qualification artifact has invalid integrity, kind, or format metadata."
-                )
-            }
+            let artifact = try qualificationService.persist(report, forProjectAt: projectRoot)
             return DesignFlowCommandResult(
                 kind: command.kind,
                 projectRootPath: projectRoot.path(percentEncoded: false),
                 signoffRepairCandidateCycleHistoryIndex: report.summary,
-                signoffRepairCandidateCycleHistoryQualification: report,
+                signoffRepairCandidateCycleHistoryQualification: report.attachingArtifactReference(artifact),
                 signoffRepairCandidateCycleHistoryQualificationArtifact: artifact,
                 signoffRepairCandidateCycleHistoryQualificationPath: try absolutePath(
                     for: artifact,

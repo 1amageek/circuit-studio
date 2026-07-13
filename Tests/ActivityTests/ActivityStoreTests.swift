@@ -2,7 +2,6 @@ import Activity
 import DesignFlowKernel
 import Foundation
 import Testing
-import DesignFlowKernel
 
 @Suite("CircuitStudio Activity Store Tests", .serialized)
 struct ActivityStoreTests {
@@ -93,6 +92,44 @@ struct ActivityStoreTests {
         #expect(firstActivities.first?.sourceID == "run-first:created")
         #expect(secondActivities.first?.sourceID == "run-second:created")
         #expect(firstActivities.first?.id != secondActivities.first?.id)
+    }
+
+    @Test("Projector projects complete legacy artifacts through Foundation")
+    func projectorProjectsLegacyArtifactsThroughFoundation() throws {
+        var ledger = try makeLedger(runID: "run-artifact")
+        ledger.actions = [
+            XcircuiteRunActionRecord(
+                actionID: "action-artifact",
+                runID: "run-artifact",
+                actor: XcircuiteRunActionActor(kind: .system, identifier: "test"),
+                actionKind: "artifact.capture",
+                status: .succeeded,
+                outputs: [
+                    XcircuiteFileReference(
+                        artifactID: "captured-report",
+                        path: ".xcircuite/runs/run-artifact/report.json",
+                        kind: .report,
+                        format: .json,
+                        sha256: String(repeating: "a", count: 64),
+                        byteCount: 7,
+                        producedByRunID: "run-artifact"
+                    )
+                ]
+            )
+        ]
+
+        let activities = FlowRunActivityProjector().project(
+            projectID: "project-1",
+            ledger: ledger
+        )
+        let action = try #require(activities.first(where: { $0.kind == "artifact.capture" }))
+        let artifact = try #require(action.artifacts.first)
+
+        #expect(artifact.role == "captured-report")
+        #expect(artifact.kind == "report")
+        #expect(artifact.format == "json")
+        #expect(artifact.sha256 == String(repeating: "a", count: 64))
+        #expect(artifact.byteCount == 7)
     }
 
     @Test("Projector redacts separated secret argument values")

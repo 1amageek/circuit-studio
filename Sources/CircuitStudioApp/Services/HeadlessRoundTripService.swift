@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import CircuitStudioCore
 import CircuitPhysicalDesign
 import CoreSpiceWaveform
@@ -747,7 +748,7 @@ public final class HeadlessRoundTripService {
             to: failureURL
         )
         let hasher = XcircuiteHasher()
-        let failureReference = XcircuiteFileReference(
+        let legacyFailureReference = XcircuiteFileReference(
             artifactID: "headless-error",
             path: "\(XcircuitePackage.directoryName)/runs/\(configuration.runID)/headless-error.json",
             kind: .report,
@@ -756,20 +757,21 @@ public final class HeadlessRoundTripService {
             byteCount: try hasher.byteCount(fileAt: failureURL),
             producedByRunID: configuration.runID
         )
-        let integrity = XcircuiteFileReferenceVerifier().verify(
+        let failureReference = try foundationArtifactReference(from: legacyFailureReference)
+        let integrity = LocalArtifactVerifier().verify(
             failureReference,
-            projectRoot: configuration.projectRoot
+            relativeTo: configuration.projectRoot
         )
-        guard integrity.status == .verified else {
+        guard integrity.isVerified else {
             throw StudioError.projectSaveFailed(
-                "Headless failure artifact integrity failed: \(integrity.message)"
+                "Headless failure artifact integrity failed: \(integrityMessage(integrity))"
             )
         }
         _ = try runLedger.transitionRun(
             runID: configuration.runID,
             transition: XcircuiteRunTransition(
                 status: .failed,
-                artifacts: [failureReference]
+                artifacts: [try FoundationArtifactTypeProjection.legacyReference(failureReference)]
             ),
             inProjectAt: configuration.projectRoot
         )
@@ -807,7 +809,7 @@ public final class HeadlessRoundTripService {
         configuration: Configuration
     ) throws -> [XcircuiteFileReference] {
         let runPrefix = "\(XcircuitePackage.directoryName)/runs/\(configuration.runID)"
-        var references = artifacts.map { artifact in
+        var legacyReferences = artifacts.map { artifact in
             XcircuiteFileReference(
                 artifactID: canonicalArtifactID(for: artifact),
                 path: "\(runPrefix)/\(artifact.path)",
@@ -819,7 +821,7 @@ public final class HeadlessRoundTripService {
             )
         }
         let hasher = XcircuiteHasher()
-        references.append(XcircuiteFileReference(
+        legacyReferences.append(XcircuiteFileReference(
             artifactID: "round-trip-manifest",
             path: "\(runPrefix)/round-trip-manifest.json",
             kind: .report,
@@ -829,18 +831,40 @@ public final class HeadlessRoundTripService {
             producedByRunID: configuration.runID
         ))
 
+        let references = try legacyReferences.map(foundationArtifactReference(from:))
         for reference in references {
-            let integrity = XcircuiteFileReferenceVerifier().verify(
+            let integrity = LocalArtifactVerifier().verify(
                 reference,
-                projectRoot: configuration.projectRoot
+                relativeTo: configuration.projectRoot
             )
-            guard integrity.status == .verified else {
+            guard integrity.isVerified else {
                 throw StudioError.projectSaveFailed(
-                    "Canonical run artifact integrity failed for \(reference.path): \(integrity.message)"
+                    "Canonical run artifact integrity failed for \(reference.locator.location.value): \(integrityMessage(integrity))"
                 )
             }
         }
-        return references
+        return try references.map(FoundationArtifactTypeProjection.legacyReference)
+    }
+
+    private func integrityMessage(_ integrity: ArtifactIntegrity) -> String {
+        integrity.issues.map { issue in
+            var message = issue.code.rawValue
+            if let detail = issue.detail {
+                message += ": \(detail)"
+            }
+            return message
+        }.joined(separator: "; ")
+    }
+
+    private func foundationArtifactReference(
+        from legacyReference: XcircuiteFileReference
+    ) throws -> CircuiteFoundation.ArtifactReference {
+        guard let reference = FoundationArtifactTypeProjection.reference(legacyReference) else {
+            throw StudioError.projectSaveFailed(
+                "Unable to project legacy artifact into Foundation: \(legacyReference.path)"
+            )
+        }
+        return reference
     }
 
     private func canonicalArtifactID(for artifact: Artifact) -> String {

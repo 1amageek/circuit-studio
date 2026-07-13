@@ -298,8 +298,8 @@ struct RunReviewServiceTests {
         )
         #expect(dashboardRef.artifactID == "retained-dashboard-projection")
         #expect(dashboardRef.path == ".xcircuite/runs/\(runID)/review/retained-dashboard-projection.json")
-        #expect(dashboardRef.sha256 != nil)
-        #expect(dashboardRef.byteCount != nil)
+        #expect(!dashboardRef.sha256.isEmpty)
+        #expect(dashboardRef.byteCount > 0)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let persistedProjection = try decoder.decode(

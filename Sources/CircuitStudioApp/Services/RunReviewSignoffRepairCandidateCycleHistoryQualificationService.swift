@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import DesignFlowKernel
 
 public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: Sendable {
@@ -189,13 +190,18 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
         public let missingSelectedObjectiveDomainIDs: [String]
         public let underqualifiedSelectedObjectiveDomainIDs: [String]
         public let recommendations: [String]
+        /// Canonical identity of the persisted report, attached after the
+        /// report payload has been written. This metadata is intentionally
+        /// excluded from the report payload to avoid a self-referential digest.
+        public let artifactReference: ArtifactReference?
 
         public init(
             request: Request,
             summary: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary,
             gates: [Gate],
             profile: Profile? = nil,
-            profilePath: String? = nil
+            profilePath: String? = nil,
+            artifactReference: ArtifactReference? = nil
         ) {
             let failedGateIDs = gates
                 .filter { !$0.passed }
@@ -231,6 +237,95 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
                 underqualifiedSelectedObjectiveDomainIDs: underqualifiedSelectedObjectiveDomainIDs,
                 summaryRecommendations: summary.recommendations
             )
+            self.artifactReference = artifactReference
+        }
+
+        /// Returns the report with the identity of its persisted payload.
+        /// The identity is response metadata and is not encoded into the
+        /// payload whose digest it describes.
+        public func attachingArtifactReference(_ reference: ArtifactReference) -> Report {
+            Report(
+                status: status,
+                passed: passed,
+                profileID: profileID,
+                profileTitle: profileTitle,
+                profilePath: profilePath,
+                request: request,
+                summary: summary,
+                gates: gates,
+                failedGateIDs: failedGateIDs,
+                missingSelectedActionDomainIDs: missingSelectedActionDomainIDs,
+                missingSelectedObjectiveDomainIDs: missingSelectedObjectiveDomainIDs,
+                underqualifiedSelectedObjectiveDomainIDs: underqualifiedSelectedObjectiveDomainIDs,
+                recommendations: recommendations,
+                artifactReference: reference
+            )
+        }
+
+        private init(
+            status: Status,
+            passed: Bool,
+            profileID: String?,
+            profileTitle: String?,
+            profilePath: String?,
+            request: Request,
+            summary: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary,
+            gates: [Gate],
+            failedGateIDs: [String],
+            missingSelectedActionDomainIDs: [String],
+            missingSelectedObjectiveDomainIDs: [String],
+            underqualifiedSelectedObjectiveDomainIDs: [String],
+            recommendations: [String],
+            artifactReference: ArtifactReference?
+        ) {
+            self.status = status
+            self.passed = passed
+            self.profileID = profileID
+            self.profileTitle = profileTitle
+            self.profilePath = profilePath
+            self.request = request
+            self.summary = summary
+            self.gates = gates
+            self.failedGateIDs = failedGateIDs
+            self.missingSelectedActionDomainIDs = missingSelectedActionDomainIDs
+            self.missingSelectedObjectiveDomainIDs = missingSelectedObjectiveDomainIDs
+            self.underqualifiedSelectedObjectiveDomainIDs = underqualifiedSelectedObjectiveDomainIDs
+            self.recommendations = recommendations
+            self.artifactReference = artifactReference
+        }
+
+        public static func == (lhs: Report, rhs: Report) -> Bool {
+            lhs.status == rhs.status
+                && lhs.passed == rhs.passed
+                && lhs.profileID == rhs.profileID
+                && lhs.profileTitle == rhs.profileTitle
+                && lhs.profilePath == rhs.profilePath
+                && lhs.request == rhs.request
+                && lhs.summary == rhs.summary
+                && lhs.gates == rhs.gates
+                && lhs.failedGateIDs == rhs.failedGateIDs
+                && lhs.missingSelectedActionDomainIDs == rhs.missingSelectedActionDomainIDs
+                && lhs.missingSelectedObjectiveDomainIDs == rhs.missingSelectedObjectiveDomainIDs
+                && lhs.underqualifiedSelectedObjectiveDomainIDs == rhs.underqualifiedSelectedObjectiveDomainIDs
+                && lhs.recommendations == rhs.recommendations
+                && lhs.artifactReference == rhs.artifactReference
+        }
+
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(status)
+            hasher.combine(passed)
+            hasher.combine(profileID)
+            hasher.combine(profileTitle)
+            hasher.combine(profilePath)
+            hasher.combine(request)
+            hasher.combine(summary)
+            hasher.combine(gates)
+            hasher.combine(failedGateIDs)
+            hasher.combine(missingSelectedActionDomainIDs)
+            hasher.combine(missingSelectedObjectiveDomainIDs)
+            hasher.combine(underqualifiedSelectedObjectiveDomainIDs)
+            hasher.combine(recommendations)
+            hasher.combine(artifactReference)
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -302,6 +397,7 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
                     underqualifiedSelectedObjectiveDomainIDs: underqualifiedSelectedObjectiveDomainIDs,
                     summaryRecommendations: summary.recommendations
                 )
+            self.artifactReference = nil
         }
 
         public func encode(to encoder: Encoder) throws {
@@ -554,7 +650,7 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
     public func persist(
         _ report: Report,
         forProjectAt projectRoot: URL
-    ) throws -> XcircuiteFileReference {
+    ) throws -> ArtifactReference {
         try packageStore.createPackage(at: projectRoot)
         let packageURL = packageStore.packageURL(forProjectAt: projectRoot)
         let retainedDirectory = packageURL.appending(path: "retained")
@@ -564,14 +660,20 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
         try packageStore.writeJSON(report, to: reportURL, forProjectAt: projectRoot)
 
         let projectRelativePath = "\(XcircuitePackage.directoryName)/\(Self.reportRelativePath)"
-        let reference = try packageStore.fileReference(
+        let legacyReference = try packageStore.fileReference(
             forProjectRelativePath: projectRelativePath,
             artifactID: Self.reportArtifactID,
             kind: .other,
             format: .json,
             inProjectAt: projectRoot
         )
-        try packageStore.upsertFileReference(reference, forProjectAt: projectRoot)
+        try packageStore.upsertFileReference(legacyReference, forProjectAt: projectRoot)
+        guard let reference = FoundationArtifactTypeProjection.reference(legacyReference) else {
+            throw RunReviewServiceError.artifactReferenceProjectionFailed(
+                path: legacyReference.path,
+                message: "Persisted qualification artifact has invalid integrity, kind, or format metadata."
+            )
+        }
         return reference
     }
 }
