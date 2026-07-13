@@ -1,7 +1,7 @@
 import ArtifactCore
 import CircuitArtifactRenderer
+import CircuiteFoundation
 import Testing
-import XcircuitePackage
 
 @Suite("Xcircuite artifact type resolver")
 struct XcircuiteArtifactTypeResolverTests {
@@ -28,7 +28,7 @@ struct XcircuiteArtifactTypeResolverTests {
         #expect(resolver.artifactType(kind: .netlist, format: .spice) == CircuitArtifactTypes.spice)
         #expect(resolver.artifactType(kind: .technology, format: .lef) == CircuitArtifactTypes.lef)
         #expect(resolver.artifactType(kind: .layout, format: .def) == CircuitArtifactTypes.def)
-        #expect(resolver.artifactType(kind: .parasitic, format: .spef) == CircuitArtifactTypes.spef)
+        #expect(resolver.artifactType(kind: .parasitics, format: .spef) == CircuitArtifactTypes.spef)
         #expect(resolver.artifactType(kind: .layout, format: .oasis) == CircuitArtifactTypes.oasis)
         #expect(resolver.artifactType(kind: .layout, format: .gdsii) == CircuitArtifactTypes.gdsii)
     }

@@ -1,12 +1,13 @@
 import Foundation
 import CircuitStudioCore
+import PEXEngine
 import CircuitPhysicalDesign
 import CoreSpiceWaveform
 import LayoutCore
 import LayoutTech
 import LayoutEngine
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct DesignFlowService: Sendable {
     private let simulationService: SimulationService
@@ -158,6 +159,35 @@ public struct DesignFlowService: Sendable {
         )
     }
 
+    public func buildHierarchicalPostLayoutNetlist(
+        baseNetlist: String,
+        canonicalIR: ParasiticIR,
+        topCell: String? = nil
+    ) throws -> String {
+        try PostLayoutSimulationService().buildHierarchicalPostLayoutNetlist(
+            baseNetlist: baseNetlist,
+            canonicalIR: canonicalIR,
+            topCell: topCell
+        )
+    }
+
+    public func buildPostLayoutNetlist(
+        baseNetlist: String,
+        manifestURL: URL,
+        cornerID: String,
+        topCell: String? = nil
+    ) throws -> String {
+        let canonicalIR = try PEXArtifactService().loadCanonicalIR(
+            for: cornerID,
+            manifestURL: manifestURL
+        )
+        return try buildHierarchicalPostLayoutNetlist(
+            baseNetlist: baseNetlist,
+            canonicalIR: canonicalIR,
+            topCell: topCell
+        )
+    }
+
     public func runPostLayoutSimulation(
         _ request: DesignFlowPostLayoutSimulationRequest
     ) async throws -> SimulationResult {
@@ -167,6 +197,44 @@ public struct DesignFlowService: Sendable {
             command: request.command,
             processConfiguration: request.processConfiguration,
             simulationService: simulationService
+        )
+    }
+
+    public func runHierarchicalPostLayoutSimulation(
+        baseNetlist: String,
+        canonicalIR: ParasiticIR,
+        topCell: String? = nil,
+        command: AnalysisCommand,
+        processConfiguration: ProcessConfiguration? = nil
+    ) async throws -> SimulationResult {
+        try await PostLayoutSimulationService().runHierarchicalPostLayoutAnalysis(
+            baseNetlist: baseNetlist,
+            canonicalIR: canonicalIR,
+            topCell: topCell,
+            command: command,
+            processConfiguration: processConfiguration,
+            simulationService: simulationService
+        )
+    }
+
+    public func runPostLayoutSimulation(
+        baseNetlist: String,
+        manifestURL: URL,
+        cornerID: String,
+        topCell: String? = nil,
+        command: AnalysisCommand,
+        processConfiguration: ProcessConfiguration? = nil
+    ) async throws -> SimulationResult {
+        let canonicalIR = try PEXArtifactService().loadCanonicalIR(
+            for: cornerID,
+            manifestURL: manifestURL
+        )
+        return try await runHierarchicalPostLayoutSimulation(
+            baseNetlist: baseNetlist,
+            canonicalIR: canonicalIR,
+            topCell: topCell,
+            command: command,
+            processConfiguration: processConfiguration
         )
     }
 

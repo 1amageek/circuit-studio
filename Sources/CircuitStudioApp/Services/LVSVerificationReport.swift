@@ -1,5 +1,10 @@
 import Foundation
 
+/// Local in-memory layout preflight produced by `PhysicalVerificationService`.
+///
+/// This report is scoped to the editor's `LayoutVerify` model and does not
+/// decode, replace, or override the auditable LVSEngine v2 signoff verdict used
+/// by flow review, release, or retained run artifacts.
 public struct LVSVerificationReport: Sendable, Hashable {
     public struct Terminal: Sendable, Hashable {
         public let componentName: String

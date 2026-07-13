@@ -1,6 +1,6 @@
 import Foundation
 import CircuitStudioCore
-import XcircuitePackage
+import DesignFlowKernel
 
 public enum RoundTripReviewServiceError: Error, LocalizedError, Equatable {
     case missingManifest(URL)

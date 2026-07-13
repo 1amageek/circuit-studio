@@ -1,6 +1,6 @@
 import Foundation
 import CircuitStudioCore
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
     private let store: XcircuitePackageStore

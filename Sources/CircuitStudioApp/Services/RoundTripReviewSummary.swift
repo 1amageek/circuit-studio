@@ -1,6 +1,6 @@
 import Foundation
 import CircuitStudioCore
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
     public enum Status: String, Sendable, Hashable, Codable {

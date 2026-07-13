@@ -1,6 +1,6 @@
 import DesignFlowKernel
 import Foundation
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct RunReviewFlowReviewProjection: Sendable, Hashable {
     public struct CoverageDomain: Sendable, Hashable {

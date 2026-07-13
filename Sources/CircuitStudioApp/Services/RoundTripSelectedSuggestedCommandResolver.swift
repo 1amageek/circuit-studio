@@ -1,5 +1,5 @@
 import Foundation
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct RoundTripSelectedSuggestedCommandResolutionRequest: Sendable, Hashable, Codable {
     public let runID: String

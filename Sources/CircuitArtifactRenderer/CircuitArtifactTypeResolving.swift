@@ -1,9 +1,9 @@
 import ArtifactCore
-import XcircuitePackage
+import CircuiteFoundation
 
 public protocol CircuitArtifactTypeResolving: Sendable {
     func artifactType(
-        kind: XcircuiteFileKind,
-        format: XcircuiteFileFormat
+        kind: ArtifactKind,
+        format: ArtifactFormat
     ) -> ArtifactType?
 }

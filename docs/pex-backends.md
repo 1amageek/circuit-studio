@@ -24,7 +24,7 @@ flowchart LR
 
 | Type | Responsibility |
 |---|---|
-| `PEXBackendExtractionRequest` | Provides the config or manifest URL, optional working directory, corner ID, optional executable override, and extra backend arguments. |
+| `PEXBackendExtractionRequest` | Provides the config or manifest URL, optional working directory, corner ID, optional executable override, and extra backend arguments. Config JSON may carry `inputs.technologyByCorner` and `processProfile.cornerDeckPaths` for explicit per-corner process extraction. |
 | `PEXBackendExtractionResult` | Returns loaded `PEXRunArtifacts`, loaded corner-specific `PEXParasiticIR`, and the command result when a process was executed. |
 | `SavedPEXManifestBackendAdapter` | Loads an existing PEX manifest and IR without launching a backend. |
 | `PEXEngineCommandBackendAdapter` | Runs `pexengine extract --config <path> --json`, reads `artifacts.manifestURL` from JSON stdout, then loads the emitted manifest and IR. |
@@ -36,6 +36,7 @@ flowchart LR
 |---|---|
 | Real installed `pexengine` smoke | Adapter contract exists; current regression uses a mock executable that emits the same JSON handoff shape. |
 | Full round-trip inline `PEXEngine run` | Not wired into `HeadlessRoundTripService` yet; the command API can extract artifacts, and saved manifests can already feed the round trip. |
+| Per-corner process technology in project config | Supported by `PEXProjectConfig.processProfile` and `inputs.technologyByCorner`; relative paths are resolved by `pexengine` against the config file and captured into immutable run inputs. |
 | Tool-specific diagnostics | Non-zero process exits and missing manifest URLs are typed failures; detailed extractor warnings still come from the emitted PEX manifest/IR. |
 | UI review | Deferred; UI should read the same command result and artifacts instead of inventing a separate PEX path. |
 

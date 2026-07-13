@@ -1,7 +1,7 @@
 import SwiftUI
 import DesignFlowKernel
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 
 extension RunReviewView {
     func waveformValue(_ value: Double?) -> String {
@@ -38,6 +38,7 @@ extension RunReviewView {
         switch status {
         case .passed: return "checkmark.circle.fill"
         case .failed: return "xmark.circle.fill"
+        case .blocked: return "exclamationmark.octagon.fill"
         case .waived: return "minus.circle"
         case .incomplete: return "clock.fill"
         }
@@ -47,6 +48,7 @@ extension RunReviewView {
         switch status {
         case .passed: return .green
         case .failed: return .red
+        case .blocked: return .orange
         case .waived: return .secondary
         case .incomplete: return .orange
         }

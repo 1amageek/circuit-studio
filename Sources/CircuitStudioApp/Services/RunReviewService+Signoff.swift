@@ -1,7 +1,7 @@
 import DesignFlowKernel
 import Foundation
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 
 extension RunReviewService {
     func signoffReview(
@@ -348,19 +348,23 @@ extension RunReviewService {
         artifact: FlowRunReviewArtifact
     ) -> RunReviewSignoffCard {
         let summary = document.summary
+        let projection = LVSSignoffProjection(document: document)
         let activeBuckets = summary.mismatchBuckets
             .filter { $0.activeCount > 0 }
             .sorted { $0.activeCount > $1.activeCount }
         return RunReviewSignoffCard(
             domain: "LVS",
             title: "LVS Summary",
-            status: summary.status,
-            passed: summary.passed,
+            status: projection.status,
+            passed: projection.passed,
             stageID: artifact.stageID,
             artifact: artifact,
             primaryMetrics: [
                 RunReviewSignoffMetric(label: "Active", value: "\(summary.activeMismatchCount)"),
                 RunReviewSignoffMetric(label: "Waived", value: "\(summary.waivedMismatchCount)"),
+                RunReviewSignoffMetric(label: "Execution", value: projection.executionStatus),
+                RunReviewSignoffMetric(label: "Verdict", value: projection.verdict),
+                RunReviewSignoffMetric(label: "Readiness", value: projection.readiness),
                 RunReviewSignoffMetric(label: "Tool", value: summary.toolName),
                 RunReviewSignoffMetric(label: "Top", value: summary.topCell),
             ],
@@ -372,8 +376,24 @@ extension RunReviewService {
                     ("Layout input", summary.layoutInputKind),
                     ("Extracted", summary.extractedLayoutNetlistURL.map(sourceURLValue)),
                 ])
-            ) + lvsDetailSections(summary),
-            issues: activeBuckets.prefix(5).map { bucket in
+            ) + lvsContractDetailSections(projection) + lvsDetailSections(summary),
+            issues: projection.blockingReasons.map { reason in
+                RunReviewSignoffIssue(
+                    severity: "error",
+                    label: reason.code,
+                    message: reason.message,
+                    suggestedFixes: ["resolve-lvs-readiness-block"],
+                    detailRows: [
+                        RunReviewSignoffDetailRow(
+                            label: "Readiness Block",
+                            metrics: compactMetrics([
+                                ("Code", reason.code),
+                                ("Evidence", joinedList(reason.evidenceReferences)),
+                            ])
+                        ),
+                    ]
+                )
+            } + activeBuckets.prefix(5).map { bucket in
                 RunReviewSignoffIssue(
                     severity: "error",
                     label: lvsBucketLabel(bucket),
@@ -385,6 +405,27 @@ extension RunReviewService {
                 )
             }
         )
+    }
+
+    private func lvsContractDetailSections(
+        _ projection: LVSSignoffProjection
+    ) -> [RunReviewSignoffDetailSection] {
+        [
+            RunReviewSignoffDetailSection(
+                title: "LVS v2 Contract",
+                rows: [
+                    RunReviewSignoffDetailRow(
+                        label: "Authoritative Result",
+                        metrics: [
+                            RunReviewSignoffMetric(label: "Execution", value: projection.executionStatus),
+                            RunReviewSignoffMetric(label: "Verdict", value: projection.verdict),
+                            RunReviewSignoffMetric(label: "Readiness", value: projection.readiness),
+                            RunReviewSignoffMetric(label: "Blocking reasons", value: "\(projection.blockingReasons.count)"),
+                        ]
+                    ),
+                ]
+            ),
+        ]
     }
 
     private func pexCard(

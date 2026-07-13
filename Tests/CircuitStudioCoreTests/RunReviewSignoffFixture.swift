@@ -2,7 +2,7 @@ import Foundation
 import DesignFlowKernel
 import ToolQualification
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 
@@ -375,15 +375,17 @@ struct RunReviewSignoffFixture {
             lvsPath: Data(
                 """
                 {
-                  "schemaVersion": 1,
+                  "schemaVersion": 2,
                   "reportURL": "\(root.appending(path: lvsPath).absoluteString)",
                   "manifestURL": "\(root.appending(path: "\(rawPrefix)/lvs-artifact-manifest.json").absoluteString)",
                   "summary": {
-                    "status": "failed",
+                    "executionStatus": "completed",
+                    "verdict": "mismatch",
+                    "readiness": "ready",
+                    "blockingReasons": [],
                     "toolName": "native-lvs",
                     "topCell": "INVX1",
                     "layoutInputKind": "layout-netlist",
-                    "passed": false,
                     "activeMismatchCount": 1,
                     "waivedMismatchCount": 0,
                     "extractedLayoutNetlistURL": "\(root.appending(path: "\(rawPrefix)/layout-extracted.spice").absoluteString)",

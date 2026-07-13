@@ -1,5 +1,5 @@
 import Foundation
-import XcircuitePackage
+import DesignFlowKernel
 
 /// Bridges the tapeout evidence bundle into the canonical `.xcircuite`
 /// run ledger, so the human cockpit and the agent loop review ONE

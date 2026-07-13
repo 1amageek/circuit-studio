@@ -2,7 +2,7 @@ import Foundation
 import LayoutCore
 import Testing
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 @testable import CircuitStudioApp
 
 @Suite("circuit-studio-flow-runner CLI", .serialized)

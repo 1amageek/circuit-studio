@@ -1,6 +1,6 @@
 import DesignFlowKernel
 import Foundation
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct FlowRunActivityProjector: Sendable {
     private static let maximumArtifactReferences = 64

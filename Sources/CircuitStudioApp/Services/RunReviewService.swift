@@ -1,7 +1,7 @@
 import Foundation
 import DesignFlowKernel
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 
 /// The review cockpit's data layer: everything it shows is read from
 /// the `.xcircuite` run ledger — the same record the flow kernel and

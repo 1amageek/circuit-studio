@@ -1,7 +1,7 @@
 import CircuitStudioCore
 import Activity
 import Foundation
-import XcircuitePackage
+import DesignFlowKernel
 
 /// Dependency injection container for all services.
 @MainActor

@@ -1,6 +1,6 @@
 import DesignFlowKernel
 import SwiftUI
-import XcircuitePackage
+import DesignFlowKernel
 
 struct RunReviewFlowReviewProjectionCard: View {
     let projection: RunReviewFlowReviewProjection

@@ -15,8 +15,8 @@ let package = Package(
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
-        .package(path: "../XcircuitePackage"),
         .package(path: "../Xcircuite"),
+        .package(path: "../CircuiteFoundation"),
         .package(path: "../DesignFlowKernel"),
         .package(path: "../SignoffToolSupport"),
         .package(path: "../CoreSpice"),
@@ -64,7 +64,8 @@ let package = Package(
             dependencies: [
                 "CircuitStudioCore",
                 "WaveformViewer",
-                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
+                .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 .product(name: "CoreSpiceIO", package: "CoreSpice"),
                 .product(name: "ArtifactCore", package: "swift-artifact"),
                 .product(name: "ArtifactRenderer", package: "swift-artifact"),
@@ -87,14 +88,13 @@ let package = Package(
             dependencies: [
                 .product(name: "Database", package: "database-framework"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
-                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]
         ),
         .target(
             name: "CircuitStudioApp",
             dependencies: [
                 "Activity",
-                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
@@ -153,9 +153,9 @@ let package = Package(
             name: "CircuitArtifactRendererTests",
             dependencies: [
                 "CircuitArtifactRenderer",
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "ArtifactCore", package: "swift-artifact"),
                 .product(name: "ArtifactRenderer", package: "swift-artifact"),
-                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]
         ),
         .testTarget(
@@ -204,7 +204,6 @@ let package = Package(
             dependencies: [
                 "Activity",
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
-                .product(name: "XcircuitePackage", package: "XcircuitePackage"),
             ]
         ),
     ]

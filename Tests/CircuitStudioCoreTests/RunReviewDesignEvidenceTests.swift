@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import XcircuitePackage
+import DesignFlowKernel
 @testable import CircuitStudioApp
 
 @Suite("Run review design evidence", .timeLimit(.minutes(2)))

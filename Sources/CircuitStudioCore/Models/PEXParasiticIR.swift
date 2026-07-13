@@ -60,6 +60,7 @@ public struct PEXParasiticElement: Sendable, Hashable {
         case resistor
         case capacitor
         case coupling
+        case inductor
     }
 
     public let id: String

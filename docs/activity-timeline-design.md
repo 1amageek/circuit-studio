@@ -99,7 +99,7 @@ flowchart TD
 | Layer | Owns | Does not own |
 |---|---|---|
 | Semiconductor and flow libraries | Typed operations, run artifacts, diagnostics, design diffs, verification results. | Activity persistence or app UI state. |
-| `XcircuitePackage` / `DesignFlowKernel` | Canonical run ledger and its integrity contract. | SQLite schema or timeline presentation. |
+| `Xcircuite workspace` / `DesignFlowKernel` | Canonical run ledger and its integrity contract. | SQLite schema or timeline presentation. |
 | Activity infrastructure | Projection, indexing, querying, correlation, and database health. | Design truth, approval truth, artifact payloads, or flow verdicts. |
 | Activity UI | Filtering, grouping, and navigation to canonical review. | Recomputing status or consuming unverified artifacts. |
 
@@ -111,14 +111,14 @@ Add an internal SwiftPM target named `Activity`.
 Activity
   -> Database (database-framework, SQLite trait)
   -> DesignFlowKernel
-  -> XcircuitePackage
+  -> Xcircuite workspace
 
 CircuitStudioApp
   -> Activity
   -> existing app and EDA targets
 ```
 
-`Activity` is app infrastructure despite being a separate target. It must not be added as a dependency of `CoreSpice`, `semiconductor-layout`, `DRCEngine`, `LVSEngine`, `PEXEngine`, `XcircuitePackage`, or `DesignFlowKernel`.
+`Activity` is app infrastructure despite being a separate target. It must not be added as a dependency of `CoreSpice`, `semiconductor-layout`, `DRCEngine`, `LVSEngine`, `PEXEngine`, `Xcircuite workspace`, or `DesignFlowKernel`.
 
 The dependency should be pinned to the released API used by the design:
 
@@ -221,7 +221,7 @@ If an Activity fact can be obtained from both a specialized action record and a 
 ```mermaid
 sequenceDiagram
   participant UI as CircuitStudio
-  participant PackageStore as XcircuitePackageStore
+  participant PackageStore as XcircuiteRunLedgerStore
   participant Loader as FlowRunLedgerLoader
   participant Projector as FlowRunActivityProjector
   participant Store as SQLiteActivityStore
@@ -243,7 +243,7 @@ Reconciliation rules:
 
 1. Read the project manifest without creating or modifying a package.
 2. If no valid project manifest exists, show Activity as unavailable for that folder until CircuitStudio creates a project identity through its existing lifecycle.
-3. List available run snapshots through `XcircuitePackageStore`.
+3. List available run snapshots through `XcircuiteRunLedgerStore`.
 4. Load each run through `FlowRunLedgerLoader`.
 5. Project records in memory and commit the batch in one database save.
 6. Upsert by deterministic Activity ID.
@@ -324,7 +324,9 @@ No error path may use `try?`, silently discard a failed write, or report a desig
 
 ## UI Integration
 
-The Review workspace should gain a top-level `Timeline / Runs` mode.
+The detailed presentation contract is defined in [`activity-timeline-ux-design.md`](activity-timeline-ux-design.md). The technical boundary below remains authoritative for data ownership and navigation.
+
+The Review workspace exposes top-level `Activity / Runs` modes.
 
 ```text
 Review

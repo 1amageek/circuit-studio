@@ -3,7 +3,7 @@ import Testing
 import DesignFlowKernel
 import ToolQualification
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 
@@ -153,7 +153,12 @@ struct RunReviewSignoffProjectionTests {
         }
 
         let lvs = try #require(review.signoff.cards.first { $0.domain == "LVS" })
+        #expect(lvs.status == "mismatch")
+        #expect(lvs.passed == false)
         #expect(lvs.primaryMetrics.contains { $0.label == "Active" && $0.value == "1" })
+        #expect(lvs.primaryMetrics.contains { $0.label == "Execution" && $0.value == "completed" })
+        #expect(lvs.primaryMetrics.contains { $0.label == "Verdict" && $0.value == "mismatch" })
+        #expect(lvs.primaryMetrics.contains { $0.label == "Readiness" && $0.value == "ready" })
         #expect(lvs.issues.first?.label == "DEVICE_COUNT")
         let lvsIssue = try #require(lvs.issues.first)
         #expect(lvsIssue.evidenceArtifacts.map(\.path).contains(lvsPath))

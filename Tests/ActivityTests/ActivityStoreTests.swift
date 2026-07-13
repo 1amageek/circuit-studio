@@ -2,7 +2,7 @@ import Activity
 import DesignFlowKernel
 import Foundation
 import Testing
-import XcircuitePackage
+import DesignFlowKernel
 
 @Suite("CircuitStudio Activity Store Tests", .serialized)
 struct ActivityStoreTests {

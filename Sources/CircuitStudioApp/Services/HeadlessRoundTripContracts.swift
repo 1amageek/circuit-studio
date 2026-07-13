@@ -2,7 +2,7 @@ import Foundation
 import CircuitStudioCore
 import CoreSpiceWaveform
 import LayoutTech
-import XcircuitePackage
+import DesignFlowKernel
 
 extension HeadlessRoundTripService {
     public struct Configuration {

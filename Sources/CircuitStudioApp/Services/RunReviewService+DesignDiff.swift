@@ -1,6 +1,6 @@
 import Foundation
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 
 extension RunReviewService {
     func designDiffSummary(from diff: XcircuiteDesignDiff) -> RunReviewDesignDiffSummary {

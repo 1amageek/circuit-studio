@@ -1,6 +1,6 @@
 import Foundation
 import CircuitPhysicalDesign
-import XcircuitePackage
+import DesignFlowKernel
 
 extension DesignFlowService {
     func inspectTimingModelProfiles(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {

@@ -3,7 +3,7 @@ import Testing
 import LayoutCore
 import LayoutTech
 import LayoutVerify
-import XcircuitePackage
+import DesignFlowKernel
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 @testable import SchematicEditor

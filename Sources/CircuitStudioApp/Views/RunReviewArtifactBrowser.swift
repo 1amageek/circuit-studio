@@ -1,5 +1,6 @@
 import ArtifactView
 import CircuitArtifactRenderer
+import CircuiteFoundation
 import DesignFlowKernel
 import SwiftUI
 
@@ -71,13 +72,21 @@ struct RunReviewArtifactBrowser: View {
         } else if let resource,
                   resource.runID == runID,
                   resource.artifact == artifact {
-            ArtifactCanvas(
-                url: resource.url,
-                type: typeResolver.artifactType(kind: artifact.kind, format: artifact.format),
-                title: artifactTitle(artifact)
-            )
-            .artifactContentMaxHeight(nil)
-            .id(resource.digest)
+            if let kind = FoundationArtifactTypeProjection.kind(artifact.kind),
+               let format = FoundationArtifactTypeProjection.format(artifact.format) {
+                ArtifactCanvas(
+                    url: resource.url,
+                    type: typeResolver.artifactType(kind: kind, format: format),
+                    title: artifactTitle(artifact)
+                )
+                .artifactContentMaxHeight(nil)
+                .id(resource.digest)
+            } else {
+                ContentUnavailableView(
+                    "Artifact format is not supported",
+                    systemImage: "doc.questionmark"
+                )
+            }
         } else {
             ContentUnavailableView(
                 "Artifact is not verified",

@@ -1,6 +1,6 @@
 import DesignFlowKernel
 import Foundation
-import XcircuitePackage
+import CircuiteFoundation
 
 extension RunReviewService {
     public func loadArtifactPreview(
@@ -183,7 +183,7 @@ extension RunReviewService {
                 )
             }
             if let expectedSHA256 = artifact.sha256 {
-                let actualSHA256 = XcircuiteHasher().sha256(data: data)
+                let actualSHA256 = try SHA256ContentDigester().digest(data: data).hexadecimalValue
                 guard actualSHA256 == expectedSHA256 else {
                     throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
                         path: artifact.path,

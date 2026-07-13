@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import XcircuitePackage
+import DesignFlowKernel
 @testable import CircuitStudioApp
 
 /// P1 artifact-contract gate: evidence bundles land in the canonical

@@ -1,7 +1,7 @@
 import DesignFlowKernel
 import Foundation
 import Testing
-import XcircuitePackage
+import DesignFlowKernel
 @testable import CircuitStudioApp
 
 @Suite("Run review artifact resource")

@@ -5,7 +5,7 @@ import CoreSpiceWaveform
 import LayoutCore
 import LayoutTech
 import LayoutEngine
-import XcircuitePackage
+import DesignFlowKernel
 
 @MainActor
 public final class HeadlessRoundTripService {

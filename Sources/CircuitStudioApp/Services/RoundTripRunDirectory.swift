@@ -1,5 +1,5 @@
 import Foundation
-import XcircuitePackage
+import DesignFlowKernel
 
 public enum RoundTripRunDirectory {
     public static let manifestFileName = "round-trip-manifest.json"

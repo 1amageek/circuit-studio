@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import XcircuitePackage
+import DesignFlowKernel
 @testable import CircuitStudioApp
 
 @Suite("FlowRunnerJSONFormatter Tests")

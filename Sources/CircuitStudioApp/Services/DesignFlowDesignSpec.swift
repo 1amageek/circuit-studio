@@ -310,6 +310,11 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
                         throw DesignFlowDesignSpecError.missingPEXElementNodeB(id, kind.rawValue)
                     }
                     scale = capacitanceScale
+                case .inductor:
+                    guard nodeB != nil else {
+                        throw DesignFlowDesignSpecError.missingPEXElementNodeB(id, kind.rawValue)
+                    }
+                    scale = 1.0
                 }
 
                 return PEXParasiticElement(

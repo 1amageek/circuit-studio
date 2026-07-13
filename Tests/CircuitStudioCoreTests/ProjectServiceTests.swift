@@ -1,8 +1,9 @@
 import Foundation
 import Testing
+import PEXEngine
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
-import XcircuitePackage
+import DesignFlowKernel
 
 @Suite("ProjectService Tests")
 struct ProjectServiceTests {
@@ -169,6 +170,13 @@ struct ProjectServiceTests {
             topCell: "AMP_TOP",
             backendID: "magic",
             corners: ["tt", "ss"],
+            processProfile: PEXProcessProfileReference(
+                profileID: "sky130",
+                cornerDeckPaths: [
+                    "tt": "pdk/sky130A.magicrc",
+                    "ss": "pdk/sky130B.magicrc",
+                ]
+            ),
             inputs: .init(
                 layout: "layout/amp.oas",
                 netlist: "netlists/amp.cir",

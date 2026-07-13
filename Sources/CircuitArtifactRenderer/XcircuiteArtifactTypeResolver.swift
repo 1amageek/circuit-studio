@@ -1,47 +1,56 @@
 import ArtifactCore
-import XcircuitePackage
+import CircuiteFoundation
 
 public struct XcircuiteArtifactTypeResolver: CircuitArtifactTypeResolving, Sendable {
     public init() {}
 
     public func artifactType(
-        kind: XcircuiteFileKind,
-        format: XcircuiteFileFormat
+        kind: ArtifactKind,
+        format: ArtifactFormat
     ) -> ArtifactType? {
         if kind == .waveform {
-            switch format {
-            case .csv:
+            switch format.rawValue {
+            case ArtifactFormat.csv.rawValue:
                 return CircuitArtifactTypes.waveformCSV
-            case .raw:
+            case ArtifactFormat.raw.rawValue:
                 return CircuitArtifactTypes.waveformRAW
             default:
                 break
             }
         }
 
-        switch format {
-        case .json:
+        switch format.rawValue {
+        case ArtifactFormat.json.rawValue:
             return .json
-        case .csv:
+        case ArtifactFormat.csv.rawValue:
             return .csv
-        case .text:
+        case ArtifactFormat.text.rawValue:
             return .plainText
-        case .spice:
+        case ArtifactFormat.systemVerilog.rawValue, ArtifactFormat.verilog.rawValue,
+             ArtifactFormat.dspf.rawValue, ArtifactFormat.liberty.rawValue,
+             ArtifactFormat.sdc.rawValue, ArtifactFormat.sdf.rawValue,
+             ArtifactFormat.upf.rawValue, ArtifactFormat.cpf.rawValue,
+             ArtifactFormat.vcd.rawValue, ArtifactFormat.fst.rawValue,
+             ArtifactFormat.stil.rawValue, ArtifactFormat.wgl.rawValue:
+            return .plainText
+        case ArtifactFormat.spice.rawValue:
             return CircuitArtifactTypes.spice
-        case .lef:
+        case ArtifactFormat.lef.rawValue:
             return CircuitArtifactTypes.lef
-        case .def:
+        case ArtifactFormat.def.rawValue:
             return CircuitArtifactTypes.def
-        case .spef:
+        case ArtifactFormat.spef.rawValue:
             return CircuitArtifactTypes.spef
-        case .oasis:
+        case ArtifactFormat.oasis.rawValue:
             return CircuitArtifactTypes.oasis
-        case .gdsii:
+        case ArtifactFormat.gdsii.rawValue:
             return CircuitArtifactTypes.gdsii
-        case .raw:
+        case ArtifactFormat.raw.rawValue:
             return CircuitArtifactTypes.raw
-        case .unknown:
+        case ArtifactFormat.unknown.rawValue:
             return nil
+        default:
+            return .plainText
         }
     }
 }

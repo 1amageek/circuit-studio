@@ -1,6 +1,6 @@
 import Foundation
 import CircuitStudioCore
-import XcircuitePackage
+import DesignFlowKernel
 
 extension DesignFlowService {
     func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

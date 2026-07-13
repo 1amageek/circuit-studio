@@ -1,6 +1,6 @@
 import Foundation
 import DesignFlowKernel
-import XcircuitePackage
+import DesignFlowKernel
 
 public enum RoundTripActionLogServiceError: Error, LocalizedError, Equatable {
     case missingRunID

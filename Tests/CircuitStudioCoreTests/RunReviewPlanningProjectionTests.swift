@@ -3,7 +3,7 @@ import Testing
 import DesignFlowKernel
 import ToolQualification
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 

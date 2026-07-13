@@ -1,6 +1,6 @@
 import SwiftUI
 import DesignFlowKernel
-import XcircuitePackage
+import DesignFlowKernel
 
 struct RunReviewNextActionList: View {
     let actions: [FlowRunNextAction]

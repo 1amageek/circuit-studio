@@ -3,7 +3,7 @@ import CircuitStudioCore
 import LayoutCore
 import LayoutTech
 import LayoutIO
-import XcircuitePackage
+import DesignFlowKernel
 
 /// Manages `.xcircuite/` project directory for persistent workspace state.
 public struct ProjectService: Sendable {

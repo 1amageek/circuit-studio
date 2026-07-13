@@ -1,6 +1,6 @@
 import DesignFlowKernel
 import Foundation
-import XcircuitePackage
+import DesignFlowKernel
 
 extension RunReviewService {
     static let retainedDashboardArtifactID = "retained-dashboard-projection"

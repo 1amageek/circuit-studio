@@ -6,7 +6,7 @@ import LayoutCore
 import LayoutTech
 import LayoutEngine
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct DesignFlowSPICESimulationRequest: Sendable {
     public let source: String

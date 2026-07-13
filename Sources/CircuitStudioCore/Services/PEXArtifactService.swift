@@ -22,6 +22,17 @@ public struct PEXArtifactService: Sendable {
         }
     }
 
+    public func loadCanonicalIR(for cornerID: String, manifestURL: URL) throws -> ParasiticIR {
+        do {
+            let resolver = try PEXArtifactResolver(manifestURL: manifestURL)
+            return try resolver.loadIR(cornerID: PEXCornerID(cornerID))
+        } catch {
+            throw StudioError.projectLoadFailed(
+                "PEX corner '\(cornerID)' has no readable canonical IR artifact: \(error.localizedDescription)"
+            )
+        }
+    }
+
     public func auditArtifactURLs(manifestURL: URL, cornerID: String) throws -> [URL] {
         do {
             let resolver = try PEXArtifactResolver(manifestURL: manifestURL)
@@ -65,6 +76,8 @@ public struct PEXArtifactService: Sendable {
                 scale = resistanceScale
             case .capacitor, .coupling:
                 scale = capacitanceScale
+            case .inductor:
+                scale = 1.0
             }
             elements.append(PEXParasiticElement(
                 id: element.id,

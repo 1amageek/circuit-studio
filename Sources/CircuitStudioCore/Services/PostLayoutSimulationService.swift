@@ -1,4 +1,5 @@
 import Foundation
+import PEXEngine
 
 public struct PostLayoutSimulationService: Sendable {
     public init() {}
@@ -48,6 +49,41 @@ public struct PostLayoutSimulationService: Sendable {
         )
     }
 
+    /// Builds a hierarchy-aware deck from the canonical PEX artifact. The
+    /// existing `PEXParasiticIR` overload remains available for legacy flat
+    /// callers; this overload preserves the source `.subckt` boundary and
+    /// validates generated ports before simulation.
+    public func buildHierarchicalPostLayoutNetlist(
+        baseNetlist: String,
+        canonicalIR: ParasiticIR,
+        topCell: String? = nil
+    ) throws -> String {
+        try PEXSPICEBackannotationComposer(
+            options: PEXSPICEBackannotationOptions(topCell: topCell)
+        ).compose(sourceNetlist: baseNetlist, ir: canonicalIR)
+    }
+
+    public func runHierarchicalPostLayoutAnalysis(
+        baseNetlist: String,
+        canonicalIR: ParasiticIR,
+        topCell: String? = nil,
+        command: AnalysisCommand,
+        processConfiguration: ProcessConfiguration? = nil,
+        simulationService: SimulationService = SimulationService()
+    ) async throws -> SimulationResult {
+        let netlist = try buildHierarchicalPostLayoutNetlist(
+            baseNetlist: baseNetlist,
+            canonicalIR: canonicalIR,
+            topCell: topCell
+        )
+        return try await simulationService.runAnalysis(
+            source: netlist,
+            fileName: "post_pex.cir",
+            processConfiguration: processConfiguration,
+            command: command
+        )
+    }
+
     private func renderParasitics(_ elements: [PEXParasiticElement]) -> [String] {
         elements.enumerated().compactMap { index, element in
             guard element.value > 0 else { return nil }
@@ -64,6 +100,9 @@ public struct PostLayoutSimulationService: Sendable {
             case .coupling:
                 guard element.nodeB != nil else { return nil }
                 return "CPEX_\(id) \(nodeA) \(nodeB) \(formatValue(element.value))"
+            case .inductor:
+                guard element.nodeB != nil else { return nil }
+                return "LPEX_\(id) \(nodeA) \(nodeB) \(formatValue(element.value))"
             }
         }
     }

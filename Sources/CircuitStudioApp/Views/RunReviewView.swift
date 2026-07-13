@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import DesignFlowKernel
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 
 /// The review cockpit: runs, stage gates and artifacts straight from
 /// the `.xcircuite` ledger, with approve/reject actions that persist

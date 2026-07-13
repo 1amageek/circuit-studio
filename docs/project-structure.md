@@ -188,7 +188,7 @@ flowchart LR
 
 | Owner | Responsibility |
 |-------|----------------|
-| `XcircuitePackage` | `kind` / `format` / path / SHA-256 / byte count を永続化する。SwiftUI と MIME を知らない |
+| `Xcircuite workspace` | `kind` / `format` / path / SHA-256 / byte count を永続化する。SwiftUI と MIME を知らない |
 | `swift-artifact` | URL 解決、一般 MIME 検出、renderer registry、汎用形式の Renderer を提供する。EDA 固有形式を持たない |
 | `CircuitArtifactRenderer` | Xcircuite 分類を利用側 MIME に変換し、EDA ファイルを canonical IR に復元して描画する |
 | `RunReviewService` | ledger 上の同一 artifact を再解決し、project containment と現在の SHA-256 / byte count を検証する |
@@ -215,4 +215,7 @@ my-design/
 └── tech.json               # 技術情報テンプレート (未存在時のみ生成)
 ```
 
+`.xcircuite/pex.json` の `inputs.technologyByCorner` にはcorner別の技術JSONを、
+`processProfile.cornerDeckPaths` にはMagicなどのcorner別抽出deckを指定できる。
+相対パスは設定ファイル基準で解決され、PEXEngineのrun artifactへimmutable inputとして保存される。
 `pex.toml` は外部の `pexengine` CLI から直接利用可能な形式とし、CircuitStudio 内の設定 (`.xcircuite/pex.json`) と同期される。

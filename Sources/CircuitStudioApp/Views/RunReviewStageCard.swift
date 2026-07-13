@@ -1,6 +1,6 @@
 import SwiftUI
 import DesignFlowKernel
-import XcircuitePackage
+import DesignFlowKernel
 
 struct RunReviewStageCard: View {
     let stage: RunReviewService.StageReview
@@ -63,6 +63,8 @@ struct RunReviewStageCard: View {
             return "checkmark.circle.fill"
         case .failed:
             return "xmark.circle.fill"
+        case .blocked:
+            return "exclamationmark.octagon.fill"
         case .waived:
             return "minus.circle"
         case .incomplete:
@@ -76,6 +78,8 @@ struct RunReviewStageCard: View {
             return .green
         case .failed:
             return .red
+        case .blocked:
+            return .orange
         case .waived:
             return .secondary
         case .incomplete:

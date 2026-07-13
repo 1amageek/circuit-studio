@@ -173,6 +173,126 @@
       "fillPattern" : "forwardDiagonal",
       "preferredDirection" : "none",
       "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "nwell", "purpose" : "drawing" },
+      "displayName" : "N-Well Pin",
+      "gdsLayer" : 64,
+      "gdsDatatype" : 16,
+      "color" : { "red" : 0.4, "green" : 0.2, "blue" : 0.2, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "nwell", "purpose" : "drawing" },
+      "displayName" : "N-Well Label",
+      "gdsLayer" : 64,
+      "gdsDatatype" : 5,
+      "color" : { "red" : 0.4, "green" : 0.2, "blue" : 0.2, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "tap", "purpose" : "drawing" },
+      "displayName" : "P-Well Label",
+      "gdsLayer" : 64,
+      "gdsDatatype" : 59,
+      "color" : { "red" : 0.3, "green" : 0.5, "blue" : 0.3, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "tap", "purpose" : "drawing" },
+      "displayName" : "P-Well Pin",
+      "gdsLayer" : 122,
+      "gdsDatatype" : 16,
+      "color" : { "red" : 0.3, "green" : 0.5, "blue" : 0.3, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "li1", "purpose" : "drawing" },
+      "displayName" : "Local Interconnect Label",
+      "gdsLayer" : 67,
+      "gdsDatatype" : 5,
+      "color" : { "red" : 0.7, "green" : 0.4, "blue" : 0.7, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "li1", "purpose" : "drawing" },
+      "displayName" : "Local Interconnect Pin",
+      "gdsLayer" : 67,
+      "gdsDatatype" : 16,
+      "color" : { "red" : 0.7, "green" : 0.4, "blue" : 0.7, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "met1", "purpose" : "drawing" },
+      "displayName" : "Metal1 Label",
+      "gdsLayer" : 68,
+      "gdsDatatype" : 5,
+      "color" : { "red" : 0.2, "green" : 0.5, "blue" : 0.8, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "met1", "purpose" : "drawing" },
+      "displayName" : "Metal1 Pin",
+      "gdsLayer" : 68,
+      "gdsDatatype" : 16,
+      "color" : { "red" : 0.2, "green" : 0.5, "blue" : 0.8, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "hvtp", "purpose" : "drawing" },
+      "displayName" : "High-Vt P-Device Select",
+      "gdsLayer" : 78,
+      "gdsDatatype" : 44,
+      "color" : { "red" : 0.6, "green" : 0.3, "blue" : 0.5, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "stdcell", "purpose" : "marker" },
+      "displayName" : "Standard Cell Identifier",
+      "gdsLayer" : 81,
+      "gdsDatatype" : 4,
+      "color" : { "red" : 0.5, "green" : 0.5, "blue" : 0.5, "alpha" : 0.4 },
+      "fillPattern" : "solid",
+      "preferredDirection" : "none",
+      "visibleByDefault" : false
+    },
+    {
+      "id" : { "name" : "annotation", "purpose" : "text" },
+      "displayName" : "Annotation Text",
+      "gdsLayer" : 83,
+      "gdsDatatype" : 44,
+      "color" : { "red" : 0.5, "green" : 0.5, "blue" : 0.5, "alpha" : 0.4 },
+      "fillPattern" : "solid",
+      "preferredDirection" : "none",
+      "visibleByDefault" : false
+    },
+    {
+      "id" : { "name" : "outline", "purpose" : "marker" },
+      "displayName" : "Cell Outline",
+      "gdsLayer" : 236,
+      "gdsDatatype" : 0,
+      "color" : { "red" : 0.5, "green" : 0.5, "blue" : 0.5, "alpha" : 0.4 },
+      "fillPattern" : "solid",
+      "preferredDirection" : "none",
+      "visibleByDefault" : false
     }
   ],
   "vias" : [

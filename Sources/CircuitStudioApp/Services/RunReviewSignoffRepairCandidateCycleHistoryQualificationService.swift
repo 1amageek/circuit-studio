@@ -1,5 +1,5 @@
 import Foundation
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: Sendable {
     public static let reportArtifactID = "planning-candidate-cycle-history-qualification"

@@ -1,6 +1,6 @@
 import DesignFlowKernel
 import Foundation
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct RunReviewRetainedDashboardProjection: Sendable, Hashable, Codable {
     public enum Status: String, Sendable, Hashable, Codable {

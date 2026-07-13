@@ -1,6 +1,6 @@
 import Foundation
 import CircuitStudioCore
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct FlowRunnerCommandOptions: Sendable {
     public enum OutputFormat: Sendable, Equatable {

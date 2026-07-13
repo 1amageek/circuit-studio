@@ -1,7 +1,7 @@
 import SwiftUI
 import DesignFlowKernel
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 
 struct RunReviewPlanningReviewCard: View {
     let planning: RunReviewService.PlanningReview

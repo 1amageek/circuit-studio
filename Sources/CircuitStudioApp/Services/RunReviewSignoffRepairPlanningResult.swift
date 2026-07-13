@@ -1,6 +1,6 @@
 import Foundation
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 
 public struct RunReviewSignoffRepairPlanningResult: Sendable, Hashable, Codable {
     public let runID: String

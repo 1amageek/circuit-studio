@@ -1,7 +1,7 @@
 import Foundation
 import CircuitStudioCore
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 
 extension DesignFlowService {
     func formulateSignoffRepairPlanningProblem(

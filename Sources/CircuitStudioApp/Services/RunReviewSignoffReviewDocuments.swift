@@ -49,21 +49,30 @@ struct DRCReviewRegion: Decodable {
 }
 
 struct LVSReviewDocument: Decodable {
+    let schemaVersion: Int
     let reportURL: URL?
     let manifestURL: URL?
     let summary: LVSReviewSummary
 }
 
 struct LVSReviewSummary: Decodable {
-    let status: String
+    let executionStatus: String
+    let verdict: String
+    let readiness: String
+    let blockingReasons: [LVSReviewBlockingReason]
     let toolName: String
     let topCell: String
     let layoutInputKind: String?
-    let passed: Bool
     let activeMismatchCount: Int
     let waivedMismatchCount: Int
     let mismatchBuckets: [LVSReviewBucket]
     let extractedLayoutNetlistURL: URL?
+}
+
+struct LVSReviewBlockingReason: Decodable, Sendable, Hashable {
+    let code: String
+    let message: String
+    let evidenceReferences: [String]
 }
 
 struct LVSReviewBucket: Decodable {

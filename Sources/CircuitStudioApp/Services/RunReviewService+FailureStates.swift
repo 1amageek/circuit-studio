@@ -1,6 +1,6 @@
 import Foundation
 import DesignFlowKernel
-import XcircuitePackage
+import DesignFlowKernel
 
 extension RunReviewService {
     public func failureStateSummary(from review: RunReview) -> RunReviewFailureStateSummary {

@@ -1,4 +1,5 @@
 import Foundation
+import PEXEngine
 
 /// Persisted PEX configuration shared between CircuitStudio and the standalone `pexengine` CLI.
 public struct PEXProjectConfig: Sendable, Codable, Hashable {
@@ -6,15 +7,38 @@ public struct PEXProjectConfig: Sendable, Codable, Hashable {
         public var layout: String
         public var netlist: String
         public var technology: String
+        public var technologyByCorner: [String: String]
 
         public init(
             layout: String = "top.oas",
             netlist: String = "top.cir",
-            technology: String = "tech.json"
+            technology: String = "tech.json",
+            technologyByCorner: [String: String] = [:]
         ) {
             self.layout = layout
             self.netlist = netlist
             self.technology = technology
+            self.technologyByCorner = technologyByCorner
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case layout
+            case netlist
+            case technology
+            case technologyByCorner
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(
+                layout: try container.decodeIfPresent(String.self, forKey: .layout) ?? "top.oas",
+                netlist: try container.decodeIfPresent(String.self, forKey: .netlist) ?? "top.cir",
+                technology: try container.decodeIfPresent(String.self, forKey: .technology) ?? "tech.json",
+                technologyByCorner: try container.decodeIfPresent(
+                    [String: String].self,
+                    forKey: .technologyByCorner
+                ) ?? [:]
+            )
         }
     }
 
@@ -54,6 +78,7 @@ public struct PEXProjectConfig: Sendable, Codable, Hashable {
     public var topCell: String
     public var backendID: String
     public var corners: [String]
+    public var processProfile: PEXProcessProfileReference?
     public var inputs: InputPaths
     public var output: OutputPaths
     public var options: Options
@@ -65,6 +90,7 @@ public struct PEXProjectConfig: Sendable, Codable, Hashable {
         topCell: String = "TOP",
         backendID: String = "",
         corners: [String] = ["tt_25c_1v0"],
+        processProfile: PEXProcessProfileReference? = nil,
         inputs: InputPaths = InputPaths(),
         output: OutputPaths = OutputPaths(),
         options: Options = Options()
@@ -75,6 +101,7 @@ public struct PEXProjectConfig: Sendable, Codable, Hashable {
         self.topCell = topCell
         self.backendID = backendID
         self.corners = corners
+        self.processProfile = processProfile
         self.inputs = inputs
         self.output = output
         self.options = options
@@ -88,9 +115,26 @@ public struct PEXProjectConfig: Sendable, Codable, Hashable {
         self.topCell = try container.decodeIfPresent(String.self, forKey: .topCell) ?? "TOP"
         self.backendID = try container.decodeIfPresent(String.self, forKey: .backendID) ?? ""
         self.corners = try container.decodeIfPresent([String].self, forKey: .corners) ?? ["tt_25c_1v0"]
+        self.processProfile = try container.decodeIfPresent(
+            PEXProcessProfileReference.self,
+            forKey: .processProfile
+        )
         self.inputs = try container.decodeIfPresent(InputPaths.self, forKey: .inputs) ?? InputPaths()
         self.output = try container.decodeIfPresent(OutputPaths.self, forKey: .output) ?? OutputPaths()
         self.options = try container.decodeIfPresent(Options.self, forKey: .options) ?? Options()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case enabled
+        case executablePath
+        case topCell
+        case backendID
+        case corners
+        case processProfile
+        case inputs
+        case output
+        case options
     }
 
     public var normalizedCorners: [String] {

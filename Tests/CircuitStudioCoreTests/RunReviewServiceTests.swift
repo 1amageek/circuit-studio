@@ -4,7 +4,7 @@ import DesignFlowKernel
 import LayoutCore
 import ToolQualification
 import Xcircuite
-import XcircuitePackage
+import DesignFlowKernel
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 
