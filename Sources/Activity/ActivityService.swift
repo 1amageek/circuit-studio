@@ -4,19 +4,16 @@ import DesignFlowKernel
 
 public actor ActivityService: ActivityRecording, ActivityQuerying {
     private let store: SQLiteActivityStore
-    private let packageStore: XcircuitePackageStore
-    private let ledgerLoader: FlowRunLedgerLoader
+    private let projectReader: any ActivityProjectReading
     private let projector: FlowRunActivityProjector
 
     public init(
         store: SQLiteActivityStore = SQLiteActivityStore(),
-        packageStore: XcircuitePackageStore = XcircuitePackageStore(),
-        ledgerLoader: FlowRunLedgerLoader = FlowRunLedgerLoader(),
+        projectReader: any ActivityProjectReading = XcircuiteActivityProjectStore(),
         projector: FlowRunActivityProjector = FlowRunActivityProjector()
     ) {
         self.store = store
-        self.packageStore = packageStore
-        self.ledgerLoader = ledgerLoader
+        self.projectReader = projectReader
         self.projector = projector
     }
 
@@ -39,18 +36,18 @@ public actor ActivityService: ActivityRecording, ActivityQuerying {
     public func reconcile(projectRoot: URL) async throws -> ActivityReconciliationResult {
         let projectManifest: XcircuiteProjectManifest
         do {
-            projectManifest = try packageStore.loadManifest(forProjectAt: projectRoot)
+            projectManifest = try await projectReader.projectManifest(for: projectRoot)
         } catch {
             throw ActivityServiceError.projectManifestUnavailable(
                 path: projectRoot.appending(path: ".xcircuite/project.json").path(percentEncoded: false)
             )
         }
 
-        let snapshots = try packageStore.listRunSnapshots(inProjectAt: projectRoot)
+        let runIDs = try await projectReader.runIDs(for: projectRoot)
         var activities: [Activity] = []
-        for snapshot in snapshots {
-            let ledger = try ledgerLoader.loadRunLedger(
-                runID: snapshot.runID,
+        for runID in runIDs {
+            let ledger = try await projectReader.loadRunLedger(
+                runID: runID,
                 projectRoot: projectRoot
             )
             activities.append(contentsOf: projector.project(
@@ -61,7 +58,7 @@ public actor ActivityService: ActivityRecording, ActivityQuerying {
         try await store.record(activities)
         return ActivityReconciliationResult(
             projectID: projectManifest.identity.projectID,
-            runCount: snapshots.count,
+            runCount: runIDs.count,
             activityCount: activities.count
         )
     }
@@ -72,7 +69,7 @@ public actor ActivityService: ActivityRecording, ActivityQuerying {
     ) async throws -> [Activity] {
         let projectManifest: XcircuiteProjectManifest
         do {
-            projectManifest = try packageStore.loadManifest(forProjectAt: projectRoot)
+            projectManifest = try await projectReader.projectManifest(for: projectRoot)
         } catch {
             throw ActivityServiceError.projectManifestUnavailable(
                 path: projectRoot.appending(path: ".xcircuite/project.json").path(percentEncoded: false)

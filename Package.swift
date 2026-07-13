@@ -89,6 +89,7 @@ let package = Package(
                 .product(name: "Database", package: "database-framework"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
+                .product(name: "Xcircuite", package: "Xcircuite"),
             ]
         ),
         .target(
