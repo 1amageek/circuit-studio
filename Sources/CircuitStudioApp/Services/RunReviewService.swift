@@ -1,7 +1,7 @@
 import Foundation
+import CircuiteFoundation
 import DesignFlowKernel
 import Xcircuite
-import DesignFlowKernel
 
 /// The review cockpit's data layer: everything it shows is read from
 /// the `.xcircuite` run ledger — the same record the flow kernel and
@@ -20,7 +20,9 @@ public struct RunReviewService: Sendable {
         public let updatedAt: Date
         public let startedAt: Date?
         public let finishedAt: Date?
-        public let artifacts: [XcircuiteFileReference]
+        /// Canonical Foundation artifact references. The frozen run manifest
+        /// remains a legacy storage record and is projected at this boundary.
+        public let artifacts: [ArtifactReference]
         public let stages: [StageReview]
         public let approvals: [XcircuiteApprovalRecord]
         public let suggestedCommandSelections: [XcircuiteSuggestedCommandSelection]
@@ -149,7 +151,7 @@ public struct RunReviewService: Sendable {
             updatedAt: ledger.runManifest.updatedAt,
             startedAt: ledger.runManifest.startedAt,
             finishedAt: ledger.runManifest.finishedAt,
-            artifacts: ledger.runManifest.artifacts,
+            artifacts: try foundationArtifactReferences(ledger.runManifest.artifacts),
             stages: stages,
             approvals: approvals,
             suggestedCommandSelections: suggestedCommandSelections,
@@ -161,6 +163,20 @@ public struct RunReviewService: Sendable {
             retainedDashboard: retainedDashboard,
             bundle: bundle
         )
+    }
+
+    private func foundationArtifactReferences(
+        _ references: [XcircuiteFileReference]
+    ) throws -> [ArtifactReference] {
+        try references.map { reference in
+            guard let artifact = FoundationArtifactTypeProjection.referencePreservingUnverifiedIntegrity(reference) else {
+                throw RunReviewServiceError.artifactReferenceProjectionFailed(
+                    path: reference.path,
+                    message: "Legacy artifact reference is missing valid digest, byte count, kind, or format metadata."
+                )
+            }
+            return artifact
+        }
     }
 
     public func loadReviewBundle(runID: String, projectRoot: URL) throws -> FlowRunReviewBundle {

@@ -34,6 +34,7 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
     case signoffRepairHintNotFound(runID: String)
     case signoffRepairHintIntegrityUnverified(path: String, status: String, message: String)
     case artifactEvaluationEnvelopeIntegrityUnverified(path: String, status: String, message: String)
+    case artifactReferenceProjectionFailed(path: String, message: String)
 
     public var errorDescription: String? {
         switch self {
@@ -103,6 +104,8 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
             "Signoff repair hint requires verified artifact integrity before planning: \(path) status=\(status) \(message)"
         case .artifactEvaluationEnvelopeIntegrityUnverified(let path, let status, let message):
             "Artifact evaluation envelope requires verified artifact integrity: \(path) status=\(status) \(message)"
+        case .artifactReferenceProjectionFailed(let path, let message):
+            "Run manifest artifact could not be projected to the canonical Foundation reference: \(path) \(message)"
         }
     }
 }
