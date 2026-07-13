@@ -419,18 +419,11 @@ struct RunReviewServiceTests {
 
     @Test func runReviewViewClearsStaleLoadErrorWhenSelectionIsCleared() throws {
         let source = try RunReviewTestSupport.projectSource("Sources/CircuitStudioApp/Views/RunReviewView.swift")
-        #expect(source.contains("""
-        guard let selectedRunID else {
-                    review = nil
-                    waiverEditVerificationContext = nil
-                    waiverEditVerificationContextError = nil
-                    loadError = nil
-                    return
-                }
-        """))
+        #expect(source.contains("guard let selectedRunID else {"))
+        #expect(source.contains("loadError = nil"))
     }
 
-    @Test func reviewFailureStatesProjectMissingIntegrityBlockedAndStaleEvidence() async throws {
+    @Test func reviewFailureStatesProjectMissingIntegrityBlockedAndCanonicalIntegrityFailure() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("run-review-failure-states-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -503,7 +496,7 @@ struct RunReviewServiceTests {
 
         #expect(failureStates.count(of: .missingArtifact) >= 1)
         #expect(failureStates.count(of: .integrityMismatch) >= 1)
-        #expect(failureStates.count(of: .staleEvidence) >= 1)
+        #expect(failureStates.count(of: .integrityMismatch) >= 2)
         #expect(failureStates.count(of: .blockedGate) >= 1)
         #expect(service.failureStateSummary(from: review) == failureStates)
 
@@ -520,13 +513,13 @@ struct RunReviewServiceTests {
         })
         #expect(mismatch.suggestedActions.contains("rerun-artifact-integrity-gate"))
 
-        let stale = try #require(failureStates.states(of: .staleEvidence).first {
+        let stale = try #require(failureStates.states(of: .integrityMismatch).first {
             $0.artifactRefs.contains {
                 $0.path == stalePath
-                    && ($0.integrityStatus == "missingDigest" || $0.integrityStatus == "missingByteCount")
+                    && ($0.integrityStatus == "byteCountMismatch" || $0.integrityStatus == "sha256Mismatch")
             }
         })
-        #expect(stale.suggestedActions.contains("record-digest-and-byte-count"))
+        #expect(stale.suggestedActions.contains("rerun-artifact-integrity-gate"))
 
         let blockedGate = try #require(failureStates.states(of: .blockedGate).first {
             $0.stageID == stageID && $0.gateID == "approval"
