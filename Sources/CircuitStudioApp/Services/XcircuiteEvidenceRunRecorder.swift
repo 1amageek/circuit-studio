@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import DesignFlowKernel
 
 /// Bridges the tapeout evidence bundle into the canonical `.xcircuite`
@@ -99,7 +100,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                     runID: runID,
                     transition: XcircuiteRunTransition(
                         status: .failed,
-                        artifacts: [failureReference]
+                        artifacts: try legacyReferences([failureReference])
                     ),
                     inProjectAt: projectRoot
                 )
@@ -118,7 +119,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         runID: String,
         runDirectory: URL
     ) throws -> RecordedRun {
-        var artifacts: [XcircuiteFileReference] = []
+        var artifacts: [ArtifactReference] = []
         var artifactIDs: Set<String> = []
 
         // The bundle itself is the run's primary report.
@@ -126,7 +127,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         try reserveArtifactID("evidence-error", in: &artifactIDs)
         let evidenceURL = runDirectory.appending(path: "evidence.json")
         try store.writeJSON(bundle, to: evidenceURL, forProjectAt: projectRoot)
-        try recordArtifact(try fileReference(
+        try recordArtifact(try artifactReference(
             for: evidenceURL,
             artifactID: "tapeout-evidence",
             projectRoot: projectRoot,
@@ -146,7 +147,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                 projectRoot: projectRoot,
                 runID: runID
             )
-            try recordArtifact(try fileReference(
+            try recordArtifact(try artifactReference(
                 for: copied,
                 artifactID: artifact.id,
                 projectRoot: projectRoot,
@@ -170,7 +171,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                 projectRoot: projectRoot,
                 runID: runID
             )
-            try recordArtifact(try fileReference(
+            try recordArtifact(try artifactReference(
                 for: copied,
                 artifactID: gds.id,
                 projectRoot: projectRoot,
@@ -192,7 +193,10 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
 
         let manifest = try store.transitionRun(
             runID: runID,
-            transition: XcircuiteRunTransition(status: status, artifacts: artifacts),
+            transition: XcircuiteRunTransition(
+                status: status,
+                artifacts: try legacyReferences(artifacts)
+            ),
             inProjectAt: projectRoot
         )
 
@@ -202,17 +206,13 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
     // MARK: - Internals
 
     private func recordArtifact(
-        _ reference: XcircuiteFileReference,
-        artifacts: inout [XcircuiteFileReference],
+        _ reference: ArtifactReference,
+        artifacts: inout [ArtifactReference],
         projectRoot: URL,
         runID: String
     ) throws {
         artifacts.append(reference)
-        _ = try store.upsertRunArtifacts(
-            [reference],
-            runID: runID,
-            inProjectAt: projectRoot
-        )
+        try store.registerArtifact(reference, runID: runID, inProjectAt: projectRoot)
     }
 
     private func copyArtifact(
@@ -261,14 +261,14 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         return destination
     }
 
-    private func fileReference(
+    private func artifactReference(
         for url: URL,
         artifactID: String,
         projectRoot: URL,
-        kind: XcircuiteFileKind,
-        format: XcircuiteFileFormat,
+        kind: ArtifactKind,
+        format: ArtifactFormat,
         runID: String
-    ) throws -> XcircuiteFileReference {
+    ) throws -> ArtifactReference {
         let rootPath = projectRoot.standardizedFileURL.path(percentEncoded: false)
         let filePath = url.standardizedFileURL.path(percentEncoded: false)
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
@@ -277,13 +277,15 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                 "artifact '\(filePath)' is outside the project root '\(rootPath)'"
             )
         }
-        return try store.fileReference(
+        return try store.makeArtifactReference(
             forProjectRelativePath: String(filePath.dropFirst(prefix.count)),
             artifactID: artifactID,
+            role: .output,
             kind: kind,
             format: format,
             inProjectAt: projectRoot,
-            producedByRunID: runID
+            producedByRunID: runID,
+            verifiedByRunID: nil
         )
     }
 
@@ -302,7 +304,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         projectRoot: URL,
         runID: String,
         runDirectory: URL
-    ) throws -> XcircuiteFileReference {
+    ) throws -> ArtifactReference {
         let failureURL = runDirectory.appending(path: "evidence-error.json")
         try store.writeJSON(
             EvidenceFailure(
@@ -313,7 +315,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
             to: failureURL,
             forProjectAt: projectRoot
         )
-        return try fileReference(
+        return try artifactReference(
             for: failureURL,
             artifactID: "evidence-error",
             projectRoot: projectRoot,
@@ -330,11 +332,11 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         let recordedAt: Date
     }
 
-    private func fileKind(forClaimArtifactKind kind: String) -> XcircuiteFileKind {
+    private func fileKind(forClaimArtifactKind kind: String) -> ArtifactKind {
         switch kind.lowercased() {
         case "layout", "gds", "gdsii": return .layout
         case "netlist", "spice": return .netlist
-        case "parasitic", "spef": return .parasitic
+        case "parasitic", "spef": return .parasitics
         case "waveform": return .waveform
         case "measurement": return .measurement
         case "ruledeck", "rule-deck": return .ruleDeck
@@ -345,7 +347,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         }
     }
 
-    private func fileFormat(forFileAt url: URL) -> XcircuiteFileFormat {
+    private func fileFormat(forFileAt url: URL) -> ArtifactFormat {
         switch url.pathExtension.lowercased() {
         case "gds", "gds2", "gdsii": return .gdsii
         case "oas", "oasis": return .oasis
@@ -359,5 +361,11 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         case "txt", "log", "md", "rpt": return .text
         default: return .unknown
         }
+    }
+
+    private func legacyReferences(
+        _ references: [ArtifactReference]
+    ) throws -> [XcircuiteFileReference] {
+        try references.map(FoundationArtifactTypeProjection.legacyReference)
     }
 }

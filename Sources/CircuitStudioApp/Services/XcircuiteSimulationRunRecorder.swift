@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import CircuiteFoundation
 import DesignFlowKernel
 
 public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
@@ -43,7 +44,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
             startedAt: startedAt
         )
 
-        var setupArtifacts: [XcircuiteFileReference] = []
+        var setupArtifacts: [ArtifactReference] = []
         do {
             setupArtifacts.append(try writeRequest(
                 intent: intent,
@@ -61,7 +62,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
                 runID: identifier,
                 transition: XcircuiteRunTransition(
                     status: .running,
-                    artifacts: setupArtifacts,
+                    artifacts: try legacyReferences(setupArtifacts),
                     occurredAt: startedAt
                 ),
                 inProjectAt: projectRoot
@@ -73,7 +74,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
                     runID: identifier,
                     transition: XcircuiteRunTransition(
                         status: .running,
-                        artifacts: setupArtifacts,
+                        artifacts: try legacyReferences(setupArtifacts),
                         occurredAt: startedAt
                     ),
                     inProjectAt: projectRoot
@@ -97,7 +98,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         records: [AnalysisRunRecord]
     ) async throws {
         do {
-            var references: [XcircuiteFileReference] = []
+            var references: [ArtifactReference] = []
             let existing = try store.loadRunManifest(
                 runID: context.runID,
                 inProjectAt: context.projectRoot
@@ -124,23 +125,25 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
             )
             let summaryURL = try runDirectory(for: context).appending(path: "simulation-summary.json")
             try store.writeJSON(summary, to: summaryURL, forProjectAt: context.projectRoot)
-            references.append(try store.fileReference(
+            references.append(try store.makeArtifactReference(
                 forProjectRelativePath: runRelativePath(
                     "simulation-summary.json",
                     context: context
                 ),
                 artifactID: "simulation-summary",
+                role: .output,
                 kind: .report,
                 format: .json,
                 inProjectAt: context.projectRoot,
-                producedByRunID: context.runID
+                producedByRunID: context.runID,
+                verifiedByRunID: nil
             ))
 
             _ = try store.transitionRun(
                 runID: context.runID,
                 transition: XcircuiteRunTransition(
                     status: canonicalStatus(records),
-                    artifacts: references
+                    artifacts: try legacyReferences(references)
                 ),
                 inProjectAt: context.projectRoot
             )
@@ -163,17 +166,22 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         let errorURL = try runDirectory(for: context).appending(path: "simulation-error.json")
         let payload = SimulationFailure(reason: reason, recordedAt: Date())
         try store.writeJSON(payload, to: errorURL, forProjectAt: context.projectRoot)
-        let reference = try store.fileReference(
+        let reference = try store.makeArtifactReference(
             forProjectRelativePath: runRelativePath("simulation-error.json", context: context),
             artifactID: "simulation-error",
+            role: .output,
             kind: .report,
             format: .json,
             inProjectAt: context.projectRoot,
-            producedByRunID: context.runID
+            producedByRunID: context.runID,
+            verifiedByRunID: nil
         )
         _ = try store.transitionRun(
             runID: context.runID,
-            transition: XcircuiteRunTransition(status: .failed, artifacts: [reference]),
+            transition: XcircuiteRunTransition(
+                status: .failed,
+                artifacts: try legacyReferences([reference])
+            ),
             inProjectAt: context.projectRoot
         )
     }
@@ -181,16 +189,18 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
     private func writeInputNetlist(
         _ source: String,
         context: SimulationRunContext
-    ) throws -> XcircuiteFileReference {
+    ) throws -> ArtifactReference {
         let inputURL = try runDirectory(for: context).appending(path: "input.cir")
         try store.writeText(source, to: inputURL)
-        return try store.fileReference(
+        return try store.makeArtifactReference(
             forProjectRelativePath: runRelativePath("input.cir", context: context),
             artifactID: "simulation-input-netlist",
+            role: .input,
             kind: .netlist,
             format: .spice,
             inProjectAt: context.projectRoot,
-            producedByRunID: context.runID
+            producedByRunID: context.runID,
+            verifiedByRunID: nil
         )
     }
 
@@ -199,7 +209,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         fileName: String?,
         startedAt: Date,
         context: SimulationRunContext
-    ) throws -> XcircuiteFileReference {
+    ) throws -> ArtifactReference {
         let requestURL = try runDirectory(for: context).appending(path: "simulation-request.json")
         let request = SimulationRequest(
             intent: intent,
@@ -207,23 +217,25 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
             startedAt: startedAt
         )
         try store.writeJSON(request, to: requestURL, forProjectAt: context.projectRoot)
-        return try store.fileReference(
+        return try store.makeArtifactReference(
             forProjectRelativePath: runRelativePath("simulation-request.json", context: context),
             artifactID: "simulation-request",
+            role: .input,
             kind: .report,
             format: .json,
             inProjectAt: context.projectRoot,
-            producedByRunID: context.runID
+            producedByRunID: context.runID,
+            verifiedByRunID: nil
         )
     }
 
     private func writeWaveforms(
         records: [AnalysisRunRecord],
         context: SimulationRunContext
-    ) async throws -> [(index: Int, reference: XcircuiteFileReference)] {
+    ) async throws -> [(index: Int, reference: ArtifactReference)] {
         let waveformsDirectory = try runDirectory(for: context).appending(path: "waveforms")
         try store.ensureDirectory(at: waveformsDirectory)
-        var references: [(index: Int, reference: XcircuiteFileReference)] = []
+        var references: [(index: Int, reference: ArtifactReference)] = []
         for (index, record) in records.enumerated() {
             guard let waveform = record.result?.waveform else {
                 continue
@@ -231,13 +243,15 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
             let name = waveformFileName(index: index, record: record)
             let waveformURL = waveformsDirectory.appending(path: name)
             try await WaveformService().export(waveform: waveform, to: waveformURL)
-            let reference = try store.fileReference(
+            let reference = try store.makeArtifactReference(
                 forProjectRelativePath: runRelativePath("waveforms/\(name)", context: context),
                 artifactID: "simulation-waveform-\(index)",
+                role: .output,
                 kind: .waveform,
                 format: .csv,
                 inProjectAt: context.projectRoot,
-                producedByRunID: context.runID
+                producedByRunID: context.runID,
+                verifiedByRunID: nil
             )
             references.append((index, reference))
         }
@@ -275,6 +289,12 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
     private func runDirectory(for context: SimulationRunContext) throws -> URL {
         try XcircuitePackage(projectRoot: context.projectRoot)
             .runDirectoryURL(for: context.runID)
+    }
+
+    private func legacyReferences(
+        _ references: [ArtifactReference]
+    ) throws -> [XcircuiteFileReference] {
+        try references.map(FoundationArtifactTypeProjection.legacyReference)
     }
 
     private struct SimulationSummary: Sendable, Encodable {
