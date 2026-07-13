@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import CircuiteFoundation
 import DesignFlowKernel
 
 extension DesignFlowService {
@@ -95,6 +96,15 @@ extension DesignFlowService {
         projectRoot: URL
     ) throws -> String {
         try projectContainedURL(forRelativePath: reference.path, projectRoot: projectRoot)
+            .path(percentEncoded: false)
+    }
+
+    func absolutePath(
+        for reference: ArtifactReference,
+        projectRoot: URL
+    ) throws -> String {
+        try reference.locator.location
+            .resolvedFileURL(relativeTo: projectRoot)
             .path(percentEncoded: false)
     }
 

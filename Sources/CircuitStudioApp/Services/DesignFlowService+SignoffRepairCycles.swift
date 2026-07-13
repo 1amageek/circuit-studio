@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import CircuitStudioCore
 import Xcircuite
 import DesignFlowKernel
@@ -257,7 +258,7 @@ extension DesignFlowService {
         projectRoot: URL
     ) throws -> XcircuiteRunActionRecord {
         let store = XcircuitePackageStore()
-        let outputs = [
+        let foundationOutputs: [ArtifactReference] = [
             generation.candidatePlanArtifact,
             generation.problemTranslationAuditArtifact,
             generation.actionDomainSnapshotArtifact,
@@ -266,8 +267,10 @@ extension DesignFlowService {
             execution.designDiffArtifact,
             verification.planVerificationArtifact,
             verification.rejectedPlansArtifact,
-            historySummaryArtifact,
         ].compactMap { $0 } + execution.producedArtifacts
+        let outputs = try foundationOutputs.map {
+            try FoundationArtifactTypeProjection.legacyReference($0)
+        } + [historySummaryArtifact]
         let record = XcircuiteRunActionRecord(
             actionID: actionID,
             runID: runID,

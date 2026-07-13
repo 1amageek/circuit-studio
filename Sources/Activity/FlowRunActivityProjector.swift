@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import DesignFlowKernel
 import Foundation
 import DesignFlowKernel
@@ -367,6 +368,13 @@ public struct FlowRunActivityProjector: Sendable {
         boundedReferences(references.map { activityArtifact($0, direction: direction) })
     }
 
+    private func artifactReferences(
+        _ references: [ArtifactReference],
+        direction: Activity.ArtifactDirection
+    ) -> (references: [Activity.ArtifactReference], omittedCount: Int) {
+        boundedReferences(references.map { activityArtifact($0, direction: direction) })
+    }
+
     private func boundedReferences(
         _ references: [Activity.ArtifactReference]
     ) -> (references: [Activity.ArtifactReference], omittedCount: Int) {
@@ -388,6 +396,21 @@ public struct FlowRunActivityProjector: Sendable {
             format: reference.format.rawValue,
             sha256: reference.sha256,
             byteCount: reference.byteCount,
+            direction: direction
+        )
+    }
+
+    private func activityArtifact(
+        _ reference: ArtifactReference,
+        direction: Activity.ArtifactDirection
+    ) -> Activity.ArtifactReference {
+        Activity.ArtifactReference(
+            path: reference.path,
+            role: reference.id.rawValue,
+            kind: reference.locator.kind.rawValue,
+            format: reference.locator.format.rawValue,
+            sha256: reference.digest.hexadecimalValue,
+            byteCount: Int64(clamping: reference.byteCount),
             direction: direction
         )
     }

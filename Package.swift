@@ -88,6 +88,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Database", package: "database-framework"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
             ]
         ),
         .target(

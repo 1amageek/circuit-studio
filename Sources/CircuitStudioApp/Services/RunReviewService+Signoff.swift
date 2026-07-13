@@ -1,5 +1,6 @@
 import DesignFlowKernel
 import Foundation
+import CircuiteFoundation
 import Xcircuite
 import DesignFlowKernel
 
@@ -215,16 +216,22 @@ extension RunReviewService {
     private func outputArtifact(
         artifactID: String,
         in action: XcircuiteRunActionRecord
-    ) -> XcircuiteFileReference? {
-        action.outputs.first { $0.artifactID == artifactID }
+    ) -> ArtifactReference? {
+        guard let legacy = action.outputs.first(where: { $0.artifactID == artifactID }) else {
+            return nil
+        }
+        return FoundationArtifactTypeProjection.reference(legacy)
     }
 
     private func designDiffOutputArtifact(
         in action: XcircuiteRunActionRecord
-    ) -> XcircuiteFileReference? {
-        action.outputs.first { artifact in
+    ) -> ArtifactReference? {
+        guard let legacy = action.outputs.first(where: { artifact in
             artifact.kind == .designDiff || artifact.path.hasSuffix("/design-diff.json")
+        }) else {
+            return nil
         }
+        return FoundationArtifactTypeProjection.reference(legacy)
     }
 
     private func appendDecodedCard<Document: Decodable>(

@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import DesignFlowKernel
 
 public struct RunReviewSignoffRepairCandidateCycleHistoryItem: Sendable, Hashable, Identifiable {
@@ -23,11 +24,11 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryItem: Sendable, Hashabl
     public let feedbackPenalizedActionIDs: [String]
     public let feedbackRankChanges: [String]
     public let feedbackScoreDeltas: [String]
-    public let candidatePlanArtifact: XcircuiteFileReference?
-    public let planExecutionArtifact: XcircuiteFileReference?
-    public let planVerificationArtifact: XcircuiteFileReference?
-    public let rejectedPlansArtifact: XcircuiteFileReference?
-    public let designDiffArtifact: XcircuiteFileReference?
+    public let candidatePlanArtifact: ArtifactReference?
+    public let planExecutionArtifact: ArtifactReference?
+    public let planVerificationArtifact: ArtifactReference?
+    public let rejectedPlansArtifact: ArtifactReference?
+    public let designDiffArtifact: ArtifactReference?
     public let createdAt: Date
 
     public init(
@@ -48,11 +49,11 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryItem: Sendable, Hashabl
         feedbackPenalizedActionIDs: [String],
         feedbackRankChanges: [String] = [],
         feedbackScoreDeltas: [String] = [],
-        candidatePlanArtifact: XcircuiteFileReference?,
-        planExecutionArtifact: XcircuiteFileReference?,
-        planVerificationArtifact: XcircuiteFileReference?,
-        rejectedPlansArtifact: XcircuiteFileReference?,
-        designDiffArtifact: XcircuiteFileReference?,
+        candidatePlanArtifact: ArtifactReference?,
+        planExecutionArtifact: ArtifactReference?,
+        planVerificationArtifact: ArtifactReference?,
+        rejectedPlansArtifact: ArtifactReference?,
+        designDiffArtifact: ArtifactReference?,
         createdAt: Date
     ) {
         self.actionID = actionID
