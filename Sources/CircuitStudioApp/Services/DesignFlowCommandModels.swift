@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import CircuiteFoundation
 import CircuitPhysicalDesign
 import CoreSpiceWaveform
 import LayoutCore
@@ -453,7 +454,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let signoffRepairCandidateCycleHistoryIndex: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary?
     public let signoffRepairCandidateCycleHistoryQualification:
         RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Report?
-    public let signoffRepairCandidateCycleHistoryQualificationArtifact: XcircuiteFileReference?
+    public let signoffRepairCandidateCycleHistoryQualificationArtifact: ArtifactReference?
     public let signoffRepairCandidateCycleHistoryQualificationPath: String?
     public let technologyPackageID: String?
     public let technologyPackagePath: String?
@@ -523,7 +524,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         signoffRepairCandidateCycleHistoryIndex: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary? = nil,
         signoffRepairCandidateCycleHistoryQualification:
             RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Report? = nil,
-        signoffRepairCandidateCycleHistoryQualificationArtifact: XcircuiteFileReference? = nil,
+        signoffRepairCandidateCycleHistoryQualificationArtifact: ArtifactReference? = nil,
         signoffRepairCandidateCycleHistoryQualificationPath: String? = nil,
         technologyPackageID: String? = nil,
         technologyPackagePath: String? = nil,

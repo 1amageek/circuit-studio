@@ -264,7 +264,7 @@ struct FlowRunnerCLITests {
     }
 
     @Test("signoff repair cycle history qualification output exposes failed gates", .timeLimit(.minutes(1)))
-    func signoffRepairCycleHistoryQualificationOutputIncludesFailedGates() {
+    func signoffRepairCycleHistoryQualificationOutputIncludesFailedGates() throws {
         let cycleSummary = RunReviewSignoffRepairCandidateCycleHistorySummary(cycles: [
             RunReviewSignoffRepairCandidateCycleHistoryItem(
                 actionID: "cycle-1",
@@ -324,12 +324,9 @@ struct FlowRunnerCLITests {
             projectRootPath: "/tmp/flow-output",
             signoffRepairCandidateCycleHistoryIndex: history,
             signoffRepairCandidateCycleHistoryQualification: report,
-            signoffRepairCandidateCycleHistoryQualificationArtifact: XcircuiteFileReference(
+            signoffRepairCandidateCycleHistoryQualificationArtifact: try foundationArtifactReference(
                 artifactID: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID,
                 path: ".xcircuite/retained/signoff-repair-cycle-history-qualification.json",
-                kind: .other,
-                format: .json,
-                sha256: "abc123",
                 byteCount: 456
             ),
             signoffRepairCandidateCycleHistoryQualificationPath:
@@ -341,7 +338,7 @@ struct FlowRunnerCLITests {
         #expect(keys["signoff_repair_cycle_history_qualification"] == "failed")
         #expect(keys["qualification_passed"] == "false")
         #expect(keys["qualification_report"] == "/tmp/flow-output/.xcircuite/retained/signoff-repair-cycle-history-qualification.json")
-        #expect(keys["qualification_report_sha256"] == "abc123")
+        #expect(keys["qualification_report_sha256"] == String(repeating: "0", count: 64))
         #expect(keys["qualification_report_bytes"] == "456")
         #expect(keys["qualification_profile_id"] == "candidate-cycle-history-smoke")
         #expect(keys["qualification_profile_title"] == "Candidate cycle history smoke")
@@ -488,15 +485,15 @@ struct FlowRunnerCLITests {
         let qualificationArtifact = try #require(result.signoffRepairCandidateCycleHistoryQualificationArtifact)
         #expect(qualificationArtifact.artifactID == RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID)
         #expect(qualificationArtifact.path == ".xcircuite/retained/signoff-repair-cycle-history-qualification.json")
-        #expect(qualificationArtifact.sha256?.isEmpty == false)
-        #expect((qualificationArtifact.byteCount ?? 0) > 0)
+        #expect(!qualificationArtifact.sha256.isEmpty)
+        #expect(qualificationArtifact.byteCount > 0)
 
         let manifest = try XcircuitePackageStore().loadManifest(forProjectAt: root)
         #expect(manifest.files.contains { file in
             file.artifactID == RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID
                 && file.path == qualificationArtifact.path
                 && file.sha256 == qualificationArtifact.sha256
-                && file.byteCount == qualificationArtifact.byteCount
+                && file.byteCount == Int64(qualificationArtifact.byteCount)
         })
     }
 
@@ -1299,7 +1296,8 @@ struct FlowRunnerCLITests {
 
     private func foundationArtifactReference(
         artifactID: String,
-        path: String
+        path: String,
+        byteCount: UInt64 = 0
     ) throws -> ArtifactReference {
         let location = try ArtifactLocation(workspaceRelativePath: path)
         let locator = ArtifactLocator(
@@ -1316,7 +1314,7 @@ struct FlowRunnerCLITests {
             id: try ArtifactID(rawValue: artifactID),
             locator: locator,
             digest: digest,
-            byteCount: 0
+            byteCount: byteCount
         )
     }
 
