@@ -39,7 +39,7 @@ extension RunReviewService {
         )
         let compilation = try XcircuiteSignoffRepairFormulationBuilder(
             packageStore: store,
-            artifactStore: XcircuitePlanningArtifactStore(packageStore: store)
+            artifactStore: XcircuitePlanningArtifactStore(storage: store)
         ).compile(
             request: XcircuiteSignoffRepairFormulationRequest(
                 runID: runID,

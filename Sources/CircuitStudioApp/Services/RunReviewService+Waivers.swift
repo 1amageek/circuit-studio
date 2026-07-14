@@ -842,7 +842,7 @@ extension RunReviewService {
             diagnostics: diagnostics,
             nextActions: failedGateIDs.map { "repair-verification-gate:\($0)" }
         )
-        let rejectedPlansLegacyRef = try XcircuitePlanningArtifactStore(packageStore: store).appendRejectedPlan(
+        let rejectedPlansLegacyRef = try XcircuitePlanningArtifactStore(storage: store).appendRejectedPlan(
             rejectedRecord,
             runID: runID,
             projectRoot: projectRoot
