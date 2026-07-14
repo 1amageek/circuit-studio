@@ -205,16 +205,35 @@ public struct FlowRunActivityProjector: Sendable {
 
         if let designDiff = ledger.designDiff {
             var references: [Activity.ArtifactReference] = []
+            var omittedReferenceCount = 0
             if let baseSnapshot = designDiff.baseSnapshot {
-                references.append(activityArtifact(baseSnapshot, direction: .related))
+                if let reference = activityArtifact(baseSnapshot, direction: .related) {
+                    references.append(reference)
+                } else {
+                    omittedReferenceCount += 1
+                }
             }
             if let proposedSnapshot = designDiff.proposedSnapshot {
-                references.append(activityArtifact(proposedSnapshot, direction: .related))
+                if let reference = activityArtifact(proposedSnapshot, direction: .related) {
+                    references.append(reference)
+                } else {
+                    omittedReferenceCount += 1
+                }
             }
-            references.append(contentsOf: designDiff.changes.flatMap { change in
-                change.artifacts.map { activityArtifact($0, direction: .related) }
-            })
-            let artifactResult = boundedReferences(references)
+            for change in designDiff.changes {
+                for artifact in change.artifacts {
+                    if let reference = activityArtifact(artifact, direction: .related) {
+                        references.append(reference)
+                    } else {
+                        omittedReferenceCount += 1
+                    }
+                }
+            }
+            let boundedArtifactResult = boundedReferences(references)
+            let artifactResult = (
+                references: boundedArtifactResult.references,
+                omittedCount: omittedReferenceCount + boundedArtifactResult.omittedCount
+            )
             activities.append(Activity(
                 id: activityID(
                     projectID: projectID,
