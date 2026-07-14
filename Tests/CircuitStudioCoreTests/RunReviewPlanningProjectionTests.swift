@@ -652,7 +652,7 @@ struct RunReviewPlanningProjectionTests {
         let railDiffItem = try #require(diffSection.items.first {
             $0.itemID == "design-diff:change:change-1"
         })
-        #expect(railDiffItem.artifactRefs.contains {
+        #expect(railDiffItem.artifactReferences.contains {
             $0.source == "design-diff" && $0.path == candidatePlanPath
         })
         #expect(railDiffItem.detailGroups.contains { $0.title == "Path Context" })

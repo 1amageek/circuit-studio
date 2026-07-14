@@ -150,7 +150,7 @@ struct RunReviewInteractiveSignoffDrilldownCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            artifactRefs(item.artifactRefs)
+            artifactReferences(item.artifactReferences)
             if !item.issues.isEmpty {
                 Text("\(item.issues.count) issue(s)")
                     .font(.caption2)
@@ -161,7 +161,7 @@ struct RunReviewInteractiveSignoffDrilldownCard: View {
     }
 
     @ViewBuilder
-    private func artifactRefs(
+    private func artifactReferences(
         _ refs: [RunReviewInteractiveSignoffDrilldown.ArtifactReference]
     ) -> some View {
         if !refs.isEmpty {

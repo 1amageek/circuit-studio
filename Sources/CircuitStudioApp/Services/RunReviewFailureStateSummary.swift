@@ -48,7 +48,7 @@ public struct RunReviewFailureStateSummary: Sendable, Hashable {
         public let gateID: String?
         public let itemID: String?
         public let nextActionID: String?
-        public let artifactRefs: [ArtifactReference]
+        public let artifactReferences: [ArtifactReference]
         public let diagnosticCodes: [String]
         public let suggestedActions: [String]
 
@@ -62,7 +62,7 @@ public struct RunReviewFailureStateSummary: Sendable, Hashable {
             gateID: String? = nil,
             itemID: String? = nil,
             nextActionID: String? = nil,
-            artifactRefs: [ArtifactReference] = [],
+            artifactReferences: [ArtifactReference] = [],
             diagnosticCodes: [String] = [],
             suggestedActions: [String]
         ) {
@@ -75,7 +75,7 @@ public struct RunReviewFailureStateSummary: Sendable, Hashable {
             self.gateID = gateID
             self.itemID = itemID
             self.nextActionID = nextActionID
-            self.artifactRefs = artifactRefs
+            self.artifactReferences = artifactReferences
             self.diagnosticCodes = diagnosticCodes
             self.suggestedActions = suggestedActions
         }

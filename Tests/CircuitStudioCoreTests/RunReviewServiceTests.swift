@@ -501,12 +501,12 @@ struct RunReviewServiceTests {
         #expect(service.failureStateSummary(from: review) == failureStates)
 
         let missing = try #require(failureStates.states(of: .missingArtifact).first {
-            $0.artifactRefs.contains { $0.path == missingPath && $0.integrityStatus == "missingArtifact" }
+            $0.artifactReferences.contains { $0.path == missingPath && $0.integrityStatus == "missingArtifact" }
         })
         #expect(missing.suggestedActions.contains("restore-or-regenerate-artifact"))
 
         let mismatch = try #require(failureStates.states(of: .integrityMismatch).first {
-            $0.artifactRefs.contains {
+            $0.artifactReferences.contains {
                 $0.path == mismatchPath
                     && ($0.integrityStatus == "sha256Mismatch" || $0.integrityStatus == "byteCountMismatch")
             }
@@ -514,7 +514,7 @@ struct RunReviewServiceTests {
         #expect(mismatch.suggestedActions.contains("rerun-artifact-integrity-gate"))
 
         let stale = try #require(failureStates.states(of: .integrityMismatch).first {
-            $0.artifactRefs.contains {
+            $0.artifactReferences.contains {
                 $0.path == stalePath
                     && ($0.integrityStatus == "byteCountMismatch" || $0.integrityStatus == "sha256Mismatch")
             }

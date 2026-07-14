@@ -391,18 +391,18 @@ struct RunReviewSignoffProjectionTests {
         let drcDrilldown = try #require(drilldown.section(for: .drc)?.items.first)
         #expect(drcDrilldown.interactions.contains(.issueEvidence))
         #expect(drcDrilldown.interactions.contains(.repairActionSelection))
-        #expect(drcDrilldown.artifactRefs.contains {
+        #expect(drcDrilldown.artifactReferences.contains {
             $0.source == "run-ledger"
                 && $0.artifactID == "drc-summary"
                 && $0.path == drcPath
         })
-        #expect(drcDrilldown.artifactRefs.contains { $0.path == drcEnvelopePath })
+        #expect(drcDrilldown.artifactReferences.contains { $0.path == drcEnvelopePath })
         #expect(drcDrilldown.detailGroups.contains { $0.title == "Artifact Evaluation" })
         #expect(drcDrilldown.detailGroups.contains { $0.title == "Evaluation Channels" })
         #expect(drcDrilldown.detailGroups.contains { $0.title == "Feedback Signals" })
         let drcDrilldownIssue = try #require(drcDrilldown.issues.first)
-        #expect(drcDrilldownIssue.artifactRefs.contains { $0.path == drcLogPath })
-        #expect(drcDrilldownIssue.artifactRefs.contains { $0.path == drcEnvelopePath })
+        #expect(drcDrilldownIssue.artifactReferences.contains { $0.path == drcLogPath })
+        #expect(drcDrilldownIssue.artifactReferences.contains { $0.path == drcEnvelopePath })
         #expect(drcDrilldownIssue.repairActionHints.map(\.operationID) == ["layout.resize-shape"])
         let lvsDrilldown = try #require(drilldown.section(for: .lvs)?.items.first)
         #expect(lvsDrilldown.issues.first?.repairActionHints.map(\.operationID) == [
@@ -1090,8 +1090,8 @@ struct RunReviewSignoffProjectionTests {
         #expect(indexedArtifact.integrityStatus == FlowRunReviewArtifactIntegrityStatus.sha256Mismatch.rawValue)
         #expect(drilldown.failures.contains {
             $0.failureID == "artifact-integrity:\(sharedPath)"
-                && $0.artifactRefs.first?.source == "run-ledger"
-                && $0.artifactRefs.first?.integrityStatus == FlowRunReviewArtifactIntegrityStatus.sha256Mismatch.rawValue
+                && $0.artifactReferences.first?.source == "run-ledger"
+                && $0.artifactReferences.first?.integrityStatus == FlowRunReviewArtifactIntegrityStatus.sha256Mismatch.rawValue
         })
     }
 

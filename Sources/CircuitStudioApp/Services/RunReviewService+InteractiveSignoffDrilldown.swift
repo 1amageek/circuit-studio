@@ -95,7 +95,7 @@ extension RunReviewService {
                 suggestedFixes: issue.suggestedFixes,
                 repairActionHints: issue.repairActionHints,
                 detailRows: issue.detailRows.map(drilldownDetailRow),
-                artifactRefs: drilldownArtifactReferences(issue.evidenceArtifacts)
+                artifactReferences: drilldownArtifactReferences(issue.evidenceArtifacts)
             )
         }
         return RunReviewInteractiveSignoffDrilldown.Item(
@@ -106,7 +106,7 @@ extension RunReviewService {
             passed: card.passed,
             stageID: card.stageID,
             interactions: signoffInteractions(card: card),
-            artifactRefs: artifacts,
+            artifactReferences: artifacts,
             metrics: card.primaryMetrics.map(drilldownMetric),
             detailGroups: card.detailSections.map(drilldownDetailGroup),
             issues: issues
@@ -141,7 +141,7 @@ extension RunReviewService {
                     passed: artifact.integrity?.status == .verified ? true : nil,
                     stageID: artifact.stageID,
                     interactions: [.artifactPreview, .waveformTraceSelection],
-                    artifactRefs: drilldownArtifactReferences([artifact]),
+                    artifactReferences: drilldownArtifactReferences([artifact]),
                     metrics: compactDrilldownMetrics([
                         ("Role", artifact.role),
                         ("Format", artifact.format.rawValue),
@@ -167,7 +167,7 @@ extension RunReviewService {
                     passed: card.passed,
                     stageID: card.stageID,
                     interactions: [.artifactPreview, .waveformComparison],
-                    artifactRefs: drilldownArtifactReferences(comparisonArtifacts),
+                    artifactReferences: drilldownArtifactReferences(comparisonArtifacts),
                     metrics: [
                         RunReviewInteractiveSignoffDrilldown.Metric(
                             label: "Sources",
@@ -201,7 +201,7 @@ extension RunReviewService {
                 passed: nil,
                 stageID: nil,
                 interactions: [.artifactPreview, .designDiffCanvas],
-                artifactRefs: summaryArtifacts,
+                artifactReferences: summaryArtifacts,
                 metrics: compactDrilldownMetrics([
                     ("Actor", summary.actor),
                     ("Review", summary.reviewState),
@@ -224,7 +224,7 @@ extension RunReviewService {
                 passed: nil,
                 stageID: nil,
                 interactions: [.artifactPreview, .designDiffCanvas],
-                artifactRefs: drilldownArtifactReferences(change.artifacts, role: "design-diff-change"),
+                artifactReferences: drilldownArtifactReferences(change.artifacts, role: "design-diff-change"),
                 metrics: compactDrilldownMetrics([
                     ("Domain", change.domain),
                     ("Operation", change.operation),
@@ -315,7 +315,7 @@ extension RunReviewService {
                 failureID: "planning-decode:\(issue.artifactPath)",
                 severity: "warning",
                 message: issue.message,
-                artifactRefs: [
+                artifactReferences: [
                     drilldownArtifactReference(
                         path: issue.artifactPath,
                         role: issue.artifactRole,
@@ -330,7 +330,7 @@ extension RunReviewService {
                 failureID: "signoff-decode:\(issue.artifactPath)",
                 severity: "error",
                 message: issue.message,
-                artifactRefs: [
+                artifactReferences: [
                     drilldownArtifactReference(
                         path: issue.artifactPath,
                         role: issue.artifactRole,
@@ -350,7 +350,7 @@ extension RunReviewService {
                     failureID: "artifact-integrity:\(artifact.path)",
                     severity: status == "missingDigest" || status == "missingByteCount" ? "warning" : "error",
                     message: artifact.integrityMessage ?? status,
-                    artifactRefs: [artifact],
+                    artifactReferences: [artifact],
                     suggestedActions: ["inspect-ledger-artifact-ref", "rerun-artifact-integrity-gate"]
                 )
             )
@@ -364,8 +364,8 @@ extension RunReviewService {
         var refsByPath: [String: RunReviewInteractiveSignoffDrilldown.ArtifactReference] = [:]
         let refs = sections.flatMap { section in
             section.items.flatMap { item in
-                item.artifactRefs
-                    + item.issues.flatMap(\.artifactRefs)
+                item.artifactReferences
+                    + item.issues.flatMap(\.artifactReferences)
             }
         }
         for ref in refs {

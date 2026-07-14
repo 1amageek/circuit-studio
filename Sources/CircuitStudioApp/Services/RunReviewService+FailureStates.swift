@@ -45,7 +45,7 @@ extension RunReviewService {
                     stageID: artifact.stageID,
                     itemID: linkedItems.first?.itemID,
                     nextActionID: linkedItems.first(where: { $0.nextActionID != nil })?.nextActionID,
-                    artifactRefs: [failureArtifactReference(artifact)],
+                    artifactReferences: [failureArtifactReference(artifact)],
                     diagnosticCodes: uniqueSorted(linkedItems.flatMap(\.diagnosticCodes)),
                     suggestedActions: suggestedActions(for: kind)
                 )
@@ -109,7 +109,7 @@ extension RunReviewService {
                     gateID: gate.gateID,
                     itemID: linkedItem?.itemID,
                     nextActionID: linkedItem?.nextActionID,
-                    artifactRefs: stageArtifacts.map(failureArtifactReference).sorted(by: artifactReferenceSortOrder),
+                    artifactReferences: stageArtifacts.map(failureArtifactReference).sorted(by: artifactReferenceSortOrder),
                     diagnosticCodes: gate.diagnostics.map(\.code),
                     suggestedActions: suggestedActionsForBlockedGate(gate.gateID)
                 )
@@ -131,7 +131,7 @@ extension RunReviewService {
                     stageID: stage.result.stageID,
                     itemID: linkedItem?.itemID,
                     nextActionID: linkedItem?.nextActionID,
-                    artifactRefs: stageArtifacts.map(failureArtifactReference).sorted(by: artifactReferenceSortOrder),
+                    artifactReferences: stageArtifacts.map(failureArtifactReference).sorted(by: artifactReferenceSortOrder),
                     diagnosticCodes: uniqueSorted(stage.result.diagnostics.map(\.code)),
                     suggestedActions: ["inspect-review-item", "record-unblock-decision", "resume-run"]
                 )
@@ -158,7 +158,7 @@ extension RunReviewService {
                     title: "Decode planning artifact",
                     message: issue.message,
                     stageID: nil,
-                    artifactRefs: artifactReferences(
+                    artifactReferences: artifactReferences(
                         path: issue.artifactPath,
                         role: issue.artifactRole,
                         bundle: bundle
@@ -179,7 +179,7 @@ extension RunReviewService {
                     title: "Decode signoff artifact",
                     message: issue.message,
                     stageID: nil,
-                    artifactRefs: artifactReferences(
+                    artifactReferences: artifactReferences(
                         path: issue.artifactPath,
                         role: issue.artifactRole,
                         bundle: bundle
@@ -200,7 +200,7 @@ extension RunReviewService {
                     title: "Decode waiver artifact",
                     message: issue.message,
                     stageID: nil,
-                    artifactRefs: artifactReferences(
+                    artifactReferences: artifactReferences(
                         path: issue.artifactPath,
                         role: issue.artifactRole,
                         bundle: bundle
@@ -230,7 +230,7 @@ extension RunReviewService {
                         stageID: item.stageID,
                         itemID: item.itemID,
                         nextActionID: item.nextActionID,
-                        artifactRefs: item.artifactPaths.flatMap {
+                        artifactReferences: item.artifactPaths.flatMap {
                             artifactReferences(path: $0, role: "review-item", bundle: bundle)
                         },
                         diagnosticCodes: item.diagnosticCodes,
@@ -252,7 +252,7 @@ extension RunReviewService {
                         stageID: item.stageID,
                         itemID: item.itemID,
                         nextActionID: item.nextActionID,
-                        artifactRefs: item.artifactPaths.flatMap {
+                        artifactReferences: item.artifactPaths.flatMap {
                             artifactReferences(path: $0, role: "review-item", bundle: bundle)
                         },
                         diagnosticCodes: item.diagnosticCodes,

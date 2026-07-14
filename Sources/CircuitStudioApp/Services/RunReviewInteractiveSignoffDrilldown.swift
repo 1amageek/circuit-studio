@@ -66,7 +66,7 @@ public struct RunReviewInteractiveSignoffDrilldown: Sendable, Hashable {
         public let passed: Bool?
         public let stageID: String?
         public let interactions: [Interaction]
-        public let artifactRefs: [ArtifactReference]
+        public let artifactReferences: [ArtifactReference]
         public let metrics: [Metric]
         public let detailGroups: [DetailGroup]
         public let issues: [Issue]
@@ -79,7 +79,7 @@ public struct RunReviewInteractiveSignoffDrilldown: Sendable, Hashable {
             passed: Bool?,
             stageID: String?,
             interactions: [Interaction],
-            artifactRefs: [ArtifactReference],
+            artifactReferences: [ArtifactReference],
             metrics: [Metric] = [],
             detailGroups: [DetailGroup] = [],
             issues: [Issue] = []
@@ -91,7 +91,7 @@ public struct RunReviewInteractiveSignoffDrilldown: Sendable, Hashable {
             self.passed = passed
             self.stageID = stageID
             self.interactions = interactions
-            self.artifactRefs = artifactRefs
+            self.artifactReferences = artifactReferences
             self.metrics = metrics
             self.detailGroups = detailGroups
             self.issues = issues
@@ -107,7 +107,7 @@ public struct RunReviewInteractiveSignoffDrilldown: Sendable, Hashable {
         public let suggestedFixes: [String]
         public let repairActionHints: [RunReviewSignoffRepairActionHint]
         public let detailRows: [DetailRow]
-        public let artifactRefs: [ArtifactReference]
+        public let artifactReferences: [ArtifactReference]
 
         public init(
             issueID: String,
@@ -118,7 +118,7 @@ public struct RunReviewInteractiveSignoffDrilldown: Sendable, Hashable {
             suggestedFixes: [String],
             repairActionHints: [RunReviewSignoffRepairActionHint],
             detailRows: [DetailRow],
-            artifactRefs: [ArtifactReference]
+            artifactReferences: [ArtifactReference]
         ) {
             self.issueID = issueID
             self.severity = severity
@@ -128,7 +128,7 @@ public struct RunReviewInteractiveSignoffDrilldown: Sendable, Hashable {
             self.suggestedFixes = suggestedFixes
             self.repairActionHints = repairActionHints
             self.detailRows = detailRows
-            self.artifactRefs = artifactRefs
+            self.artifactReferences = artifactReferences
         }
     }
 
@@ -209,20 +209,20 @@ public struct RunReviewInteractiveSignoffDrilldown: Sendable, Hashable {
         public let failureID: String
         public let severity: String
         public let message: String
-        public let artifactRefs: [ArtifactReference]
+        public let artifactReferences: [ArtifactReference]
         public let suggestedActions: [String]
 
         public init(
             failureID: String,
             severity: String,
             message: String,
-            artifactRefs: [ArtifactReference],
+            artifactReferences: [ArtifactReference],
             suggestedActions: [String]
         ) {
             self.failureID = failureID
             self.severity = severity
             self.message = message
-            self.artifactRefs = artifactRefs
+            self.artifactReferences = artifactReferences
             self.suggestedActions = suggestedActions
         }
     }

@@ -50,7 +50,7 @@ struct RunReviewFailureStateReviewCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
                 metadataRow(state)
-                artifactRefs(state.artifactRefs)
+                artifactReferences(state.artifactReferences)
                 if !state.diagnosticCodes.isEmpty {
                     Text(state.diagnosticCodes.joined(separator: ", "))
                         .font(.caption2.monospaced())
@@ -92,7 +92,7 @@ struct RunReviewFailureStateReviewCard: View {
     }
 
     @ViewBuilder
-    private func artifactRefs(_ refs: [RunReviewFailureStateSummary.ArtifactReference]) -> some View {
+    private func artifactReferences(_ refs: [RunReviewFailureStateSummary.ArtifactReference]) -> some View {
         if !refs.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(refs.prefix(4), id: \.path) { ref in
