@@ -20,8 +20,8 @@ public struct RunReviewService: Sendable {
         public let updatedAt: Date
         public let startedAt: Date?
         public let finishedAt: Date?
-        /// Canonical Foundation artifact references. The frozen run manifest
-        /// remains a legacy storage record and is projected at this boundary.
+        /// Canonical Foundation artifact references projected from the run
+        /// manifest at the storage boundary.
         public let artifacts: [ArtifactReference]
         public let stages: [StageReview]
         public let approvals: [XcircuiteApprovalRecord]
@@ -169,10 +169,10 @@ public struct RunReviewService: Sendable {
         _ references: [XcircuiteFileReference]
     ) throws -> [ArtifactReference] {
         try references.map { reference in
-            guard let artifact = FoundationArtifactTypeProjection.referencePreservingUnverifiedIntegrity(reference) else {
+            guard let artifact = FoundationArtifactTypeProjection.reference(reference) else {
                 throw RunReviewServiceError.artifactReferenceProjectionFailed(
                     path: reference.path,
-                    message: "Legacy artifact reference is missing valid digest, byte count, kind, or format metadata."
+                    message: "Artifact reference is missing valid digest, byte count, kind, or format metadata."
                 )
             }
             return artifact

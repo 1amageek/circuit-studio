@@ -94,8 +94,8 @@ struct ActivityStoreTests {
         #expect(firstActivities.first?.id != secondActivities.first?.id)
     }
 
-    @Test("Projector projects complete legacy artifacts through Foundation")
-    func projectorProjectsLegacyArtifactsThroughFoundation() throws {
+    @Test("Projector projects complete artifacts through Foundation")
+    func projectorProjectsCompleteArtifactsThroughFoundation() throws {
         var ledger = try makeLedger(runID: "run-artifact")
         ledger.actions = [
             XcircuiteRunActionRecord(

@@ -355,16 +355,20 @@ public struct FlowRunActivityProjector: Sendable {
     private func actionArtifacts(
         _ action: XcircuiteRunActionRecord
     ) -> (references: [Activity.ArtifactReference], omittedCount: Int) {
-        let inputs = action.inputs.map { activityArtifact($0, direction: .input) }
-        let outputs = action.outputs.map { activityArtifact($0, direction: .output) }
-        return boundedReferences(inputs + outputs)
+        let inputs = action.inputs.compactMap { activityArtifact($0, direction: .input) }
+        let outputs = action.outputs.compactMap { activityArtifact($0, direction: .output) }
+        let omittedCount = action.inputs.count + action.outputs.count - inputs.count - outputs.count
+        let bounded = boundedReferences(inputs + outputs)
+        return (bounded.references, omittedCount + bounded.omittedCount)
     }
 
     private func artifactReferences(
         _ references: [XcircuiteFileReference],
         direction: Activity.ArtifactDirection
     ) -> (references: [Activity.ArtifactReference], omittedCount: Int) {
-        boundedReferences(references.map { activityArtifact($0, direction: direction) })
+        let projected = references.compactMap { activityArtifact($0, direction: direction) }
+        let bounded = boundedReferences(projected)
+        return (bounded.references, references.count - projected.count + bounded.omittedCount)
     }
 
     private func artifactReferences(
@@ -387,29 +391,11 @@ public struct FlowRunActivityProjector: Sendable {
     private func activityArtifact(
         _ reference: XcircuiteFileReference,
         direction: Activity.ArtifactDirection
-    ) -> Activity.ArtifactReference {
-        if let foundationReference = foundationArtifactReference(from: reference) {
-            return activityArtifact(foundationReference, direction: direction)
+    ) -> Activity.ArtifactReference? {
+        guard let foundationReference = foundationArtifactReference(from: reference) else {
+            return nil
         }
-
-        return legacyActivityArtifact(reference, direction: direction)
-    }
-
-    /// Presentation-only fallback for pre-Foundation records that lack
-    /// integrity metadata. New ledger writes must use `ArtifactReference`.
-    private func legacyActivityArtifact(
-        _ reference: XcircuiteFileReference,
-        direction: Activity.ArtifactDirection
-    ) -> Activity.ArtifactReference {
-        Activity.ArtifactReference(
-            path: reference.path,
-            role: reference.artifactID ?? reference.kind.rawValue,
-            kind: reference.kind.rawValue,
-            format: reference.format.rawValue,
-            sha256: reference.sha256,
-            byteCount: reference.byteCount,
-            direction: direction
-        )
+        return activityArtifact(foundationReference, direction: direction)
     }
 
     private func foundationArtifactReference(
@@ -440,7 +426,7 @@ public struct FlowRunActivityProjector: Sendable {
     ) -> Activity.ArtifactReference {
         Activity.ArtifactReference(
             path: reference.path,
-            role: reference.id.rawValue,
+            role: reference.locator.role.rawValue,
             kind: reference.locator.kind.rawValue,
             format: reference.locator.format.rawValue,
             sha256: reference.digest.hexadecimalValue,
@@ -597,7 +583,7 @@ private enum FoundationArtifactReferenceFactory {
             hexadecimalValue: sha256
         )
         let id = try artifactID.map { try ArtifactID(rawValue: $0) }
-        let role = ArtifactRole(rawValue: artifactID ?? kind.rawValue) ?? .legacyUnspecified
+        let role = ArtifactRole(rawValue: artifactID ?? kind.rawValue) ?? .output
         return ArtifactReference(
             id: id,
             locator: ArtifactLocator(

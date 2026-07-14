@@ -6,7 +6,7 @@ import DesignFlowKernel
 extension RunReviewService {
     func designDiffSummary(from diff: XcircuiteDesignDiff) -> RunReviewDesignDiffSummary {
         let changes = diff.changes.map { change in
-            let artifacts = change.artifacts.map(designDiffArtifactSummary)
+            let artifacts = change.artifacts.compactMap(designDiffArtifactSummary)
             let pathContext = designDiffPathContext(
                 domain: change.domain.rawValue,
                 path: change.path
@@ -47,8 +47,8 @@ extension RunReviewService {
             changeCount: diff.changes.count,
             domains: buckets(diff.changes.map { $0.domain.rawValue }),
             operations: buckets(diff.changes.map { $0.operation.rawValue }),
-            baseSnapshot: diff.baseSnapshot.map(designDiffArtifactSummary),
-            proposedSnapshot: diff.proposedSnapshot.map(designDiffArtifactSummary),
+            baseSnapshot: diff.baseSnapshot.flatMap(designDiffArtifactSummary),
+            proposedSnapshot: diff.proposedSnapshot.flatMap(designDiffArtifactSummary),
             canvases: designDiffCanvases(from: changes),
             changes: changes
         )
@@ -70,21 +70,11 @@ extension RunReviewService {
 
     private func designDiffArtifactSummary(
         _ reference: XcircuiteFileReference
-    ) -> RunReviewDesignDiffArtifactSummary {
-        // The ledger still decodes the frozen design-diff record. Convert a
-        // complete reference into Foundation before exposing it to review
-        // projections; incomplete legacy records remain visible only as a
-        // presentation fallback until they can be migrated with integrity.
-        if let foundationReference = FoundationArtifactTypeProjection
-            .referencePreservingUnverifiedIntegrity(reference) {
-            return designDiffArtifactSummary(foundationReference)
+    ) -> RunReviewDesignDiffArtifactSummary? {
+        guard let foundationReference = FoundationArtifactTypeProjection.reference(reference) else {
+            return nil
         }
-        return RunReviewDesignDiffArtifactSummary(
-            artifactID: reference.artifactID,
-            path: reference.path,
-            sha256: reference.sha256,
-            byteCount: reference.byteCount
-        )
+        return designDiffArtifactSummary(foundationReference)
     }
 
     private func designDiffArtifactSummary(

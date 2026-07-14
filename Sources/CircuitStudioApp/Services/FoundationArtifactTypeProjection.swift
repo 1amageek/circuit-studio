@@ -78,49 +78,6 @@ enum FoundationArtifactTypeProjection {
         }
     }
 
-    /// Projects a frozen manifest record even when the legacy record did not
-    /// persist integrity metadata. Missing values are represented by a zero
-    /// digest and zero byte count so callers can retain the artifact in the
-    /// canonical model and let the verifier report the unverified state.
-    static func referencePreservingUnverifiedIntegrity(
-        _ value: XcircuiteFileReference
-    ) -> ArtifactReference? {
-        guard let kind = kind(value.kind),
-              let format = format(value.format),
-              value.byteCount == nil || value.byteCount! >= 0 else {
-            return nil
-        }
-
-        let digestValue = value.sha256.flatMap { $0.isEmpty ? nil : $0 }
-            ?? String(repeating: "0", count: 64)
-        let byteCount = UInt64(value.byteCount ?? 0)
-        do {
-            let location: ArtifactLocation
-            if value.path.hasPrefix("/") {
-                location = try ArtifactLocation(fileURL: URL(filePath: value.path))
-            } else {
-                location = try ArtifactLocation(workspaceRelativePath: value.path)
-            }
-            return try ArtifactReference(
-                id: value.artifactID.map { try ArtifactID(rawValue: $0) },
-                locator: ArtifactLocator(
-                    location: location,
-                    role: .legacyUnspecified,
-                    kind: kind,
-                    format: format
-                ),
-                digest: try ContentDigest(
-                    algorithm: .sha256,
-                    hexadecimalValue: digestValue
-                ),
-                byteCount: byteCount,
-                producer: nil
-            )
-        } catch {
-            return nil
-        }
-    }
-
     static func legacyReference(_ value: ArtifactReference) throws -> XcircuiteFileReference {
         guard value.byteCount <= UInt64(Int64.max) else {
             throw ConversionError.byteCountOutOfRange(value.locator.location.value)
