@@ -79,7 +79,7 @@ extension RunReviewService {
             .referencePreservingUnverifiedIntegrity(reference) {
             return designDiffArtifactSummary(foundationReference)
         }
-        RunReviewDesignDiffArtifactSummary(
+        return RunReviewDesignDiffArtifactSummary(
             artifactID: reference.artifactID,
             path: reference.path,
             sha256: reference.sha256,
