@@ -392,9 +392,15 @@ public struct FlowRunActivityProjector: Sendable {
             return activityArtifact(foundationReference, direction: direction)
         }
 
-        // Keep incomplete legacy records visible in the activity feed. They
-        // cannot be represented by Foundation until integrity metadata exists,
-        // so retain the frozen projection only at this presentation boundary.
+        return legacyActivityArtifact(reference, direction: direction)
+    }
+
+    /// Presentation-only fallback for pre-Foundation records that lack
+    /// integrity metadata. New ledger writes must use `ArtifactReference`.
+    private func legacyActivityArtifact(
+        _ reference: XcircuiteFileReference,
+        direction: Activity.ArtifactDirection
+    ) -> Activity.ArtifactReference {
         Activity.ArtifactReference(
             path: reference.path,
             role: reference.artifactID ?? reference.kind.rawValue,

@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import Xcircuite
 import DesignFlowKernel
 
@@ -70,11 +71,30 @@ extension RunReviewService {
     private func designDiffArtifactSummary(
         _ reference: XcircuiteFileReference
     ) -> RunReviewDesignDiffArtifactSummary {
+        // The ledger still decodes the frozen design-diff record. Convert a
+        // complete reference into Foundation before exposing it to review
+        // projections; incomplete legacy records remain visible only as a
+        // presentation fallback until they can be migrated with integrity.
+        if let foundationReference = FoundationArtifactTypeProjection
+            .referencePreservingUnverifiedIntegrity(reference) {
+            return designDiffArtifactSummary(foundationReference)
+        }
         RunReviewDesignDiffArtifactSummary(
             artifactID: reference.artifactID,
             path: reference.path,
             sha256: reference.sha256,
             byteCount: reference.byteCount
+        )
+    }
+
+    private func designDiffArtifactSummary(
+        _ reference: ArtifactReference
+    ) -> RunReviewDesignDiffArtifactSummary {
+        RunReviewDesignDiffArtifactSummary(
+            artifactID: reference.id.rawValue,
+            path: reference.path,
+            sha256: reference.digest.hexadecimalValue,
+            byteCount: Int64(clamping: reference.byteCount)
         )
     }
 
