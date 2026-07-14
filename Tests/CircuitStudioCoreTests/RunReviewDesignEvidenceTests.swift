@@ -60,7 +60,7 @@ struct RunReviewDesignEvidenceTests {
             byteCount: Int64(data.count),
             producedByRunID: fixture.runID
         )
-        try XcircuitePackageStore().upsertRunArtifacts(
+        try XcircuiteWorkspaceStore().upsertRunArtifacts(
             [reference],
             runID: fixture.runID,
             inProjectAt: fixture.root

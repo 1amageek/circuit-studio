@@ -4,12 +4,12 @@ import CircuiteFoundation
 import DesignFlowKernel
 
 public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
-    private let store: XcircuitePackageStore
+    private let store: XcircuiteWorkspaceStore
     private let actor: XcircuiteRunActionActor
     private let runID: @Sendable () -> String
 
     public init(
-        store: XcircuitePackageStore = XcircuitePackageStore(),
+        store: XcircuiteWorkspaceStore = XcircuiteWorkspaceStore(),
         actor: XcircuiteRunActionActor,
         runID: @escaping @Sendable () -> String = {
             "simulation-\(UUID().uuidString.lowercased())"
@@ -27,7 +27,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         fileName: String?,
         startedAt: Date
     ) throws -> SimulationRunContext {
-        try store.createPackage(at: projectRoot)
+        try store.createWorkspace(at: projectRoot)
         let identifier = runID()
         _ = try store.createRunDirectory(
             for: identifier,
@@ -84,7 +84,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
                     reason: "Simulation run setup failed: \(error.localizedDescription)"
                 )
             } catch let lifecycleError {
-                throw XcircuitePackageError.writeFailed(
+                throw XcircuiteWorkspaceError.writeFailed(
                     "Simulation run setup failed with '\(error.localizedDescription)' and lifecycle finalization failed: \(lifecycleError.localizedDescription)"
                 )
             }
@@ -151,7 +151,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
             do {
                 try fail(context: context, reason: error.localizedDescription)
             } catch let lifecycleError {
-                throw XcircuitePackageError.writeFailed(
+                throw XcircuiteWorkspaceError.writeFailed(
                     "Simulation evidence persistence failed with '\(error.localizedDescription)' and lifecycle finalization failed: \(lifecycleError.localizedDescription)"
                 )
             }
@@ -283,11 +283,11 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
     }
 
     private func runRelativePath(_ suffix: String, context: SimulationRunContext) -> String {
-        "\(XcircuitePackage.directoryName)/runs/\(context.runID)/\(suffix)"
+        "\(XcircuiteWorkspace.directoryName)/runs/\(context.runID)/\(suffix)"
     }
 
     private func runDirectory(for context: SimulationRunContext) throws -> URL {
-        try XcircuitePackage(projectRoot: context.projectRoot)
+        try XcircuiteWorkspace(projectRoot: context.projectRoot)
             .runDirectoryURL(for: context.runID)
     }
 

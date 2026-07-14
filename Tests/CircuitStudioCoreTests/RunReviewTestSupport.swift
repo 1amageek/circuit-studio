@@ -202,7 +202,7 @@ enum RunReviewTestSupport {
             withIntermediateDirectories: true
         )
         try data.write(to: root.appending(path: path), options: .atomic)
-        let reference = try XcircuitePackageStore().makeArtifactReference(
+        let reference = try XcircuiteWorkspaceStore().makeArtifactReference(
             forProjectRelativePath: path,
             artifactID: artifactID,
             role: .output,
@@ -212,7 +212,7 @@ enum RunReviewTestSupport {
             producedByRunID: runID,
             verifiedByRunID: nil
         )
-        try XcircuitePackageStore().registerArtifact(reference, runID: runID, inProjectAt: root)
+        try XcircuiteWorkspaceStore().registerArtifact(reference, runID: runID, inProjectAt: root)
         return reference
     }
     

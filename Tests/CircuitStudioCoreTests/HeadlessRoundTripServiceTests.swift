@@ -676,7 +676,7 @@ struct HeadlessRoundTripServiceTests {
         #expect(manifest.bottleneckSummary?.recommendations.contains {
             $0.contains("configured design, signoff, and PEX artifact paths")
         } == true)
-        let canonicalManifest = try XcircuitePackageStore().loadRunManifest(
+        let canonicalManifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: "capture-directory",
             inProjectAt: root
         )
@@ -1031,7 +1031,7 @@ struct HeadlessRoundTripServiceTests {
         let manifest = try decoder.decode(HeadlessRoundTripService.Manifest.self, from: manifestData)
         #expect(manifest == result.manifest)
 
-        let canonicalManifest = try XcircuitePackageStore().loadRunManifest(
+        let canonicalManifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: result.manifest.runID,
             inProjectAt: roundTrip.projectRoot
         )

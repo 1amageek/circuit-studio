@@ -108,7 +108,7 @@ enum FoundationArtifactTypeProjection {
     private static func producedRunID(from path: String) -> String? {
         let components = path.split(separator: "/").map(String.init)
         guard components.count > 2,
-              components[0] == XcircuitePackage.directoryName,
+              components[0] == XcircuiteWorkspace.directoryName,
               components[1] == "runs" else {
             return nil
         }

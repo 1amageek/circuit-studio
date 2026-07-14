@@ -19,17 +19,17 @@ public struct ProjectService: Sendable {
     private static let cellLayoutFileName = "layout.json"
     private static let cellDesignUnitFileName = "design-unit.json"
 
-    private let packageStore: XcircuitePackageStore
+    private let workspaceStore: XcircuiteWorkspaceStore
 
-    public init(packageStore: XcircuitePackageStore = XcircuitePackageStore()) {
-        self.packageStore = packageStore
+    public init(workspaceStore: XcircuiteWorkspaceStore = XcircuiteWorkspaceStore()) {
+        self.workspaceStore = workspaceStore
     }
 
     // MARK: - Project Lifecycle
 
     /// Creates a new project at the given directory, initializing `.xcircuite/`.
     func createProject(at directory: URL) throws {
-        try packageStore.createPackage(at: directory)
+        try workspaceStore.createWorkspace(at: directory)
         try ensureXcircuiteProjectManifest(forProjectAt: directory, topDesignName: nil)
 
         // Write default workspace config
@@ -56,7 +56,7 @@ public struct ProjectService: Sendable {
 
     /// Returns `true` if the directory contains a `.xcircuite/` folder.
     func isProject(_ directory: URL) -> Bool {
-        packageStore.isPackage(at: directory)
+        workspaceStore.isWorkspace(at: directory)
     }
 
     // MARK: - Workspace Config
@@ -74,7 +74,7 @@ public struct ProjectService: Sendable {
     // MARK: - Manifests
 
     func xcircuiteProjectManifestURL(inProjectAt projectRoot: URL) -> URL {
-        XcircuitePackage(projectRoot: projectRoot).manifestURL
+        XcircuiteWorkspace(projectRoot: projectRoot).manifestURL
     }
 
     func studioSessionManifestURL(inProjectAt projectRoot: URL) throws -> URL {
@@ -152,7 +152,7 @@ public struct ProjectService: Sendable {
         forProjectAt projectRoot: URL
     ) throws {
         let url = try cellSchematicURL(cellName: cellName, inProjectAt: projectRoot)
-        try packageStore.ensureDirectory(at: url.deletingLastPathComponent())
+        try workspaceStore.ensureDirectory(at: url.deletingLastPathComponent())
         try writeJSON(document, to: url, forProjectAt: projectRoot)
     }
 
@@ -316,7 +316,7 @@ public struct ProjectService: Sendable {
     /// Saves a SPICE netlist string to the project root.
     func saveNetlist(_ spice: String, named fileName: String, inProjectAt projectRoot: URL) throws {
         let url = try projectRootFileURL(named: fileName, inProjectAt: projectRoot)
-        try packageStore.writeText(spice, to: url)
+        try workspaceStore.writeText(spice, to: url)
     }
 
     func topNetlistURL(inProjectAt projectRoot: URL) -> URL {
@@ -331,8 +331,8 @@ public struct ProjectService: Sendable {
     ) throws {
         let url = try url(forProjectRelativePath: relativePath, inProjectAt: projectRoot)
         let parent = url.deletingLastPathComponent()
-        try packageStore.ensureDirectory(at: parent)
-        try packageStore.writeText(spice, to: url)
+        try workspaceStore.ensureDirectory(at: parent)
+        try workspaceStore.writeText(spice, to: url)
     }
 
     /// Saves a layout document in OASIS format to the project root.
@@ -362,7 +362,7 @@ public struct ProjectService: Sendable {
     ) throws {
         let url = try url(forProjectRelativePath: relativePath, inProjectAt: projectRoot)
         let parent = url.deletingLastPathComponent()
-        try packageStore.ensureDirectory(at: parent)
+        try workspaceStore.ensureDirectory(at: parent)
         let converter = MaskDataFormatConverter(tech: tech)
         do {
             try converter.exportDocument(document, to: url, format: .oasis)
@@ -408,7 +408,7 @@ public struct ProjectService: Sendable {
         forProjectAt projectRoot: URL
     ) throws {
         let url = try cellLayoutDocumentURL(cellName: cellName, inProjectAt: projectRoot)
-        try packageStore.ensureDirectory(at: url.deletingLastPathComponent())
+        try workspaceStore.ensureDirectory(at: url.deletingLastPathComponent())
         try writeJSON(document, to: url, forProjectAt: projectRoot)
     }
 
@@ -459,7 +459,7 @@ public struct ProjectService: Sendable {
 
     func saveCellDesignUnit(_ unit: DesignUnit, cellName: String, forProjectAt projectRoot: URL) throws {
         let url = try cellFileURL(Self.cellDesignUnitFileName, cellName: cellName, inProjectAt: projectRoot)
-        try packageStore.ensureDirectory(at: url.deletingLastPathComponent())
+        try workspaceStore.ensureDirectory(at: url.deletingLastPathComponent())
         try writeJSON(unit, to: url, forProjectAt: projectRoot)
     }
 
@@ -510,7 +510,7 @@ public struct ProjectService: Sendable {
     }
 
     private func configurationFileURL(named fileName: String, inProjectAt projectRoot: URL) throws -> URL {
-        try packageStore.configurationURL(named: fileName, inProjectAt: projectRoot)
+        try workspaceStore.configurationURL(named: fileName, inProjectAt: projectRoot)
     }
 
     private func pexConfigurationURL(inProjectAt projectRoot: URL) throws -> URL {
@@ -518,8 +518,8 @@ public struct ProjectService: Sendable {
     }
 
     private func pexDirectoryURL(inProjectAt projectRoot: URL) -> URL {
-        packageStore
-            .packageURL(forProjectAt: projectRoot)
+        workspaceStore
+            .workspaceURL(forProjectAt: projectRoot)
             .appending(path: Self.pexDirectoryName)
     }
 
@@ -528,16 +528,16 @@ public struct ProjectService: Sendable {
     }
 
     private func ensureConfigurationDirectory(forProjectAt projectRoot: URL) throws {
-        try packageStore.ensurePackageDirectory(forProjectAt: projectRoot)
+        try workspaceStore.ensureWorkspaceDirectory(forProjectAt: projectRoot)
     }
 
     private func ensureXcircuiteProjectManifest(
         forProjectAt projectRoot: URL,
         topDesignName: String?
     ) throws {
-        try packageStore.createPackage(at: projectRoot)
+        try workspaceStore.createWorkspace(at: projectRoot)
         if let topDesignName {
-            try packageStore.updateProjectTopDesignName(
+            try workspaceStore.updateProjectTopDesignName(
                 topDesignName,
                 inProjectAt: projectRoot
             )
@@ -547,7 +547,7 @@ public struct ProjectService: Sendable {
     private func writePEXTOML(config: PEXProjectConfig, forProjectAt projectRoot: URL) throws {
         let tomlURL = pexTOMLURL(inProjectAt: projectRoot)
         let contents = renderPEXTOML(config: config)
-        try packageStore.writeText(contents, to: tomlURL)
+        try workspaceStore.writeText(contents, to: tomlURL)
     }
 
     private func writeDefaultTechTemplateIfNeeded(
@@ -561,7 +561,7 @@ public struct ProjectService: Sendable {
         }
 
         let parent = techURL.deletingLastPathComponent()
-        try packageStore.ensureDirectory(at: parent)
+        try workspaceStore.ensureDirectory(at: parent)
 
         let template = """
         {
@@ -575,11 +575,11 @@ public struct ProjectService: Sendable {
         }
         """
 
-        try packageStore.writeText(template, to: techURL)
+        try workspaceStore.writeText(template, to: techURL)
     }
 
     private func url(forProjectRelativePath rawPath: String, inProjectAt projectRoot: URL) throws -> URL {
-        try packageStore.url(forProjectRelativePath: rawPath, inProjectAt: projectRoot)
+        try workspaceStore.url(forProjectRelativePath: rawPath, inProjectAt: projectRoot)
     }
 
     private func projectRootFileURL(named fileName: String, inProjectAt projectRoot: URL) throws -> URL {
@@ -601,7 +601,7 @@ public struct ProjectService: Sendable {
               !fileName.contains("\\") else {
             return false
         }
-        guard fileName != XcircuitePackage.directoryName,
+        guard fileName != XcircuiteWorkspace.directoryName,
               fileName != Self.cellsDirectoryName else {
             return false
         }
@@ -658,10 +658,10 @@ public struct ProjectService: Sendable {
     }
 
     private func writeJSON<T: Encodable>(_ value: T, to url: URL, forProjectAt projectRoot: URL) throws {
-        try packageStore.writeJSON(value, to: url, forProjectAt: projectRoot)
+        try workspaceStore.writeJSON(value, to: url, forProjectAt: projectRoot)
     }
 
     private func readJSON<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
-        try packageStore.readJSON(type, from: url)
+        try workspaceStore.readJSON(type, from: url)
     }
 }

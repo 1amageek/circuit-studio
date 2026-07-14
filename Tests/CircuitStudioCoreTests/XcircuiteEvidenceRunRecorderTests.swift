@@ -101,7 +101,7 @@ struct XcircuiteEvidenceRunRecorderTests {
         #expect(kinds.contains(.layout))
 
         // The project manifest only locates the run; lifecycle is resolved from its manifest.
-        let snapshots = try XcircuitePackageStore().listRunSnapshots(inProjectAt: root)
+        let snapshots = try XcircuiteWorkspaceStore().listRunSnapshots(inProjectAt: root)
         let snapshot = try #require(snapshots.first { $0.runID == "run-evidence-1" })
         #expect(snapshot.status == .succeeded)
         #expect(snapshot.reference.manifestPath == ".xcircuite/runs/run-evidence-1/manifest.json")
@@ -163,7 +163,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                 bundle, projectRoot: root, runID: "run-evidence-3"
             )
         }
-        let manifest = try XcircuitePackageStore().loadRunManifest(
+        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: "run-evidence-3",
             inProjectAt: root
         )
@@ -211,7 +211,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                 bundle, projectRoot: root, runID: "run-evidence-4"
             )
         }
-        let manifest = try XcircuitePackageStore().loadRunManifest(
+        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: "run-evidence-4",
             inProjectAt: root
         )
@@ -248,7 +248,7 @@ struct XcircuiteEvidenceRunRecorderTests {
             gdsPath: nil
         )
 
-        #expect(throws: XcircuitePackageError.invalidIdentifier(
+        #expect(throws: XcircuiteWorkspaceError.invalidIdentifier(
             kind: XcircuiteIdentifierKind.artifactID.rawValue,
             value: "../escape"
         )) {
@@ -258,7 +258,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                 runID: "run-evidence-unsafe-id"
             )
         }
-        let manifest = try XcircuitePackageStore().loadRunManifest(
+        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: "run-evidence-unsafe-id",
             inProjectAt: root
         )
@@ -322,7 +322,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                 runID: "run-evidence-duplicate-id"
             )
         }
-        let manifest = try XcircuitePackageStore().loadRunManifest(
+        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: "run-evidence-duplicate-id",
             inProjectAt: root
         )
@@ -368,7 +368,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                 runID: "run-evidence-reserved-id"
             )
         }
-        let manifest = try XcircuitePackageStore().loadRunManifest(
+        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: "run-evidence-reserved-id",
             inProjectAt: root
         )
@@ -464,9 +464,9 @@ struct XcircuiteEvidenceRunRecorderTests {
             ],
             gdsPath: nil
         )
-        let escapedPath = "\(XcircuitePackage.directoryName)/runs/\(runID)/artifacts/symlink-report-source.rpt"
+        let escapedPath = "\(XcircuiteWorkspace.directoryName)/runs/\(runID)/artifacts/symlink-report-source.rpt"
 
-        #expect(throws: XcircuitePackageError.unsafeProjectPath(escapedPath)) {
+        #expect(throws: XcircuiteWorkspaceError.unsafeProjectPath(escapedPath)) {
             try XcircuiteEvidenceRunRecorder().record(
                 bundle,
                 projectRoot: root,
@@ -478,7 +478,7 @@ struct XcircuiteEvidenceRunRecorderTests {
             includingPropertiesForKeys: nil
         )
         #expect(outsideContents.isEmpty)
-        let manifest = try XcircuitePackageStore().loadRunManifest(
+        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: runID,
             inProjectAt: root
         )

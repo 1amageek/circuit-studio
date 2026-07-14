@@ -45,10 +45,10 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         public let manifest: XcircuiteRunManifest
     }
 
-    private let store: XcircuitePackageStore
+    private let store: XcircuiteWorkspaceStore
     private let hasher: XcircuiteHasher
 
-    public init(store: XcircuitePackageStore = XcircuitePackageStore()) {
+    public init(store: XcircuiteWorkspaceStore = XcircuiteWorkspaceStore()) {
         self.store = store
         self.hasher = XcircuiteHasher()
     }
@@ -64,7 +64,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         projectRoot: URL,
         runID: String
     ) throws -> RecordedRun {
-        try store.createPackage(at: projectRoot)
+        try store.createWorkspace(at: projectRoot)
         let runDirectory = try store.createRunDirectory(
             for: runID,
             descriptor: XcircuiteRunDescriptor(
@@ -105,7 +105,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                     inProjectAt: projectRoot
                 )
             } catch let lifecycleError {
-                throw XcircuitePackageError.writeFailed(
+                throw XcircuiteWorkspaceError.writeFailed(
                     "Evidence recording failed with '\(error.localizedDescription)' and the canonical run could not be marked failed: \(lifecycleError.localizedDescription)"
                 )
             }
@@ -232,8 +232,8 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
             throw RecorderError.artifactNotRegularFile(id: artifact.id, path: artifact.path)
         }
         try store.ensureDirectory(at: directory)
-        let relativeDestination = "\(XcircuitePackage.directoryName)/runs/\(runID)/artifacts/\(artifact.id)-\(source.lastPathComponent)"
-        let destination = try XcircuitePackage(projectRoot: projectRoot)
+        let relativeDestination = "\(XcircuiteWorkspace.directoryName)/runs/\(runID)/artifacts/\(artifact.id)-\(source.lastPathComponent)"
+        let destination = try XcircuiteWorkspace(projectRoot: projectRoot)
             .url(forProjectRelativePath: relativeDestination)
         if FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) {
             throw RecorderError.artifactDestinationExists(
@@ -273,7 +273,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         let filePath = url.standardizedFileURL.path(percentEncoded: false)
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         guard filePath.hasPrefix(prefix) else {
-            throw XcircuitePackageError.unsafeProjectPath(
+            throw XcircuiteWorkspaceError.unsafeProjectPath(
                 "artifact '\(filePath)' is outside the project root '\(rootPath)'"
             )
         }

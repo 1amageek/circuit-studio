@@ -31,7 +31,7 @@ struct RunReviewPlanningProjectionTests {
             ]
         )
 
-        let store = XcircuitePackageStore()
+        let store = XcircuiteWorkspaceStore()
         let encoder = JSONEncoder()
         let candidatePlanPath = ".xcircuite/runs/run-planning/planning/candidate-plan.json"
         let candidatePlan = XcircuiteCandidatePlan(
@@ -704,7 +704,7 @@ struct RunReviewPlanningProjectionTests {
         #expect(record.metadata["executable"] == .string("xcircuite-flow"))
         #expect(record.metadata["arguments"] == .array(command.arguments.map { .string($0) }))
 
-        let actions = try XcircuitePackageStore().loadRunActions(
+        let actions = try XcircuiteWorkspaceStore().loadRunActions(
             runID: "run-planning",
             inProjectAt: root
         )
@@ -742,7 +742,7 @@ struct RunReviewPlanningProjectionTests {
         #expect(approvalResult.approval.reviewer == "reviewer-1")
 
         let approvalRecord = try #require(
-            try XcircuitePackageStore().loadApproval(
+            try XcircuiteWorkspaceStore().loadApproval(
                 runID: "run-planning",
                 stageID: "policy-repair-approval",
                 inProjectAt: root
@@ -751,7 +751,7 @@ struct RunReviewPlanningProjectionTests {
         #expect(approvalRecord.verdict == .approved)
         #expect(approvalRecord.note == "Policy repair reviewed in the cockpit.")
 
-        let approvalActions = try XcircuitePackageStore().loadRunActions(
+        let approvalActions = try XcircuiteWorkspaceStore().loadRunActions(
             runID: "run-planning",
             inProjectAt: root
         )

@@ -6,12 +6,12 @@ public enum RoundTripRunDirectory {
 
     public static func runsDirectory(projectRoot: URL) -> URL {
         projectRoot
-            .appending(path: XcircuitePackage.directoryName)
+            .appending(path: XcircuiteWorkspace.directoryName)
             .appending(path: "runs")
     }
 
     public static func runDirectory(projectRoot: URL, runID: String) throws -> URL {
-        try XcircuitePackage(projectRoot: projectRoot).runDirectoryURL(for: runID)
+        try XcircuiteWorkspace(projectRoot: projectRoot).runDirectoryURL(for: runID)
     }
 
     public static func manifestURL(projectRoot: URL, runID: String) throws -> URL {

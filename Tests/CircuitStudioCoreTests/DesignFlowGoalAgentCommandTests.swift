@@ -20,7 +20,7 @@ struct DesignFlowGoalAgentCommandTests {
     @Test
     @MainActor
     func commandClosesSubcktIntentAndPersistsEvidence() async throws {
-        let packageURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
+        let workspaceURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
         let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("goal-agent-command")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let subcktURL = root.appending(path: "chain.subckt")
@@ -30,7 +30,7 @@ struct DesignFlowGoalAgentCommandTests {
             kind: .runGoalLayoutAgent,
             projectRootPath: root.path(percentEncoded: false),
             runID: "goal-agent-run",
-            technologyPackagePath: packageURL.path(percentEncoded: false),
+            technologyPackagePath: workspaceURL.path(percentEncoded: false),
             intentSubcktPath: subcktURL.path(percentEncoded: false)
         ))
 
@@ -61,12 +61,12 @@ struct DesignFlowGoalAgentCommandTests {
     @Test
     @MainActor
     func commandRequiresIntentSubcktPath() async throws {
-        let packageURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
+        let workspaceURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
         await #expect(throws: DesignFlowCommandError.missingIntentSubcktPath) {
             _ = try await DesignFlowService().execute(DesignFlowCommand(
                 kind: .runGoalLayoutAgent,
                 runID: "goal-agent-run",
-                technologyPackagePath: packageURL.path(percentEncoded: false)
+                technologyPackagePath: workspaceURL.path(percentEncoded: false)
             ))
         }
     }

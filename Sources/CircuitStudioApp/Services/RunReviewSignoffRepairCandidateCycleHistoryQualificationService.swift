@@ -492,15 +492,15 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
     }
 
     private let indexService: RunReviewSignoffRepairCandidateCycleHistoryIndexService
-    private let packageStore: XcircuitePackageStore
+    private let workspaceStore: XcircuiteWorkspaceStore
 
     public init(
         indexService: RunReviewSignoffRepairCandidateCycleHistoryIndexService =
             RunReviewSignoffRepairCandidateCycleHistoryIndexService(),
-        packageStore: XcircuitePackageStore = XcircuitePackageStore()
+        workspaceStore: XcircuiteWorkspaceStore = XcircuiteWorkspaceStore()
     ) {
         self.indexService = indexService
-        self.packageStore = packageStore
+        self.workspaceStore = workspaceStore
     }
 
     public func qualify(
@@ -651,23 +651,23 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
         _ report: Report,
         forProjectAt projectRoot: URL
     ) throws -> ArtifactReference {
-        try packageStore.createPackage(at: projectRoot)
-        let packageURL = packageStore.packageURL(forProjectAt: projectRoot)
-        let retainedDirectory = packageURL.appending(path: "retained")
-        try packageStore.ensureDirectory(at: retainedDirectory)
+        try workspaceStore.createWorkspace(at: projectRoot)
+        let workspaceURL = workspaceStore.workspaceURL(forProjectAt: projectRoot)
+        let retainedDirectory = workspaceURL.appending(path: "retained")
+        try workspaceStore.ensureDirectory(at: retainedDirectory)
 
         let reportURL = retainedDirectory.appending(path: "signoff-repair-cycle-history-qualification.json")
-        try packageStore.writeJSON(report, to: reportURL, forProjectAt: projectRoot)
+        try workspaceStore.writeJSON(report, to: reportURL, forProjectAt: projectRoot)
 
-        let projectRelativePath = "\(XcircuitePackage.directoryName)/\(Self.reportRelativePath)"
-        let legacyReference = try packageStore.fileReference(
+        let projectRelativePath = "\(XcircuiteWorkspace.directoryName)/\(Self.reportRelativePath)"
+        let legacyReference = try workspaceStore.fileReference(
             forProjectRelativePath: projectRelativePath,
             artifactID: Self.reportArtifactID,
             kind: .other,
             format: .json,
             inProjectAt: projectRoot
         )
-        try packageStore.upsertFileReference(legacyReference, forProjectAt: projectRoot)
+        try workspaceStore.upsertFileReference(legacyReference, forProjectAt: projectRoot)
         guard let reference = FoundationArtifactTypeProjection.reference(legacyReference) else {
             throw RunReviewServiceError.artifactReferenceProjectionFailed(
                 path: legacyReference.path,

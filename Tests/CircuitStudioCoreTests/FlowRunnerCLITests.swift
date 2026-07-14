@@ -26,12 +26,12 @@ struct FlowRunnerCLITests {
         let outputRoot = root.appending(path: "out")
         // The layout technology must be explicit — the sampleProcess
         // fallback was a silent default and is gone by contract.
-        let packageURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
+        let workspaceURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
         let result = try await DesignFlowService().execute(DesignFlowCommand(
             kind: .runLayoutTrust,
             projectRootPath: outputRoot.path(percentEncoded: false),
             runID: "layout-trust-cli",
-            technologyPackagePath: packageURL.path(percentEncoded: false),
+            technologyPackagePath: workspaceURL.path(percentEncoded: false),
             layoutDocumentPath: layoutURL.path(percentEncoded: false)
         ))
         let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
@@ -509,7 +509,7 @@ struct FlowRunnerCLITests {
         #expect(!qualificationArtifact.sha256.isEmpty)
         #expect(qualificationArtifact.byteCount > 0)
 
-        let manifest = try XcircuitePackageStore().loadManifest(forProjectAt: root)
+        let manifest = try XcircuiteWorkspaceStore().loadManifest(forProjectAt: root)
         #expect(manifest.files.contains { file in
             file.artifactID == RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID
                 && file.path == qualificationArtifact.path

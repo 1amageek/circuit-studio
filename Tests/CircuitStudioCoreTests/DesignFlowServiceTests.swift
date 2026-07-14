@@ -54,17 +54,17 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func technologyPackageLoadsAndInjectsProcessConfig() async throws {
-        let packageURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
+        let workspaceURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
         let service = DesignFlowService()
 
         let packageResult = try await service.execute(DesignFlowCommand(
             kind: .loadTechnologyPackage,
-            technologyPackagePath: packageURL.path(percentEncoded: false)
+            technologyPackagePath: workspaceURL.path(percentEncoded: false)
         ))
         #expect(packageResult.technologyPackageID == "virtual45-golden-flow")
         #expect(packageResult.validationDiagnostics?.isEmpty == true)
 
-        let package = try service.loadTechnologyPackage(packageURL)
+        let package = try service.loadTechnologyPackage(workspaceURL)
         #expect(package.processConfiguration?.effectiveParameters()["vdd"] == 1.0)
         #expect(package.processConfiguration?.resolveIncludes == true)
         let tech = try TechnologyPackageLayoutTechResolver().resolve(package: package)
@@ -73,7 +73,7 @@ struct DesignFlowServiceTests {
         let netlist = try await service.execute(DesignFlowCommand(
             kind: .generateFixtureNetlist,
             fixtureName: "voltage-divider",
-            technologyPackagePath: packageURL.path(percentEncoded: false)
+            technologyPackagePath: workspaceURL.path(percentEncoded: false)
         ))
         #expect(netlist.technologyPackageID == "virtual45-golden-flow")
         #expect(netlist.netlist?.contains(".lib \"models/core.lib\" tt") == true)
@@ -83,7 +83,7 @@ struct DesignFlowServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func commandAPIRunsFixtureRoundTripWithTechnologyPackage() async throws {
-        let packageURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
+        let workspaceURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
         let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("technology-package-round-trip")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
 
@@ -95,7 +95,7 @@ struct DesignFlowServiceTests {
             approveSignoff: true,
             maxAbsoluteDelta: 1.0e-3,
             maxRelativeDelta: 2.0,
-            technologyPackagePath: packageURL.path(percentEncoded: false)
+            technologyPackagePath: workspaceURL.path(percentEncoded: false)
         ))
 
         #expect(roundTrip.readyForPEX == true)
@@ -322,7 +322,7 @@ struct DesignFlowServiceTests {
     func commandAPIRunsLayoutTrustAndWritesArtifacts() async throws {
         let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("layout-trust")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
-        let packageURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
+        let workspaceURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
         let layoutURL = root.appending(path: "layout.json")
         let cellID = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
         let netID = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
@@ -355,7 +355,7 @@ struct DesignFlowServiceTests {
             kind: .runLayoutTrust,
             projectRootPath: root.path(percentEncoded: false),
             runID: "layout-trust-run",
-            technologyPackagePath: packageURL.path(percentEncoded: false),
+            technologyPackagePath: workspaceURL.path(percentEncoded: false),
             layoutDocumentPath: layoutURL.path(percentEncoded: false)
         ))
 
@@ -436,7 +436,7 @@ struct DesignFlowServiceTests {
     func commandAPIRunsVerificationOnlyAndWritesReportArtifact() async throws {
         let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("verification-only")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
-        let packageURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
+        let workspaceURL = try DesignFlowServiceTestSupport.rootFixtureURL("technology-package", extension: "json")
         let layoutURL = root.appending(path: "layout.json")
         let designUnitURL = root.appending(path: "design-unit.json")
         let service = DesignFlowService()
@@ -454,7 +454,7 @@ struct DesignFlowServiceTests {
             projectRootPath: root.path(percentEncoded: false),
             runID: "verification-run",
             approveSignoff: true,
-            technologyPackagePath: packageURL.path(percentEncoded: false),
+            technologyPackagePath: workspaceURL.path(percentEncoded: false),
             layoutDocumentPath: layoutURL.path(percentEncoded: false),
             designUnitPath: designUnitURL.path(percentEncoded: false)
         ))

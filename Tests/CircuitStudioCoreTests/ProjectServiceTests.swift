@@ -142,7 +142,7 @@ struct ProjectServiceTests {
 
         let service = ProjectService()
         #expect(try service.loadStudioSessionManifestIfPresent(forProjectAt: root) == nil)
-        #expect(throws: XcircuitePackageError.self) {
+        #expect(throws: XcircuiteWorkspaceError.self) {
             try service.saveStudioSessionManifest(
                 StudioSessionManifest(topCell: "ObsoleteTop", activeCell: "Leaf"),
                 forProjectAt: root

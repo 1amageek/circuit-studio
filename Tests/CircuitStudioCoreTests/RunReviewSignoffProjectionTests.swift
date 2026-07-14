@@ -221,7 +221,7 @@ struct RunReviewSignoffProjectionTests {
             "Generate signoff repair planning problem from review diagnostics."
         ))
 
-        let planningProblem = try XcircuitePackageStore().readJSON(
+        let planningProblem = try XcircuiteWorkspaceStore().readJSON(
             XcircuiteCircuitPlanningProblem.self,
             from: root.appending(path: repairPlanning.planningProblemArtifact.path)
         )
@@ -237,7 +237,7 @@ struct RunReviewSignoffProjectionTests {
         #expect(planningProblem.verificationGates.contains { $0.gateID == "native-drc" })
         #expect(planningProblem.verificationGates.contains { $0.gateID == "native-lvs" })
 
-        let signoffPlanningActions = try XcircuitePackageStore()
+        let signoffPlanningActions = try XcircuiteWorkspaceStore()
             .loadRunActions(runID: runID, inProjectAt: root)
             .filter { $0.actionKind == "review.formulateSignoffRepairPlanningProblem" }
         #expect(signoffPlanningActions.map(\.actionID) == [repairPlanning.actionRecord.actionID])
@@ -489,7 +489,7 @@ struct RunReviewSignoffProjectionTests {
         // The verification contract requires an explicit layout technology;
         // a minimal builtin-only package keeps the rest of the fixture's
         // behavior (no golden signoff/PEX expectations) unchanged.
-        let packageURL = root.appending(path: "minimal-technology-package.json")
+        let workspaceURL = root.appending(path: "minimal-technology-package.json")
         try Data("""
         {
           "version": 1,
@@ -497,14 +497,14 @@ struct RunReviewSignoffProjectionTests {
           "name": "Minimal Sample Process",
           "layoutTechnology": { "kind": "builtin", "id": "sampleProcess" }
         }
-        """.utf8).write(to: packageURL, options: .atomic)
+        """.utf8).write(to: workspaceURL, options: .atomic)
         let verificationResult = try await RunReviewService().applyWaiverEditProposalAndRunPostVerification(
             runID: runID,
             waiverReviewID: waiver.waiverReviewID,
             proposalID: proposal.proposalID,
             reviewer: "agent-1",
             note: "Apply waiver cleanup and re-run DRC/LVS.",
-            technologyPackagePath: packageURL.path(percentEncoded: false),
+            technologyPackagePath: workspaceURL.path(percentEncoded: false),
             projectRoot: root
         )
         #expect(verificationResult.kind == .applyWaiverEditProposalAndRunPostVerification)
@@ -769,7 +769,7 @@ struct RunReviewSignoffProjectionTests {
             #expect(FileManager.default.fileExists(atPath: cycleRejectedPlansPath))
         }
 
-        let cycleActions = try XcircuitePackageStore().loadRunActions(runID: runID, inProjectAt: root)
+        let cycleActions = try XcircuiteWorkspaceStore().loadRunActions(runID: runID, inProjectAt: root)
         #expect(cycleActions.contains { $0.actionKind == "planning.execute-candidate-plan" })
         #expect(cycleActions.contains { $0.actionKind == "planning.verify-candidate-plan" })
         let cycleSummaryAction = try #require(cycleActions.first {

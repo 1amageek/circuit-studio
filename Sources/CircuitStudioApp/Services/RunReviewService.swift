@@ -76,12 +76,12 @@ public struct RunReviewService: Sendable {
         }
     }
 
-    let store: XcircuitePackageStore
+    let store: XcircuiteWorkspaceStore
     let ledgerLoader: any FlowRunLedgerLoading
     let reviewBundler: any FlowRunReviewBundling
 
     public init(
-        store: XcircuitePackageStore = XcircuitePackageStore(),
+        store: XcircuiteWorkspaceStore = XcircuiteWorkspaceStore(),
         ledgerLoader: any FlowRunLedgerLoading = FlowRunLedgerLoader(),
         reviewBundler: any FlowRunReviewBundling = DefaultFlowRunReviewBundler()
     ) {
@@ -237,7 +237,7 @@ public struct RunReviewService: Sendable {
         note: String = "",
         projectRoot: URL
     ) throws -> XcircuiteCandidatePlanRiskApprovalResult {
-        try XcircuiteCandidatePlanRiskApprovalRecorder(packageStore: store).recordApproval(
+        try XcircuiteCandidatePlanRiskApprovalRecorder(workspaceStore: store).recordApproval(
             request: XcircuiteCandidatePlanRiskApprovalRequest(
                 runID: runID,
                 approvalID: approvalID,

@@ -38,7 +38,7 @@ extension RunReviewService {
             projectRoot: projectRoot
         )
         let compilation = try XcircuiteSignoffRepairFormulationBuilder(
-            packageStore: store,
+            workspaceStore: store,
             artifactStore: XcircuitePlanningArtifactStore(storage: store)
         ).compile(
             request: XcircuiteSignoffRepairFormulationRequest(
@@ -243,7 +243,7 @@ extension RunReviewService {
     }
 
     private func runIDForProducedArtifact(_ artifact: FlowRunReviewArtifact) -> String? {
-        guard artifact.path.hasPrefix("\(XcircuitePackage.directoryName)/runs/") else {
+        guard artifact.path.hasPrefix("\(XcircuiteWorkspace.directoryName)/runs/") else {
             return nil
         }
         let components = artifact.path.split(separator: "/").map(String.init)
@@ -258,7 +258,7 @@ extension RunReviewService {
         projectRoot: URL
     ) throws -> ArtifactReference {
         let legacy = try store.fileReference(
-            forProjectRelativePath: "\(XcircuitePackage.directoryName)/runs/\(runID)/\(XcircuitePlanningArtifactStore.actionDomainRelativePath)",
+            forProjectRelativePath: "\(XcircuiteWorkspace.directoryName)/runs/\(runID)/\(XcircuitePlanningArtifactStore.actionDomainRelativePath)",
             artifactID: XcircuitePlanningArtifactStore.actionDomainArtifactID,
             kind: .other,
             format: .json,

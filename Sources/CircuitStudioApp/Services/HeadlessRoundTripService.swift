@@ -28,7 +28,7 @@ public final class HeadlessRoundTripService {
 
     public init(
         layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog(),
-        runLedger: any XcircuiteRunLedgerStoring = XcircuitePackageStore()
+        runLedger: any XcircuiteRunLedgerStoring = XcircuiteWorkspaceStore()
     ) {
         self.layoutEngineCatalog = layoutEngineCatalog
         self.runLedger = runLedger
@@ -750,7 +750,7 @@ public final class HeadlessRoundTripService {
         let hasher = XcircuiteHasher()
         let legacyFailureReference = XcircuiteFileReference(
             artifactID: "headless-error",
-            path: "\(XcircuitePackage.directoryName)/runs/\(configuration.runID)/headless-error.json",
+            path: "\(XcircuiteWorkspace.directoryName)/runs/\(configuration.runID)/headless-error.json",
             kind: .report,
             format: .json,
             sha256: try hasher.sha256(fileAt: failureURL),
@@ -808,7 +808,7 @@ public final class HeadlessRoundTripService {
         artifacts: [Artifact],
         configuration: Configuration
     ) throws -> [XcircuiteFileReference] {
-        let runPrefix = "\(XcircuitePackage.directoryName)/runs/\(configuration.runID)"
+        let runPrefix = "\(XcircuiteWorkspace.directoryName)/runs/\(configuration.runID)"
         var legacyReferences = artifacts.map { artifact in
             XcircuiteFileReference(
                 artifactID: canonicalArtifactID(for: artifact),

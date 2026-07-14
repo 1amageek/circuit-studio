@@ -694,7 +694,7 @@ extension RunReviewService {
         let safeProposalID = safeIdentifierComponent(proposalID)
         let planID = "\(runID)-waiver-edit-\(safeProposalID)"
         let problemID = "\(runID)-waiver-edit-problem-\(safeProposalID)"
-        let basePath = "\(XcircuitePackage.directoryName)/runs/\(runID)/planning/waiver-edit-feedback/\(safeProposalID)"
+        let basePath = "\(XcircuiteWorkspace.directoryName)/runs/\(runID)/planning/waiver-edit-feedback/\(safeProposalID)"
         let candidatePlanPath = "\(basePath)/candidate-plan.json"
         let planVerificationPath = "\(basePath)/plan-verification.json"
         let gateIDs = [

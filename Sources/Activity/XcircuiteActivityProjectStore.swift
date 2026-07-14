@@ -4,7 +4,7 @@ import Xcircuite
 
 /// Project reader for Activity reconciliation.
 ///
-/// New workspaces are read through `XcircuiteWorkspaceStore` and
+/// New workspaces are read through `XcircuiteWorkspaceFileStore` and
 /// `XcircuiteRunLedgerStore`. The injected kernel loader remains a narrow
 /// read-only fallback for pre-migration workspaces that do not yet contain a
 /// consolidated `ledger.json`.
@@ -16,7 +16,7 @@ public struct XcircuiteActivityProjectStore: ActivityProjectReading {
     }
 
     public func projectManifest(for projectRoot: URL) async throws -> XcircuiteProjectManifest {
-        let workspace = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+        let workspace = try XcircuiteWorkspaceFileStore(projectRoot: projectRoot)
         return try await workspace.readJSON(
             XcircuiteProjectManifest.self,
             from: "project.json"
@@ -24,7 +24,7 @@ public struct XcircuiteActivityProjectStore: ActivityProjectReading {
     }
 
     public func runIDs(for projectRoot: URL) async throws -> [String] {
-        let workspace = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+        let workspace = try XcircuiteWorkspaceFileStore(projectRoot: projectRoot)
         let runsURL = try await workspace.url(for: "runs")
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(
@@ -34,7 +34,7 @@ public struct XcircuiteActivityProjectStore: ActivityProjectReading {
             return []
         }
         guard isDirectory.boolValue else {
-            throw XcircuiteWorkspaceStoreError.pathOutsideWorkspace("runs")
+            throw XcircuiteWorkspaceFileStoreError.pathOutsideWorkspace("runs")
         }
 
         let entries: [URL]
@@ -45,7 +45,7 @@ public struct XcircuiteActivityProjectStore: ActivityProjectReading {
                 options: [.skipsHiddenFiles]
             )
         } catch {
-            throw XcircuiteWorkspaceStoreError.readFailed(error.localizedDescription)
+            throw XcircuiteWorkspaceFileStoreError.readFailed(error.localizedDescription)
         }
 
         var runIDs: [String] = []
@@ -54,7 +54,7 @@ public struct XcircuiteActivityProjectStore: ActivityProjectReading {
             do {
                 values = try entry.resourceValues(forKeys: [.isDirectoryKey])
             } catch {
-                throw XcircuiteWorkspaceStoreError.readFailed(error.localizedDescription)
+                throw XcircuiteWorkspaceFileStoreError.readFailed(error.localizedDescription)
             }
             guard values.isDirectory == true else {
                 continue

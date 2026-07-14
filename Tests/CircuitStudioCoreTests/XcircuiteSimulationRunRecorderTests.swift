@@ -22,7 +22,7 @@ struct XcircuiteSimulationRunRecorderTests {
             fileName: "divider.cir",
             startedAt: startedAt
         )
-        let running = try XcircuitePackageStore().loadRunManifest(
+        let running = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: context.runID,
             inProjectAt: root
         )
@@ -50,7 +50,7 @@ struct XcircuiteSimulationRunRecorderTests {
             ]
         )
 
-        let completed = try XcircuitePackageStore().loadRunManifest(
+        let completed = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: context.runID,
             inProjectAt: root
         )
@@ -77,7 +77,7 @@ struct XcircuiteSimulationRunRecorderTests {
 
         try recorder.fail(context: context, reason: "non-convergence")
 
-        let manifest = try XcircuitePackageStore().loadRunManifest(
+        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: context.runID,
             inProjectAt: root
         )
@@ -112,10 +112,10 @@ struct XcircuiteSimulationRunRecorderTests {
             )
             Issue.record("Expected simulation setup to fail.")
         } catch {
-            #expect(error is XcircuitePackageError)
+            #expect(error is XcircuiteWorkspaceError)
         }
 
-        let manifest = try XcircuitePackageStore().loadRunManifest(
+        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: runID,
             inProjectAt: root
         )
@@ -161,7 +161,7 @@ struct XcircuiteSimulationRunRecorderTests {
             recorder: recorder
         )
 
-        let manifest = try XcircuitePackageStore().loadRunManifest(
+        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
             runID: "simulation-preflight-failed",
             inProjectAt: root
         )

@@ -219,14 +219,14 @@ extension DesignFlowService {
         runID: String,
         projectRoot: URL
     ) throws -> XcircuiteFileReference {
-        let store = XcircuitePackageStore()
-        let runDirectory = try XcircuitePackage(projectRoot: projectRoot).runDirectoryURL(for: runID)
+        let store = XcircuiteWorkspaceStore()
+        let runDirectory = try XcircuiteWorkspace(projectRoot: projectRoot).runDirectoryURL(for: runID)
         let planningDirectory = runDirectory.appending(path: "planning")
         try store.ensureDirectory(at: planningDirectory)
         let summaryURL = planningDirectory.appending(path: "candidate-cycle-history-summary.json")
         try store.writeJSON(summary, to: summaryURL, forProjectAt: projectRoot)
 
-        let projectRelativePath = "\(XcircuitePackage.directoryName)/runs/\(runID)/\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryRelativePath)"
+        let projectRelativePath = "\(XcircuiteWorkspace.directoryName)/runs/\(runID)/\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryRelativePath)"
         let reference = try store.fileReference(
             forProjectRelativePath: projectRelativePath,
             artifactID: XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID,
@@ -257,7 +257,7 @@ extension DesignFlowService {
         historySummaryArtifact: XcircuiteFileReference,
         projectRoot: URL
     ) throws -> XcircuiteRunActionRecord {
-        let store = XcircuitePackageStore()
+        let store = XcircuiteWorkspaceStore()
         let foundationOutputs: [ArtifactReference] = [
             generation.candidatePlanArtifact,
             generation.problemTranslationAuditArtifact,
@@ -330,7 +330,7 @@ extension DesignFlowService {
         runID: String,
         projectRoot: URL
     ) throws -> Int {
-        let existingCount = try XcircuitePackageStore()
+        let existingCount = try XcircuiteWorkspaceStore()
             .loadRunActions(runID: runID, inProjectAt: projectRoot)
             .filter { $0.actionKind == "review.runSignoffRepairCandidateCycle" }
             .count
@@ -379,7 +379,7 @@ extension DesignFlowService {
         from reference: ArtifactReference,
         projectRoot: URL
     ) throws -> XcircuiteCircuitPlanningProblem {
-        let url = try XcircuitePackageStore().url(
+        let url = try XcircuiteWorkspaceStore().url(
             forProjectRelativePath: reference.path,
             inProjectAt: projectRoot
         )

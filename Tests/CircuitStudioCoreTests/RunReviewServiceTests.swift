@@ -105,7 +105,7 @@ struct RunReviewServiceTests {
                 && $0.nextActionID == "001-drc-resume-run"
                 && $0.artifactPaths.contains(".xcircuite/runs/run-review/approvals/001-drc.json")
         })
-        let approvalActions = try XcircuitePackageStore().loadRunActions(
+        let approvalActions = try XcircuiteWorkspaceStore().loadRunActions(
             runID: "run-review",
             inProjectAt: root
         )
@@ -173,7 +173,7 @@ struct RunReviewServiceTests {
             ]
         )
 
-        let store = XcircuitePackageStore()
+        let store = XcircuiteWorkspaceStore()
         let ladderPath = ".xcircuite/runs/\(runID)/review/stage-artifact-ladder.json"
         let planningPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
         let retainedPath = ".xcircuite/runs/\(runID)/retention/retained-ci-regression-budget.json"
@@ -388,7 +388,7 @@ struct RunReviewServiceTests {
             reviewBundler: RetainedDashboardStaticReviewBundler(bundle: bundle)
         )
 
-        #expect(throws: XcircuitePackageError.invalidIdentifier(kind: "runID", value: invalidRunID)) {
+        #expect(throws: XcircuiteWorkspaceError.invalidIdentifier(kind: "runID", value: invalidRunID)) {
             _ = try service.persistRetainedDashboardProjection(
                 runID: invalidRunID,
                 projectRoot: root
@@ -617,7 +617,7 @@ struct RunReviewServiceTests {
 
         // Add a deliberately missing artifact reference without rewriting the
         // already-succeeded run lifecycle or replaying its stage evidence.
-        _ = try XcircuitePackageStore().upsertRunArtifacts(
+        _ = try XcircuiteWorkspaceStore().upsertRunArtifacts(
             [
                 XcircuiteFileReference(
                     artifactID: "layout-document",
