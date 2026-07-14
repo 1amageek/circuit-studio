@@ -615,6 +615,8 @@ struct RunReviewPlanningProjectionTests {
         ))
         #expect(designDiffChange.artifactCount == 1)
         #expect(designDiffChange.artifacts.first?.path == candidatePlanPath)
+        #expect(designDiffChange.artifacts.first?.sha256 == candidatePlanReference.sha256)
+        #expect(designDiffChange.artifacts.first?.byteCount == candidatePlanReference.byteCount)
         let schematicDiffChange = try #require(designDiffSummary.changes.last)
         #expect(schematicDiffChange.pathContext == RunReviewDesignDiffPathContext(
             scope: "schematic",
