@@ -377,10 +377,10 @@ public struct FlowRunActivityProjector: Sendable {
     private func boundedReferences(
         _ references: [Activity.ArtifactReference]
     ) -> (references: [Activity.ArtifactReference], omittedCount: Int) {
-        let boundedReferences = Array(references.prefix(Self.maximumArtifactReferences))
+        let limitedReferences = Array(references.prefix(Self.maximumArtifactReferences))
         return (
-            boundedReferences,
-            max(0, references.count - boundedReferences.count)
+            limitedReferences,
+            max(0, references.count - limitedReferences.count)
         )
     }
 
