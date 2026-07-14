@@ -17,9 +17,9 @@ public struct XcircuiteActivityProjectStore: ActivityProjectReading {
 
     public func projectManifest(for projectRoot: URL) async throws -> XcircuiteProjectManifest {
         let workspace = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
-        return try await workspace.read(
+        return try await workspace.readJSON(
             XcircuiteProjectManifest.self,
-            fromJSON: "project.json"
+            from: "project.json"
         )
     }
 
