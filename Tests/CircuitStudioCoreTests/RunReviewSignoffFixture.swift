@@ -286,7 +286,7 @@ struct RunReviewSignoffFixture {
                             criterionID: "drc-active-violation-count",
                             channelID: "drc-active-violation-count",
                             comparator: .equal,
-                            target: .number(0)
+                            target: .scalar(0)
                         ),
                     ],
                     requiredArtifactRoles: ["drc-summary"]
@@ -299,7 +299,7 @@ struct RunReviewSignoffFixture {
                             channelID: "drc-active-violation-count",
                             label: "Active DRC violations",
                             status: .observed,
-                            value: .number(2),
+                            value: .scalar(2),
                             sourceArtifactIDs: ["drc-summary"],
                             confidence: FlowEvidenceConfidence(value: 0.9, calibrated: true)
                         ),
@@ -312,7 +312,7 @@ struct RunReviewSignoffFixture {
                         FlowObservationChannel(
                             channelID: "drc-qualified-calibration",
                             status: .uncalibrated,
-                            value: .number(0.4),
+                            value: .scalar(0.4),
                             sourceArtifactIDs: ["drc-summary"],
                             confidence: FlowEvidenceConfidence(
                                 value: 0.4,
@@ -343,7 +343,7 @@ struct RunReviewSignoffFixture {
                             criterionID: "drc-active-violation-count",
                             channelID: "drc-active-violation-count",
                             status: .rejected,
-                            observedValue: .number(2),
+                            observedValue: .scalar(2),
                             residual: 2,
                             likelihood: 0.2,
                             confidence: FlowEvidenceConfidence(value: 0.9, calibrated: true)
