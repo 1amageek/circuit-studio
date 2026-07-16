@@ -1,5 +1,25 @@
 // swift-tools-version: 6.3
 import PackageDescription
+import Foundation
+
+let workspaceRoot = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+
+func workspaceDependency(named name: String, revision: String) -> Package.Dependency {
+    let siblingManifest = workspaceRoot
+        .appendingPathComponent(name)
+        .appendingPathComponent("Package.swift")
+
+    if FileManager.default.fileExists(atPath: siblingManifest.path) {
+        return .package(path: "../\(name)")
+    }
+
+    return .package(
+        url: "https://github.com/1amageek/\(name).git",
+        revision: revision
+    )
+}
 
 let package = Package(
     name: "CircuitStudio",
@@ -17,18 +37,42 @@ let package = Package(
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
-        .package(path: "../Xcircuite"),
-        .package(path: "../CircuiteFoundation"),
-        .package(path: "../DesignFlowKernel"),
-        .package(path: "../SignoffToolSupport"),
-        .package(path: "../CoreSpice"),
-        .package(path: "../semiconductor-layout"),
-        .package(path: "../PEXEngine"),
+        workspaceDependency(
+            named: "Xcircuite",
+            revision: "9bcb1b39f277640106ecfcdb20e237f61599c94b"
+        ),
+        workspaceDependency(
+            named: "CircuiteFoundation",
+            revision: "2ec6ee13a89ac6885be3c26b41a9ee0ef89948ac"
+        ),
+        workspaceDependency(
+            named: "DesignFlowKernel",
+            revision: "5a8e7452bc04e10455f64b380aad8ffc7645371b"
+        ),
+        workspaceDependency(
+            named: "SignoffToolSupport",
+            revision: "7bfd1864edd147c59a1dc79e58f297120d165323"
+        ),
+        workspaceDependency(
+            named: "CoreSpice",
+            revision: "20d5663a05b9dd98acc1171a8936eda22713add1"
+        ),
+        workspaceDependency(
+            named: "semiconductor-layout",
+            revision: "eb4f8ac93dbe4c35410ae55e6bb00794376c8333"
+        ),
+        workspaceDependency(
+            named: "PEXEngine",
+            revision: "e60a3b1fdb27879fd95c41a81c313750f7a45485"
+        ),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
             exact: "0.17.0"
         ),
-        .package(path: "../swift-openvaf"),
+        workspaceDependency(
+            named: "swift-openvaf",
+            revision: "dc2f95057c648cf032c888b969c02ba3787f52f9"
+        ),
         .package(
             url: "https://github.com/1amageek/mac-component.git",
             revision: "d3aee65b8dd73a838bcfba124e7c1afe520b97bb"
