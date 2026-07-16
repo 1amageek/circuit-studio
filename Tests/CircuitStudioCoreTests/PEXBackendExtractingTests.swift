@@ -3,8 +3,8 @@ import Testing
 @testable import CircuitStudioCore
 import PEXEngine
 
-@Suite("PEXBackendAdapter Tests")
-struct PEXBackendAdapterTests {
+@Suite("PEXBackendExtracting Tests")
+struct PEXBackendExtractingTests {
     @Test func savedManifestAdapterLoadsIR() async throws {
         let manifestURL = try fixtureURL(
             "manifest",
@@ -197,7 +197,7 @@ struct PEXBackendAdapterTests {
 
     private func makeTemporaryRoot(_ name: String) throws -> URL {
         let root = FileManager.default.temporaryDirectory
-            .appending(path: "CircuitStudioPEXBackendAdapterTests-\(name)-\(UUID().uuidString)")
+            .appending(path: "CircuitStudioPEXBackendExtractingTests-\(name)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }

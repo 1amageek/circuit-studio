@@ -42,7 +42,7 @@ public struct PEXBackendExtractionResult: Sendable, Hashable {
     }
 }
 
-public protocol PEXBackendAdapter: Sendable {
+public protocol PEXBackendExtracting: Sendable {
     var backendID: String { get }
     func extract(request: PEXBackendExtractionRequest) async throws -> PEXBackendExtractionResult
 }
@@ -61,7 +61,7 @@ public enum PEXBackendAdapterError: Error, LocalizedError, Equatable {
     }
 }
 
-public struct SavedPEXManifestBackendAdapter: PEXBackendAdapter {
+public struct SavedPEXManifestBackendAdapter: PEXBackendExtracting {
     public let backendID: String
     private let artifactService: PEXArtifactService
 
@@ -80,7 +80,7 @@ public struct SavedPEXManifestBackendAdapter: PEXBackendAdapter {
     }
 }
 
-public struct PEXEngineCommandBackendAdapter: PEXBackendAdapter {
+public struct PEXEngineCommandBackendAdapter: PEXBackendExtracting {
     public let backendID: String
     private let executablePath: String?
     private let artifactService: PEXArtifactService

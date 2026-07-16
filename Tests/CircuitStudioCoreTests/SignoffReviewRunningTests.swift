@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import CircuitStudioApp
 
-@Suite("SignoffAdapter Tests")
-struct SignoffAdapterTests {
+@Suite("SignoffReviewRunning Tests")
+struct SignoffReviewRunningTests {
     @Test func commandAdapterRunsExternalCommands() async throws {
         let root = try makeTemporaryRoot("command")
         defer { removeTemporaryRoot(root) }
@@ -133,7 +133,7 @@ struct SignoffAdapterTests {
 
     private func makeTemporaryRoot(_ name: String) throws -> URL {
         let root = FileManager.default.temporaryDirectory
-            .appending(path: "CircuitStudioSignoffAdapterTests-\(name)-\(UUID().uuidString)")
+            .appending(path: "CircuitStudioSignoffReviewRunningTests-\(name)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }

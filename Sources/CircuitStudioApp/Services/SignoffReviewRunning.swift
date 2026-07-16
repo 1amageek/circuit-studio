@@ -16,7 +16,7 @@ public struct SignoffAdapterRequest: Sendable, Hashable {
     }
 }
 
-public protocol SignoffAdapter: Sendable {
+public protocol SignoffReviewRunning: Sendable {
     var adapterID: String { get }
     func run(request: SignoffAdapterRequest) async throws -> ExternalSignoffReview
 }
@@ -38,7 +38,7 @@ public enum SignoffAdapterError: Error, LocalizedError, Equatable {
     }
 }
 
-public struct ExternalCommandSignoffAdapter: SignoffAdapter {
+public struct ExternalCommandSignoffAdapter: SignoffReviewRunning {
     public let adapterID: String
     private let service: ExternalSignoffCommandService
 
@@ -61,7 +61,7 @@ public struct ExternalCommandSignoffAdapter: SignoffAdapter {
     }
 }
 
-public struct GoldenLogReplaySignoffAdapter: SignoffAdapter {
+public struct GoldenLogReplaySignoffAdapter: SignoffReviewRunning {
     public let adapterID: String
     private let service: ExternalSignoffArtifactService
 

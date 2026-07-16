@@ -6,7 +6,7 @@
 flowchart LR
   Command["DesignFlowCommand.runPEXExtraction"]
   CLI["circuit-studio-flow-runner --run-pex-extraction"]
-  Adapter["PEXBackendAdapter"]
+  Adapter["PEXBackendExtracting"]
   Saved["SavedPEXManifestBackendAdapter"]
   Engine["PEXEngineCommandBackendAdapter"]
   Artifacts["PEXRunArtifacts"]
@@ -44,8 +44,8 @@ flowchart LR
 
 | Check | Evidence |
 |---|---|
-| Saved manifest adapter | `PEXBackendAdapterTests.savedManifestAdapterLoadsIR()` |
-| `pexengine` JSON handoff | `PEXBackendAdapterTests.pexEngineCommandAdapterLoadsManifestFromJSONOutput()` |
-| Missing manifest URL failure | `PEXBackendAdapterTests.pexEngineCommandAdapterRejectsMissingManifestURL()` |
+| Saved manifest adapter | `PEXBackendExtractingTests.savedManifestAdapterLoadsIR()` |
+| `pexengine` JSON handoff | `PEXBackendExtractingTests.pexEngineCommandAdapterLoadsManifestFromJSONOutput()` |
+| Missing manifest URL failure | `PEXBackendExtractingTests.pexEngineCommandAdapterRejectsMissingManifestURL()` |
 | Unified command API | `DesignFlowServiceTests.commandAPIRunsPEXExtractionThroughBackendAdapter()` |
 | CLI dogfood | `swift run circuit-studio-flow-runner --run-pex-extraction --pex-config <path> --pex-executable <mock-pexengine>` |

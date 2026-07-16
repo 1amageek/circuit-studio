@@ -166,7 +166,7 @@ SwiftUI View
 
 | レイヤー | 実装 |
 |---------|------|
-| レイアウト IR | `LayoutIR` (swift-mask-data) → `IRLayoutBridge` → `LayoutDocument` |
+| レイアウト IR | `LayoutIR` (swift-mask-data) → `IRLayoutConverter` → `LayoutDocument` |
 | SPICE IR | CoreSpice パーサ → `NetlistGenerator` → `SchematicDocument` |
 | テクノロジー IR | `TechFormatConverter` → `LayoutTechDatabase` |
 

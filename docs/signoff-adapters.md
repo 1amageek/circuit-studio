@@ -1,6 +1,6 @@
 # Signoff Adapter Contract
 
-`SignoffAdapter` is the shared boundary for DRC/LVS execution and replay. It normalizes command output, imported logs, and tool-specific log dialects into `ExternalSignoffReview`, so the PEX gate does not depend on how signoff evidence was produced.
+`SignoffReviewRunning` is the shared boundary for DRC/LVS execution and replay. It normalizes command output, imported logs, and tool-specific log dialects into `ExternalSignoffReview`, so the PEX gate does not depend on how signoff evidence was produced.
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,7 @@ flowchart LR
 
 | Type | Purpose |
 |---|---|
-| `SignoffAdapter` | Protocol for all signoff backends. |
+| `SignoffReviewRunning` | Protocol for all signoff backends. |
 | `SignoffAdapterRequest` | Shared request containing commands, replay logs, and artifact directory. |
 | `ExternalCommandSignoffAdapter` | Generic local command adapter. |
 | `GoldenLogReplaySignoffAdapter` | Existing artifact replay adapter. |

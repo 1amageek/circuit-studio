@@ -545,7 +545,7 @@ extension RunReviewService {
             ("Kind", reference.kind.rawValue),
             ("Format", reference.format.rawValue),
             ("Digest", reference.digest.algorithm.rawValue),
-            ("SHA", reference.sha256),
+            ("SHA", reference.digest.hexadecimalValue),
             ("Bytes", String(reference.byteCount)),
         ])
     }
