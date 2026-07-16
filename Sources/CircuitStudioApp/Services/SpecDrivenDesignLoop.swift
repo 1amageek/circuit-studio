@@ -80,12 +80,12 @@ public struct SpecDrivenDesignLoop: Sendable {
         }
     }
 
-    private let simulation: SimulationServiceProtocol
+    private let simulation: any SimulationRunning
     private let editor: DesignFlowDesignEditService
     private let netlistGenerator: NetlistGenerator
 
     public init(
-        simulation: SimulationServiceProtocol = SimulationService(),
+        simulation: any SimulationRunning = SimulationService(),
         editor: DesignFlowDesignEditService = DesignFlowDesignEditService(),
         netlistGenerator: NetlistGenerator = NetlistGenerator()
     ) {

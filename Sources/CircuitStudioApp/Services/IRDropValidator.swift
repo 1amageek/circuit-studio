@@ -36,11 +36,11 @@ public struct IRDropValidator: Sendable {
     }
 
     private let analyzer: IRDropAnalyzer
-    private let simulation: SimulationServiceProtocol
+    private let simulation: any SimulationRunning
     private let external: ExternalSpiceSimulator
 
     public init(analyzer: IRDropAnalyzer = IRDropAnalyzer(),
-                simulation: SimulationServiceProtocol = SimulationService(),
+                simulation: any SimulationRunning = SimulationService(),
                 external: ExternalSpiceSimulator = ExternalSpiceSimulator()) {
         self.analyzer = analyzer
         self.simulation = simulation

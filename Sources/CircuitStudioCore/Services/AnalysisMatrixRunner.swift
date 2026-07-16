@@ -7,9 +7,9 @@ import Foundation
 /// cell stops the matrix and marks every remaining cell cancelled, so the
 /// batch always accounts for the whole matrix.
 public struct AnalysisMatrixRunner: Sendable {
-    private let simulationService: any SimulationServiceProtocol
+    private let simulationService: any SimulationRunning
 
-    public init(simulationService: any SimulationServiceProtocol) {
+    public init(simulationService: any SimulationRunning) {
         self.simulationService = simulationService
     }
 

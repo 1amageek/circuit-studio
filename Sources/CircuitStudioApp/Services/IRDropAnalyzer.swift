@@ -24,9 +24,9 @@ public struct IRDropAnalyzer: Sendable {
         }
     }
 
-    private let simulation: SimulationServiceProtocol
+    private let simulation: any SimulationRunning
 
-    public init(simulation: SimulationServiceProtocol = SimulationService()) {
+    public init(simulation: any SimulationRunning = SimulationService()) {
         self.simulation = simulation
     }
 

@@ -56,7 +56,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
     }
 
     private let model: Level1DeviceModel
-    private let simulation: SimulationServiceProtocol
+    private let simulation: any SimulationRunning
     private let clockSlew: Double
     private let dataSlew: Double
     private let outputLoads: [Double]
@@ -68,7 +68,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
     public init(
         model: Level1DeviceModel,
         technologyContext: TimingTechnologyContext? = nil,
-        simulation: SimulationServiceProtocol = SimulationService(),
+        simulation: any SimulationRunning = SimulationService(),
         clockSlew: Double = 80e-12,
         dataSlew: Double = 80e-12,
         outputLoads: [Double] = [1e-15, 4e-15, 12e-15],
@@ -95,7 +95,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
 
     public init(
         technologyContext: TimingTechnologyContext? = nil,
-        simulation: SimulationServiceProtocol = SimulationService(),
+        simulation: any SimulationRunning = SimulationService(),
         clockSlew: Double = 80e-12,
         dataSlew: Double = 80e-12,
         outputLoads: [Double] = [1e-15, 4e-15, 12e-15],

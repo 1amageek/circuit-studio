@@ -66,11 +66,11 @@ public struct PostLayoutOracleService: Sendable {
         }
     }
 
-    private let simulation: SimulationServiceProtocol
+    private let simulation: any SimulationRunning
     private let external: ExternalSpiceSimulator
 
     public init(
-        simulation: SimulationServiceProtocol = SimulationService(),
+        simulation: any SimulationRunning = SimulationService(),
         external: ExternalSpiceSimulator = ExternalSpiceSimulator()
     ) {
         self.simulation = simulation

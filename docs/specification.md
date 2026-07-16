@@ -323,11 +323,12 @@ CircuitStudio の最大の差別化要素。CoreSpice のインプロセス実�
 `SimulationService` は CoreSpice をブリッジし、パース → IR 変換 → コンパイル → デバイスバインド → 解析実行の全パイプラインを管理する。
 
 ```swift
-protocol SimulationServiceProtocol: Sendable {
+public protocol SimulationRunning: Sendable {
     func runSPICE(source:fileName:processConfiguration:onWaveformUpdate:) async throws -> SimulationResult
     func runAnalysis(source:fileName:processConfiguration:command:) async throws -> SimulationResult
     func cancel(jobID: UUID)
     func events(jobID: UUID) -> AsyncStream<SimulationEvent>
+    func shutdown()
 }
 ```
 

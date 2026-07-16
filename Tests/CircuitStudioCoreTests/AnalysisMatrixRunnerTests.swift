@@ -118,7 +118,7 @@ private enum ScriptedAction {
 
 /// Records every `runAnalysis` call and fails or cancels at scripted
 /// call indices so matrix control flow can be exercised deterministically.
-private final class ScriptedSimulationService: SimulationServiceProtocol, Sendable {
+private final class ScriptedSimulationService: SimulationRunning, Sendable {
     struct Call: Sendable {
         let command: AnalysisCommand
         let configuration: ProcessConfiguration?
@@ -180,4 +180,6 @@ private final class ScriptedSimulationService: SimulationServiceProtocol, Sendab
     func events(jobID: UUID) -> AsyncStream<SimulationEvent> {
         AsyncStream { $0.finish() }
     }
+
+    func shutdown() {}
 }

@@ -2,20 +2,8 @@ import Foundation
 import CoreSpiceWaveform
 import CoreSpiceIO
 
-/// Protocol for waveform data access.
-public protocol WaveformServiceProtocol: Sendable {
-    func fetch(
-        waveform: WaveformData,
-        variables: [String],
-        range: ClosedRange<Double>?,
-        maxPoints: Int
-    ) -> WaveformData
-
-    func listVariables(waveform: WaveformData) -> [VariableDescriptor]
-}
-
 /// Service providing decimated waveform data for display.
-public struct WaveformService: WaveformServiceProtocol, Sendable {
+public struct WaveformService: WaveformProviding, Sendable {
 
     public init() {}
 

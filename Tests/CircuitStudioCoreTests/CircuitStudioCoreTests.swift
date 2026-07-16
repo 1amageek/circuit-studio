@@ -693,6 +693,18 @@ struct SimulationServiceTests {
         let nextEvent = await iterator.next()
         #expect(nextEvent == nil)
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func shutdownFinishesEveryRegisteredEventStream() async {
+        let service = SimulationService()
+        var first = service.events(jobID: UUID()).makeAsyncIterator()
+        var second = service.events(jobID: UUID()).makeAsyncIterator()
+
+        service.shutdown()
+
+        #expect(await first.next() == nil)
+        #expect(await second.next() == nil)
+    }
 }
 
 @Suite("SchematicViewModel Tests")

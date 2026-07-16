@@ -4,38 +4,8 @@ import CoreSpice
 import CoreSpiceIO
 import CoreSpiceWaveform
 
-/// Events emitted during simulation.
-public enum SimulationEvent: Sendable {
-    case started
-    case progress(Double, String)
-    case waveformUpdate(WaveformData)
-    case completed
-    case failed(String)
-    case cancelled
-}
-
-/// Protocol for the simulation service.
-public protocol SimulationServiceProtocol: Sendable {
-    func runSPICE(
-        source: String,
-        fileName: String?,
-        processConfiguration: ProcessConfiguration?,
-        onWaveformUpdate: (@Sendable (WaveformData) -> Void)?
-    ) async throws -> SimulationResult
-
-    func runAnalysis(
-        source: String,
-        fileName: String?,
-        processConfiguration: ProcessConfiguration?,
-        command: AnalysisCommand
-    ) async throws -> SimulationResult
-
-    func cancel(jobID: UUID)
-    func events(jobID: UUID) -> AsyncStream<SimulationEvent>
-}
-
 /// CoreSpice bridge that parses, compiles, binds, and runs simulations.
-public final class SimulationService: SimulationServiceProtocol, Sendable {
+public final class SimulationService: SimulationRunning, Sendable {
     private let jobs: Mutex<[UUID: SimulationJob]> = Mutex([:])
     private let continuations: Mutex<[UUID: AsyncStream<SimulationEvent>.Continuation]> = Mutex([:])
     private let _activeJobID: Mutex<UUID?> = Mutex(nil)
@@ -239,6 +209,28 @@ public final class SimulationService: SimulationServiceProtocol, Sendable {
                 finishEvents(jobID: jobID)
             }
         }
+    }
+
+    public func shutdown() {
+        let tokens = jobs.withLock { jobs in
+            let tokens = jobs.values.map(\.cancellationToken)
+            for jobID in jobs.keys {
+                jobs[jobID]?.status = .cancelled
+            }
+            return tokens
+        }
+        for token in tokens {
+            token.cancel()
+        }
+        let activeContinuations = continuations.withLock { continuations in
+            let activeContinuations = Array(continuations.values)
+            continuations.removeAll()
+            return activeContinuations
+        }
+        for continuation in activeContinuations {
+            continuation.finish()
+        }
+        _activeJobID.withLock { $0 = nil }
     }
 
     // MARK: - Internal Pipeline
