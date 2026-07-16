@@ -1,13 +1,12 @@
 import SwiftUI
 import DesignFlowKernel
 import Xcircuite
-import DesignFlowKernel
 
 struct RunReviewPlanningReviewCard: View {
     let planning: RunReviewService.PlanningReview
     let runID: String
     @Binding var planningApprovalNotes: [String: String]
-    let decideRiskApproval: (XcircuiteApprovalRecord.Verdict, String, String) -> Void
+    let decideRiskApproval: (FlowApprovalRecord.Verdict, String, String) -> Void
 
     var body: some View {
         GroupBox("Plan Review") {
@@ -378,7 +377,7 @@ struct RunReviewPlanningReviewCard: View {
     }
 
     private func decidePlanningRiskApproval(
-        _ verdict: XcircuiteApprovalRecord.Verdict,
+        _ verdict: FlowApprovalRecord.Verdict,
         approvalID: String,
         runID: String
     ) {

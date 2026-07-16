@@ -1,6 +1,5 @@
 import DesignFlowKernel
 import SwiftUI
-import DesignFlowKernel
 
 struct RunReviewFlowReviewProjectionCard: View {
     let projection: RunReviewFlowReviewProjection
@@ -147,7 +146,7 @@ struct RunReviewFlowReviewProjectionCard: View {
     @ViewBuilder
     private func decisionSection(
         _ title: String,
-        actions: [XcircuiteRunReviewDecisionAction]
+        actions: [FlowRunReviewDecision]
     ) -> some View {
         if !actions.isEmpty {
             DisclosureGroup {

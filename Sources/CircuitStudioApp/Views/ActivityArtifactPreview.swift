@@ -6,12 +6,11 @@ import CircuiteFoundation
 import DesignFlowKernel
 import Foundation
 import SwiftUI
-import DesignFlowKernel
 
 struct ActivityArtifactPreview: View {
     let projectRoot: URL
     let activity: Activity
-    let reference: Activity.ArtifactReference
+    let artifact: Activity.Artifact
     let artifactResourceLoader: any RunReviewArtifactResourceLoading
 
     @State private var resource: RunReviewArtifactResource?
@@ -27,19 +26,19 @@ struct ActivityArtifactPreview: View {
             content
         }
         .padding()
-        .navigationTitle(reference.displayName)
+        .navigationTitle(artifact.displayName)
         .toolbar {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(reference.path, forType: .string)
+                    NSPasteboard.general.setString(artifact.reference.path, forType: .string)
                 } label: {
                     Image(systemName: "doc.on.doc")
                 }
                 .help("Copy artifact path")
             }
         }
-        .task(id: "\(activity.id):\(reference.path):\(reference.sha256 ?? "")") {
+        .task(id: "\(activity.id):\(artifact.reference.path):\(artifact.reference.sha256)") {
             await load()
         }
     }
@@ -47,32 +46,31 @@ struct ActivityArtifactPreview: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(reference.displayName)
+                Text(artifact.displayName)
                     .font(.title3)
                     .bold()
                 Spacer()
-                Text(reference.direction.title)
+                Text(artifact.direction.title)
                     .font(.caption)
-                    .foregroundStyle(reference.direction.statusColor)
-                Text(reference.kind)
+                    .foregroundStyle(artifact.direction.statusColor)
+                Text(artifact.reference.kind.rawValue)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(reference.format)
+                Text(artifact.reference.format.rawValue)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Text(reference.path)
+            Text(artifact.reference.path)
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
             HStack(spacing: 8) {
-                if let byteCount = reference.byteCount {
-                    Text(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))
-                }
-                if let sha256 = reference.sha256 {
-                    Text("SHA-256 \(sha256)")
-                        .textSelection(.enabled)
-                }
+                Text(ByteCountFormatter.string(
+                    fromByteCount: Int64(clamping: artifact.reference.byteCount),
+                    countStyle: .file
+                ))
+                Text("SHA-256 \(artifact.reference.sha256)")
+                    .textSelection(.enabled)
                 if let runID = activity.runID {
                     Text("Run \(runID)")
                         .textSelection(.enabled)
@@ -97,21 +95,16 @@ struct ActivityArtifactPreview: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let resource {
-            if let kind = FoundationArtifactTypeProjection.kind(resource.artifact.kind),
-               let format = FoundationArtifactTypeProjection.format(resource.artifact.format) {
-                ArtifactCanvas(
-                    url: resource.url,
-                    type: typeResolver.artifactType(kind: kind, format: format),
-                    title: artifactTitle(resource.artifact)
-                )
-                .artifactContentMaxHeight(nil)
-                .id(resource.digest)
-            } else {
-                ContentUnavailableView(
-                    "Artifact format is not supported",
-                    systemImage: "doc.questionmark"
-                )
-            }
+            ArtifactCanvas(
+                url: resource.url,
+                type: typeResolver.artifactType(
+                    kind: resource.artifact.kind,
+                    format: resource.artifact.format
+                ),
+                title: artifactTitle(resource.artifact)
+            )
+            .artifactContentMaxHeight(nil)
+            .id(resource.digest)
         } else {
             ContentUnavailableView(
                 "Artifact is not verified",
@@ -134,12 +127,12 @@ struct ActivityArtifactPreview: View {
         defer { isLoading = false }
 
         do {
-            let bundle = try RunReviewService().loadReviewBundle(
+            let bundle = try await RunReviewService().loadReviewBundle(
                 runID: runID,
                 projectRoot: projectRoot
             )
             guard let artifact = bundle.artifacts.first(where: matches) else {
-                throw ActivityArtifactPreviewError.notFound(path: reference.path)
+                throw ActivityArtifactPreviewError.notFound(path: artifact.reference.path)
             }
             let loadedResource = try await artifactResourceLoader.load(
                 runID: runID,
@@ -155,16 +148,11 @@ struct ActivityArtifactPreview: View {
     }
 
     private func matches(_ artifact: FlowRunReviewArtifact) -> Bool {
-        guard artifact.path == reference.path,
-              artifact.role == reference.role,
-              artifact.kind.rawValue == reference.kind,
-              artifact.format.rawValue == reference.format else {
-            return false
-        }
-        if let expectedSHA256 = reference.sha256 {
-            return artifact.sha256 == expectedSHA256
-        }
-        return true
+        artifact.path == self.artifact.reference.path
+            && artifact.role == self.artifact.reference.locator.role.rawValue
+            && artifact.kind.rawValue == self.artifact.reference.kind.rawValue
+            && artifact.format.rawValue == self.artifact.reference.format.rawValue
+            && artifact.sha256 == self.artifact.reference.sha256
     }
 
     private func artifactTitle(_ artifact: FlowRunReviewArtifact) -> String {
@@ -186,10 +174,10 @@ private enum ActivityArtifactPreviewError: LocalizedError {
     }
 }
 
-private extension Activity.ArtifactReference {
+private extension Activity.Artifact {
     var displayName: String {
-        let name = URL(filePath: path).lastPathComponent
-        return name.isEmpty ? path : name
+        let name = URL(filePath: reference.path).lastPathComponent
+        return name.isEmpty ? reference.path : name
     }
 }
 

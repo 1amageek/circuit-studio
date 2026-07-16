@@ -39,7 +39,7 @@ public final class ServiceContainer {
         self.pexCommandService = PEXCommandService()
         self.recentDocumentsStore = RecentDocumentsStore()
         self.simulationRunRecorder = XcircuiteSimulationRunRecorder(
-            actor: XcircuiteRunActionActor(kind: .human, identifier: NSUserName())
+            actor: FlowRunActor(kind: .human, identifier: NSUserName())
         )
         self.activityService = ActivityService()
     }

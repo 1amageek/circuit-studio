@@ -161,7 +161,7 @@ public struct FlowRunnerCommandOptions: Sendable {
     public var waiverIDs: [String] = []
     public var waiverReviewID: String?
     public var waiverProposalID: String?
-    public var actionActorKind: XcircuiteRunActionActor.Kind?
+    public var actionActorKind: FlowRunActor.Kind?
     public var drcRepairHintPath: String?
     public var lvsRepairHintPath: String?
     public var planningFormulationID: String?
@@ -612,9 +612,9 @@ public struct FlowRunnerCommandOptions: Sendable {
         after option: String,
         in arguments: [String],
         index: inout Int
-    ) throws -> XcircuiteRunActionActor.Kind {
+    ) throws -> FlowRunActor.Kind {
         let rawValue = try value(after: option, in: arguments, index: &index)
-        guard let actorKind = XcircuiteRunActionActor.Kind(rawValue: rawValue) else {
+        guard let actorKind = FlowRunActor.Kind(rawValue: rawValue) else {
             throw ParseError.invalidActorKind(rawValue)
         }
         return actorKind

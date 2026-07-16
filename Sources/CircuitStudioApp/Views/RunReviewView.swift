@@ -2,7 +2,6 @@ import Foundation
 import SwiftUI
 import DesignFlowKernel
 import Xcircuite
-import DesignFlowKernel
 
 /// The review cockpit: runs, stage gates and artifacts straight from
 /// the `.xcircuite` ledger, with approve/reject actions that persist
@@ -28,7 +27,7 @@ public struct RunReviewView: View {
     public let projectRoot: URL
     public let reviewer: String
 
-    @State private var runs: [XcircuiteRunSnapshot] = []
+    @State private var runs: [FlowRunSnapshot] = []
     @State private var selectedRunID: String?
     @State private var review: RunReviewService.RunReview?
     @State private var designEvidence: RunReviewDesignEvidence?
@@ -58,7 +57,6 @@ public struct RunReviewView: View {
     @State private var loadError: String?
 
     private let service = RunReviewService()
-    private let observer = XcircuiteRunLedgerObserver()
     private let artifactResourceLoader: any RunReviewArtifactResourceLoading
 
     public init(
@@ -1033,17 +1031,19 @@ public struct RunReviewView: View {
         command: FlowRunSuggestedCommand,
         runID: String
     ) {
-        do {
-            _ = try service.recordSuggestedCommandSelection(
-                runID: runID,
-                nextActionID: action.actionID,
-                commandID: command.commandID,
-                reviewer: reviewer,
-                projectRoot: projectRoot
-            )
-            reloadReview()
-        } catch {
-            loadError = error.localizedDescription
+        Task {
+            do {
+                _ = try await service.recordSuggestedCommandSelection(
+                    runID: runID,
+                    nextActionID: action.actionID,
+                    commandID: command.commandID,
+                    reviewer: reviewer,
+                    projectRoot: projectRoot
+                )
+                reloadReview()
+            } catch {
+                loadError = error.localizedDescription
+            }
         }
     }
 
@@ -1053,10 +1053,14 @@ public struct RunReviewView: View {
     @MainActor
     private func observeRuns() async {
         do {
-            let updates = await observer.snapshots(projectRoot: projectRoot)
-            for try await snapshots in updates {
-                guard !Task.isCancelled else {
-                    break
+            let store = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+            while !Task.isCancelled {
+                let manifest = try await store.loadManifest()
+                var snapshots: [FlowRunSnapshot] = []
+                snapshots.reserveCapacity(manifest.runs.count)
+                for reference in manifest.runs {
+                    let runManifest = try await store.loadRunManifest(runID: reference.runID)
+                    snapshots.append(FlowRunSnapshot(reference: reference, manifest: runManifest))
                 }
                 runs = snapshots
                 if let selectedRunID,
@@ -1069,15 +1073,22 @@ public struct RunReviewView: View {
                     reloadReview()
                 }
                 loadError = nil
+                try await Task.sleep(for: .milliseconds(500))
             }
+        } catch is CancellationError {
+            return
         } catch {
             runs = []
             loadError = error.localizedDescription
         }
-        await observer.shutdown()
     }
 
     private func reloadReview() {
+        Task { await reloadReviewNow() }
+    }
+
+    @MainActor
+    private func reloadReviewNow() async {
         guard let selectedRunID else {
             review = nil
             designEvidence = nil
@@ -1088,11 +1099,11 @@ public struct RunReviewView: View {
             return
         }
         do {
-            let loadedReview = try service.loadRun(runID: selectedRunID, projectRoot: projectRoot)
+            let loadedReview = try await service.loadRun(runID: selectedRunID, projectRoot: projectRoot)
             review = loadedReview
             reloadDesignEvidence(for: loadedReview)
             do {
-                waiverEditVerificationContext = try service.waiverEditVerificationContext(
+                waiverEditVerificationContext = try await service.waiverEditVerificationContext(
                     review: loadedReview,
                     projectRoot: projectRoot
                 )
@@ -1147,44 +1158,48 @@ public struct RunReviewView: View {
     }
 
     private func decide(
-        _ verdict: XcircuiteApprovalRecord.Verdict,
+        _ verdict: FlowApprovalRecord.Verdict,
         stageID: String,
         runID: String
     ) {
-        do {
-            _ = try service.decide(
-                runID: runID,
-                stageID: stageID,
-                verdict: verdict,
-                reviewer: reviewer,
-                note: note,
-                projectRoot: projectRoot
-            )
-            note = ""
-            reloadReview()
-        } catch {
-            loadError = error.localizedDescription
+        Task {
+            do {
+                _ = try await service.decide(
+                    runID: runID,
+                    stageID: stageID,
+                    verdict: verdict,
+                    reviewer: reviewer,
+                    note: note,
+                    projectRoot: projectRoot
+                )
+                note = ""
+                reloadReview()
+            } catch {
+                loadError = error.localizedDescription
+            }
         }
     }
 
     private func decidePlanningRiskApproval(
-        _ verdict: XcircuiteApprovalRecord.Verdict,
+        _ verdict: FlowApprovalRecord.Verdict,
         approvalID: String,
         runID: String
     ) {
-        do {
-            _ = try service.decidePlanningRiskApproval(
-                runID: runID,
-                approvalID: approvalID,
-                verdict: verdict,
-                reviewer: reviewer,
-                note: planningApprovalNotes[approvalID, default: ""],
-                projectRoot: projectRoot
-            )
-            planningApprovalNotes[approvalID] = ""
-            reloadReview()
-        } catch {
-            loadError = error.localizedDescription
+        Task {
+            do {
+                _ = try await service.decidePlanningRiskApproval(
+                    runID: runID,
+                    approvalID: approvalID,
+                    verdict: verdict,
+                    reviewer: reviewer,
+                    note: planningApprovalNotes[approvalID, default: ""],
+                    projectRoot: projectRoot
+                )
+                planningApprovalNotes[approvalID] = ""
+                reloadReview()
+            } catch {
+                loadError = error.localizedDescription
+            }
         }
     }
 
@@ -1193,19 +1208,21 @@ public struct RunReviewView: View {
         waiverReviewID: String,
         runID: String
     ) {
-        do {
-            _ = try service.decideWaiverReview(
-                runID: runID,
-                waiverReviewID: waiverReviewID,
-                decision: decision,
-                reviewer: reviewer,
-                note: waiverReviewNotes[waiverReviewID, default: ""],
-                projectRoot: projectRoot
-            )
-            waiverReviewNotes[waiverReviewID] = ""
-            reloadReview()
-        } catch {
-            loadError = error.localizedDescription
+        Task {
+            do {
+                _ = try await service.decideWaiverReview(
+                    runID: runID,
+                    waiverReviewID: waiverReviewID,
+                    decision: decision,
+                    reviewer: reviewer,
+                    note: waiverReviewNotes[waiverReviewID, default: ""],
+                    projectRoot: projectRoot
+                )
+                waiverReviewNotes[waiverReviewID] = ""
+                reloadReview()
+            } catch {
+                loadError = error.localizedDescription
+            }
         }
     }
 
@@ -1215,19 +1232,21 @@ public struct RunReviewView: View {
         runID: String
     ) {
         let noteKey = waiverEditProposalNoteKey(item: item, proposal: proposal)
-        do {
-            _ = try service.recordWaiverEditProposalSelection(
-                runID: runID,
-                waiverReviewID: item.waiverReviewID,
-                proposalID: proposal.proposalID,
-                reviewer: reviewer,
-                note: waiverEditProposalNotes[noteKey, default: ""],
-                projectRoot: projectRoot
-            )
-            waiverEditProposalNotes[noteKey] = ""
-            reloadReview()
-        } catch {
-            loadError = error.localizedDescription
+        Task {
+            do {
+                _ = try await service.recordWaiverEditProposalSelection(
+                    runID: runID,
+                    waiverReviewID: item.waiverReviewID,
+                    proposalID: proposal.proposalID,
+                    reviewer: reviewer,
+                    note: waiverEditProposalNotes[noteKey, default: ""],
+                    projectRoot: projectRoot
+                )
+                waiverEditProposalNotes[noteKey] = ""
+                reloadReview()
+            } catch {
+                loadError = error.localizedDescription
+            }
         }
     }
 
@@ -1237,19 +1256,21 @@ public struct RunReviewView: View {
         runID: String
     ) {
         let noteKey = waiverEditProposalNoteKey(item: item, proposal: proposal)
-        do {
-            _ = try service.applyWaiverEditProposal(
-                runID: runID,
-                waiverReviewID: item.waiverReviewID,
-                proposalID: proposal.proposalID,
-                reviewer: reviewer,
-                note: waiverEditApplicationNotes[noteKey, default: ""],
-                projectRoot: projectRoot
-            )
-            waiverEditApplicationNotes[noteKey] = ""
-            reloadReview()
-        } catch {
-            loadError = error.localizedDescription
+        Task {
+            do {
+                _ = try await service.applyWaiverEditProposal(
+                    runID: runID,
+                    waiverReviewID: item.waiverReviewID,
+                    proposalID: proposal.proposalID,
+                    reviewer: reviewer,
+                    note: waiverEditApplicationNotes[noteKey, default: ""],
+                    projectRoot: projectRoot
+                )
+                waiverEditApplicationNotes[noteKey] = ""
+                reloadReview()
+            } catch {
+                loadError = error.localizedDescription
+            }
         }
     }
 
@@ -1309,7 +1330,7 @@ public struct RunReviewView: View {
             }
 
             do {
-                let result = try service.formulateSignoffRepairPlanningProblem(
+                let result = try await service.formulateSignoffRepairPlanningProblem(
                     runID: runID,
                     actorKind: .human,
                     actorIdentifier: reviewer,
@@ -1364,16 +1385,18 @@ public struct RunReviewView: View {
         runID: String
     ) {
         let key = RunReviewArtifactPreviewKey.make(runID: runID, artifact: artifact)
-        do {
-            artifactPreviews[key] = try service.loadArtifactPreview(
-                runID: runID,
-                artifact: artifact,
-                projectRoot: projectRoot
-            )
-            artifactPreviewErrors[key] = nil
-        } catch {
-            artifactPreviews[key] = nil
-            artifactPreviewErrors[key] = error.localizedDescription
+        Task { @MainActor in
+            do {
+                artifactPreviews[key] = try await service.loadArtifactPreview(
+                    runID: runID,
+                    artifact: artifact,
+                    projectRoot: projectRoot
+                )
+                artifactPreviewErrors[key] = nil
+            } catch {
+                artifactPreviews[key] = nil
+                artifactPreviewErrors[key] = error.localizedDescription
+            }
         }
     }
 

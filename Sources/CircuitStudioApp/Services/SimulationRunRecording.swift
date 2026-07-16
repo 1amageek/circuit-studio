@@ -8,7 +8,7 @@ public protocol SimulationRunRecording: Sendable {
         source: String?,
         fileName: String?,
         startedAt: Date
-    ) throws -> SimulationRunContext
+    ) async throws -> SimulationRunContext
 
     func complete(
         context: SimulationRunContext,
@@ -19,5 +19,5 @@ public protocol SimulationRunRecording: Sendable {
     func fail(
         context: SimulationRunContext,
         reason: String
-    ) throws
+    ) async throws
 }

@@ -1,9 +1,9 @@
 import Foundation
 import Testing
+import CircuiteFoundation
 import DesignFlowKernel
 import ToolQualification
 import Xcircuite
-import DesignFlowKernel
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 
@@ -15,7 +15,14 @@ struct RunReviewPlanningProjectionTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { RunReviewTestSupport.removeTemporaryRoot(root) }
 
-        _ = try await DefaultFlowOrchestrator().run(
+        let store = try XcircuiteWorkspaceStore(projectRoot: root)
+        let runtime = XcircuiteFlowRuntime(
+            toolRegistry: ToolRegistry(),
+            healthResults: [:],
+            executors: [RunReviewPassingExecutor(stageID: "001-planning")],
+            workspaceStore: store
+        )
+        _ = try await runtime.run(
             request: FlowOperationRequest(
                 projectRoot: root,
                 runID: "run-planning",
@@ -23,15 +30,9 @@ struct RunReviewPlanningProjectionTests {
                 stages: [
                     FlowStageDefinition(stageID: "001-planning", displayName: "Planning"),
                 ]
-            ),
-            toolRegistry: ToolRegistry(),
-            healthResults: [:],
-            executors: [
-                RunReviewPassingExecutor(stageID: "001-planning"),
-            ]
+            )
         )
 
-        let store = XcircuiteWorkspaceStore()
         let encoder = JSONEncoder()
         let candidatePlanPath = ".xcircuite/runs/run-planning/planning/candidate-plan.json"
         let candidatePlan = XcircuiteCandidatePlan(
@@ -100,20 +101,18 @@ struct RunReviewPlanningProjectionTests {
             blockers: ["approval-required"]
         )
         let candidatePlanPayload = try encoder.encode(candidatePlan)
-        try FileManager.default.createDirectory(
-            at: root.appending(path: candidatePlanPath).deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        let candidatePlanReference = try await store.persistArtifact(
+            content: candidatePlanPayload,
+            id: ArtifactID(rawValue: "planning-candidate-plan"),
+            locator: ArtifactLocator(
+                location: ArtifactLocation(workspaceRelativePath: candidatePlanPath),
+                role: .output,
+                kind: .other,
+                format: .json
+            ),
+            runID: "run-planning",
+            mode: .immutable
         )
-        try candidatePlanPayload.write(to: root.appending(path: candidatePlanPath), options: .atomic)
-        let candidatePlanReference = try store.fileReference(
-            forProjectRelativePath: candidatePlanPath,
-            artifactID: "planning-candidate-plan",
-            kind: .other,
-            format: .json,
-            inProjectAt: root,
-            producedByRunID: "run-planning"
-        )
-        try store.upsertRunArtifact(candidatePlanReference, runID: "run-planning", inProjectAt: root)
 
         let planVerificationPath = ".xcircuite/runs/run-planning/planning/plan-verification.json"
         let planVerification = XcircuitePlanVerification(
@@ -205,27 +204,25 @@ struct RunReviewPlanningProjectionTests {
             ]
         )
         let payload = try encoder.encode(planVerification)
-        try FileManager.default.createDirectory(
-            at: root.appending(path: planVerificationPath).deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        _ = try await store.persistArtifact(
+            content: payload,
+            id: ArtifactID(rawValue: "planning-plan-verification"),
+            locator: ArtifactLocator(
+                location: ArtifactLocation(workspaceRelativePath: planVerificationPath),
+                role: .output,
+                kind: .other,
+                format: .json
+            ),
+            runID: "run-planning",
+            mode: .immutable
         )
-        try payload.write(to: root.appending(path: planVerificationPath), options: .atomic)
-        let reference = try store.fileReference(
-            forProjectRelativePath: planVerificationPath,
-            artifactID: "planning-plan-verification",
-            kind: .other,
-            format: .json,
-            inProjectAt: root,
-            producedByRunID: "run-planning"
-        )
-        try store.upsertRunArtifact(reference, runID: "run-planning", inProjectAt: root)
-        try store.writeDesignDiff(
-            XcircuiteDesignDiff(
+        try await store.persistDesignDiff(
+            DesignDiff(
                 runID: "run-planning",
                 title: "Planning edit proposal",
                 actor: "agent-1",
                 changes: [
-                    XcircuiteDesignDiffChange(
+                    DesignDiffChange(
                         changeID: "change-1",
                         domain: .layout,
                         operation: .replace,
@@ -267,7 +264,7 @@ struct RunReviewPlanningProjectionTests {
                         artifacts: [candidatePlanReference],
                         summary: "Widen the rail before post-execution signoff."
                     ),
-                    XcircuiteDesignDiffChange(
+                    DesignDiffChange(
                         changeID: "change-2",
                         domain: .layout,
                         operation: .replace,
@@ -307,7 +304,7 @@ struct RunReviewPlanningProjectionTests {
                         artifacts: [candidatePlanReference],
                         summary: "Stretch the upper strap in the same native layout canvas."
                     ),
-                    XcircuiteDesignDiffChange(
+                    DesignDiffChange(
                         changeID: "change-3",
                         domain: .schematic,
                         operation: .replace,
@@ -317,12 +314,11 @@ struct RunReviewPlanningProjectionTests {
                         summary: "Retune M1 width for the same candidate plan."
                     ),
                 ]
-            ),
-            inProjectAt: root
+            )
         )
 
         let service = RunReviewService()
-        let review = try service.loadRun(runID: "run-planning", projectRoot: root)
+        let review = try await service.loadRun(runID: "run-planning", projectRoot: root)
         #expect(review.planning.hasContent)
         #expect(review.planning.candidatePlanArtifact?.artifactID == "planning-candidate-plan")
         #expect(review.planning.candidatePlanArtifact?.path == candidatePlanPath)
@@ -689,7 +685,7 @@ struct RunReviewPlanningProjectionTests {
             "--pretty",
         ])
 
-        let record = try service.recordSuggestedCommandSelection(
+        let record = try await service.recordSuggestedCommandSelection(
             runID: "run-planning",
             nextActionID: action.actionID,
             commandID: command.commandID,
@@ -698,21 +694,19 @@ struct RunReviewPlanningProjectionTests {
         )
         #expect(record.actionKind == "review.selectSuggestedCommand")
         #expect(record.actor.kind == .human)
-        #expect(record.metadata["nextActionID"] == .string("verify-candidate-plan:post-execution"))
-        #expect(record.metadata["commandID"] == .string("xcircuite-flow.verify-candidate-plan.post-execution"))
-        #expect(record.metadata["readiness"] == .string("ready"))
-        #expect(record.metadata["executable"] == .string("xcircuite-flow"))
-        #expect(record.metadata["arguments"] == .array(command.arguments.map { .string($0) }))
+        let recordedCommand = try #require(record.context.suggestedCommand)
+        #expect(recordedCommand.nextActionID == "verify-candidate-plan:post-execution")
+        #expect(recordedCommand.commandID == "xcircuite-flow.verify-candidate-plan.post-execution")
+        #expect(recordedCommand.readiness == "ready")
+        #expect(recordedCommand.executable == "xcircuite-flow")
+        #expect(recordedCommand.arguments == command.arguments)
 
-        let actions = try XcircuiteWorkspaceStore().loadRunActions(
-            runID: "run-planning",
-            inProjectAt: root
-        )
+        let actions = try await store.loadRunActions(runID: "run-planning")
         #expect(actions.contains {
             $0.actionKind == "review.selectSuggestedCommand"
-                && $0.metadata["commandID"] == .string(command.commandID)
+                && $0.context.suggestedCommand?.commandID == command.commandID
         })
-        let selections = try service.loadSuggestedCommandSelections(
+        let selections = try await service.loadSuggestedCommandSelections(
             runID: "run-planning",
             projectRoot: root
         )
@@ -725,11 +719,11 @@ struct RunReviewPlanningProjectionTests {
         #expect(selection.executable == "xcircuite-flow")
         #expect(selection.arguments == command.arguments)
 
-        let reloadedReview = try service.loadRun(runID: "run-planning", projectRoot: root)
+        let reloadedReview = try await service.loadRun(runID: "run-planning", projectRoot: root)
         #expect(reloadedReview.suggestedCommandSelections == selections)
         #expect(reloadedReview.planning.selectedCommands == selections)
 
-        let approvalResult = try service.decidePlanningRiskApproval(
+        let approvalResult = try await service.decidePlanningRiskApproval(
             runID: "run-planning",
             approvalID: "policy-repair-approval",
             verdict: .approved,
@@ -742,19 +736,15 @@ struct RunReviewPlanningProjectionTests {
         #expect(approvalResult.approval.reviewer == "reviewer-1")
 
         let approvalRecord = try #require(
-            try XcircuiteWorkspaceStore().loadApproval(
+            try await store.loadApproval(
                 runID: "run-planning",
-                stageID: "policy-repair-approval",
-                inProjectAt: root
+                stageID: "policy-repair-approval"
             )
         )
         #expect(approvalRecord.verdict == .approved)
         #expect(approvalRecord.note == "Policy repair reviewed in the cockpit.")
 
-        let approvalActions = try XcircuiteWorkspaceStore().loadRunActions(
-            runID: "run-planning",
-            inProjectAt: root
-        )
+        let approvalActions = try await store.loadRunActions(runID: "run-planning")
         let approvalAction = try #require(approvalActions.last {
             $0.actionKind == "planning.approve-candidate-plan-risk"
         })
@@ -762,21 +752,20 @@ struct RunReviewPlanningProjectionTests {
         #expect(approvalAction.actor.identifier == "reviewer-1")
         #expect(approvalAction.status == .succeeded)
 
-        let approvedReview = try service.loadRun(runID: "run-planning", projectRoot: root)
+        let approvedReview = try await service.loadRun(runID: "run-planning", projectRoot: root)
         #expect(approvedReview.planning.planVerification?.riskReviews.first?.status == "approved")
         #expect(approvedReview.planning.planVerification?.riskReviews.first?.approvalReviews.first?.status == "approved")
         #expect(approvedReview.planning.planVerification?.riskReviews.first?.approvalReviews.first?.reviewer == "reviewer-1")
     }
 
-    @Test func planningProjectionRequiresVerifiedArtifactIntegrity() throws {
+    @Test func planningProjectionRequiresVerifiedArtifactIntegrity() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("run-review-planning-integrity-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { RunReviewTestSupport.removeTemporaryRoot(root) }
 
         let runID = "run-planning-integrity"
-        let runDirectoryPath = ".xcircuite/runs/\(runID)"
-        let candidatePlanPath = "\(runDirectoryPath)/planning/candidate-plan.json"
+        let candidatePlanPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
         let candidatePlan = XcircuiteCandidatePlan(
             planID: "plan-integrity",
             problemID: "problem-integrity",
@@ -799,18 +788,16 @@ struct RunReviewPlanningProjectionTests {
             withIntermediateDirectories: true
         )
         try payload.write(to: root.appending(path: candidatePlanPath), options: .atomic)
-        try FileManager.default.createDirectory(
-            at: root.appending(path: runDirectoryPath),
-            withIntermediateDirectories: true
-        )
-        let reference = XcircuiteFileReference(
-            artifactID: "planning-candidate-plan",
-            path: candidatePlanPath,
-            kind: .other,
-            format: .json,
-            sha256: XcircuiteHasher().sha256(data: payload),
-            byteCount: Int64(payload.count),
-            producedByRunID: runID
+        let reference = ArtifactReference(
+            id: try ArtifactID(rawValue: "planning-candidate-plan"),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: candidatePlanPath),
+                role: .output,
+                kind: .other,
+                format: .json
+            ),
+            digest: try SHA256ContentDigester().digest(data: payload, using: .sha256),
+            byteCount: UInt64(payload.count)
         )
         let artifact = FlowRunReviewArtifact(
             role: "planning-candidate-plan",
@@ -831,11 +818,10 @@ struct RunReviewPlanningProjectionTests {
         )
         let ledger = FlowRunLedger(
             runID: runID,
-            runDirectory: root.appending(path: runDirectoryPath),
-            runManifest: try XcircuiteRunManifest(
+            runManifest: try FlowRunManifest(
                 runID: runID,
                 status: .blocked,
-                actor: XcircuiteRunActionActor(kind: .system, identifier: "planning-test"),
+                actor: FlowRunActor(kind: .system, identifier: "planning-test"),
                 createdAt: Date(timeIntervalSince1970: 1_000),
                 updatedAt: Date(timeIntervalSince1970: 1_020),
                 startedAt: Date(timeIntervalSince1970: 1_010),
@@ -847,20 +833,20 @@ struct RunReviewPlanningProjectionTests {
         let bundle = FlowRunReviewBundle(
             runID: runID,
             status: .blocked,
-            runDirectoryPath: runDirectoryPath,
             summary: FlowRunLedgerSummary(
                 runID: runID,
-                status: .blocked,
-                runDirectoryPath: runDirectoryPath
+                status: .blocked
             ),
             artifacts: [artifact]
         )
+        let store = try XcircuiteWorkspaceStore(projectRoot: root)
+        try await store.saveRunLedger(ledger)
         let service = RunReviewService(
             ledgerLoader: PlanningStaticLedgerLoader(ledger: ledger),
             reviewBundler: PlanningStaticRunReviewBundler(bundle: bundle)
         )
 
-        let review = try service.loadRun(runID: runID, projectRoot: root)
+        let review = try await service.loadRun(runID: runID, projectRoot: root)
 
         #expect(review.planning.candidatePlanArtifact?.path == candidatePlanPath)
         #expect(review.planning.candidatePlan == nil)
@@ -875,7 +861,7 @@ struct RunReviewPlanningProjectionTests {
 private struct PlanningStaticLedgerLoader: FlowRunLedgerLoading {
     let ledger: FlowRunLedger
 
-    func loadRunLedger(runID: String, projectRoot: URL) throws -> FlowRunLedger {
+    func loadRunLedger(runID: String) async throws -> FlowRunLedger {
         ledger
     }
 }
@@ -883,7 +869,7 @@ private struct PlanningStaticLedgerLoader: FlowRunLedgerLoading {
 private struct PlanningStaticRunReviewBundler: FlowRunReviewBundling {
     let bundle: FlowRunReviewBundle
 
-    func makeReviewBundle(runID: String, projectRoot: URL) throws -> FlowRunReviewBundle {
+    func makeReviewBundle(runID: String, projectRoot: URL) async throws -> FlowRunReviewBundle {
         bundle
     }
 }

@@ -4,6 +4,7 @@ import LayoutCore
 import LayoutTech
 import LayoutIO
 import DesignFlowKernel
+import Xcircuite
 
 /// Manages `.xcircuite/` project directory for persistent workspace state.
 public struct ProjectService: Sendable {
@@ -19,18 +20,13 @@ public struct ProjectService: Sendable {
     private static let cellLayoutFileName = "layout.json"
     private static let cellDesignUnitFileName = "design-unit.json"
 
-    private let workspaceStore: XcircuiteWorkspaceStore
-
-    public init(workspaceStore: XcircuiteWorkspaceStore = XcircuiteWorkspaceStore()) {
-        self.workspaceStore = workspaceStore
-    }
+    public init() {}
 
     // MARK: - Project Lifecycle
 
     /// Creates a new project at the given directory, initializing `.xcircuite/`.
-    func createProject(at directory: URL) throws {
-        try workspaceStore.createWorkspace(at: directory)
-        try ensureXcircuiteProjectManifest(forProjectAt: directory, topDesignName: nil)
+    func createProject(at directory: URL) async throws {
+        try await ensureXcircuiteProjectManifest(forProjectAt: directory, topDesignName: nil)
 
         // Write default workspace config
         let defaultConfig = WorkspaceConfig()
@@ -42,12 +38,12 @@ public struct ProjectService: Sendable {
 
     /// Seeds a project with template content (sample netlist, design cells,
     /// and simulation config) so it opens as a working example.
-    func installTemplate(_ content: ProjectTemplateContent, forProjectAt projectRoot: URL) throws {
+    func installTemplate(_ content: ProjectTemplateContent, forProjectAt projectRoot: URL) async throws {
         try saveNetlist(content.netlist, named: content.netlistFileName, inProjectAt: projectRoot)
         for cell in content.cells {
             try saveCellSchematic(cell.schematic, cellName: cell.name, forProjectAt: projectRoot)
         }
-        try saveStudioSessionManifest(
+        try await saveStudioSessionManifest(
             StudioSessionManifest(topCell: content.topCellName, activeCell: content.activeCellName),
             forProjectAt: projectRoot
         )
@@ -56,7 +52,11 @@ public struct ProjectService: Sendable {
 
     /// Returns `true` if the directory contains a `.xcircuite/` folder.
     func isProject(_ directory: URL) -> Bool {
-        workspaceStore.isWorkspace(at: directory)
+        var isDirectory = ObjCBool(false)
+        return FileManager.default.fileExists(
+            atPath: XcircuiteWorkspaceLayout(projectRoot: directory).workspaceURL.path(percentEncoded: false),
+            isDirectory: &isDirectory
+        ) && isDirectory.boolValue
     }
 
     // MARK: - Workspace Config
@@ -74,15 +74,18 @@ public struct ProjectService: Sendable {
     // MARK: - Manifests
 
     func xcircuiteProjectManifestURL(inProjectAt projectRoot: URL) -> URL {
-        XcircuiteWorkspace(projectRoot: projectRoot).manifestURL
+        XcircuiteWorkspaceLayout(projectRoot: projectRoot).manifestURL
     }
 
     func studioSessionManifestURL(inProjectAt projectRoot: URL) throws -> URL {
         try configurationFileURL(named: Self.studioSessionManifestFileName, inProjectAt: projectRoot)
     }
 
-    func saveStudioSessionManifest(_ manifest: StudioSessionManifest, forProjectAt projectRoot: URL) throws {
-        try ensureXcircuiteProjectManifest(forProjectAt: projectRoot, topDesignName: manifest.topCell)
+    func saveStudioSessionManifest(
+        _ manifest: StudioSessionManifest,
+        forProjectAt projectRoot: URL
+    ) async throws {
+        try await ensureXcircuiteProjectManifest(forProjectAt: projectRoot, topDesignName: manifest.topCell)
         let url = try studioSessionManifestURL(inProjectAt: projectRoot)
         try writeJSON(manifest, to: url, forProjectAt: projectRoot)
     }
@@ -152,7 +155,7 @@ public struct ProjectService: Sendable {
         forProjectAt projectRoot: URL
     ) throws {
         let url = try cellSchematicURL(cellName: cellName, inProjectAt: projectRoot)
-        try workspaceStore.ensureDirectory(at: url.deletingLastPathComponent())
+        try ensureDirectory(at: url.deletingLastPathComponent())
         try writeJSON(document, to: url, forProjectAt: projectRoot)
     }
 
@@ -168,7 +171,7 @@ public struct ProjectService: Sendable {
     func saveMaterializedSchematic(
         _ result: SPICESchematicImportResult,
         forProjectAt projectRoot: URL
-    ) throws {
+    ) async throws {
         for cell in result.cells {
             try saveCellSchematic(
                 cell.schematic,
@@ -176,7 +179,7 @@ public struct ProjectService: Sendable {
                 forProjectAt: projectRoot
             )
         }
-        try saveStudioSessionManifest(
+        try await saveStudioSessionManifest(
             StudioSessionManifest(
                 topCell: result.topCellName,
                 activeCell: result.activeCellName
@@ -316,7 +319,7 @@ public struct ProjectService: Sendable {
     /// Saves a SPICE netlist string to the project root.
     func saveNetlist(_ spice: String, named fileName: String, inProjectAt projectRoot: URL) throws {
         let url = try projectRootFileURL(named: fileName, inProjectAt: projectRoot)
-        try workspaceStore.writeText(spice, to: url)
+        try writeText(spice, to: url)
     }
 
     func topNetlistURL(inProjectAt projectRoot: URL) -> URL {
@@ -331,8 +334,8 @@ public struct ProjectService: Sendable {
     ) throws {
         let url = try url(forProjectRelativePath: relativePath, inProjectAt: projectRoot)
         let parent = url.deletingLastPathComponent()
-        try workspaceStore.ensureDirectory(at: parent)
-        try workspaceStore.writeText(spice, to: url)
+        try ensureDirectory(at: parent)
+        try writeText(spice, to: url)
     }
 
     /// Saves a layout document in OASIS format to the project root.
@@ -362,7 +365,7 @@ public struct ProjectService: Sendable {
     ) throws {
         let url = try url(forProjectRelativePath: relativePath, inProjectAt: projectRoot)
         let parent = url.deletingLastPathComponent()
-        try workspaceStore.ensureDirectory(at: parent)
+        try ensureDirectory(at: parent)
         let converter = MaskDataFormatConverter(tech: tech)
         do {
             try converter.exportDocument(document, to: url, format: .oasis)
@@ -408,7 +411,7 @@ public struct ProjectService: Sendable {
         forProjectAt projectRoot: URL
     ) throws {
         let url = try cellLayoutDocumentURL(cellName: cellName, inProjectAt: projectRoot)
-        try workspaceStore.ensureDirectory(at: url.deletingLastPathComponent())
+        try ensureDirectory(at: url.deletingLastPathComponent())
         try writeJSON(document, to: url, forProjectAt: projectRoot)
     }
 
@@ -459,7 +462,7 @@ public struct ProjectService: Sendable {
 
     func saveCellDesignUnit(_ unit: DesignUnit, cellName: String, forProjectAt projectRoot: URL) throws {
         let url = try cellFileURL(Self.cellDesignUnitFileName, cellName: cellName, inProjectAt: projectRoot)
-        try workspaceStore.ensureDirectory(at: url.deletingLastPathComponent())
+        try ensureDirectory(at: url.deletingLastPathComponent())
         try writeJSON(unit, to: url, forProjectAt: projectRoot)
     }
 
@@ -510,7 +513,7 @@ public struct ProjectService: Sendable {
     }
 
     private func configurationFileURL(named fileName: String, inProjectAt projectRoot: URL) throws -> URL {
-        try workspaceStore.configurationURL(named: fileName, inProjectAt: projectRoot)
+        try XcircuiteWorkspaceLayout(projectRoot: projectRoot).configurationURL(named: fileName)
     }
 
     private func pexConfigurationURL(inProjectAt projectRoot: URL) throws -> URL {
@@ -518,8 +521,8 @@ public struct ProjectService: Sendable {
     }
 
     private func pexDirectoryURL(inProjectAt projectRoot: URL) -> URL {
-        workspaceStore
-            .workspaceURL(forProjectAt: projectRoot)
+        XcircuiteWorkspaceLayout(projectRoot: projectRoot)
+            .workspaceURL
             .appending(path: Self.pexDirectoryName)
     }
 
@@ -528,26 +531,24 @@ public struct ProjectService: Sendable {
     }
 
     private func ensureConfigurationDirectory(forProjectAt projectRoot: URL) throws {
-        try workspaceStore.ensureWorkspaceDirectory(forProjectAt: projectRoot)
+        try ensureDirectory(at: XcircuiteWorkspaceLayout(projectRoot: projectRoot).workspaceURL)
     }
 
     private func ensureXcircuiteProjectManifest(
         forProjectAt projectRoot: URL,
         topDesignName: String?
-    ) throws {
-        try workspaceStore.createWorkspace(at: projectRoot)
+    ) async throws {
+        let workspaceStore = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+        try await workspaceStore.createWorkspace()
         if let topDesignName {
-            try workspaceStore.updateProjectTopDesignName(
-                topDesignName,
-                inProjectAt: projectRoot
-            )
+            try await workspaceStore.updateTopDesignName(topDesignName)
         }
     }
 
     private func writePEXTOML(config: PEXProjectConfig, forProjectAt projectRoot: URL) throws {
         let tomlURL = pexTOMLURL(inProjectAt: projectRoot)
         let contents = renderPEXTOML(config: config)
-        try workspaceStore.writeText(contents, to: tomlURL)
+        try writeText(contents, to: tomlURL)
     }
 
     private func writeDefaultTechTemplateIfNeeded(
@@ -561,7 +562,7 @@ public struct ProjectService: Sendable {
         }
 
         let parent = techURL.deletingLastPathComponent()
-        try workspaceStore.ensureDirectory(at: parent)
+        try ensureDirectory(at: parent)
 
         let template = """
         {
@@ -575,11 +576,11 @@ public struct ProjectService: Sendable {
         }
         """
 
-        try workspaceStore.writeText(template, to: techURL)
+        try writeText(template, to: techURL)
     }
 
     private func url(forProjectRelativePath rawPath: String, inProjectAt projectRoot: URL) throws -> URL {
-        try workspaceStore.url(forProjectRelativePath: rawPath, inProjectAt: projectRoot)
+        try XcircuiteWorkspaceLayout(projectRoot: projectRoot).url(forProjectRelativePath: rawPath)
     }
 
     private func projectRootFileURL(named fileName: String, inProjectAt projectRoot: URL) throws -> URL {
@@ -601,7 +602,7 @@ public struct ProjectService: Sendable {
               !fileName.contains("\\") else {
             return false
         }
-        guard fileName != XcircuiteWorkspace.directoryName,
+        guard fileName != XcircuiteWorkspaceLayout.directoryName,
               fileName != Self.cellsDirectoryName else {
             return false
         }
@@ -658,10 +659,52 @@ public struct ProjectService: Sendable {
     }
 
     private func writeJSON<T: Encodable>(_ value: T, to url: URL, forProjectAt projectRoot: URL) throws {
-        try workspaceStore.writeJSON(value, to: url, forProjectAt: projectRoot)
+        _ = try projectRelativePath(for: url, inProjectAt: projectRoot)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        do {
+            try encoder.encode(value).write(to: url, options: [.atomic])
+        } catch {
+            throw StudioError.projectSaveFailed(error.localizedDescription)
+        }
     }
 
     private func readJSON<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
-        try workspaceStore.readJSON(type, from: url)
+        do {
+            return try JSONDecoder().decode(type, from: Data(contentsOf: url))
+        } catch {
+            throw StudioError.projectLoadFailed(error.localizedDescription)
+        }
+    }
+
+    private func writeText(_ text: String, to url: URL) throws {
+        guard let data = text.data(using: .utf8) else {
+            throw StudioError.projectSaveFailed("Text is not valid UTF-8.")
+        }
+        do {
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            throw StudioError.projectSaveFailed(error.localizedDescription)
+        }
+    }
+
+    private func ensureDirectory(at url: URL) throws {
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        } catch {
+            throw StudioError.projectSaveFailed(error.localizedDescription)
+        }
+    }
+
+    private func projectRelativePath(for url: URL, inProjectAt projectRoot: URL) throws -> String {
+        let rootPath = projectRoot.standardizedFileURL.path(percentEncoded: false)
+        let filePath = url.standardizedFileURL.path(percentEncoded: false)
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard filePath.hasPrefix(prefix) else {
+            throw StudioError.projectSaveFailed("Path is outside the project root.")
+        }
+        let relativePath = String(filePath.dropFirst(prefix.count))
+        try XcircuiteWorkspaceLayout.validateProjectRelativePath(relativePath)
+        return relativePath
     }
 }

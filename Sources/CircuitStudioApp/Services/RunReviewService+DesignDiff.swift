@@ -4,9 +4,9 @@ import Xcircuite
 import DesignFlowKernel
 
 extension RunReviewService {
-    func designDiffSummary(from diff: XcircuiteDesignDiff) -> RunReviewDesignDiffSummary {
+    func designDiffSummary(from diff: DesignDiff) -> RunReviewDesignDiffSummary {
         let changes = diff.changes.map { change in
-            let artifacts = change.artifacts.compactMap(designDiffArtifactSummary)
+            let artifacts = change.artifacts.map(designDiffArtifactSummary)
             let pathContext = designDiffPathContext(
                 domain: change.domain.rawValue,
                 path: change.path
@@ -47,8 +47,8 @@ extension RunReviewService {
             changeCount: diff.changes.count,
             domains: buckets(diff.changes.map { $0.domain.rawValue }),
             operations: buckets(diff.changes.map { $0.operation.rawValue }),
-            baseSnapshot: diff.baseSnapshot.flatMap(designDiffArtifactSummary),
-            proposedSnapshot: diff.proposedSnapshot.flatMap(designDiffArtifactSummary),
+            baseSnapshot: diff.baseSnapshot.map(designDiffArtifactSummary),
+            proposedSnapshot: diff.proposedSnapshot.map(designDiffArtifactSummary),
             canvases: designDiffCanvases(from: changes),
             changes: changes
         )
@@ -69,26 +69,17 @@ extension RunReviewService {
     }
 
     private func designDiffArtifactSummary(
-        _ reference: XcircuiteFileReference
-    ) -> RunReviewDesignDiffArtifactSummary? {
-        guard let foundationReference = FoundationArtifactTypeProjection.reference(reference) else {
-            return nil
-        }
-        return designDiffArtifactSummary(foundationReference)
-    }
-
-    private func designDiffArtifactSummary(
         _ reference: ArtifactReference
     ) -> RunReviewDesignDiffArtifactSummary {
         RunReviewDesignDiffArtifactSummary(
             artifactID: reference.id.rawValue,
             path: reference.path,
             sha256: reference.digest.hexadecimalValue,
-            byteCount: Int64(clamping: reference.byteCount)
+            byteCount: reference.byteCount
         )
     }
 
-    private func jsonPreview(_ value: XcircuiteJSONValue?) -> String? {
+    private func jsonPreview(_ value: DesignDiffValue?) -> String? {
         guard let value else {
             return nil
         }
@@ -440,8 +431,8 @@ extension RunReviewService {
     }
 
     private func designDiffCanvasGeometry(
-        before: XcircuiteJSONValue?,
-        after: XcircuiteJSONValue?
+        before: DesignDiffValue?,
+        after: DesignDiffValue?
     ) -> RunReviewDesignDiffCanvasGeometrySummary? {
         let beforeCandidate = designDiffFrameCandidate(from: before)
         let afterCandidate = designDiffFrameCandidate(from: after)
@@ -601,7 +592,7 @@ extension RunReviewService {
     }
 
     private func designDiffFrameCandidate(
-        from value: XcircuiteJSONValue?,
+        from value: DesignDiffValue?,
         sourceHint: String? = nil
     ) -> (source: String, frame: RunReviewDesignDiffFrameSummary)? {
         guard let value else {
@@ -638,7 +629,7 @@ extension RunReviewService {
     }
 
     private func designDiffOriginSizeFrame(
-        from object: [String: XcircuiteJSONValue]
+        from object: [String: DesignDiffValue]
     ) -> RunReviewDesignDiffFrameSummary? {
         guard case .object(let origin)? = object["origin"],
               case .object(let size)? = object["size"],
@@ -653,7 +644,7 @@ extension RunReviewService {
     }
 
     private func designDiffXYWHFrame(
-        from object: [String: XcircuiteJSONValue]
+        from object: [String: DesignDiffValue]
     ) -> RunReviewDesignDiffFrameSummary? {
         guard let x = designDiffFirstNumber(object, keys: ["x", "minX"]),
               let y = designDiffFirstNumber(object, keys: ["y", "minY"]),
@@ -666,7 +657,7 @@ extension RunReviewService {
     }
 
     private func designDiffCornerFrame(
-        from object: [String: XcircuiteJSONValue]
+        from object: [String: DesignDiffValue]
     ) -> RunReviewDesignDiffFrameSummary? {
         guard let x1 = designDiffFirstNumber(object, keys: ["x1", "minX", "left"]),
               let y1 = designDiffFirstNumber(object, keys: ["y1", "minY", "bottom"]),
@@ -684,7 +675,7 @@ extension RunReviewService {
     }
 
     private func designDiffArrayFrame(
-        from values: [XcircuiteJSONValue],
+        from values: [DesignDiffValue],
         sourceHint: String?
     ) -> (source: String, frame: RunReviewDesignDiffFrameSummary)? {
         guard values.count == 4 else {
@@ -723,7 +714,7 @@ extension RunReviewService {
     }
 
     private func designDiffFirstNumber(
-        _ object: [String: XcircuiteJSONValue],
+        _ object: [String: DesignDiffValue],
         keys: [String]
     ) -> Double? {
         for key in keys {
@@ -734,7 +725,7 @@ extension RunReviewService {
         return nil
     }
 
-    private func designDiffNumber(_ value: XcircuiteJSONValue?) -> Double? {
+    private func designDiffNumber(_ value: DesignDiffValue?) -> Double? {
         guard case .number(let number)? = value, number.isFinite else {
             return nil
         }
@@ -822,8 +813,8 @@ extension RunReviewService {
     }
 
     private func semanticValueChanges(
-        before: XcircuiteJSONValue?,
-        after: XcircuiteJSONValue?
+        before: DesignDiffValue?,
+        after: DesignDiffValue?
     ) -> [RunReviewDesignDiffValueChangeSummary] {
         var changes: [RunReviewDesignDiffValueChangeSummary] = []
         var truncated = false
@@ -847,8 +838,8 @@ extension RunReviewService {
 
     private func collectSemanticValueChanges(
         path: String,
-        before: XcircuiteJSONValue?,
-        after: XcircuiteJSONValue?,
+        before: DesignDiffValue?,
+        after: DesignDiffValue?,
         changes: inout [RunReviewDesignDiffValueChangeSummary],
         truncated: inout Bool
     ) {
@@ -886,8 +877,8 @@ extension RunReviewService {
     }
 
     private func semanticValueChangeState(
-        before: XcircuiteJSONValue?,
-        after: XcircuiteJSONValue?
+        before: DesignDiffValue?,
+        after: DesignDiffValue?
     ) -> String {
         switch (before, after) {
         case (nil, .some(_)):
@@ -906,7 +897,7 @@ extension RunReviewService {
         return parent.isEmpty ? "/\(escaped)" : "\(parent)/\(escaped)"
     }
 
-    private func jsonPreview(_ value: XcircuiteJSONValue, depth: Int) -> String {
+    private func jsonPreview(_ value: DesignDiffValue, depth: Int) -> String {
         switch value {
         case .null:
             return "null"

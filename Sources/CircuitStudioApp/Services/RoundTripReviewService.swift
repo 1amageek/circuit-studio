@@ -119,7 +119,7 @@ public struct RoundTripReviewService: Sendable {
     private func loadSuggestedCommandSelections(
         manifestURL: URL,
         diagnostics: inout [String]
-    ) -> [XcircuiteSuggestedCommandSelection] {
+    ) -> [FlowSuggestedCommandSelection] {
         do {
             return try RoundTripActionLogService().loadSuggestedCommandSelections(
                 manifestURL: manifestURL

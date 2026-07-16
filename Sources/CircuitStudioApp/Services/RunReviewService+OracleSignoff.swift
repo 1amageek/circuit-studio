@@ -1,5 +1,6 @@
 import DesignFlowKernel
 import Foundation
+import CircuiteFoundation
 import Xcircuite
 
 extension RunReviewService {
@@ -250,7 +251,7 @@ extension RunReviewService {
         let rows = cases.flatMap { caseResult in
             (caseResult.sourceArtifactRefs + caseResult.signoffArtifactRefs).map { reference in
                 RunReviewSignoffDetailRow(
-                    label: "\(caseResult.caseID):\(reference.role)",
+                    label: "\(caseResult.caseID):\(reference.locator.role.rawValue)",
                     metrics: artifactReferenceMetrics(reference)
                 )
             }
@@ -535,17 +536,17 @@ extension RunReviewService {
     }
 
     private func artifactReferenceMetrics(
-        _ reference: XcircuiteGeneratedLayoutSignoffCorpusReport.ArtifactReference
+        _ reference: ArtifactReference
     ) -> [RunReviewSignoffMetric] {
         oracleCompactMetrics([
             ("Artifact", reference.artifactID),
-            ("Stage", reference.stageID),
+            ("Role", reference.locator.role.rawValue),
             ("Path", reference.path),
-            ("Kind", reference.kind),
-            ("Format", reference.format),
-            ("Integrity", reference.integrityStatus),
+            ("Kind", reference.kind.rawValue),
+            ("Format", reference.format.rawValue),
+            ("Digest", reference.digest.algorithm.rawValue),
             ("SHA", reference.sha256),
-            ("Bytes", reference.byteCount.map(String.init)),
+            ("Bytes", String(reference.byteCount)),
         ])
     }
 

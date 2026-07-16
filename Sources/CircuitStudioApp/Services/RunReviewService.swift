@@ -13,8 +13,8 @@ public struct RunReviewService: Sendable {
     /// stage's gates and artifacts, and any decisions already taken.
     public struct RunReview: Sendable {
         public let runID: String
-        public let status: XcircuiteRunStatus
-        public let actor: XcircuiteRunActionActor
+        public let status: FlowRunStatus
+        public let actor: FlowRunActor
         public let intent: String?
         public let createdAt: Date
         public let updatedAt: Date
@@ -24,8 +24,8 @@ public struct RunReviewService: Sendable {
         /// manifest at the storage boundary.
         public let artifacts: [ArtifactReference]
         public let stages: [StageReview]
-        public let approvals: [XcircuiteApprovalRecord]
-        public let suggestedCommandSelections: [XcircuiteSuggestedCommandSelection]
+        public let approvals: [FlowApprovalRecord]
+        public let suggestedCommandSelections: [FlowSuggestedCommandSelection]
         public let planning: PlanningReview
         public let signoff: RunReviewSignoffSummary
         public let waivers: RunReviewWaiverSummary
@@ -40,10 +40,10 @@ public struct RunReviewService: Sendable {
         public let planVerificationArtifact: FlowRunReviewArtifact?
         public let candidatePlan: XcircuiteCandidatePlan?
         public let planVerification: XcircuitePlanVerification?
-        public let designDiff: XcircuiteDesignDiff?
+        public let designDiff: DesignDiff?
         public let designDiffSummary: RunReviewDesignDiffSummary?
         public let correctnessItems: [FlowRunReviewItem]
-        public let selectedCommands: [XcircuiteSuggestedCommandSelection]
+        public let selectedCommands: [FlowSuggestedCommandSelection]
         public let decodeIssues: [PlanningArtifactDecodeIssue]
 
         public var hasContent: Bool {
@@ -68,7 +68,7 @@ public struct RunReviewService: Sendable {
     public struct StageReview: Sendable {
         public let result: FlowStageResult
         /// The stage's recorded human decision, when one exists.
-        public let approval: XcircuiteApprovalRecord?
+        public let approval: FlowApprovalRecord?
         /// True when the stage carries an approval gate that is still
         /// incomplete — the run is waiting on this reviewer.
         public var awaitingApproval: Bool {
@@ -76,34 +76,57 @@ public struct RunReviewService: Sendable {
         }
     }
 
-    let store: XcircuiteWorkspaceStore
-    let ledgerLoader: any FlowRunLedgerLoading
-    let reviewBundler: any FlowRunReviewBundling
+    let ledgerLoader: (any FlowRunLedgerLoading)?
+    let reviewBundler: (any FlowRunReviewBundling)?
 
     public init(
-        store: XcircuiteWorkspaceStore = XcircuiteWorkspaceStore(),
-        ledgerLoader: any FlowRunLedgerLoading = FlowRunLedgerLoader(),
-        reviewBundler: any FlowRunReviewBundling = DefaultFlowRunReviewBundler()
+        ledgerLoader: (any FlowRunLedgerLoading)? = nil,
+        reviewBundler: (any FlowRunReviewBundling)? = nil
     ) {
-        self.store = store
         self.ledgerLoader = ledgerLoader
         self.reviewBundler = reviewBundler
     }
 
+    func workspaceStore(projectRoot: URL) throws -> XcircuiteWorkspaceStore {
+        try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+    }
+
+    func configuredLedgerLoader(
+        store: XcircuiteWorkspaceStore
+    ) -> any FlowRunLedgerLoading {
+        ledgerLoader ?? store
+    }
+
+    func configuredReviewBundler(
+        store: XcircuiteWorkspaceStore,
+        loader: any FlowRunLedgerLoading
+    ) -> any FlowRunReviewBundling {
+        reviewBundler ?? DefaultFlowRunReviewBundler(loader: loader, persistence: store)
+    }
+
     /// Every project run resolved from its locator to its canonical manifest, newest last.
-    public func listRuns(projectRoot: URL) throws -> [XcircuiteRunSnapshot] {
-        try store.listRunSnapshots(inProjectAt: projectRoot)
+    public func listRuns(projectRoot: URL) async throws -> [FlowRunSnapshot] {
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let manifest = try await store.loadManifest()
+        var snapshots: [FlowRunSnapshot] = []
+        for reference in manifest.runs {
+            snapshots.append(FlowRunSnapshot(
+                reference: reference,
+                manifest: try await store.loadRunManifest(runID: reference.runID)
+            ))
+        }
+        return snapshots.sorted { $0.manifest.createdAt < $1.manifest.createdAt }
     }
 
     /// The full review picture of one run, straight from the ledger.
-    public func loadRun(runID: String, projectRoot: URL) throws -> RunReview {
-        let ledger = try ledgerLoader.loadRunLedger(runID: runID, projectRoot: projectRoot)
-        let bundle = try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+    public func loadRun(runID: String, projectRoot: URL) async throws -> RunReview {
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let loader = configuredLedgerLoader(store: store)
+        let bundler = configuredReviewBundler(store: store, loader: loader)
+        let ledger = try await loader.loadRunLedger(runID: runID)
+        let bundle = try await bundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
         let approvals = bundle.approvals
-        let suggestedCommandSelections = try store.loadSuggestedCommandSelections(
-            runID: runID,
-            inProjectAt: projectRoot
-        )
+        let suggestedCommandSelections = try await store.loadSuggestedCommandSelections(runID: runID)
         let approvalsByStage = Dictionary(
             approvals.map { ($0.stageID, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -122,12 +145,12 @@ public struct RunReviewService: Sendable {
             designDiff: ledger.designDiff,
             suggestedCommandSelections: suggestedCommandSelections
         )
-        let signoff = signoffReview(
+        let signoff = try signoffReview(
             bundle: bundle,
             actions: ledger.actions,
             projectRoot: projectRoot
         )
-        let waivers = waiverReview(
+        let waivers = try waiverReview(
             bundle: bundle,
             actions: ledger.actions,
             projectRoot: projectRoot
@@ -151,7 +174,7 @@ public struct RunReviewService: Sendable {
             updatedAt: ledger.runManifest.updatedAt,
             startedAt: ledger.runManifest.startedAt,
             finishedAt: ledger.runManifest.finishedAt,
-            artifacts: try foundationArtifactReferences(ledger.runManifest.artifacts),
+            artifacts: ledger.runManifest.artifacts,
             stages: stages,
             approvals: approvals,
             suggestedCommandSelections: suggestedCommandSelections,
@@ -165,29 +188,19 @@ public struct RunReviewService: Sendable {
         )
     }
 
-    private func foundationArtifactReferences(
-        _ references: [XcircuiteFileReference]
-    ) throws -> [ArtifactReference] {
-        try references.map { reference in
-            guard let artifact = FoundationArtifactTypeProjection.reference(reference) else {
-                throw RunReviewServiceError.artifactReferenceProjectionFailed(
-                    path: reference.path,
-                    message: "Artifact reference is missing valid digest, byte count, kind, or format metadata."
-                )
-            }
-            return artifact
-        }
-    }
-
-    public func loadReviewBundle(runID: String, projectRoot: URL) throws -> FlowRunReviewBundle {
-        try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+    public func loadReviewBundle(runID: String, projectRoot: URL) async throws -> FlowRunReviewBundle {
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let loader = configuredLedgerLoader(store: store)
+        return try await configuredReviewBundler(store: store, loader: loader)
+            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
     }
 
     public func loadSuggestedCommandSelections(
         runID: String,
         projectRoot: URL
-    ) throws -> [XcircuiteSuggestedCommandSelection] {
-        try store.loadSuggestedCommandSelections(runID: runID, inProjectAt: projectRoot)
+    ) async throws -> [FlowSuggestedCommandSelection] {
+        try await workspaceStore(projectRoot: projectRoot)
+            .loadSuggestedCommandSelections(runID: runID)
     }
 
     public func recordSuggestedCommandSelection(
@@ -196,8 +209,11 @@ public struct RunReviewService: Sendable {
         commandID: String,
         reviewer: String,
         projectRoot: URL
-    ) throws -> XcircuiteRunActionRecord {
-        let bundle = try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+    ) async throws -> FlowRunActionRecord {
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let loader = configuredLedgerLoader(store: store)
+        let bundle = try await configuredReviewBundler(store: store, loader: loader)
+            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
         guard let nextAction = bundle.summary.nextActions.first(where: { $0.actionID == nextActionID }) else {
             throw RunReviewServiceError.nextActionNotFound(actionID: nextActionID)
         }
@@ -208,36 +224,39 @@ public struct RunReviewService: Sendable {
             )
         }
 
-        let record = XcircuiteRunActionRecord(
+        let record = FlowRunActionRecord(
             actionID: "suggested-command-selection-\(UUID().uuidString)",
             runID: runID,
-            actor: XcircuiteRunActionActor(kind: .human, identifier: reviewer),
-            actionKind: "review.selectSuggestedCommand",
+            actor: FlowRunActor(kind: .human, identifier: reviewer),
+            actionKind: FlowSuggestedCommandSelection.actionKind,
             status: .succeeded,
-            metadata: [
-                "nextActionID": .string(nextAction.actionID),
-                "nextActionKind": .string(nextAction.kind),
-                "commandID": .string(command.commandID),
-                "readiness": .string(command.readiness.rawValue),
-                "executable": .string(command.executable),
-                "arguments": .array(command.arguments.map { .string($0) }),
-                "reason": .string(command.reason),
-            ]
+            context: FlowRunActionContext(
+                suggestedCommand: FlowRunActionContext.SuggestedCommand(
+                    nextActionID: nextAction.actionID,
+                    nextActionKind: nextAction.kind,
+                    commandID: command.commandID,
+                    readiness: command.readiness.rawValue,
+                    executable: command.executable,
+                    arguments: command.arguments,
+                    reason: command.reason
+                )
+            )
         )
-        try store.appendRunAction(record, inProjectAt: projectRoot)
+        try await store.appendRunAction(record)
         return record
     }
 
     public func decidePlanningRiskApproval(
         runID: String,
         approvalID: String,
-        verdict: XcircuiteApprovalRecord.Verdict,
+        verdict: FlowApprovalRecord.Verdict,
         reviewer: String,
-        reviewerKind: XcircuiteRunActionActor.Kind = .human,
+        reviewerKind: FlowRunActor.Kind = .human,
         note: String = "",
         projectRoot: URL
-    ) throws -> XcircuiteCandidatePlanRiskApprovalResult {
-        try XcircuiteCandidatePlanRiskApprovalRecorder(workspaceStore: store).recordApproval(
+    ) async throws -> XcircuiteCandidatePlanRiskApprovalResult {
+        let store = try workspaceStore(projectRoot: projectRoot)
+        return try await XcircuiteCandidatePlanRiskApprovalRecorder(workspaceStore: store).recordApproval(
             request: XcircuiteCandidatePlanRiskApprovalRequest(
                 runID: runID,
                 approvalID: approvalID,
@@ -257,31 +276,37 @@ public struct RunReviewService: Sendable {
     public func decide(
         runID: String,
         stageID: String,
-        verdict: XcircuiteApprovalRecord.Verdict,
+        verdict: FlowApprovalRecord.Verdict,
         reviewer: String,
-        reviewerKind: XcircuiteRunActionActor.Kind = .human,
+        reviewerKind: FlowRunActor.Kind = .human,
         note: String = "",
         projectRoot: URL
-    ) throws -> XcircuiteApprovalRecord {
-        let record = XcircuiteApprovalRecord(
+    ) async throws -> FlowApprovalRecord {
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let loader = configuredLedgerLoader(store: store)
+        let bundler = configuredReviewBundler(store: store, loader: loader)
+        let recorder = DefaultFlowGateApprovalRecorder(
+            loader: loader,
+            inspector: DefaultFlowRunLedgerInspector(reviewBundler: bundler),
+            ledgerPersistence: store
+        )
+        let gateVerdict: FlowGateApprovalVerdict = switch verdict {
+        case .approved: .approved
+        case .waived: .waived
+        case .rejected: .rejected
+        }
+        return try await recorder.recordApproval(FlowGateApprovalRequest(
+            projectRoot: projectRoot,
             runID: runID,
             stageID: stageID,
-            verdict: verdict,
+            verdict: gateVerdict,
             reviewer: reviewer,
             reviewerKind: reviewerKind,
             note: note
-        )
-        try store.recordApprovalAction(
-            record,
-            metadata: [
-                "source": .string("circuit-studio.run-review"),
-            ],
-            inProjectAt: projectRoot
-        )
-        return record
+        )).approval
     }
 
-    private static func xcircuiteStatus(from status: FlowRunStatus) -> XcircuiteRunStatus {
+    private static func xcircuiteStatus(from status: FlowRunStatus) -> FlowRunStatus {
         switch status {
         case .created:
             .created
@@ -303,9 +328,9 @@ public struct RunReviewService: Sendable {
     private func planningReview(
         bundle: FlowRunReviewBundle,
         projectRoot: URL,
-        approvals: [XcircuiteApprovalRecord],
-        designDiff: XcircuiteDesignDiff?,
-        suggestedCommandSelections: [XcircuiteSuggestedCommandSelection]
+        approvals: [FlowApprovalRecord],
+        designDiff: DesignDiff?,
+        suggestedCommandSelections: [FlowSuggestedCommandSelection]
     ) -> PlanningReview {
         let candidatePlanArtifact = latestArtifact(
             role: "planning-candidate-plan",
@@ -393,7 +418,7 @@ public struct RunReviewService: Sendable {
 
     private func riskReviews(
         for plan: XcircuiteCandidatePlan,
-        approvals: [XcircuiteApprovalRecord]
+        approvals: [FlowApprovalRecord]
     ) -> [XcircuitePlanRiskReview] {
         let approvalsByID = Dictionary(uniqueKeysWithValues: approvals.map { ($0.stageID, $0) })
         return plan.riskClassifications.map { risk in
@@ -417,7 +442,7 @@ public struct RunReviewService: Sendable {
 
     private func approvalReview(
         for approvalID: String,
-        approvalsByID: [String: XcircuiteApprovalRecord]
+        approvalsByID: [String: FlowApprovalRecord]
     ) -> XcircuitePlanApprovalReview {
         guard let approval = approvalsByID[approvalID] else {
             return XcircuitePlanApprovalReview(approvalID: approvalID, status: "missing")

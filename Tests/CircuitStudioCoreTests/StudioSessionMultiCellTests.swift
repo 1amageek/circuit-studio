@@ -45,11 +45,11 @@ private func instance(of cellName: String, named instanceName: String) -> Placed
     )
 }
 
-private func makeTemporaryProject() throws -> URL {
+private func makeTemporaryProject() async throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "studio-multicell-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    try ProjectService().createProject(at: root)
+    try await ProjectService().createProject(at: root)
     return root
 }
 
@@ -79,7 +79,7 @@ struct StudioSessionMultiCellTests {
     }
 
     @Test("Adding a cell appends it, activates it, and leaves the top cell alone")
-    func addCellAppendsAndActivates() throws {
+    func addCellAppendsAndActivates() async throws {
         let project = StudioSession()
         try project.addCell(named: "INV")
 
@@ -89,7 +89,7 @@ struct StudioSessionMultiCellTests {
     }
 
     @Test("Adding trims surrounding whitespace from the cell name")
-    func addCellTrimsWhitespace() throws {
+    func addCellTrimsWhitespace() async throws {
         let project = StudioSession()
         try project.addCell(named: "  Buffer  ")
         #expect(project.cell(named: "Buffer") != nil)
@@ -97,7 +97,7 @@ struct StudioSessionMultiCellTests {
     }
 
     @Test("Activating switches the active cell and rejects an unknown name")
-    func activateCellSwitchesAndGuards() throws {
+    func activateCellSwitchesAndGuards() async throws {
         let project = StudioSession()
         try project.addCell(named: "INV")
         try project.activateCell(named: StudioSession.defaultCellName)
@@ -109,7 +109,7 @@ struct StudioSessionMultiCellTests {
     }
 
     @Test("Designating a top cell changes the root and rejects an unknown name")
-    func setTopCellChangesRoot() throws {
+    func setTopCellChangesRoot() async throws {
         let project = StudioSession()
         try project.addCell(named: "INV")
         try project.setTopCell(named: "INV")
@@ -137,7 +137,7 @@ struct StudioSessionValidationTests {
     }
 
     @Test("A duplicate name is rejected case-insensitively and adds nothing")
-    func duplicateNameRejectedCaseInsensitively() throws {
+    func duplicateNameRejectedCaseInsensitively() async throws {
         let project = StudioSession()
         try project.addCell(named: "Amp")
         #expect(throws: StudioSessionError.duplicateCellName("amp")) {
@@ -162,7 +162,7 @@ struct StudioSessionRemovalTests {
     }
 
     @Test("The top cell cannot be removed until another cell is made top")
-    func cannotRemoveTopCell() throws {
+    func cannotRemoveTopCell() async throws {
         let project = StudioSession()
         try project.addCell(named: "INV")
         #expect(throws: StudioSessionError.cannotRemoveTopCell(StudioSession.defaultCellName)) {
@@ -171,7 +171,7 @@ struct StudioSessionRemovalTests {
     }
 
     @Test("A cell still instantiated by another cell cannot be removed")
-    func cannotRemoveCellInUse() throws {
+    func cannotRemoveCellInUse() async throws {
         let project = StudioSession()                       // Top
         try project.addCell(named: "INV")                   // active INV
         project.schematicViewModel.document = twoPortCellSchematic()
@@ -185,7 +185,7 @@ struct StudioSessionRemovalTests {
     }
 
     @Test("Removing the active, unreferenced cell succeeds and falls back to the top cell")
-    func removeUnusedCellFallsBackToTop() throws {
+    func removeUnusedCellFallsBackToTop() async throws {
         let project = StudioSession()                       // Top
         try project.addCell(named: "Scratch")               // active Scratch
         #expect(project.activeCellName == "Scratch")
@@ -196,7 +196,7 @@ struct StudioSessionRemovalTests {
     }
 
     @Test("Removing a cell that does not exist throws")
-    func removeUnknownCellThrows() throws {
+    func removeUnknownCellThrows() async throws {
         let project = StudioSession()
         try project.addCell(named: "A")
         #expect(throws: StudioSessionError.unknownCell("Ghost")) {
@@ -212,7 +212,7 @@ struct StudioSessionRemovalTests {
 struct StudioSessionCatalogTests {
 
     @Test("A sibling cell becomes placeable in another cell after its interface exists")
-    func siblingBecomesPlaceable() throws {
+    func siblingBecomesPlaceable() async throws {
         let project = StudioSession()                       // Top
         try project.addCell(named: "INV")                   // active INV
         project.schematicViewModel.document = twoPortCellSchematic()
@@ -225,7 +225,7 @@ struct StudioSessionCatalogTests {
     }
 
     @Test("A cell never offers itself in its own palette")
-    func cellCannotPlaceItself() throws {
+    func cellCannotPlaceItself() async throws {
         let project = StudioSession()
         try project.addCell(named: "INV")
         project.schematicViewModel.document = twoPortCellSchematic()
@@ -236,7 +236,7 @@ struct StudioSessionCatalogTests {
     }
 
     @Test("A cell whose interface fails to derive surfaces as a catalog issue, not a crash")
-    func brokenCellSurfacesAsIssue() throws {
+    func brokenCellSurfacesAsIssue() async throws {
         let project = StudioSession()
         try project.addCell(named: "BROKEN")
         // An unconnected boundary port makes the interface invalid.
@@ -249,7 +249,7 @@ struct StudioSessionCatalogTests {
     }
 
     @Test("Unsaved changes aggregate across every cell, not just the active one")
-    func hasUnsavedChangesAggregatesAcrossCells() throws {
+    func hasUnsavedChangesAggregatesAcrossCells() async throws {
         let project = StudioSession()
         try project.addCell(named: "INV")                   // active INV, both cells empty
         #expect(!project.hasUnsavedChanges)
@@ -273,8 +273,8 @@ struct StudioSessionCatalogTests {
 struct StudioSessionPersistenceRoundTripTests {
 
     @Test("A multi-cell hierarchy survives save and reopen with its top/active designation")
-    func multiCellProjectSurvivesSaveAndReopen() throws {
-        let root = try makeTemporaryProject()
+    func multiCellProjectSurvivesSaveAndReopen() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let service = ProjectService()
 
@@ -296,7 +296,7 @@ struct StudioSessionPersistenceRoundTripTests {
                 forProjectAt: root
             )
         }
-        try service.saveStudioSessionManifest(
+        try await service.saveStudioSessionManifest(
             StudioSessionManifest(topCell: project.topCellName, activeCell: project.activeCellName),
             forProjectAt: root
         )
@@ -328,8 +328,8 @@ struct StudioSessionPersistenceRoundTripTests {
     }
 
     @Test("A project with no cells on disk reopens as a single empty top cell")
-    func emptyProjectReopensWithDefaultCell() throws {
-        let root = try makeTemporaryProject()
+    func emptyProjectReopensWithDefaultCell() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let service = ProjectService()
 

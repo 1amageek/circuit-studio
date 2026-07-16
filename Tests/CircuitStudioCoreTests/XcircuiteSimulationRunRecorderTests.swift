@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import DesignFlowKernel
+import Xcircuite
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 
@@ -11,21 +12,19 @@ struct XcircuiteSimulationRunRecorderTests {
         defer { removeTemporaryRoot(root) }
         let startedAt = Date(timeIntervalSince1970: 1_000)
         let recorder = XcircuiteSimulationRunRecorder(
-            actor: XcircuiteRunActionActor(kind: .human, identifier: "layout-engineer"),
+            actor: FlowRunActor(kind: .human, identifier: "layout-engineer"),
             runID: { "simulation-completed" }
         )
 
-        let context = try recorder.begin(
+        let context = try await recorder.begin(
             projectRoot: root,
             intent: "Run operating point simulation.",
             source: "Voltage divider\n.op\n.end\n",
             fileName: "divider.cir",
             startedAt: startedAt
         )
-        let running = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: context.runID,
-            inProjectAt: root
-        )
+        let running = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: context.runID)
         #expect(running.status == .running)
         #expect(running.artifacts.contains { $0.artifactID == "simulation-request" })
         #expect(running.artifacts.contains { $0.artifactID == "simulation-input-netlist" })
@@ -50,24 +49,22 @@ struct XcircuiteSimulationRunRecorderTests {
             ]
         )
 
-        let completed = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: context.runID,
-            inProjectAt: root
-        )
+        let completed = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: context.runID)
         #expect(completed.status == .succeeded)
         #expect(completed.actor.identifier == "layout-engineer")
         #expect(completed.intent == "Run operating point simulation.")
         #expect(completed.artifacts.contains { $0.artifactID == "simulation-summary" })
     }
 
-    @Test func explicitSimulationFailureIsPersisted() throws {
+    @Test func explicitSimulationFailureIsPersisted() async throws {
         let root = try makeTemporaryRoot("failed")
         defer { removeTemporaryRoot(root) }
         let recorder = XcircuiteSimulationRunRecorder(
-            actor: XcircuiteRunActionActor(kind: .human, identifier: "layout-engineer"),
+            actor: FlowRunActor(kind: .human, identifier: "layout-engineer"),
             runID: { "simulation-failed" }
         )
-        let context = try recorder.begin(
+        let context = try await recorder.begin(
             projectRoot: root,
             intent: "Run transient simulation.",
             source: "Transient\n.tran 1n 1u\n.end\n",
@@ -75,17 +72,15 @@ struct XcircuiteSimulationRunRecorderTests {
             startedAt: Date(timeIntervalSince1970: 2_000)
         )
 
-        try recorder.fail(context: context, reason: "non-convergence")
+        try await recorder.fail(context: context, reason: "non-convergence")
 
-        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: context.runID,
-            inProjectAt: root
-        )
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: context.runID)
         #expect(manifest.status == .failed)
         #expect(manifest.artifacts.contains { $0.artifactID == "simulation-error" })
     }
 
-    @Test func setupFailureRetainsCompletedEvidenceAndStructuredError() throws {
+    @Test func setupFailureRetainsCompletedEvidenceAndStructuredError() async throws {
         let root = try makeTemporaryRoot("setup-failed")
         defer { removeTemporaryRoot(root) }
         let runID = "simulation-setup-failed"
@@ -98,12 +93,12 @@ struct XcircuiteSimulationRunRecorderTests {
             withIntermediateDirectories: true
         )
         let recorder = XcircuiteSimulationRunRecorder(
-            actor: XcircuiteRunActionActor(kind: .human, identifier: "layout-engineer"),
+            actor: FlowRunActor(kind: .human, identifier: "layout-engineer"),
             runID: { runID }
         )
 
         do {
-            _ = try recorder.begin(
+            _ = try await recorder.begin(
                 projectRoot: root,
                 intent: "Run setup failure regression.",
                 source: "Voltage divider\n.op\n.end\n",
@@ -112,13 +107,11 @@ struct XcircuiteSimulationRunRecorderTests {
             )
             Issue.record("Expected simulation setup to fail.")
         } catch {
-            #expect(error is XcircuiteWorkspaceError)
+            #expect(error is XcircuiteWorkspaceStoreError)
         }
 
-        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: runID,
-            inProjectAt: root
-        )
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: runID)
         #expect(manifest.status == .failed)
         #expect(manifest.artifacts.contains { $0.artifactID == "simulation-request" })
         #expect(manifest.artifacts.contains { $0.artifactID == "simulation-error" })
@@ -129,7 +122,7 @@ struct XcircuiteSimulationRunRecorderTests {
         let appState = AppState()
         appState.spiceSource = "Voltage divider\n.op\n.end\n"
         let recorder = XcircuiteSimulationRunRecorder(
-            actor: XcircuiteRunActionActor(kind: .human, identifier: "layout-engineer"),
+            actor: FlowRunActor(kind: .human, identifier: "layout-engineer"),
             runID: { "simulation-without-project" }
         )
 
@@ -151,7 +144,7 @@ struct XcircuiteSimulationRunRecorderTests {
         appState.showSchematic(.netlist)
         appState.spiceSource = ""
         let recorder = XcircuiteSimulationRunRecorder(
-            actor: XcircuiteRunActionActor(kind: .human, identifier: "layout-engineer"),
+            actor: FlowRunActor(kind: .human, identifier: "layout-engineer"),
             runID: { "simulation-preflight-failed" }
         )
 
@@ -161,10 +154,8 @@ struct XcircuiteSimulationRunRecorderTests {
             recorder: recorder
         )
 
-        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: "simulation-preflight-failed",
-            inProjectAt: root
-        )
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: "simulation-preflight-failed")
         #expect(manifest.status == .failed)
         #expect(manifest.artifacts.contains { $0.artifactID == "simulation-request" })
         #expect(manifest.artifacts.contains { $0.artifactID == "simulation-error" })

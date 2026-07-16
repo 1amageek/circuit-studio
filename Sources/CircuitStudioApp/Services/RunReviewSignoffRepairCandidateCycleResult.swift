@@ -11,7 +11,7 @@ public struct RunReviewSignoffRepairCandidateCycleResult: Sendable, Hashable, Co
     public let candidateGeneration: XcircuiteCandidatePlanGenerationResult
     public let candidateExecution: XcircuiteCandidatePlanExecutionResult
     public let candidateVerification: XcircuiteCandidatePlanVerificationResult
-    public let cycleActionRecord: XcircuiteRunActionRecord
+    public let cycleActionRecord: FlowRunActionRecord
 
     public init(
         runID: String,
@@ -22,7 +22,7 @@ public struct RunReviewSignoffRepairCandidateCycleResult: Sendable, Hashable, Co
         candidateGeneration: XcircuiteCandidatePlanGenerationResult,
         candidateExecution: XcircuiteCandidatePlanExecutionResult,
         candidateVerification: XcircuiteCandidatePlanVerificationResult,
-        cycleActionRecord: XcircuiteRunActionRecord
+        cycleActionRecord: FlowRunActionRecord
     ) {
         self.runID = runID
         self.cycleIndex = cycleIndex

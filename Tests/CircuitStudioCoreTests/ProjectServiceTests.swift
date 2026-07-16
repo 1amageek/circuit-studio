@@ -4,16 +4,17 @@ import PEXEngine
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 import DesignFlowKernel
+import Xcircuite
 
 @Suite("ProjectService Tests")
 struct ProjectServiceTests {
 
-    @Test func createProjectBootstrapsWorkspaceAndPEXFiles() throws {
+    @Test func createProjectBootstrapsWorkspaceAndPEXFiles() async throws {
         let root = try makeTemporaryProjectRoot("bootstrap")
         defer { removeTemporaryProjectRoot(root) }
 
         let service = ProjectService()
-        try service.createProject(at: root)
+        try await service.createProject(at: root)
 
         #expect(service.isProject(root))
         #expect(fileExists(".xcircuite/project.json", in: root))
@@ -47,12 +48,12 @@ struct ProjectServiceTests {
         #expect(pexTOML.contains("backend = \"\""))
     }
 
-    @Test func saveAndLoadWorkspaceCellsAndSimulationConfigs() throws {
+    @Test func saveAndLoadWorkspaceCellsAndSimulationConfigs() async throws {
         let root = try makeTemporaryProjectRoot("configs")
         defer { removeTemporaryProjectRoot(root) }
 
         let service = ProjectService()
-        try service.createProject(at: root)
+        try await service.createProject(at: root)
 
         let workspace = WorkspaceConfig(
             editorDestination: "layout",
@@ -65,7 +66,7 @@ struct ProjectServiceTests {
         let leafDoc = SchematicDocument(labels: [NetLabel(name: "Y", position: .zero)])
         try service.saveCellSchematic(topDoc, cellName: "Amp", forProjectAt: root)
         try service.saveCellSchematic(leafDoc, cellName: "Buffer", forProjectAt: root)
-        try service.saveStudioSessionManifest(
+        try await service.saveStudioSessionManifest(
             StudioSessionManifest(topCell: "Amp", activeCell: "Buffer"),
             forProjectAt: root
         )
@@ -104,12 +105,12 @@ struct ProjectServiceTests {
         #expect(loadedSimulation.selectedAnalysis == .tran(TranSpec(stopTime: 1e-6, stepTime: 1e-9)))
     }
 
-    @Test func listCellNamesRejectsInvalidPersistedCellDirectoryName() throws {
+    @Test func listCellNamesRejectsInvalidPersistedCellDirectoryName() async throws {
         let root = try makeTemporaryProjectRoot("invalid-cell-directory")
         defer { removeTemporaryProjectRoot(root) }
 
         let service = ProjectService()
-        try service.createProject(at: root)
+        try await service.createProject(at: root)
 
         let invalidCellDirectory = root.appending(path: "cells/1bad")
         try FileManager.default.createDirectory(at: invalidCellDirectory, withIntermediateDirectories: true)
@@ -124,7 +125,7 @@ struct ProjectServiceTests {
         }
     }
 
-    @Test func obsoleteStudioSessionManifestIsRejectedWithoutRewritingProjectLedger() throws {
+    @Test func obsoleteStudioSessionManifestIsRejectedWithoutRewritingProjectLedger() async throws {
         let root = try makeTemporaryProjectRoot("obsolete-manifest-rejected")
         defer { removeTemporaryProjectRoot(root) }
 
@@ -142,8 +143,8 @@ struct ProjectServiceTests {
 
         let service = ProjectService()
         #expect(try service.loadStudioSessionManifestIfPresent(forProjectAt: root) == nil)
-        #expect(throws: XcircuiteWorkspaceError.self) {
-            try service.saveStudioSessionManifest(
+        await #expect(throws: XcircuiteWorkspaceStoreError.self) {
+            try await service.saveStudioSessionManifest(
                 StudioSessionManifest(topCell: "ObsoleteTop", activeCell: "Leaf"),
                 forProjectAt: root
             )
@@ -158,12 +159,12 @@ struct ProjectServiceTests {
         #expect(!fileExists(".xcircuite/studio-session.json", in: root))
     }
 
-    @Test func savePEXProjectConfigWritesJSONAndTOML() throws {
+    @Test func savePEXProjectConfigWritesJSONAndTOML() async throws {
         let root = try makeTemporaryProjectRoot("pex")
         defer { removeTemporaryProjectRoot(root) }
 
         let service = ProjectService()
-        try service.createProject(at: root)
+        try await service.createProject(at: root)
 
         let config = PEXProjectConfig(
             enabled: true,
@@ -211,12 +212,12 @@ struct ProjectServiceTests {
         #expect(toml.contains("id = \"ss\""))
     }
 
-    @Test func saveNetlistCreatesIntermediateDirectories() throws {
+    @Test func saveNetlistCreatesIntermediateDirectories() async throws {
         let root = try makeTemporaryProjectRoot("netlist")
         defer { removeTemporaryProjectRoot(root) }
 
         let service = ProjectService()
-        try service.createProject(at: root)
+        try await service.createProject(at: root)
 
         let source = """
         * RC test
@@ -234,12 +235,12 @@ struct ProjectServiceTests {
         #expect(loaded == source)
     }
 
-    @Test func projectRootFileOperationsRejectUnsafeFileNames() throws {
+    @Test func projectRootFileOperationsRejectUnsafeFileNames() async throws {
         let root = try makeTemporaryProjectRoot("unsafe-root-file")
         defer { removeTemporaryProjectRoot(root) }
 
         let service = ProjectService()
-        try service.createProject(at: root)
+        try await service.createProject(at: root)
 
         let unsafeFileNames = [
             "",
@@ -280,7 +281,7 @@ struct ProjectServiceTests {
         defer { removeTemporaryProjectRoot(root) }
 
         let service = ProjectService()
-        try service.createProject(at: root)
+        try await service.createProject(at: root)
 
         let source = """
         * imported top-level deck
@@ -296,7 +297,7 @@ struct ProjectServiceTests {
             catalog: .standard()
         )
 
-        try service.saveMaterializedSchematic(result, forProjectAt: root)
+        try await service.saveMaterializedSchematic(result, forProjectAt: root)
 
         #expect(fileExists("cells/Top/schematic.json", in: root))
         #expect(fileExists(".xcircuite/studio-session.json", in: root))

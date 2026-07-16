@@ -1,6 +1,5 @@
 import Foundation
 import DesignFlowKernel
-import DesignFlowKernel
 
 public enum RoundTripActionLogServiceError: Error, LocalizedError, Equatable {
     case missingRunID
@@ -57,7 +56,7 @@ public struct RoundTripActionLogService: Sendable {
 
     public func loadSuggestedCommandSelections(
         manifestURL: URL
-    ) throws -> [XcircuiteSuggestedCommandSelection] {
+    ) throws -> [FlowSuggestedCommandSelection] {
         let actionsURL = actionLogURL(forManifestAt: manifestURL)
         guard fileExists(actionsURL) else {
             return []
@@ -73,11 +72,11 @@ public struct RoundTripActionLogService: Sendable {
         }
 
         let decoder = JSONDecoder()
-        var selections: [XcircuiteSuggestedCommandSelection] = []
+        var selections: [FlowSuggestedCommandSelection] = []
         for line in text.split(separator: "\n") {
             do {
-                let record = try decoder.decode(XcircuiteRunActionRecord.self, from: Data(line.utf8))
-                if let selection = try XcircuiteSuggestedCommandSelection(record: record) {
+                let record = try decoder.decode(FlowRunActionRecord.self, from: Data(line.utf8))
+                if let selection = try FlowSuggestedCommandSelection(record: record) {
                     selections.append(selection)
                 }
             } catch {
@@ -94,7 +93,7 @@ public struct RoundTripActionLogService: Sendable {
         from failure: FlowRunnerFailureEnvelope,
         commandID: String,
         reviewer: String
-    ) throws -> XcircuiteRunActionRecord {
+    ) throws -> FlowRunActionRecord {
         guard let runID = failure.runID else {
             throw RoundTripActionLogServiceError.missingRunID
         }
@@ -125,27 +124,24 @@ public struct RoundTripActionLogService: Sendable {
             throw RoundTripActionLogServiceError.suggestedCommandNotFound(commandID: commandID)
         }
 
-        let record = XcircuiteRunActionRecord(
+        let record = FlowRunActionRecord(
             actionID: "round-trip-suggested-command-selection-\(UUID().uuidString)",
             runID: runID,
             stageID: nextAction.stageID,
-            actor: XcircuiteRunActionActor(kind: .human, identifier: reviewer),
-            actionKind: XcircuiteSuggestedCommandSelection.actionKind,
+            actor: FlowRunActor(kind: .human, identifier: reviewer),
+            actionKind: FlowSuggestedCommandSelection.actionKind,
             status: .succeeded,
-            metadata: [
-                "sourceKind": .string(FlowRunnerFailureEnvelope.envelopeKind),
-                "nextActionID": .string(nextAction.actionID),
-                "nextActionKind": .string(nextAction.kind),
-                "commandID": .string(command.commandID),
-                "readiness": .string(command.readiness.rawValue),
-                "executable": .string(command.executable),
-                "arguments": .array(command.arguments.map { .string($0) }),
-                "reason": .string(command.reason),
-                "failureErrorKind": .string(failure.errorKind),
-                "failureErrorType": .string(failure.errorType),
-                "failureStage": failure.stage.map { .string($0) } ?? .null,
-                "manifest": .string(manifestPath),
-            ]
+            context: FlowRunActionContext(
+                suggestedCommand: FlowRunActionContext.SuggestedCommand(
+                    nextActionID: nextAction.actionID,
+                    nextActionKind: nextAction.kind,
+                    commandID: command.commandID,
+                    readiness: command.readiness.rawValue,
+                    executable: command.executable,
+                    arguments: command.arguments,
+                    reason: command.reason
+                )
+            )
         )
         try append(record, manifestURL: manifestURL)
         return record
@@ -167,7 +163,7 @@ public struct RoundTripActionLogService: Sendable {
         return nextAction
     }
 
-    private func append(_ record: XcircuiteRunActionRecord, manifestURL: URL) throws {
+    private func append(_ record: FlowRunActionRecord, manifestURL: URL) throws {
         let runDirectory = manifestURL.deletingLastPathComponent()
         guard directoryExists(runDirectory) else {
             throw RoundTripActionLogServiceError.missingRunDirectory(runDirectory)

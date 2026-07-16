@@ -51,13 +51,13 @@ public struct RunReviewDesignDiffArtifactSummary: Sendable, Hashable {
     public let artifactID: String?
     public let path: String
     public let sha256: String?
-    public let byteCount: Int64?
+    public let byteCount: UInt64?
 
     public init(
         artifactID: String?,
         path: String,
         sha256: String?,
-        byteCount: Int64?
+        byteCount: UInt64?
     ) {
         self.artifactID = artifactID
         self.path = path

@@ -1,6 +1,5 @@
 import DesignFlowKernel
 import Foundation
-import DesignFlowKernel
 
 struct RunReviewArtifactEvaluationProjection: Sendable, Hashable {
     let evidence: [RunReviewArtifactEvaluationEvidence]
@@ -69,11 +68,11 @@ extension RunReviewService {
     private func loadArtifactEvaluationEnvelope(
         _ artifact: FlowRunReviewArtifact,
         projectRoot: URL
-    ) throws -> XcircuiteArtifactEnvelope {
+    ) throws -> FlowArtifactEnvelope {
         try validateArtifactEvaluationEnvelopeIntegrity(artifact)
         let data = try Data(contentsOf: artifactEvaluationURL(for: artifact, projectRoot: projectRoot))
-        let envelope = try JSONDecoder().decode(XcircuiteArtifactEnvelope.self, from: data)
-        try XcircuiteArtifactEnvelopeValidator().validate(envelope)
+        let envelope = try JSONDecoder().decode(FlowArtifactEnvelope.self, from: data)
+        try FlowArtifactEnvelopeValidator().validate(envelope)
         return envelope
     }
 
@@ -107,7 +106,7 @@ extension RunReviewService {
     }
 
     private func artifactEvaluationEnvelope(
-        _ envelope: XcircuiteArtifactEnvelope,
+        _ envelope: FlowArtifactEnvelope,
         references artifact: FlowRunReviewArtifact
     ) -> Bool {
         if envelope.reference.path == artifact.path {
@@ -121,7 +120,7 @@ extension RunReviewService {
     }
 
     private func artifactEvaluationEvidence(
-        envelope: XcircuiteArtifactEnvelope,
+        envelope: FlowArtifactEnvelope,
         envelopeArtifact: FlowRunReviewArtifact
     ) -> RunReviewArtifactEvaluationEvidence {
         let observationSet = envelope.observationSet
@@ -152,7 +151,7 @@ extension RunReviewService {
     }
 
     private func artifactEvaluationDetailSections(
-        _ envelope: XcircuiteArtifactEnvelope
+        _ envelope: FlowArtifactEnvelope
     ) -> [RunReviewSignoffDetailSection] {
         var sections: [RunReviewSignoffDetailSection] = []
         if let summarySection = artifactEvaluationSummarySection(envelope) {
@@ -171,7 +170,7 @@ extension RunReviewService {
     }
 
     private func artifactEvaluationSummarySection(
-        _ envelope: XcircuiteArtifactEnvelope
+        _ envelope: FlowArtifactEnvelope
     ) -> RunReviewSignoffDetailSection? {
         guard envelope.evaluationSpec != nil
             || envelope.observationSet != nil
@@ -229,7 +228,7 @@ extension RunReviewService {
     }
 
     private func artifactEvaluationCriteriaSection(
-        _ spec: XcircuiteEvaluationSpec?
+        _ spec: FlowEvaluationSpec?
     ) -> RunReviewSignoffDetailSection? {
         guard let spec, !spec.criteria.isEmpty else {
             return nil
@@ -254,7 +253,7 @@ extension RunReviewService {
     }
 
     private func artifactEvaluationChannelsSection(
-        _ observationSet: XcircuiteObservationSet?
+        _ observationSet: FlowObservationSet?
     ) -> RunReviewSignoffDetailSection? {
         guard let observationSet, !observationSet.channels.isEmpty else {
             return nil
@@ -281,7 +280,7 @@ extension RunReviewService {
     }
 
     private func artifactEvaluationFeedbackSection(
-        _ evaluation: XcircuiteEvaluationResult?
+        _ evaluation: FlowEvaluationResult?
     ) -> RunReviewSignoffDetailSection? {
         guard let evaluation, !evaluation.feedbackSignals.isEmpty else {
             return nil
@@ -308,8 +307,8 @@ extension RunReviewService {
     }
 
     private func prioritizedArtifactEvaluationChannels(
-        _ channels: [XcircuiteObservationChannel]
-    ) -> [XcircuiteObservationChannel] {
+        _ channels: [FlowObservationChannel]
+    ) -> [FlowObservationChannel] {
         channels.sorted { left, right in
             let leftRank = artifactEvaluationChannelRank(left.status)
             let rightRank = artifactEvaluationChannelRank(right.status)
@@ -321,7 +320,7 @@ extension RunReviewService {
     }
 
     private func artifactEvaluationChannelRank(
-        _ status: XcircuiteObservationChannelStatus
+        _ status: FlowObservationChannelStatus
     ) -> Int {
         switch status {
         case .failed:
@@ -349,31 +348,29 @@ extension RunReviewService {
     }
 
     private func displayArtifactEvaluationValue(
-        _ value: XcircuiteJSONValue?
+        _ value: FlowMetricValue?
     ) -> String? {
         guard let value else {
             return nil
         }
         switch value {
-        case .null:
-            return "null"
-        case .bool(let bool):
+        case .boolean(let bool):
             return bool ? "true" : "false"
-        case .number(let number):
+        case .scalar(let number):
             return formatArtifactEvaluationNumber(number)
-        case .string(let string):
+        case .quantity(let number, let unit):
+            return "\(formatArtifactEvaluationNumber(number)) \(unit)"
+        case .text(let string):
             return string
-        case .array(let values):
-            let renderedValues = values.prefix(4).compactMap(displayArtifactEvaluationValue)
-            let suffix = values.count > renderedValues.count ? ", ..." : ""
+        case .vector(let values):
+            let renderedValues = values.prefix(4).map(formatArtifactEvaluationNumber)
+            let suffix = values.count > 4 ? ", ..." : ""
             return "[\(renderedValues.joined(separator: ", "))\(suffix)]"
-        case .object(let object):
-            return "{\(object.keys.sorted().prefix(6).joined(separator: ", "))}"
         }
     }
 
     private func displayArtifactEvaluationConfidence(
-        _ confidence: XcircuiteEvidenceConfidence?
+        _ confidence: FlowEvidenceConfidence?
     ) -> String? {
         guard let confidence else {
             return nil

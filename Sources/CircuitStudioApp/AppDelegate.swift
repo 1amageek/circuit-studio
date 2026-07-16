@@ -9,7 +9,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Returns true when any document state is unsaved.
     public var hasUnsavedChanges: (() -> Bool)?
     /// Performs the same save as the File menu's Save command.
-    public var performSave: (() -> Void)?
+    public var performSave: (() async -> Bool)?
 
     public func applicationShouldTerminate(
         _ sender: NSApplication
@@ -26,10 +26,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            performSave?()
-            // A failed save leaves the dirty flag set; never quit past
-            // unsaved work.
-            return hasUnsavedChanges?() == true ? .terminateCancel : .terminateNow
+            Task { @MainActor in
+                let saved = await performSave?() ?? false
+                sender.reply(toApplicationShouldTerminate: saved)
+            }
+            return .terminateLater
         case .alertThirdButtonReturn:
             return .terminateNow
         default:

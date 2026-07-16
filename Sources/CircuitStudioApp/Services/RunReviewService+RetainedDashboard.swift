@@ -61,37 +61,30 @@ extension RunReviewService {
     public func persistRetainedDashboardProjection(
         runID: String,
         projectRoot: URL
-    ) throws -> ArtifactReference {
-        try XcircuiteIdentifierValidator().validate(runID, kind: .runID)
-        let bundle = try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+    ) async throws -> ArtifactReference {
+        try FlowIdentifierValidator().validate(runID, kind: .runID)
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let loader = configuredLedgerLoader(store: store)
+        let bundle = try await configuredReviewBundler(store: store, loader: loader)
+            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
         let projection = retainedDashboardProjection(bundle: bundle)
         let relativePath = ".xcircuite/runs/\(runID)/\(Self.retainedDashboardRelativePath)"
-        let url = try XcircuiteWorkspace(projectRoot: projectRoot).url(forProjectRelativePath: relativePath)
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(projection)
-        try data.write(to: url, options: .atomic)
-        let legacyReference = try store.fileReference(
-            forProjectRelativePath: relativePath,
-            artifactID: Self.retainedDashboardArtifactID,
-            kind: .other,
-            format: .json,
-            inProjectAt: projectRoot,
-            producedByRunID: runID
+        return try await store.persistArtifact(
+            content: data,
+            id: try ArtifactID(rawValue: Self.retainedDashboardArtifactID),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: relativePath),
+                role: .output,
+                kind: .other,
+                format: .json
+            ),
+            runID: runID,
+            mode: .replaceable
         )
-        try store.upsertRunArtifact(legacyReference, runID: runID, inProjectAt: projectRoot)
-        guard let reference = FoundationArtifactTypeProjection.reference(legacyReference) else {
-            throw RunReviewServiceError.artifactReferenceProjectionFailed(
-                path: legacyReference.path,
-                message: "Persisted retained dashboard artifact has invalid integrity, kind, or format metadata."
-            )
-        }
-        return reference
     }
 
     private static func isRetainedDashboardArtifact(_ artifact: FlowRunReviewArtifact) -> Bool {

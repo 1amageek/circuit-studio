@@ -1,13 +1,12 @@
 import DesignFlowKernel
 import Foundation
-import DesignFlowKernel
 
 extension RunReviewService {
     public func loadInteractiveSignoffDrilldown(
         runID: String,
         projectRoot: URL
-    ) throws -> RunReviewInteractiveSignoffDrilldown {
-        let review = try loadRun(runID: runID, projectRoot: projectRoot)
+    ) async throws -> RunReviewInteractiveSignoffDrilldown {
+        let review = try await loadRun(runID: runID, projectRoot: projectRoot)
         return interactiveSignoffDrilldown(from: review)
     }
 
@@ -308,7 +307,7 @@ extension RunReviewService {
     private func drilldownFailures(
         planningDecodeIssues: [PlanningArtifactDecodeIssue],
         signoffDecodeIssues: [RunReviewArtifactDecodeIssue],
-        artifactIndex: [RunReviewInteractiveSignoffDrilldown.ArtifactReference]
+        artifactIndex: [RunReviewInteractiveSignoffDrilldown.ArtifactSummary]
     ) -> [RunReviewInteractiveSignoffDrilldown.Failure] {
         let planningFailures = planningDecodeIssues.map { issue in
             RunReviewInteractiveSignoffDrilldown.Failure(
@@ -360,8 +359,8 @@ extension RunReviewService {
 
     private func drilldownArtifactIndex(
         _ sections: [RunReviewInteractiveSignoffDrilldown.Section]
-    ) -> [RunReviewInteractiveSignoffDrilldown.ArtifactReference] {
-        var refsByPath: [String: RunReviewInteractiveSignoffDrilldown.ArtifactReference] = [:]
+    ) -> [RunReviewInteractiveSignoffDrilldown.ArtifactSummary] {
+        var refsByPath: [String: RunReviewInteractiveSignoffDrilldown.ArtifactSummary] = [:]
         let refs = sections.flatMap { section in
             section.items.flatMap { item in
                 item.artifactReferences
@@ -384,9 +383,9 @@ extension RunReviewService {
     }
 
     private func preferredDrilldownArtifactReference(
-        _ current: RunReviewInteractiveSignoffDrilldown.ArtifactReference,
-        _ candidate: RunReviewInteractiveSignoffDrilldown.ArtifactReference
-    ) -> RunReviewInteractiveSignoffDrilldown.ArtifactReference {
+        _ current: RunReviewInteractiveSignoffDrilldown.ArtifactSummary,
+        _ candidate: RunReviewInteractiveSignoffDrilldown.ArtifactSummary
+    ) -> RunReviewInteractiveSignoffDrilldown.ArtifactSummary {
         let currentScore = drilldownArtifactReferenceEvidenceScore(current)
         let candidateScore = drilldownArtifactReferenceEvidenceScore(candidate)
         if candidateScore != currentScore {
@@ -396,7 +395,7 @@ extension RunReviewService {
     }
 
     private func drilldownArtifactReferenceEvidenceScore(
-        _ ref: RunReviewInteractiveSignoffDrilldown.ArtifactReference
+        _ ref: RunReviewInteractiveSignoffDrilldown.ArtifactSummary
     ) -> Int {
         var score = 0
         if ref.source == "run-ledger" {
@@ -497,7 +496,7 @@ extension RunReviewService {
 
     private func drilldownArtifactReferences(
         _ artifacts: [FlowRunReviewArtifact]
-    ) -> [RunReviewInteractiveSignoffDrilldown.ArtifactReference] {
+    ) -> [RunReviewInteractiveSignoffDrilldown.ArtifactSummary] {
         var seenPaths = Set<String>()
         return artifacts.filter { artifact in
             seenPaths.insert(artifact.path).inserted
@@ -507,12 +506,12 @@ extension RunReviewService {
     private func drilldownArtifactReferences(
         _ artifacts: [RunReviewDesignDiffArtifactSummary],
         role: String
-    ) -> [RunReviewInteractiveSignoffDrilldown.ArtifactReference] {
+    ) -> [RunReviewInteractiveSignoffDrilldown.ArtifactSummary] {
         var seenPaths = Set<String>()
         return artifacts.filter { artifact in
             seenPaths.insert(artifact.path).inserted
         }.map { artifact in
-            RunReviewInteractiveSignoffDrilldown.ArtifactReference(
+            RunReviewInteractiveSignoffDrilldown.ArtifactSummary(
                 refID: artifact.artifactID ?? artifact.path,
                 source: "design-diff",
                 role: role,
@@ -531,8 +530,8 @@ extension RunReviewService {
 
     private func drilldownArtifactReference(
         _ artifact: FlowRunReviewArtifact
-    ) -> RunReviewInteractiveSignoffDrilldown.ArtifactReference {
-        RunReviewInteractiveSignoffDrilldown.ArtifactReference(
+    ) -> RunReviewInteractiveSignoffDrilldown.ArtifactSummary {
+        RunReviewInteractiveSignoffDrilldown.ArtifactSummary(
             refID: artifact.artifactID ?? artifact.path,
             source: "run-ledger",
             role: artifact.role,
@@ -552,8 +551,8 @@ extension RunReviewService {
         path: String,
         role: String,
         source: String
-    ) -> RunReviewInteractiveSignoffDrilldown.ArtifactReference {
-        RunReviewInteractiveSignoffDrilldown.ArtifactReference(
+    ) -> RunReviewInteractiveSignoffDrilldown.ArtifactSummary {
+        RunReviewInteractiveSignoffDrilldown.ArtifactSummary(
             refID: path,
             source: source,
             role: role,

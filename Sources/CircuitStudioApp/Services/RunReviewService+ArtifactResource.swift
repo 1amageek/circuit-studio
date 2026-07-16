@@ -6,8 +6,11 @@ extension RunReviewService {
         runID: String,
         artifact: FlowRunReviewArtifact,
         projectRoot: URL
-    ) throws -> RunReviewArtifactResource {
-        let bundle = try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+    ) async throws -> RunReviewArtifactResource {
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let loader = configuredLedgerLoader(store: store)
+        let bundle = try await configuredReviewBundler(store: store, loader: loader)
+            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
         guard let recordedArtifact = bundle.artifacts.first(where: { isSameArtifact($0, as: artifact) }) else {
             throw RunReviewServiceError.artifactResourceNotFound(
                 runID: runID,
@@ -34,7 +37,7 @@ extension RunReviewService {
                 message: artifact.integrity?.message ?? "No recorded artifact integrity state is available."
             )
         }
-        guard let expectedByteCount = artifact.byteCount, expectedByteCount >= 0 else {
+        guard let expectedByteCount = artifact.byteCount else {
             throw RunReviewServiceError.artifactResourceIntegrityUnverified(
                 path: artifact.path,
                 status: FlowRunReviewArtifactIntegrityStatus.missingByteCount.rawValue,
@@ -64,7 +67,7 @@ extension RunReviewService {
 
         let resourceValues: URLResourceValues
         do {
-            resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey])
+            resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
         } catch {
             throw RunReviewServiceError.artifactResourceUnreadable(
                 path: artifact.path,
@@ -74,6 +77,13 @@ extension RunReviewService {
         guard resourceValues.isRegularFile == true else {
             throw RunReviewServiceError.artifactResourceInputMissing(path: artifact.path)
         }
+        guard let fileSize = resourceValues.fileSize, fileSize >= 0 else {
+            throw RunReviewServiceError.artifactResourceUnreadable(
+                path: artifact.path,
+                message: "Artifact byte count is unavailable."
+            )
+        }
+        let actualByteCount = UInt64(fileSize)
 
         let digest: RoundTripArtifactDigest
         do {
@@ -85,11 +95,11 @@ extension RunReviewService {
             )
         }
 
-        guard digest.byteCount == expectedByteCount else {
+        guard actualByteCount == expectedByteCount else {
             throw RunReviewServiceError.artifactResourceIntegrityUnverified(
                 path: artifact.path,
                 status: FlowRunReviewArtifactIntegrityStatus.byteCountMismatch.rawValue,
-                message: "Recorded byte count \(expectedByteCount) does not match \(digest.byteCount)."
+                message: "Recorded byte count \(expectedByteCount) does not match \(actualByteCount)."
             )
         }
         guard digest.sha256 == expectedSHA256.lowercased() else {

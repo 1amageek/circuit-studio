@@ -7,6 +7,7 @@ import LayoutCore
 import LayoutTech
 import LayoutEngine
 import DesignFlowKernel
+import Xcircuite
 
 @MainActor
 public final class HeadlessRoundTripService {
@@ -24,14 +25,16 @@ public final class HeadlessRoundTripService {
     ]
 
     private let layoutEngineCatalog: any LayoutEngineCataloging
-    private let runLedger: any XcircuiteRunLedgerStoring
+    private let workspaceStoreFactory: @Sendable (URL) throws -> XcircuiteWorkspaceStore
 
     public init(
         layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog(),
-        runLedger: any XcircuiteRunLedgerStoring = XcircuiteWorkspaceStore()
+        workspaceStoreFactory: @escaping @Sendable (URL) throws -> XcircuiteWorkspaceStore = {
+            try XcircuiteWorkspaceStore(projectRoot: $0)
+        }
     ) {
         self.layoutEngineCatalog = layoutEngineCatalog
-        self.runLedger = runLedger
+        self.workspaceStoreFactory = workspaceStoreFactory
     }
 
     public func run(
@@ -43,22 +46,32 @@ public final class HeadlessRoundTripService {
 
         let projectService = ProjectService()
         if !projectService.isProject(configuration.projectRoot) {
-            try projectService.createProject(at: configuration.projectRoot)
+            try await projectService.createProject(at: configuration.projectRoot)
         }
 
-        let runDirectory = try runLedger.createRunDirectory(
-            for: configuration.runID,
-            descriptor: XcircuiteRunDescriptor(
-                actor: configuration.actor,
-                intent: configuration.title,
-                createdAt: configuration.createdAt
-            ),
-            inProjectAt: configuration.projectRoot
+        let ledgerStore = try workspaceStoreFactory(configuration.projectRoot)
+        try await ledgerStore.ensureWorkspace()
+        let runDirectory = try await ledgerStore.url(
+            for: ".xcircuite/runs/\(configuration.runID)"
         )
-        _ = try runLedger.transitionRun(
+        let initialManifest = try FlowRunManifest(
             runID: configuration.runID,
-            transition: XcircuiteRunTransition(status: .running),
-            inProjectAt: configuration.projectRoot
+            status: .created,
+            actor: configuration.actor,
+            intent: configuration.title,
+            createdAt: configuration.createdAt,
+            updatedAt: configuration.createdAt
+        )
+        let initialLedger = FlowRunLedger(
+            runID: configuration.runID,
+            runManifest: initialManifest,
+            stages: []
+        )
+        try await ledgerStore.saveRunLedger(initialLedger)
+        _ = try await FlowRunLedgerCoordinator(persistence: ledgerStore).transition(
+            runID: configuration.runID,
+            to: .running,
+            at: configuration.createdAt
         )
 
         do {
@@ -69,7 +82,7 @@ public final class HeadlessRoundTripService {
             )
         } catch {
             do {
-                try markRunFailedIfNeeded(
+                try await markRunFailedIfNeeded(
                     configuration: configuration,
                     runDirectory: runDirectory,
                     error: error
@@ -112,7 +125,7 @@ public final class HeadlessRoundTripService {
                 message: error.localizedDescription,
                 durationSeconds: duration(since: inputArtifactCaptureStartedAt)
             ))
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 stages: &stages,
@@ -130,7 +143,7 @@ public final class HeadlessRoundTripService {
             durationSeconds: duration(since: netExtractionStartedAt)
         ))
         guard !nets.isEmpty else {
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 stages: &stages,
@@ -170,7 +183,7 @@ public final class HeadlessRoundTripService {
                 message: error.localizedDescription,
                 durationSeconds: duration(since: preLayoutSimulationStartedAt)
             ))
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 stages: &stages,
@@ -192,7 +205,7 @@ public final class HeadlessRoundTripService {
                 artifacts: &artifacts
             )
         } catch {
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 stages: &stages,
@@ -201,7 +214,7 @@ public final class HeadlessRoundTripService {
             )
         }
         guard preLayoutResult.status == .completed else {
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 stages: &stages,
@@ -228,7 +241,7 @@ public final class HeadlessRoundTripService {
                 message: error.localizedDescription,
                 durationSeconds: duration(since: layoutSynthesisStartedAt)
             ))
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 stages: &stages,
@@ -250,7 +263,7 @@ public final class HeadlessRoundTripService {
                 artifacts: &artifacts
             )
         } catch {
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 stages: &stages,
@@ -259,7 +272,7 @@ public final class HeadlessRoundTripService {
             )
         }
         guard layoutOutput.unroutedNets.isEmpty else {
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 stages: &stages,
@@ -282,7 +295,7 @@ public final class HeadlessRoundTripService {
                 message: error.localizedDescription,
                 durationSeconds: duration(since: externalSignoffStartedAt)
             ))
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 stages: &stages,
@@ -319,7 +332,7 @@ public final class HeadlessRoundTripService {
                     message: error.localizedDescription,
                     durationSeconds: duration(since: externalSignoffStartedAt)
                 ))
-                try failRun(
+                try await failRun(
                     configuration: configuration,
                     runDirectory: runDirectory,
                     stages: &stages,
@@ -352,7 +365,7 @@ public final class HeadlessRoundTripService {
                 message: error.localizedDescription,
                 durationSeconds: duration(since: prePEXVerificationStartedAt)
             ))
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 isReadyForPEX: verification.isReadyForPEX,
@@ -368,7 +381,7 @@ public final class HeadlessRoundTripService {
             durationSeconds: duration(since: prePEXVerificationStartedAt)
         ))
         if !verification.isReadyForPEX && !configuration.continueAfterFailedPrePEXGate {
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 isReadyForPEX: verification.isReadyForPEX,
@@ -407,7 +420,7 @@ public final class HeadlessRoundTripService {
                 message: error.localizedDescription,
                 durationSeconds: duration(since: pexInjectionStartedAt)
             ))
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 isReadyForPEX: verification.isReadyForPEX,
@@ -417,7 +430,7 @@ public final class HeadlessRoundTripService {
             )
         }
         guard !configuration.pexIR.elements.isEmpty else {
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 isReadyForPEX: verification.isReadyForPEX,
@@ -443,7 +456,7 @@ public final class HeadlessRoundTripService {
                 message: error.localizedDescription,
                 durationSeconds: duration(since: postLayoutSimulationStartedAt)
             ))
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 isReadyForPEX: verification.isReadyForPEX,
@@ -498,7 +511,7 @@ public final class HeadlessRoundTripService {
                 artifacts: &artifacts
             )
         } catch {
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 isReadyForPEX: verification.isReadyForPEX,
@@ -508,7 +521,7 @@ public final class HeadlessRoundTripService {
             )
         }
         guard postLayoutResult.status == .completed else {
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 isReadyForPEX: verification.isReadyForPEX,
@@ -539,7 +552,7 @@ public final class HeadlessRoundTripService {
                 message: error.localizedDescription,
                 durationSeconds: duration(since: postLayoutComparisonStartedAt)
             ))
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 isReadyForPEX: verification.isReadyForPEX,
@@ -559,7 +572,7 @@ public final class HeadlessRoundTripService {
             durationSeconds: duration(since: postLayoutComparisonStartedAt)
         ))
         guard comparisonReport.gateViolations.isEmpty else {
-            try failRun(
+            try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 isReadyForPEX: verification.isReadyForPEX,
@@ -578,7 +591,7 @@ public final class HeadlessRoundTripService {
             artifacts: artifacts
         )
         let manifest = try readManifest(from: manifestURL)
-        try finalizeCanonicalRun(
+        try await finalizeCanonicalRun(
             status: .succeeded,
             domainManifestURL: manifestURL,
             artifacts: artifacts,
@@ -625,7 +638,7 @@ public final class HeadlessRoundTripService {
     }
 
     private func comparisonStageMessage(
-        report: PostLayoutComparisonReport,
+        report: CircuitStudioCore.PostLayoutComparisonReport,
         limitsWereConfigured: Bool
     ) -> String {
         if !report.gateViolations.isEmpty {
@@ -706,7 +719,7 @@ public final class HeadlessRoundTripService {
         stages: inout [Stage],
         artifacts: [Artifact],
         error: Error
-    ) throws -> Never {
+    ) async throws -> Never {
         stages.append(contentsOf: skippedStages(after: stages))
         let manifestURL = try writeManifest(
             configuration: configuration,
@@ -716,7 +729,7 @@ public final class HeadlessRoundTripService {
             stages: stages,
             artifacts: artifacts
         )
-        try finalizeCanonicalRun(
+        try await finalizeCanonicalRun(
             status: .failed,
             domainManifestURL: manifestURL,
             artifacts: artifacts,
@@ -729,12 +742,13 @@ public final class HeadlessRoundTripService {
         configuration: Configuration,
         runDirectory: URL,
         error: Error
-    ) throws {
-        let manifest = try runLedger.loadRunManifest(
-            runID: configuration.runID,
-            inProjectAt: configuration.projectRoot
+    ) async throws {
+        let ledgerStore = try workspaceStoreFactory(configuration.projectRoot)
+        let coordinator = FlowRunLedgerCoordinator(persistence: ledgerStore)
+        let ledger = try await coordinator.load(
+            runID: configuration.runID
         )
-        guard manifest.status == .running else {
+        guard ledger.runManifest.status == .running else {
             return
         }
         let failureURL = runDirectory.appending(path: "headless-error.json")
@@ -747,17 +761,13 @@ public final class HeadlessRoundTripService {
             ),
             to: failureURL
         )
-        let hasher = XcircuiteHasher()
-        let legacyFailureReference = XcircuiteFileReference(
+        let failureReference = try artifactReference(
             artifactID: "headless-error",
-            path: "\(XcircuiteWorkspace.directoryName)/runs/\(configuration.runID)/headless-error.json",
+            path: "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(configuration.runID)/headless-error.json",
             kind: .report,
             format: .json,
-            sha256: try hasher.sha256(fileAt: failureURL),
-            byteCount: try hasher.byteCount(fileAt: failureURL),
-            producedByRunID: configuration.runID
+            projectRoot: configuration.projectRoot
         )
-        let failureReference = try foundationArtifactReference(from: legacyFailureReference)
         let integrity = LocalArtifactVerifier().verify(
             failureReference,
             relativeTo: configuration.projectRoot
@@ -767,13 +777,10 @@ public final class HeadlessRoundTripService {
                 "Headless failure artifact integrity failed: \(integrityMessage(integrity))"
             )
         }
-        _ = try runLedger.transitionRun(
+        _ = try await coordinator.transition(
             runID: configuration.runID,
-            transition: XcircuiteRunTransition(
-                status: .failed,
-                artifacts: [try FoundationArtifactTypeProjection.legacyReference(failureReference)]
-            ),
-            inProjectAt: configuration.projectRoot
+            to: .failed,
+            registering: [failureReference]
         )
     }
 
@@ -786,20 +793,21 @@ public final class HeadlessRoundTripService {
     }
 
     private func finalizeCanonicalRun(
-        status: XcircuiteRunStatus,
+        status: FlowRunStatus,
         domainManifestURL: URL,
         artifacts: [Artifact],
         configuration: Configuration
-    ) throws {
+    ) async throws {
         let references = try canonicalArtifactReferences(
             domainManifestURL: domainManifestURL,
             artifacts: artifacts,
             configuration: configuration
         )
-        _ = try runLedger.transitionRun(
+        let ledgerStore = try workspaceStoreFactory(configuration.projectRoot)
+        _ = try await FlowRunLedgerCoordinator(persistence: ledgerStore).transition(
             runID: configuration.runID,
-            transition: XcircuiteRunTransition(status: status, artifacts: references),
-            inProjectAt: configuration.projectRoot
+            to: status,
+            registering: references
         )
     }
 
@@ -807,31 +815,25 @@ public final class HeadlessRoundTripService {
         domainManifestURL: URL,
         artifacts: [Artifact],
         configuration: Configuration
-    ) throws -> [XcircuiteFileReference] {
-        let runPrefix = "\(XcircuiteWorkspace.directoryName)/runs/\(configuration.runID)"
-        var legacyReferences = artifacts.map { artifact in
-            XcircuiteFileReference(
+    ) throws -> [CircuiteFoundation.ArtifactReference] {
+        let runPrefix = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(configuration.runID)"
+        var references = try artifacts.map { artifact in
+            try artifactReference(
                 artifactID: canonicalArtifactID(for: artifact),
                 path: "\(runPrefix)/\(artifact.path)",
                 kind: canonicalFileKind(for: artifact.kind),
                 format: canonicalFileFormat(for: artifact.path),
-                sha256: artifact.sha256,
-                byteCount: artifact.byteCount,
-                producedByRunID: configuration.runID
+                projectRoot: configuration.projectRoot
             )
         }
-        let hasher = XcircuiteHasher()
-        legacyReferences.append(XcircuiteFileReference(
+        references.append(try artifactReference(
             artifactID: "round-trip-manifest",
             path: "\(runPrefix)/round-trip-manifest.json",
             kind: .report,
             format: .json,
-            sha256: try hasher.sha256(fileAt: domainManifestURL),
-            byteCount: try hasher.byteCount(fileAt: domainManifestURL),
-            producedByRunID: configuration.runID
+            projectRoot: configuration.projectRoot
         ))
 
-        let references = try legacyReferences.map(foundationArtifactReference(from:))
         for reference in references {
             let integrity = LocalArtifactVerifier().verify(
                 reference,
@@ -843,7 +845,7 @@ public final class HeadlessRoundTripService {
                 )
             }
         }
-        return try references.map(FoundationArtifactTypeProjection.legacyReference)
+        return references
     }
 
     private func integrityMessage(_ integrity: ArtifactIntegrity) -> String {
@@ -856,15 +858,27 @@ public final class HeadlessRoundTripService {
         }.joined(separator: "; ")
     }
 
-    private func foundationArtifactReference(
-        from legacyReference: XcircuiteFileReference
+    private func artifactReference(
+        artifactID: String,
+        path: String,
+        kind: ArtifactKind,
+        format: ArtifactFormat,
+        projectRoot: URL
     ) throws -> CircuiteFoundation.ArtifactReference {
-        guard let reference = FoundationArtifactTypeProjection.reference(legacyReference) else {
-            throw StudioError.projectSaveFailed(
-                "Unable to project legacy artifact into Foundation: \(legacyReference.path)"
-            )
-        }
-        return reference
+        let locator = ArtifactLocator(
+            location: try ArtifactLocation(workspaceRelativePath: path),
+            role: .output,
+            kind: kind,
+            format: format
+        )
+        let captured = try LocalArtifactReferencer().reference(locator, relativeTo: projectRoot)
+        return ArtifactReference(
+            id: try ArtifactID(rawValue: artifactID),
+            locator: captured.locator,
+            digest: captured.digest,
+            byteCount: captured.byteCount,
+            producer: captured.producer
+        )
     }
 
     private func canonicalArtifactID(for artifact: Artifact) -> String {
@@ -873,13 +887,11 @@ public final class HeadlessRoundTripService {
             allowed.contains($0) ? Character(String($0)) : "-"
         })
         let kind = sanitizedKind.isEmpty ? "headless-artifact" : sanitizedKind
-        let pathDigest = XcircuiteHasher()
-            .sha256(data: Data(artifact.path.utf8))
-            .prefix(12)
+        let pathDigest = ArtifactID(stableKey: artifact.path).rawValue.suffix(12)
         return "\(kind)-\(pathDigest)"
     }
 
-    private func canonicalFileKind(for kind: String) -> XcircuiteFileKind {
+    private func canonicalFileKind(for kind: String) -> ArtifactKind {
         if kind.contains("netlist") {
             return .netlist
         }
@@ -887,7 +899,7 @@ public final class HeadlessRoundTripService {
             return .waveform
         }
         if kind.contains("pex") || kind.contains("parasitic") {
-            return .parasitic
+            return .parasitics
         }
         if kind.contains("layout") || kind == "design-unit" {
             return .layout
@@ -901,7 +913,7 @@ public final class HeadlessRoundTripService {
         return .other
     }
 
-    private func canonicalFileFormat(for path: String) -> XcircuiteFileFormat {
+    private func canonicalFileFormat(for path: String) -> ArtifactFormat {
         switch URL(filePath: path).pathExtension.lowercased() {
         case "cir", "sp", "spice", "net": return .spice
         case "gds", "gdsii": return .gdsii

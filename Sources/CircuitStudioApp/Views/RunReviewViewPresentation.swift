@@ -1,7 +1,6 @@
 import SwiftUI
 import DesignFlowKernel
 import Xcircuite
-import DesignFlowKernel
 
 extension RunReviewView {
     func waveformValue(_ value: Double?) -> String {
@@ -16,7 +15,7 @@ extension RunReviewView {
         return colors[index % colors.count]
     }
 
-    func statusBadge(_ status: XcircuiteRunStatus) -> some View {
+    func statusBadge(_ status: FlowRunStatus) -> some View {
         Text(status.rawValue)
             .font(.caption2)
             .padding(.horizontal, 6)
@@ -25,7 +24,7 @@ extension RunReviewView {
             .foregroundStyle(badgeColor(status))
     }
 
-    func badgeColor(_ status: XcircuiteRunStatus) -> Color {
+    func badgeColor(_ status: FlowRunStatus) -> Color {
         switch status {
         case .succeeded: return .green
         case .failed: return .red
@@ -230,8 +229,8 @@ extension RunReviewView {
     func selectedCommand(
         action: FlowRunNextAction,
         command: FlowRunSuggestedCommand,
-        selections: [XcircuiteSuggestedCommandSelection]
-    ) -> XcircuiteSuggestedCommandSelection? {
+        selections: [FlowSuggestedCommandSelection]
+    ) -> FlowSuggestedCommandSelection? {
         selections.last {
             $0.status == .succeeded
                 && $0.nextActionID == action.actionID

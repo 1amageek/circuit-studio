@@ -1,5 +1,6 @@
 import DesignFlowKernel
 import Foundation
+import Xcircuite
 
 /// Reads the canonical project manifest and run ledgers used by Activity.
 ///

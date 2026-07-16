@@ -13,7 +13,7 @@ public struct RunReviewSignoffRepairPlanningResult: Sendable, Hashable, Codable 
     public let repairFormulationArtifact: ArtifactReference
     public let planningProblemArtifact: ArtifactReference
     public let sourceReports: [XcircuiteSignoffRepairFormulationResult.SourceReport]
-    public let actionRecord: XcircuiteRunActionRecord
+    public let actionRecord: FlowRunActionRecord
 
     public init(
         runID: String,
@@ -25,7 +25,7 @@ public struct RunReviewSignoffRepairPlanningResult: Sendable, Hashable, Codable 
         repairFormulationArtifact: ArtifactReference,
         planningProblemArtifact: ArtifactReference,
         sourceReports: [XcircuiteSignoffRepairFormulationResult.SourceReport],
-        actionRecord: XcircuiteRunActionRecord
+        actionRecord: FlowRunActionRecord
     ) {
         self.runID = runID
         self.formulationID = formulationID

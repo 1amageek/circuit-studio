@@ -21,7 +21,7 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
     public let externalSignoff: RoundTripReviewSignoffSummary?
     public let postLayoutComparison: RoundTripReviewComparisonSummary?
     public let approvals: [GateApprovalRecord]
-    public let suggestedCommandSelections: [XcircuiteSuggestedCommandSelection]
+    public let suggestedCommandSelections: [FlowSuggestedCommandSelection]
     public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
     public let diagnostics: [String]
     public let warnings: [String]
@@ -40,7 +40,7 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
         externalSignoff: RoundTripReviewSignoffSummary?,
         postLayoutComparison: RoundTripReviewComparisonSummary?,
         approvals: [GateApprovalRecord] = [],
-        suggestedCommandSelections: [XcircuiteSuggestedCommandSelection] = [],
+        suggestedCommandSelections: [FlowSuggestedCommandSelection] = [],
         bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?,
         diagnostics: [String],
         warnings: [String] = [],
@@ -109,7 +109,7 @@ extension RoundTripReviewSummary {
             ),
             approvals: try container.decodeIfPresent([GateApprovalRecord].self, forKey: .approvals) ?? [],
             suggestedCommandSelections: try container.decodeIfPresent(
-                [XcircuiteSuggestedCommandSelection].self,
+                [FlowSuggestedCommandSelection].self,
                 forKey: .suggestedCommandSelections
             ) ?? [],
             bottleneckSummary: try container.decodeIfPresent(

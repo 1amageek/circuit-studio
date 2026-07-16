@@ -7,7 +7,7 @@ import DesignFlowKernel
 extension DesignFlowService {
     func formulateSignoffRepairPlanningProblem(
         _ command: DesignFlowCommand
-    ) throws -> DesignFlowCommandResult {
+    ) async throws -> DesignFlowCommandResult {
         guard let projectRootPath = command.projectRootPath else {
             throw DesignFlowCommandError.missingProjectRoot
         }
@@ -19,7 +19,7 @@ extension DesignFlowService {
         }
 
         let projectRoot = URL(filePath: projectRootPath)
-        let result = try RunReviewService().formulateSignoffRepairPlanningProblem(
+        let result = try await RunReviewService().formulateSignoffRepairPlanningProblem(
             runID: runID,
             drcRepairHintPath: command.drcRepairHintPath,
             lvsRepairHintPath: command.lvsRepairHintPath,
@@ -60,9 +60,11 @@ extension DesignFlowService {
         }
 
         let projectRoot = URL(filePath: projectRootPath)
+        let workspaceStore = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+        let artifactStore = XcircuitePlanningArtifactStore(workspaceStore: workspaceStore)
         let strategy = command.candidateStrategy ?? "first-ready-action-per-objective"
         let verificationMode = command.candidateVerificationMode ?? "post-execution"
-        let planning = try RunReviewService().formulateSignoffRepairPlanningProblem(
+        let planning = try await RunReviewService().formulateSignoffRepairPlanningProblem(
             runID: runID,
             drcRepairHintPath: command.drcRepairHintPath,
             lvsRepairHintPath: command.lvsRepairHintPath,
@@ -75,7 +77,10 @@ extension DesignFlowService {
             note: command.approvalNote ?? "",
             projectRoot: projectRoot
         )
-        let generation = try XcircuiteCandidatePlanGenerator().generateCandidatePlan(
+        let generation = try await XcircuiteCandidatePlanGenerator(
+            workspaceStore: workspaceStore,
+            artifactStore: artifactStore
+        ).generateCandidatePlan(
             request: XcircuiteCandidatePlanGenerationRequest(
                 runID: runID,
                 problemPath: planning.planningProblemArtifact.path,
@@ -85,7 +90,10 @@ extension DesignFlowService {
             ),
             projectRoot: projectRoot
         )
-        let execution = try await XcircuiteCandidatePlanExecutor().executeCandidatePlan(
+        let execution = try await XcircuiteCandidatePlanExecutor(
+            workspaceStore: workspaceStore,
+            artifactStore: artifactStore
+        ).executeCandidatePlan(
             request: XcircuiteCandidatePlanExecutionRequest(
                 runID: runID,
                 candidatePlanPath: generation.candidatePlanArtifact.path,
@@ -93,7 +101,10 @@ extension DesignFlowService {
             ),
             projectRoot: projectRoot
         )
-        let verification = try await XcircuiteCandidatePlanVerifier().verifyCandidatePlan(
+        let verification = try await XcircuiteCandidatePlanVerifier(
+            workspaceStore: workspaceStore,
+            artifactStore: artifactStore
+        ).verifyCandidatePlan(
             request: XcircuiteCandidatePlanVerificationRequest(
                 runID: runID,
                 candidatePlanPath: generation.candidatePlanArtifact.path,
@@ -101,20 +112,20 @@ extension DesignFlowService {
             ),
             projectRoot: projectRoot
         )
-        let cycleIndex = try nextSignoffRepairCandidateCycleIndex(
+        let cycleIndex = try await nextSignoffRepairCandidateCycleIndex(
             runID: runID,
-            projectRoot: projectRoot
+            workspaceStore: workspaceStore
         )
         let cycleActionID = "signoff-repair-candidate-cycle-\(UUID().uuidString)"
         let cycleCreatedAt = Date()
-        let priorCycles = try RunReviewService()
+        let priorCycles = try await RunReviewService()
             .loadRun(runID: runID, projectRoot: projectRoot)
             .signoff
             .repairCandidateCycles
         let selectedActionDomainIDs = selectedActionDomainIDs(from: generation.symbolicPlannerTrace)
-        let planningProblem = try planningProblem(
+        let planningProblem = try await planningProblem(
             from: planning.planningProblemArtifact,
-            projectRoot: projectRoot
+            workspaceStore: workspaceStore
         )
         let selectedObjectiveDomainIDs = selectedObjectiveDomainIDs(
             from: generation.symbolicPlannerTrace,
@@ -148,28 +159,30 @@ extension DesignFlowService {
         let historySummary = RunReviewSignoffRepairCandidateCycleHistorySummary(
             cycles: priorCycles + [currentCycle]
         )
-        let historySummaryArtifact = try persistSignoffRepairCandidateCycleHistorySummary(
+        let historySummaryArtifact = try await persistSignoffRepairCandidateCycleHistorySummary(
             historySummary,
             runID: runID,
-            projectRoot: projectRoot
+            workspaceStore: workspaceStore
         )
-        let cycleActionRecord = try appendSignoffRepairCandidateCycleActionRecord(
+        let cycleArtifact = try await persistSignoffRepairCandidateCycle(
+            currentCycle,
+            runID: runID,
+            workspaceStore: workspaceStore
+        )
+        let cycleActionRecord = try await appendSignoffRepairCandidateCycleActionRecord(
             actionID: cycleActionID,
             runID: runID,
             cycleIndex: cycleIndex,
             actorKind: command.actionActorKind ?? .human,
             actorIdentifier: reviewer,
             createdAt: cycleCreatedAt,
-            strategy: strategy,
-            verificationMode: verificationMode,
             planning: planning,
             generation: generation,
             execution: execution,
             verification: verification,
-            selectedActionDomainIDs: selectedActionDomainIDs,
-            selectedObjectiveDomainIDs: selectedObjectiveDomainIDs,
             historySummaryArtifact: historySummaryArtifact,
-            projectRoot: projectRoot
+            cycleArtifact: cycleArtifact,
+            workspaceStore: workspaceStore
         )
         let cycleResult = RunReviewSignoffRepairCandidateCycleResult(
             runID: runID,
@@ -214,28 +227,50 @@ extension DesignFlowService {
         )
     }
 
+    private func persistSignoffRepairCandidateCycle(
+        _ cycle: RunReviewSignoffRepairCandidateCycleHistoryItem,
+        runID: String,
+        workspaceStore: XcircuiteWorkspaceStore
+    ) async throws -> ArtifactReference {
+        let filename = "candidate-cycle-\(cycle.cycleIndex).json"
+        let planningPath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/planning"
+        try await workspaceStore.ensureWorkspaceDirectory(at: planningPath)
+        let projectRelativePath = "\(planningPath)/\(filename)"
+        try await workspaceStore.writeJSON(cycle, to: projectRelativePath)
+        let reference = try await workspaceStore.makeArtifactReference(
+            forProjectRelativePath: projectRelativePath,
+            artifactID: "signoff-repair-candidate-cycle-\(cycle.cycleIndex)",
+            role: .output,
+            kind: .report,
+            format: .json
+        )
+        _ = try await FlowRunLedgerCoordinator(persistence: workspaceStore).register(
+            runID: runID,
+            artifacts: [reference]
+        )
+        return reference
+    }
+
     private func persistSignoffRepairCandidateCycleHistorySummary(
         _ summary: RunReviewSignoffRepairCandidateCycleHistorySummary,
         runID: String,
-        projectRoot: URL
-    ) throws -> XcircuiteFileReference {
-        let store = XcircuiteWorkspaceStore()
-        let runDirectory = try XcircuiteWorkspace(projectRoot: projectRoot).runDirectoryURL(for: runID)
-        let planningDirectory = runDirectory.appending(path: "planning")
-        try store.ensureDirectory(at: planningDirectory)
-        let summaryURL = planningDirectory.appending(path: "candidate-cycle-history-summary.json")
-        try store.writeJSON(summary, to: summaryURL, forProjectAt: projectRoot)
-
-        let projectRelativePath = "\(XcircuiteWorkspace.directoryName)/runs/\(runID)/\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryRelativePath)"
-        let reference = try store.fileReference(
+        workspaceStore: XcircuiteWorkspaceStore
+    ) async throws -> ArtifactReference {
+        let planningPath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/planning"
+        try await workspaceStore.ensureWorkspaceDirectory(at: planningPath)
+        let projectRelativePath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryRelativePath)"
+        try await workspaceStore.writeJSON(summary, to: projectRelativePath)
+        let reference = try await workspaceStore.makeArtifactReference(
             forProjectRelativePath: projectRelativePath,
             artifactID: XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID,
+            role: .output,
             kind: .other,
-            format: .json,
-            inProjectAt: projectRoot,
-            producedByRunID: runID
+            format: .json
         )
-        try store.upsertRunArtifact(reference, runID: runID, inProjectAt: projectRoot)
+        _ = try await FlowRunLedgerCoordinator(persistence: workspaceStore).register(
+            runID: runID,
+            artifacts: [reference]
+        )
         return reference
     }
 
@@ -243,21 +278,17 @@ extension DesignFlowService {
         actionID: String,
         runID: String,
         cycleIndex: Int,
-        actorKind: XcircuiteRunActionActor.Kind,
+        actorKind: FlowRunActor.Kind,
         actorIdentifier: String,
         createdAt: Date,
-        strategy: String,
-        verificationMode: String,
         planning: RunReviewSignoffRepairPlanningResult,
         generation: XcircuiteCandidatePlanGenerationResult,
         execution: XcircuiteCandidatePlanExecutionResult,
         verification: XcircuiteCandidatePlanVerificationResult,
-        selectedActionDomainIDs: [String],
-        selectedObjectiveDomainIDs: [String],
-        historySummaryArtifact: XcircuiteFileReference,
-        projectRoot: URL
-    ) throws -> XcircuiteRunActionRecord {
-        let store = XcircuiteWorkspaceStore()
+        historySummaryArtifact: ArtifactReference,
+        cycleArtifact: ArtifactReference,
+        workspaceStore: XcircuiteWorkspaceStore
+    ) async throws -> FlowRunActionRecord {
         let foundationOutputs: [ArtifactReference] = [
             generation.candidatePlanArtifact,
             generation.problemTranslationAuditArtifact,
@@ -268,70 +299,32 @@ extension DesignFlowService {
             verification.planVerificationArtifact,
             verification.rejectedPlansArtifact,
         ].compactMap { $0 } + execution.producedArtifacts
-        let outputs = try foundationOutputs.map {
-            try FoundationArtifactTypeProjection.legacyReference($0)
-        } + [historySummaryArtifact]
-        let record = XcircuiteRunActionRecord(
+        let outputs = foundationOutputs + [historySummaryArtifact, cycleArtifact]
+        let record = FlowRunActionRecord(
             actionID: actionID,
             runID: runID,
-            actor: XcircuiteRunActionActor(kind: actorKind, identifier: actorIdentifier),
+            actor: FlowRunActor(kind: actorKind, identifier: actorIdentifier),
             actionKind: "review.runSignoffRepairCandidateCycle",
             status: verification.accepted ? .succeeded : .blocked,
-            inputs: try [
+            inputs: [
                 planning.actionDomainArtifact,
                 planning.repairFormulationArtifact,
                 planning.planningProblemArtifact,
-            ].map(FoundationArtifactTypeProjection.legacyReference),
-            outputs: outputs,
-            metadata: [
-                "candidateCycleIndex": .number(Double(cycleIndex)),
-                "strategy": .string(strategy),
-                "verificationMode": .string(verificationMode),
-                "formulationID": .string(planning.formulationID),
-                "problemID": .string(planning.problemID),
-                "planID": .string(generation.planID),
-                "generationStatus": .string(generation.status),
-                "executionStatus": .string(execution.status),
-                "verificationStatus": .string(verification.status),
-                "accepted": .bool(verification.accepted),
-                "rejectedPlansPath": .string(generation.symbolicPlannerTrace?.rejectedPlansPath ?? ""),
-                "rejectedPlanFeedbackRecordCount": .number(
-                    Double(generation.symbolicPlannerTrace?.rejectedPlanFeedbackRecordCount ?? 0)
-                ),
-                "globalRejectedPlanFeedbackCount": .number(
-                    Double(generation.symbolicPlannerTrace?.globalRejectedPlanFeedbackCount ?? 0)
-                ),
-                "selectedActionIDs": .array(
-                    (generation.symbolicPlannerTrace?.selectedActionIDs ?? []).map { .string($0) }
-                ),
-                "selectedActionDomainIDs": .array(
-                    selectedActionDomainIDs.map { .string($0) }
-                ),
-                "selectedObjectiveDomainIDs": .array(
-                    selectedObjectiveDomainIDs.map { .string($0) }
-                ),
-                "feedbackPenalizedActionIDs": .array(
-                    feedbackPenalizedActionIDs(from: generation.symbolicPlannerTrace).map { .string($0) }
-                ),
-                "feedbackRankChanges": .array(
-                    feedbackRankChanges(from: generation.symbolicPlannerTrace).map { .string($0) }
-                ),
-                "feedbackScoreDeltas": .array(
-                    feedbackScoreDeltas(from: generation.symbolicPlannerTrace).map { .string($0) }
-                ),
             ],
+            outputs: outputs,
+            context: FlowRunActionContext(iterationID: String(cycleIndex)),
             createdAt: createdAt
         )
-        try store.appendRunAction(record, inProjectAt: projectRoot)
+        try await workspaceStore.appendRunAction(record)
         return record
     }
 
     private func nextSignoffRepairCandidateCycleIndex(
         runID: String,
-        projectRoot: URL
-    ) throws -> Int {
-        let existingCount = try XcircuiteWorkspaceStore()
-            .loadRunActions(runID: runID, inProjectAt: projectRoot)
+        workspaceStore: XcircuiteWorkspaceStore
+    ) async throws -> Int {
+        let existingCount = try await workspaceStore
+            .loadRunActions(runID: runID)
             .filter { $0.actionKind == "review.runSignoffRepairCandidateCycle" }
             .count
         return existingCount + 1
@@ -377,15 +370,14 @@ extension DesignFlowService {
 
     private func planningProblem(
         from reference: ArtifactReference,
-        projectRoot: URL
-    ) throws -> XcircuiteCircuitPlanningProblem {
-        let url = try XcircuiteWorkspaceStore().url(
-            forProjectRelativePath: reference.path,
-            inProjectAt: projectRoot
-        )
+        workspaceStore: XcircuiteWorkspaceStore
+    ) async throws -> XcircuiteCircuitPlanningProblem {
         do {
-            let data = try Data(contentsOf: url)
-            return try JSONDecoder().decode(XcircuiteCircuitPlanningProblem.self, from: data)
+            _ = try await workspaceStore.verify(reference)
+            return try await workspaceStore.readJSON(
+                XcircuiteCircuitPlanningProblem.self,
+                from: reference.path
+            )
         } catch {
             throw StudioError.projectLoadFailed("Failed to load planning problem for candidate cycle history: \(error.localizedDescription)")
         }

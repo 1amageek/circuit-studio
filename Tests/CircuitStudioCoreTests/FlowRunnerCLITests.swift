@@ -324,7 +324,7 @@ struct FlowRunnerCLITests {
             projectRootPath: "/tmp/flow-output",
             signoffRepairCandidateCycleHistoryIndex: history,
             signoffRepairCandidateCycleHistoryQualification: report,
-            signoffRepairCandidateCycleHistoryQualificationArtifact: try foundationArtifactReference(
+            signoffRepairCandidateCycleHistoryQualificationArtifact: try artifactReference(
                 artifactID: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID,
                 path: ".xcircuite/retained/signoff-repair-cycle-history-qualification.json",
                 byteCount: 456
@@ -509,12 +509,12 @@ struct FlowRunnerCLITests {
         #expect(!qualificationArtifact.sha256.isEmpty)
         #expect(qualificationArtifact.byteCount > 0)
 
-        let manifest = try XcircuiteWorkspaceStore().loadManifest(forProjectAt: root)
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root).loadManifest()
         #expect(manifest.files.contains { file in
             file.artifactID == RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID
                 && file.path == qualificationArtifact.path
                 && file.sha256 == qualificationArtifact.sha256
-                && file.byteCount == Int64(qualificationArtifact.byteCount)
+                && file.byteCount == qualificationArtifact.byteCount
         })
     }
 
@@ -577,10 +577,10 @@ struct FlowRunnerCLITests {
             projectRootPath: "/tmp/flow-output",
             manifestPath: "/tmp/flow-output/.xcircuite/runs/run-1/round-trip-manifest.json",
             actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            selectedSuggestedCommand: XcircuiteSuggestedCommandSelection(
+            selectedSuggestedCommand: FlowSuggestedCommandSelection(
                 actionRecordID: "round-trip-suggested-command-selection-1",
                 runID: "run-1",
-                actor: XcircuiteRunActionActor(kind: .human, identifier: "agent-1"),
+                actor: FlowRunActor(kind: .human, identifier: "agent-1"),
                 status: .succeeded,
                 selectedAt: Date(timeIntervalSince1970: 1_700_000_000),
                 nextActionID: "review-flow-runner-failure",
@@ -710,10 +710,10 @@ struct FlowRunnerCLITests {
 
     @Test("signoff repair planning output exposes planner artifacts", .timeLimit(.minutes(1)))
     func signoffRepairPlanningOutputIncludesPlannerArtifacts() throws {
-        let actionRecord = XcircuiteRunActionRecord(
+        let actionRecord = FlowRunActionRecord(
             actionID: "signoff-repair-planning-1",
             runID: "run-1",
-            actor: XcircuiteRunActionActor(kind: .agent, identifier: "agent-1"),
+            actor: FlowRunActor(kind: .agent, identifier: "agent-1"),
             actionKind: "review.formulateSignoffRepairPlanningProblem",
             status: .succeeded
         )
@@ -723,15 +723,15 @@ struct FlowRunnerCLITests {
             problemID: "signoff-repair-problem-run-1",
             drcRepairHintPath: ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json",
             lvsRepairHintPath: ".xcircuite/runs/run-1/stages/001/raw/lvs-repair-hints.json",
-            actionDomainArtifact: try RunReviewTestSupport.foundationArtifactReference(
+            actionDomainArtifact: try RunReviewTestSupport.artifactReference(
                 artifactID: "planning-action-domain-snapshot",
                 path: ".xcircuite/runs/run-1/planning/action-domain-snapshot.json"
             ),
-            repairFormulationArtifact: try RunReviewTestSupport.foundationArtifactReference(
+            repairFormulationArtifact: try RunReviewTestSupport.artifactReference(
                 artifactID: "planning-repair-plan-formulation",
                 path: ".xcircuite/runs/run-1/planning/repair-formulation.json"
             ),
-            planningProblemArtifact: try RunReviewTestSupport.foundationArtifactReference(
+            planningProblemArtifact: try RunReviewTestSupport.artifactReference(
                 artifactID: "planning-problem",
                 path: ".xcircuite/runs/run-1/planning/problem.json"
             ),
@@ -768,10 +768,10 @@ struct FlowRunnerCLITests {
 
     @Test("signoff repair candidate cycle output exposes candidate artifacts", .timeLimit(.minutes(1)))
     func signoffRepairCandidateCycleOutputIncludesCandidateArtifacts() throws {
-        let actionRecord = XcircuiteRunActionRecord(
+        let actionRecord = FlowRunActionRecord(
             actionID: "signoff-repair-planning-1",
             runID: "run-1",
-            actor: XcircuiteRunActionActor(kind: .agent, identifier: "agent-1"),
+            actor: FlowRunActor(kind: .agent, identifier: "agent-1"),
             actionKind: "review.formulateSignoffRepairPlanningProblem",
             status: .succeeded
         )
@@ -781,15 +781,15 @@ struct FlowRunnerCLITests {
             problemID: "signoff-repair-problem-run-1",
             drcRepairHintPath: ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json",
             lvsRepairHintPath: nil,
-            actionDomainArtifact: try RunReviewTestSupport.foundationArtifactReference(
+            actionDomainArtifact: try RunReviewTestSupport.artifactReference(
                 artifactID: "planning-action-domain-snapshot",
                 path: ".xcircuite/runs/run-1/planning/action-domain-snapshot.json"
             ),
-            repairFormulationArtifact: try RunReviewTestSupport.foundationArtifactReference(
+            repairFormulationArtifact: try RunReviewTestSupport.artifactReference(
                 artifactID: "planning-repair-plan-formulation",
                 path: ".xcircuite/runs/run-1/planning/repair-formulation.json"
             ),
-            planningProblemArtifact: try RunReviewTestSupport.foundationArtifactReference(
+            planningProblemArtifact: try RunReviewTestSupport.artifactReference(
                 artifactID: "planning-problem",
                 path: ".xcircuite/runs/run-1/planning/problem.json"
             ),
@@ -803,7 +803,7 @@ struct FlowRunnerCLITests {
             planID: "candidate-plan-1",
             executionReadiness: "ready",
             problemPath: ".xcircuite/runs/run-1/planning/problem.json",
-            candidatePlanArtifact: try foundationArtifactReference(
+            candidatePlanArtifact: try artifactReference(
                 artifactID: "planning-candidate-plan",
                 path: ".xcircuite/runs/run-1/planning/candidate-plan.json",
             ),
@@ -893,11 +893,11 @@ struct FlowRunnerCLITests {
             problemID: "signoff-repair-problem-run-1",
             planID: "candidate-plan-1",
             candidatePlanPath: ".xcircuite/runs/run-1/planning/candidate-plan.json",
-            planExecutionArtifact: try foundationArtifactReference(
+            planExecutionArtifact: try artifactReference(
                 artifactID: "planning-plan-execution",
                 path: ".xcircuite/runs/run-1/planning/plan-execution.json",
             ),
-            designDiffArtifact: try foundationArtifactReference(
+            designDiffArtifact: try artifactReference(
                 artifactID: "design-diff",
                 path: ".xcircuite/runs/run-1/design-diff.json",
             ),
@@ -911,16 +911,16 @@ struct FlowRunnerCLITests {
             planID: "candidate-plan-1",
             accepted: true,
             candidatePlanPath: ".xcircuite/runs/run-1/planning/candidate-plan.json",
-            planVerificationArtifact: try foundationArtifactReference(
+            planVerificationArtifact: try artifactReference(
                 artifactID: "planning-plan-verification",
                 path: ".xcircuite/runs/run-1/planning/plan-verification.json",
             ),
             nextActions: []
         )
-        let cycleRecord = XcircuiteRunActionRecord(
+        let cycleRecord = FlowRunActionRecord(
             actionID: "signoff-repair-candidate-cycle-1",
             runID: "run-1",
-            actor: XcircuiteRunActionActor(kind: .agent, identifier: "agent-1"),
+            actor: FlowRunActor(kind: .agent, identifier: "agent-1"),
             actionKind: "review.runSignoffRepairCandidateCycle",
             status: .succeeded
         )
@@ -1315,7 +1315,7 @@ struct FlowRunnerCLITests {
         try encoder.encode(layout).write(to: url, options: .atomic)
     }
 
-    private func foundationArtifactReference(
+    private func artifactReference(
         artifactID: String,
         path: String,
         byteCount: UInt64 = 0

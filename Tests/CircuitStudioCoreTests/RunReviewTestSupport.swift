@@ -5,14 +5,13 @@ import DesignFlowKernel
 import LayoutCore
 import ToolQualification
 import Xcircuite
-import DesignFlowKernel
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 
 struct RunReviewPassingExecutor: FlowStageExecutor {
     let stageID: String
     let toolID = "stub-tool"
-    var artifacts: [XcircuiteFileReference] = []
+    var artifacts: [ArtifactReference] = []
     var artifactPayloads: [String: Data] = [:]
 
     func execute(
@@ -21,7 +20,7 @@ struct RunReviewPassingExecutor: FlowStageExecutor {
     ) async throws -> FlowStageResult {
         var resolvedArtifacts = artifacts
         for index in resolvedArtifacts.indices {
-            let path = resolvedArtifacts[index].path
+            let path = resolvedArtifacts[index].locator.location.value
             guard let payload = artifactPayloads[path] else {
                 continue
             }
@@ -31,52 +30,32 @@ struct RunReviewPassingExecutor: FlowStageExecutor {
                 withIntermediateDirectories: true
             )
             try payload.write(to: url, options: .atomic)
-            resolvedArtifacts[index].sha256 = XcircuiteHasher().sha256(data: payload)
-            resolvedArtifacts[index].byteCount = Int64(payload.count)
+            let existing = resolvedArtifacts[index]
+            resolvedArtifacts[index] = ArtifactReference(
+                id: existing.id,
+                locator: existing.locator,
+                digest: try SHA256ContentDigester().digest(data: payload, using: .sha256),
+                byteCount: UInt64(payload.count),
+                producer: existing.producer
+            )
         }
 
-        let canonicalArtifacts = try resolvedArtifacts.map(
-            RunReviewTestSupport.foundationArtifactReference(from:)
-        )
         return FlowStageResult(
             stageID: stage.stageID,
             status: .succeeded,
             gates: [FlowGateResult(gateID: "drc", status: .passed)],
-            artifacts: canonicalArtifacts
+            artifacts: resolvedArtifacts
         )
     }
-}
-
-enum RunReviewTestSupportError: Error {
-    case invalidArtifactReference(String)
 }
 
 enum RunReviewTestSupport {
-    static func foundationArtifactReference(
-        from value: XcircuiteFileReference
-    ) throws -> ArtifactReference {
-        if let canonical = FoundationArtifactTypeProjection.reference(value) {
-            return canonical
-        }
-        guard let kind = FoundationArtifactTypeProjection.kind(value.kind),
-              let format = FoundationArtifactTypeProjection.format(value.format) else {
-            throw RunReviewTestSupportError.invalidArtifactReference(value.path)
-        }
-        return try foundationArtifactReference(
-            artifactID: value.artifactID ?? "derived-\(value.path.hashValue)",
-            path: value.path,
-            kind: kind,
-            format: format,
-            byteCount: value.byteCount.map { max(0, $0) } ?? 0
-        )
-    }
-
-    static func foundationArtifactReference(
+    static func artifactReference(
         artifactID: String,
         path: String,
         kind: ArtifactKind = .report,
         format: ArtifactFormat = .json,
-        byteCount: Int64 = 0
+        byteCount: UInt64 = 0
     ) throws -> ArtifactReference {
         let location = try ArtifactLocation(workspaceRelativePath: path)
         let locator = ArtifactLocator(
@@ -94,7 +73,16 @@ enum RunReviewTestSupport {
             id: id,
             locator: locator,
             digest: digest,
-            byteCount: UInt64(byteCount)
+            byteCount: byteCount
+        )
+    }
+
+    static func orchestrator(projectRoot: URL) throws -> DefaultFlowOrchestrator {
+        let store = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+        return DefaultFlowOrchestrator(
+            infrastructure: store,
+            ledgerPersistence: store,
+            progressStore: FlowRunProgressStore(persistence: store)
         )
     }
 
@@ -196,24 +184,20 @@ enum RunReviewTestSupport {
         artifactID: String,
         root: URL,
         runID: String
-    ) throws -> ArtifactReference {
-        try FileManager.default.createDirectory(
-            at: root.appending(path: path).deletingLastPathComponent(),
-            withIntermediateDirectories: true
+    ) async throws -> ArtifactReference {
+        let store = try XcircuiteWorkspaceStore(projectRoot: root)
+        return try await store.persistArtifact(
+            content: data,
+            id: try ArtifactID(rawValue: artifactID),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: path),
+                role: .output,
+                kind: .other,
+                format: .json
+            ),
+            runID: runID,
+            mode: .replaceable
         )
-        try data.write(to: root.appending(path: path), options: .atomic)
-        let reference = try XcircuiteWorkspaceStore().makeArtifactReference(
-            forProjectRelativePath: path,
-            artifactID: artifactID,
-            role: .output,
-            kind: .other,
-            format: .json,
-            inProjectAt: root,
-            producedByRunID: runID,
-            verifiedByRunID: nil
-        )
-        try XcircuiteWorkspaceStore().registerArtifact(reference, runID: runID, inProjectAt: root)
-        return reference
     }
     
     static func projectSource(_ relativePath: String) throws -> String {

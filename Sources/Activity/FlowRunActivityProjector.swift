@@ -133,7 +133,7 @@ public struct FlowRunActivityProjector: Sendable {
                 status: activityStatus(action.status),
                 title: bounded(action.actionKind, maximumBytes: Self.maximumTitleBytes),
                 summary: bounded(actionSummary(action)),
-                command: command(from: action.metadata),
+                command: command(from: action.context.suggestedCommand),
                 artifacts: artifactResult.references,
                 omittedArtifactCount: artifactResult.omittedCount,
                 diagnostics: diagnosticResult.diagnostics,
@@ -204,36 +204,19 @@ public struct FlowRunActivityProjector: Sendable {
         }
 
         if let designDiff = ledger.designDiff {
-            var references: [Activity.ArtifactReference] = []
-            var omittedReferenceCount = 0
+            var references: [Activity.Artifact] = []
             if let baseSnapshot = designDiff.baseSnapshot {
-                if let reference = activityArtifact(baseSnapshot, direction: .related) {
-                    references.append(reference)
-                } else {
-                    omittedReferenceCount += 1
-                }
+                references.append(activityArtifact(baseSnapshot, direction: .related))
             }
             if let proposedSnapshot = designDiff.proposedSnapshot {
-                if let reference = activityArtifact(proposedSnapshot, direction: .related) {
-                    references.append(reference)
-                } else {
-                    omittedReferenceCount += 1
-                }
+                references.append(activityArtifact(proposedSnapshot, direction: .related))
             }
             for change in designDiff.changes {
                 for artifact in change.artifacts {
-                    if let reference = activityArtifact(artifact, direction: .related) {
-                        references.append(reference)
-                    } else {
-                        omittedReferenceCount += 1
-                    }
+                    references.append(activityArtifact(artifact, direction: .related))
                 }
             }
-            let boundedArtifactResult = boundedReferences(references)
-            let artifactResult = (
-                references: boundedArtifactResult.references,
-                omittedCount: omittedReferenceCount + boundedArtifactResult.omittedCount
-            )
+            let artifactResult = boundedReferences(references)
             activities.append(Activity(
                 id: activityID(
                     projectID: projectID,
@@ -301,7 +284,7 @@ public struct FlowRunActivityProjector: Sendable {
         "\(projectID)|\(sourceKind.rawValue)|\(sourceID)"
     }
 
-    private func activityActorKind(_ actor: XcircuiteRunActionActor) -> Activity.ActorKind {
+    private func activityActorKind(_ actor: FlowRunActor) -> Activity.ActorKind {
         switch actor.kind {
         case .agent: return .agent
         case .human: return .human
@@ -310,7 +293,7 @@ public struct FlowRunActivityProjector: Sendable {
         }
     }
 
-    private func activityStatus(_ status: XcircuiteRunStatus) -> Activity.Status {
+    private func activityStatus(_ status: FlowRunStatus) -> Activity.Status {
         switch status {
         case .created: return .informational
         case .running: return .running
@@ -322,7 +305,7 @@ public struct FlowRunActivityProjector: Sendable {
         }
     }
 
-    private func activityStatus(_ status: XcircuiteRunActionStatus) -> Activity.Status {
+    private func activityStatus(_ status: FlowRunActionStatus) -> Activity.Status {
         switch status {
         case .running: return .running
         case .succeeded: return .succeeded
@@ -364,7 +347,7 @@ public struct FlowRunActivityProjector: Sendable {
         return .informational
     }
 
-    private func actionSummary(_ action: XcircuiteRunActionRecord) -> String {
+    private func actionSummary(_ action: FlowRunActionRecord) -> String {
         if let diagnostic = action.diagnostics.first {
             return "\(action.actionKind): \(diagnostic.message)"
         }
@@ -372,34 +355,24 @@ public struct FlowRunActivityProjector: Sendable {
     }
 
     private func actionArtifacts(
-        _ action: XcircuiteRunActionRecord
-    ) -> (references: [Activity.ArtifactReference], omittedCount: Int) {
-        let inputs = action.inputs.compactMap { activityArtifact($0, direction: .input) }
-        let outputs = action.outputs.compactMap { activityArtifact($0, direction: .output) }
-        let omittedCount = action.inputs.count + action.outputs.count - inputs.count - outputs.count
+        _ action: FlowRunActionRecord
+    ) -> (references: [Activity.Artifact], omittedCount: Int) {
+        let inputs = action.inputs.map { activityArtifact($0, direction: .input) }
+        let outputs = action.outputs.map { activityArtifact($0, direction: .output) }
         let bounded = boundedReferences(inputs + outputs)
-        return (bounded.references, omittedCount + bounded.omittedCount)
-    }
-
-    private func artifactReferences(
-        _ references: [XcircuiteFileReference],
-        direction: Activity.ArtifactDirection
-    ) -> (references: [Activity.ArtifactReference], omittedCount: Int) {
-        let projected = references.compactMap { activityArtifact($0, direction: direction) }
-        let bounded = boundedReferences(projected)
-        return (bounded.references, references.count - projected.count + bounded.omittedCount)
+        return (bounded.references, bounded.omittedCount)
     }
 
     private func artifactReferences(
         _ references: [ArtifactReference],
         direction: Activity.ArtifactDirection
-    ) -> (references: [Activity.ArtifactReference], omittedCount: Int) {
+    ) -> (references: [Activity.Artifact], omittedCount: Int) {
         boundedReferences(references.map { activityArtifact($0, direction: direction) })
     }
 
     private func boundedReferences(
-        _ references: [Activity.ArtifactReference]
-    ) -> (references: [Activity.ArtifactReference], omittedCount: Int) {
+        _ references: [Activity.Artifact]
+    ) -> (references: [Activity.Artifact], omittedCount: Int) {
         let limitedReferences = Array(references.prefix(Self.maximumArtifactReferences))
         return (
             limitedReferences,
@@ -408,48 +381,11 @@ public struct FlowRunActivityProjector: Sendable {
     }
 
     private func activityArtifact(
-        _ reference: XcircuiteFileReference,
-        direction: Activity.ArtifactDirection
-    ) -> Activity.ArtifactReference? {
-        guard let foundationReference = foundationArtifactReference(from: reference) else {
-            return nil
-        }
-        return activityArtifact(foundationReference, direction: direction)
-    }
-
-    private func foundationArtifactReference(
-        from reference: XcircuiteFileReference
-    ) -> CircuiteFoundation.ArtifactReference? {
-        guard let digest = reference.sha256,
-              let byteCount = reference.byteCount,
-              byteCount >= 0 else {
-            return nil
-        }
-        do {
-            return try FoundationArtifactReferenceFactory.make(
-                artifactID: reference.artifactID,
-                path: reference.path,
-                kind: reference.kind,
-                format: reference.format,
-                sha256: digest,
-                byteCount: byteCount
-            )
-        } catch {
-            return nil
-        }
-    }
-
-    private func activityArtifact(
         _ reference: ArtifactReference,
         direction: Activity.ArtifactDirection
-    ) -> Activity.ArtifactReference {
-        Activity.ArtifactReference(
-            path: reference.path,
-            role: reference.locator.role.rawValue,
-            kind: reference.locator.kind.rawValue,
-            format: reference.locator.format.rawValue,
-            sha256: reference.digest.hexadecimalValue,
-            byteCount: Int64(clamping: reference.byteCount),
+    ) -> Activity.Artifact {
+        Activity.Artifact(
+            reference: reference,
             direction: direction
         )
     }
@@ -467,7 +403,7 @@ public struct FlowRunActivityProjector: Sendable {
     }
 
     private func actionDiagnostics(
-        _ diagnostics: [XcircuiteRunActionDiagnostic]
+        _ diagnostics: [FlowRunDiagnostic]
     ) -> (diagnostics: [Activity.Diagnostic], omittedCount: Int) {
         boundedDiagnostics(diagnostics.map {
             Activity.Diagnostic(
@@ -489,27 +425,17 @@ public struct FlowRunActivityProjector: Sendable {
     }
 
     private func command(
-        from metadata: [String: XcircuiteJSONValue]
+        from suggestedCommand: FlowRunActionContext.SuggestedCommand?
     ) -> Activity.Command? {
-        guard case .string(let executable) = metadata["executable"],
-              !executable.isEmpty else {
+        guard let suggestedCommand,
+              !suggestedCommand.executable.isEmpty else {
             return nil
-        }
-
-        let rawArguments: [String]
-        if case .array(let values) = metadata["arguments"] {
-            rawArguments = values.compactMap { value in
-                guard case .string(let argument) = value else { return nil }
-                return argument
-            }
-        } else {
-            rawArguments = []
         }
 
         var arguments: [String] = []
         var redactedArgumentCount = 0
         var expectsSensitiveValue = false
-        for argument in rawArguments {
+        for argument in suggestedCommand.arguments {
             if expectsSensitiveValue {
                 arguments.append("<redacted>")
                 redactedArgumentCount += 1
@@ -526,7 +452,7 @@ public struct FlowRunActivityProjector: Sendable {
         }
         let omittedArgumentCount = max(0, arguments.count - 32)
         return Activity.Command(
-            executable: bounded(executable, maximumBytes: 512),
+            executable: bounded(suggestedCommand.executable, maximumBytes: 512),
             arguments: Array(arguments.prefix(32)),
             redactedArgumentCount: redactedArgumentCount,
             omittedArgumentCount: omittedArgumentCount
@@ -557,7 +483,7 @@ public struct FlowRunActivityProjector: Sendable {
     }
 
     private func designDiffStatus(
-        _ state: XcircuiteDesignDiffReviewState
+        _ state: DesignDiffReviewState
     ) -> Activity.Status {
         switch state {
         case .approved, .applied: return .succeeded
@@ -577,61 +503,5 @@ public struct FlowRunActivityProjector: Sendable {
             result.append(contentsOf: scalarValue)
         }
         return "\(result)…"
-    }
-}
-
-private enum FoundationArtifactReferenceFactory {
-    static func make(
-        artifactID: String?,
-        path: String,
-        kind: XcircuiteFileKind,
-        format: XcircuiteFileFormat,
-        sha256: String,
-        byteCount: Int64
-    ) throws -> CircuiteFoundation.ArtifactReference {
-        let location: ArtifactLocation
-        if path.hasPrefix("/") {
-            location = try ArtifactLocation(fileURL: URL(filePath: path))
-        } else {
-            location = try ArtifactLocation(workspaceRelativePath: path)
-        }
-        let foundationKind = try ArtifactKind(rawValue: foundationKindRawValue(kind))
-        let foundationFormat = try ArtifactFormat(rawValue: foundationFormatRawValue(format))
-        let digest = try ContentDigest(
-            algorithm: .sha256,
-            hexadecimalValue: sha256
-        )
-        let id = try artifactID.map { try ArtifactID(rawValue: $0) }
-        let role = ArtifactRole(rawValue: artifactID ?? kind.rawValue) ?? .output
-        return ArtifactReference(
-            id: id,
-            locator: ArtifactLocator(
-                location: location,
-                role: role,
-                kind: foundationKind,
-                format: foundationFormat
-            ),
-            digest: digest,
-            byteCount: UInt64(byteCount)
-        )
-    }
-
-    private static func foundationKindRawValue(_ kind: XcircuiteFileKind) -> String {
-        switch kind {
-        case .powerIntent: return "power-intent"
-        case .timingLibrary: return "timing-library"
-        case .testPattern: return "test-pattern"
-        case .ruleDeck: return "rule-deck"
-        case .designDiff: return "design-diff"
-        case .parasitic: return "parasitics"
-        default: return kind.rawValue
-        }
-    }
-
-    private static func foundationFormatRawValue(_ format: XcircuiteFileFormat) -> String {
-        switch format {
-        case .systemVerilog: return "system-verilog"
-        default: return format.rawValue.lowercased()
-        }
     }
 }

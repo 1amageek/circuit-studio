@@ -12,12 +12,15 @@ extension RunReviewService {
         intentID: String? = nil,
         intent: String? = nil,
         problemID: String? = nil,
-        actorKind: XcircuiteRunActionActor.Kind = .human,
+        actorKind: FlowRunActor.Kind = .human,
         actorIdentifier: String,
         note: String = "",
         projectRoot: URL
-    ) throws -> RunReviewSignoffRepairPlanningResult {
-        let bundle = try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+    ) async throws -> RunReviewSignoffRepairPlanningResult {
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let loader = configuredLedgerLoader(store: store)
+        let bundle = try await configuredReviewBundler(store: store, loader: loader)
+            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
         let drcRepairHintPath = explicitDRCRepairHintPath
             ?? repairHintArtifact(domain: .drc, in: bundle.artifacts)?.path
         let lvsRepairHintPath = explicitLVSRepairHintPath
@@ -31,15 +34,15 @@ extension RunReviewService {
             lvsRepairHintPath: lvsRepairHintPath,
             bundleArtifacts: bundle.artifacts
         )
-        let inputArtifacts = try repairHintInputArtifacts(
+        let inputArtifacts = try await repairHintInputArtifacts(
             drcRepairHintPath: drcRepairHintPath,
             lvsRepairHintPath: lvsRepairHintPath,
             bundleArtifacts: bundle.artifacts,
             projectRoot: projectRoot
         )
-        let compilation = try XcircuiteSignoffRepairFormulationBuilder(
+        let compilation = try await XcircuiteSignoffRepairFormulationBuilder(
             workspaceStore: store,
-            artifactStore: XcircuitePlanningArtifactStore(storage: store)
+            artifactStore: XcircuitePlanningArtifactStore(workspaceStore: store)
         ).compile(
             request: XcircuiteSignoffRepairFormulationRequest(
                 runID: runID,
@@ -52,32 +55,27 @@ extension RunReviewService {
             ),
             projectRoot: projectRoot
         )
-        let actionDomainArtifact = try actionDomainArtifact(runID: runID, projectRoot: projectRoot)
+        let actionDomainArtifact = try await actionDomainArtifact(
+            runID: runID,
+            store: store
+        )
         let outputArtifacts = [
             actionDomainArtifact,
-            try foundationArtifactReference(compilation.compilation.formulationArtifact),
-            try foundationArtifactReference(compilation.compilation.problemArtifact),
+            compilation.compilation.formulationArtifact,
+            compilation.compilation.problemArtifact,
         ]
-        let legacyInputs = try inputArtifacts.map(FoundationArtifactTypeProjection.legacyReference)
-        let legacyOutputs = try outputArtifacts.map(FoundationArtifactTypeProjection.legacyReference)
-        let record = XcircuiteRunActionRecord(
+        let record = FlowRunActionRecord(
             actionID: "signoff-repair-planning-\(UUID().uuidString)",
             runID: runID,
             stageID: commonStageID(for: inputArtifacts, in: bundle.artifacts),
-            actor: XcircuiteRunActionActor(kind: actorKind, identifier: actorIdentifier),
+            actor: FlowRunActor(kind: actorKind, identifier: actorIdentifier),
             actionKind: "review.formulateSignoffRepairPlanningProblem",
             status: .succeeded,
-            inputs: legacyInputs,
-            outputs: legacyOutputs,
-            metadata: signoffRepairPlanningMetadata(
-                drcRepairHintPath: drcRepairHintPath,
-                lvsRepairHintPath: lvsRepairHintPath,
-                actionDomainArtifact: actionDomainArtifact,
-                compilation: compilation,
-                note: note
-            )
+            inputs: inputArtifacts,
+            outputs: outputArtifacts,
+            context: FlowRunActionContext(iterationID: compilation.formulationID)
         )
-        try store.appendRunAction(record, inProjectAt: projectRoot)
+        try await store.appendRunAction(record)
 
         return RunReviewSignoffRepairPlanningResult(
             runID: runID,
@@ -193,22 +191,23 @@ extension RunReviewService {
         lvsRepairHintPath: String?,
         bundleArtifacts: [FlowRunReviewArtifact],
         projectRoot: URL
-    ) throws -> [ArtifactReference] {
+    ) async throws -> [ArtifactReference] {
+        let store = try workspaceStore(projectRoot: projectRoot)
         var references: [ArtifactReference] = []
         if let drcRepairHintPath {
-            references.append(try repairHintInputArtifact(
+            references.append(try await repairHintInputArtifact(
                 path: drcRepairHintPath,
                 artifactID: "drc-repair-hints",
                 bundleArtifacts: bundleArtifacts,
-                projectRoot: projectRoot
+                store: store
             ))
         }
         if let lvsRepairHintPath {
-            references.append(try repairHintInputArtifact(
+            references.append(try await repairHintInputArtifact(
                 path: lvsRepairHintPath,
                 artifactID: "lvs-repair-hints",
                 bundleArtifacts: bundleArtifacts,
-                projectRoot: projectRoot
+                store: store
             ))
         }
         return references
@@ -218,32 +217,40 @@ extension RunReviewService {
         path: String,
         artifactID: String,
         bundleArtifacts: [FlowRunReviewArtifact],
-        projectRoot: URL
-    ) throws -> ArtifactReference {
+        store: XcircuiteWorkspaceStore
+    ) async throws -> ArtifactReference {
         if let artifact = bundleArtifacts.first(where: { $0.path == path }) {
-            let legacy = XcircuiteFileReference(
-                artifactID: artifact.artifactID ?? artifactID,
-                path: artifact.path,
-                kind: artifact.kind,
-                format: artifact.format,
-                sha256: artifact.sha256,
-                byteCount: artifact.byteCount,
-                producedByRunID: runIDForProducedArtifact(artifact)
+            guard let digest = artifact.sha256,
+                  let byteCount = artifact.byteCount,
+                  byteCount >= 0 else {
+                throw RunReviewServiceError.invalidArtifactReference(
+                    path: artifact.path,
+                    message: "Signoff repair input is missing verified integrity metadata."
+                )
+            }
+            return ArtifactReference(
+                id: try ArtifactID(rawValue: artifact.artifactID ?? artifactID),
+                locator: ArtifactLocator(
+                    location: try ArtifactLocation(workspaceRelativePath: artifact.path),
+                    role: .input,
+                    kind: artifact.kind,
+                    format: artifact.format
+                ),
+                digest: try ContentDigest(algorithm: .sha256, hexadecimalValue: digest),
+                byteCount: UInt64(byteCount)
             )
-            return try foundationArtifactReference(legacy)
         }
-        let legacy = try store.fileReference(
+        return try await store.makeArtifactReference(
             forProjectRelativePath: path,
             artifactID: artifactID,
+            role: .input,
             kind: .report,
-            format: .json,
-            inProjectAt: projectRoot
+            format: .json
         )
-        return try foundationArtifactReference(legacy)
     }
 
     private func runIDForProducedArtifact(_ artifact: FlowRunReviewArtifact) -> String? {
-        guard artifact.path.hasPrefix("\(XcircuiteWorkspace.directoryName)/runs/") else {
+        guard artifact.path.hasPrefix("\(XcircuiteWorkspaceLayout.directoryName)/runs/") else {
             return nil
         }
         let components = artifact.path.split(separator: "/").map(String.init)
@@ -255,17 +262,15 @@ extension RunReviewService {
 
     private func actionDomainArtifact(
         runID: String,
-        projectRoot: URL
-    ) throws -> ArtifactReference {
-        let legacy = try store.fileReference(
-            forProjectRelativePath: "\(XcircuiteWorkspace.directoryName)/runs/\(runID)/\(XcircuitePlanningArtifactStore.actionDomainRelativePath)",
+        store: XcircuiteWorkspaceStore
+    ) async throws -> ArtifactReference {
+        return try await store.makeArtifactReference(
+            forProjectRelativePath: "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/\(XcircuitePlanningArtifactStore.actionDomainRelativePath)",
             artifactID: XcircuitePlanningArtifactStore.actionDomainArtifactID,
+            role: .output,
             kind: .other,
-            format: .json,
-            inProjectAt: projectRoot,
-            producedByRunID: runID
+            format: .json
         )
-        return try foundationArtifactReference(legacy)
     }
 
     private func commonStageID(
@@ -284,56 +289,4 @@ extension RunReviewService {
         return stageIDs.first
     }
 
-    private func signoffRepairPlanningMetadata(
-        drcRepairHintPath: String?,
-        lvsRepairHintPath: String?,
-        actionDomainArtifact: ArtifactReference,
-        compilation: XcircuiteSignoffRepairFormulationResult,
-        note: String
-    ) -> [String: XcircuiteJSONValue] {
-        var metadata: [String: XcircuiteJSONValue] = [
-            "formulationID": .string(compilation.formulationID),
-            "problemID": .string(compilation.problemID),
-            "repairFormulationPath": .string(compilation.compilation.formulationArtifact.path),
-            "planningProblemPath": .string(compilation.compilation.problemArtifact.path),
-            "actionDomainPath": .string(actionDomainArtifact.path),
-            "sourceReportCount": .number(Double(compilation.sourceReports.count)),
-            "sourceReports": .array(compilation.sourceReports.map(sourceReportMetadataValue)),
-            "note": .string(note),
-        ]
-        if let drcRepairHintPath {
-            metadata["drcRepairHintPath"] = .string(drcRepairHintPath)
-        }
-        if let lvsRepairHintPath {
-            metadata["lvsRepairHintPath"] = .string(lvsRepairHintPath)
-        }
-        return metadata
-    }
-
-    private func foundationArtifactReference(
-        _ reference: XcircuiteFileReference
-    ) throws -> ArtifactReference {
-        guard let foundation = FoundationArtifactTypeProjection.reference(reference) else {
-            throw RunReviewServiceError.artifactReferenceProjectionFailed(
-                path: reference.path,
-                message: "Signoff repair planning artifact has invalid integrity metadata."
-            )
-        }
-        return foundation
-    }
-
-    private func sourceReportMetadataValue(
-        _ sourceReport: XcircuiteSignoffRepairFormulationResult.SourceReport
-    ) -> XcircuiteJSONValue {
-        .object([
-            "sourceKind": .string(sourceReport.sourceKind),
-            "path": .string(sourceReport.path),
-            "backendID": .string(sourceReport.backendID),
-            "topCell": .string(sourceReport.topCell),
-            "status": .string(sourceReport.status),
-            "activeDiagnosticCount": .number(Double(sourceReport.activeDiagnosticCount)),
-            "hintCount": .number(Double(sourceReport.hintCount)),
-            "unsupportedDiagnosticCount": .number(Double(sourceReport.unsupportedDiagnosticCount)),
-        ])
-    }
 }

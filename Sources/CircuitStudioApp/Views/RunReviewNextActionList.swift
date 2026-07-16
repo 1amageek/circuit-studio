@@ -1,10 +1,9 @@
 import SwiftUI
 import DesignFlowKernel
-import DesignFlowKernel
 
 struct RunReviewNextActionList: View {
     let actions: [FlowRunNextAction]
-    let selections: [XcircuiteSuggestedCommandSelection]
+    let selections: [FlowSuggestedCommandSelection]
     let recordSelection: (FlowRunNextAction, FlowRunSuggestedCommand) -> Void
 
     var body: some View {
@@ -83,7 +82,7 @@ struct RunReviewNextActionList: View {
     private func selectedCommand(
         action: FlowRunNextAction,
         command: FlowRunSuggestedCommand
-    ) -> XcircuiteSuggestedCommandSelection? {
+    ) -> FlowSuggestedCommandSelection? {
         selections.last {
             $0.status == .succeeded
                 && $0.nextActionID == action.actionID

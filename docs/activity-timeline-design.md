@@ -38,7 +38,7 @@ flowchart LR
 | Storage | One SQLite database in the app sandbox's Application Support directory. No Activity database is written into a design project. |
 | Database API | Use `database-framework` `26.0629.0` with the `SQLite` SwiftPM trait and the `Database` product. |
 | Granularity | Store immutable timeline events grouped by `operationID` and optionally linked to `runID` and `stageID`. |
-| Artifacts | Store references, hashes, and byte counts. Keep artifact payloads in their existing files. |
+| Artifacts | Store the canonical `CircuiteFoundation.ArtifactReference` unchanged, paired only with Activity direction metadata. Keep artifact payloads in their existing files. |
 | Failure coupling | Activity persistence failure does not roll back a completed design operation, but it must surface as a visible degraded state. |
 | Rebuild | Reconciliation is deterministic and idempotent. Deleting the SQLite database must not delete design history or evidence. |
 
@@ -49,11 +49,11 @@ The design is based on the current implementation rather than a new parallel run
 | Existing implementation | Current responsibility | Design consequence |
 |---|---|---|
 | `XcircuiteProjectManifest.identity.projectID` | Stable project identity in `.xcircuite/project.json`. | Use `projectID` as the Activity partition key. Do not key durable Activity only by path. |
-| `XcircuiteRunManifest` | Run actor, intent, lifecycle, revision, and artifact references. | Project run creation and terminal state into timeline events. |
-| `XcircuiteRunActionRecord` and `actions.jsonl` | Actor-attributed actions with status, input/output references, diagnostics, and metadata. | This is the primary source for Agent, CLI, human, and system action events. Do not replace it with database writes. |
+| `FlowRunManifest` | Run actor, intent, lifecycle, revision, and artifact references. | Project run creation and terminal state into timeline events. |
+| `FlowRunActionRecord` and `actions.jsonl` | Actor-attributed actions with status, input/output references, diagnostics, and metadata. | This is the primary source for Agent, CLI, human, and system action events. Do not replace it with database writes. |
 | `FlowRunProgressEvent` and `progress.jsonl` | Ordered run and stage progress with a stable sequence. | Project each progress record with an ID derived from run ID and sequence. |
 | `FlowStageResult` | Stage status, diagnostics, gates, artifacts, and attempt records. | Add stage-result events only for information not already represented by an action or progress event. |
-| `XcircuiteDesignDiff` | Base/proposed snapshots and typed design changes by domain and operation. | Project one design-change event with counts and references; keep the detailed before/after values in the canonical diff artifact. |
+| `DesignDiff` | Base/proposed snapshots and typed design changes by domain and operation. | Project one design-change event with counts and references; keep the detailed before/after values in the canonical diff artifact. |
 | `FlowRunLedgerLoader` | Loads manifest, plan, stage results, toolchain, design diff, progress, cancellation, actions, and approvals. | Use this loader as the reconciliation input instead of parsing run files again in the Activity module. |
 | `XcircuiteRunLedgerObserver` | Polls canonical run snapshots and exposes an `AsyncThrowingStream`; it also provides `shutdown()`. | Trigger incremental reconciliation from the existing observer instead of creating another project watcher initially. |
 | `XcircuiteSimulationRunRecorder` | Persists simulation requests, input netlists, summaries, waveforms, errors, and run status. | Simulation Activity can be reconstructed from existing run evidence. Do not add a second simulation log. |
@@ -171,7 +171,7 @@ Expose a database-independent value type named `Activity` and keep the `@Persist
 | `title` | Short presentation label produced by a typed projector. |
 | `summary` | Bounded factual summary; never a hidden reasoning trace. |
 | `commandJSON` | Optional structured executable and sanitized argument vector. |
-| `artifactsJSON` | Encoded references containing path, role, kind, format, digest, byte count, and direction. |
+| `artifactsJSON` | Encoded `Activity.Artifact` values containing the canonical `CircuiteFoundation.ArtifactReference` and separate input/output/related direction metadata. Digest and byte count remain mandatory. |
 | `diagnosticsJSON` | Bounded structured diagnostic summaries and codes. |
 | `occurredAt` | Source event time. |
 | `indexedAt` | Time the projection was written to SQLite. |

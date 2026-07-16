@@ -3,7 +3,6 @@ import CircuiteFoundation
 import DesignFlowKernel
 import ToolQualification
 import Xcircuite
-import DesignFlowKernel
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 
@@ -100,69 +99,115 @@ struct RunReviewSignoffFixture {
         ))
 
         let artifacts = [
-            XcircuiteFileReference(artifactID: "drc-summary", path: drcPath, kind: .report, format: .json, producedByRunID: runID),
-            XcircuiteFileReference(artifactID: "drc-raw-log", path: drcLogPath, kind: .report, format: .text, producedByRunID: runID),
-            XcircuiteFileReference(artifactID: "drc-repair-hints", path: drcRepairHintPath, kind: .report, format: .json, producedByRunID: runID),
-            XcircuiteFileReference(
+            try RunReviewTestSupport.artifactReference(artifactID: "drc-summary", path: drcPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactReference(artifactID: "drc-raw-log", path: drcLogPath, kind: .report, format: .text),
+            try RunReviewTestSupport.artifactReference(artifactID: "drc-repair-hints", path: drcRepairHintPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactReference(
                 artifactID: "evidence-drc-summary-review",
                 path: drcEnvelopePath,
                 kind: .report,
-                format: .json,
-                producedByRunID: runID
+                format: .json
             ),
-            XcircuiteFileReference(artifactID: "lvs-summary", path: lvsPath, kind: .report, format: .json, producedByRunID: runID),
-            XcircuiteFileReference(artifactID: "lvs-raw-log", path: lvsLogPath, kind: .report, format: .text, producedByRunID: runID),
-            XcircuiteFileReference(artifactID: "lvs-repair-hints", path: lvsRepairHintPath, kind: .report, format: .json, producedByRunID: runID),
-            XcircuiteFileReference(artifactID: "pex-summary", path: pexPath, kind: .report, format: .json, producedByRunID: runID),
-            XcircuiteFileReference(
+            try RunReviewTestSupport.artifactReference(artifactID: "lvs-summary", path: lvsPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactReference(artifactID: "lvs-raw-log", path: lvsLogPath, kind: .report, format: .text),
+            try RunReviewTestSupport.artifactReference(artifactID: "lvs-repair-hints", path: lvsRepairHintPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactReference(artifactID: "pex-summary", path: pexPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactReference(
                 artifactID: "planning-simulation-summary",
                 path: simulationSummaryPath,
                 kind: .report,
                 format: .json
             ),
-            XcircuiteFileReference(
+            try RunReviewTestSupport.artifactReference(
                 artifactID: "pre-layout-waveform",
                 path: preLayoutWaveformPath,
                 kind: .waveform,
                 format: .csv
             ),
-            XcircuiteFileReference(
+            try RunReviewTestSupport.artifactReference(
                 artifactID: "post-layout-waveform",
                 path: postLayoutWaveformPath,
                 kind: .waveform,
                 format: .csv
             ),
-            XcircuiteFileReference(
+            try RunReviewTestSupport.artifactReference(
                 artifactID: "symlink-escape",
                 path: symlinkEscapePath,
                 kind: .report,
                 format: .text
             ),
-            XcircuiteFileReference(path: measurementsPath, kind: .measurement, format: .json),
-            XcircuiteFileReference(artifactID: "post-layout-comparison", path: comparisonPath, kind: .report, format: .json),
-            XcircuiteFileReference(artifactID: "design-spec", path: designSpecPath, kind: .other, format: .json),
-            XcircuiteFileReference(artifactID: "layout-document", path: layoutDocumentPath, kind: .layout, format: .json),
-            XcircuiteFileReference(artifactID: "design-unit", path: designUnitPath, kind: .other, format: .json),
-            XcircuiteFileReference(
+            try RunReviewTestSupport.artifactReference(artifactID: "measurements", path: measurementsPath, kind: .measurement, format: .json),
+            try RunReviewTestSupport.artifactReference(artifactID: "post-layout-comparison", path: comparisonPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactReference(artifactID: "design-spec", path: designSpecPath, kind: .other, format: .json),
+            try RunReviewTestSupport.artifactReference(artifactID: "layout-document", path: layoutDocumentPath, kind: .layout, format: .json),
+            try RunReviewTestSupport.artifactReference(artifactID: "design-unit", path: designUnitPath, kind: .other, format: .json),
+            try RunReviewTestSupport.artifactReference(
                 artifactID: "generated-layout-signoff-ready-oracle-corpus-report",
                 path: generatedLayoutCorpusPath,
                 kind: .report,
                 format: .json
             ),
-            XcircuiteFileReference(
+            try RunReviewTestSupport.artifactReference(
                 artifactID: "retained-signoff-report",
                 path: retainedSignoffReportPath,
                 kind: .report,
                 format: .json
             ),
-            XcircuiteFileReference(
+            try RunReviewTestSupport.artifactReference(
                 artifactID: "drc-external-oracle-report",
                 path: drcOracleLaneReportPath,
                 kind: .report,
                 format: .json
             ),
         ]
-        let payloads = [
+        let pexManifestURLString = root
+            .appending(path: "\(rawPrefix)/pex-artifact-manifest.json")
+            .absoluteString
+        let pexPayload = Data(
+            """
+            {
+              "manifestURL": "\(pexManifestURLString)",
+              "summary": {
+                "runID": "run-signoff",
+                "status": "completed",
+                "backendID": "mock-pex",
+                "corners": [
+                  {
+                    "cornerID": "tt",
+                    "status": "success",
+                    "netCount": 3,
+                    "elementCount": 8,
+                    "topNets": [
+                      {
+                        "name": "out",
+                        "groundCapF": 1e-15,
+                        "couplingCapF": 2e-15,
+                        "resistanceOhm": 25,
+                        "nodeCount": 4
+                      }
+                    ],
+                    "diagnostics": []
+                  },
+                  {
+                    "cornerID": "ss",
+                    "status": "failed",
+                    "netCount": 0,
+                    "elementCount": 0,
+                    "topNets": [],
+                    "diagnostics": [
+                      {
+                        "severity": "error",
+                        "code": "PEX_CORNER_FAILED",
+                        "message": "missing SPEF"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """.utf8
+        )
+        let payloads: [String: Data] = [
             drcPath: Data(
                 """
                 {
@@ -225,19 +270,19 @@ struct RunReviewSignoffFixture {
                 }
                 """.utf8
             ),
-            drcEnvelopePath: try RunReviewTestSupport.encodedJSONData(XcircuiteArtifactEnvelope(
+            drcEnvelopePath: try RunReviewTestSupport.encodedJSONData(FlowArtifactEnvelope(
                 artifactID: "drc-summary",
                 role: "drc-summary",
                 stageID: stageID,
-                reference: try RunReviewTestSupport.foundationArtifactReference(
+                reference: try RunReviewTestSupport.artifactReference(
                     artifactID: "drc-summary",
                     path: drcPath
                 ),
-                evaluationSpec: XcircuiteEvaluationSpec(
+                evaluationSpec: FlowEvaluationSpec(
                     specID: "drc-summary-evaluation-spec",
                     objective: "Evaluate DRC artifact evidence for repair planning.",
                     criteria: [
-                        XcircuiteEvaluationCriterion(
+                        FlowEvaluationCriterion(
                             criterionID: "drc-active-violation-count",
                             channelID: "drc-active-violation-count",
                             comparator: .equal,
@@ -246,66 +291,66 @@ struct RunReviewSignoffFixture {
                     ],
                     requiredArtifactRoles: ["drc-summary"]
                 ),
-                observationSet: XcircuiteObservationSet(
+                observationSet: FlowObservationSet(
                     observationSetID: "drc-summary-observations",
                     specID: "drc-summary-evaluation-spec",
                     channels: [
-                        XcircuiteObservationChannel(
+                        FlowObservationChannel(
                             channelID: "drc-active-violation-count",
                             label: "Active DRC violations",
                             status: .observed,
                             value: .number(2),
                             sourceArtifactIDs: ["drc-summary"],
-                            confidence: XcircuiteEvidenceConfidence(value: 0.9, calibrated: true)
+                            confidence: FlowEvidenceConfidence(value: 0.9, calibrated: true)
                         ),
-                        XcircuiteObservationChannel(
+                        FlowObservationChannel(
                             channelID: "drc-magic-oracle-agreement",
                             status: .missing,
                             sourceArtifactIDs: ["drc-summary"],
-                            confidence: XcircuiteEvidenceConfidence(value: 0, calibrated: false)
+                            confidence: FlowEvidenceConfidence(value: 0, calibrated: false)
                         ),
-                        XcircuiteObservationChannel(
+                        FlowObservationChannel(
                             channelID: "drc-qualified-calibration",
                             status: .uncalibrated,
                             value: .number(0.4),
                             sourceArtifactIDs: ["drc-summary"],
-                            confidence: XcircuiteEvidenceConfidence(
+                            confidence: FlowEvidenceConfidence(
                                 value: 0.4,
                                 posteriorVariance: 0.6,
                                 calibrated: false
                             )
                         ),
                     ],
-                    confidence: XcircuiteEvidenceConfidence(
+                    confidence: FlowEvidenceConfidence(
                         value: 0.55,
                         posteriorVariance: 0.45,
                         calibrated: false
                     )
                 ),
-                evaluationResult: XcircuiteEvaluationResult(
+                evaluationResult: FlowEvaluationResult(
                     evaluationID: "drc-summary-evaluation",
                     specID: "drc-summary-evaluation-spec",
                     status: .rejected,
                     likelihood: 0.2,
                     residual: 2,
-                    confidence: XcircuiteEvidenceConfidence(
+                    confidence: FlowEvidenceConfidence(
                         value: 0.55,
                         posteriorVariance: 0.45,
                         calibrated: false
                     ),
                     channelResults: [
-                        XcircuiteEvaluationChannelResult(
+                        FlowEvaluationChannelResult(
                             criterionID: "drc-active-violation-count",
                             channelID: "drc-active-violation-count",
                             status: .rejected,
                             observedValue: .number(2),
                             residual: 2,
                             likelihood: 0.2,
-                            confidence: XcircuiteEvidenceConfidence(value: 0.9, calibrated: true)
+                            confidence: FlowEvidenceConfidence(value: 0.9, calibrated: true)
                         ),
                     ],
                     feedbackSignals: [
-                        XcircuiteFeedbackSignal(
+                        FlowFeedbackSignal(
                             signalID: "drc-route-width-feedback",
                             sourceEvaluationID: "drc-summary-evaluation",
                             channelID: "drc-active-violation-count",
@@ -316,7 +361,7 @@ struct RunReviewSignoffFixture {
                             affectedArtifactIDs: ["drc-summary"],
                             affectedPaths: [drcPath],
                             suggestedActions: ["apply-drc-repair-hint"],
-                            confidence: XcircuiteEvidenceConfidence(value: 0.55, calibrated: false)
+                            confidence: FlowEvidenceConfidence(value: 0.55, calibrated: false)
                         ),
                     ],
                     summary: "DRC has active violations and incomplete oracle evidence."
@@ -451,50 +496,7 @@ struct RunReviewSignoffFixture {
                 }
                 """.utf8
             ),
-            pexPath: Data(
-                """
-                {
-                  "manifestURL": "\(root.appending(path: "\(rawPrefix)/pex-artifact-manifest.json").absoluteString)",
-                  "summary": {
-                    "runID": "run-signoff",
-                    "status": "completed",
-                    "backendID": "mock-pex",
-                    "corners": [
-                      {
-                        "cornerID": "tt",
-                        "status": "success",
-                        "netCount": 3,
-                        "elementCount": 8,
-                        "topNets": [
-                          {
-                            "name": "out",
-                            "groundCapF": 1e-15,
-                            "couplingCapF": 2e-15,
-                            "resistanceOhm": 25,
-                            "nodeCount": 4
-                          }
-                        ],
-                        "diagnostics": []
-                      },
-                      {
-                        "cornerID": "ss",
-                        "status": "failed",
-                        "netCount": 0,
-                        "elementCount": 0,
-                        "topNets": [],
-                        "diagnostics": [
-                          {
-                            "severity": "error",
-                            "code": "PEX_CORNER_FAILED",
-                            "message": "missing SPEF"
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                }
-                """.utf8
-            ),
+            pexPath: pexPayload,
             preLayoutWaveformPath: Data("time,v(out),v(in)\n0,0,1\n1e-9,0.9,0\n".utf8),
             postLayoutWaveformPath: Data("time,v(out),v(in)\n0,0,1\n1e-9,1,0\n".utf8),
             simulationSummaryPath: Data(
@@ -858,7 +860,7 @@ struct RunReviewSignoffFixture {
             ),
         ]
 
-        _ = try await DefaultFlowOrchestrator().run(
+        _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
                 projectRoot: root,
                 runID: runID,
@@ -886,7 +888,7 @@ struct RunReviewSignoffFixture {
         try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: outsideArtifact)
 
         let service = RunReviewService()
-        let review = try service.loadRun(runID: runID, projectRoot: root)
+        let review = try await service.loadRun(runID: runID, projectRoot: root)
         return Self(
             root: root,
             outsideRoot: outsideRoot,

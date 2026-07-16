@@ -157,7 +157,7 @@ public enum RunReviewWaiverDecisionValue: String, Sendable, Hashable, Codable {
 }
 
 public struct RunReviewWaiverDecision: Sendable, Hashable {
-    public static let actionKind = "review.decideWaiver"
+    public static let actionKind = FlowRunReviewDecisionKind.waiver.rawValue
 
     public let actionRecordID: String
     public let runID: String

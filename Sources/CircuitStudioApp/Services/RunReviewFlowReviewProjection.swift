@@ -1,6 +1,5 @@
 import DesignFlowKernel
 import Foundation
-import DesignFlowKernel
 
 public struct RunReviewFlowReviewProjection: Sendable, Hashable {
     public struct CoverageDomain: Sendable, Hashable {
@@ -31,9 +30,9 @@ public struct RunReviewFlowReviewProjection: Sendable, Hashable {
     public let planningArtifacts: [FlowRunReviewArtifact]
     public let retainedHistoryArtifacts: [FlowRunReviewArtifact]
     public let integrityIssueArtifacts: [FlowRunReviewArtifact]
-    public let approvalActions: [XcircuiteRunReviewDecisionAction]
-    public let waiverActions: [XcircuiteRunReviewDecisionAction]
-    public let resumeActions: [XcircuiteRunReviewDecisionAction]
+    public let approvalActions: [FlowRunReviewDecision]
+    public let waiverActions: [FlowRunReviewDecision]
+    public let resumeActions: [FlowRunReviewDecision]
     public let blockedItems: [FlowRunReviewItem]
     public let resumeItems: [FlowRunReviewItem]
 
@@ -168,9 +167,9 @@ public struct RunReviewFlowReviewProjection: Sendable, Hashable {
     }
 
     private static func actions(
-        _ actions: [XcircuiteRunReviewDecisionAction],
-        kind: XcircuiteRunReviewDecisionActionKind
-    ) -> [XcircuiteRunReviewDecisionAction] {
+        _ actions: [FlowRunReviewDecision],
+        kind: FlowRunReviewDecisionKind
+    ) -> [FlowRunReviewDecision] {
         actions
             .filter { $0.decisionKind == kind }
             .sorted { left, right in

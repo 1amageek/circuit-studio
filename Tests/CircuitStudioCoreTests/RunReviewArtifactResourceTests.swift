@@ -1,7 +1,6 @@
 import DesignFlowKernel
 import Foundation
 import Testing
-import DesignFlowKernel
 @testable import CircuitStudioApp
 
 @Suite("Run review artifact resource")
@@ -21,13 +20,13 @@ struct RunReviewArtifactResourceTests {
         #expect(resource.digest == fixture.digest)
     }
 
-    @Test func rejectsContentChangedAfterLedgerVerification() throws {
+    @Test func rejectsContentChangedAfterLedgerVerification() async throws {
         let fixture = try RunReviewArtifactResourceFixture(contents: "original")
         defer { fixture.remove() }
         try Data("modified".utf8).write(to: fixture.file)
 
         do {
-            _ = try fixture.service.verifiedArtifactResource(
+            _ = try await fixture.service.verifiedArtifactResource(
                 runID: fixture.runID,
                 artifact: fixture.artifact,
                 projectRoot: fixture.root
@@ -44,7 +43,7 @@ struct RunReviewArtifactResourceTests {
         }
     }
 
-    @Test func rejectsAnArtifactOutsideTheProjectRoot() throws {
+    @Test func rejectsAnArtifactOutsideTheProjectRoot() async throws {
         let fixture = try RunReviewArtifactResourceFixture(contents: "inside")
         defer { fixture.remove() }
         let outsideDirectory = FileManager.default.temporaryDirectory
@@ -67,12 +66,17 @@ struct RunReviewArtifactResourceTests {
         )
         let service = fixture.service(artifact: outsideArtifact)
 
-        #expect(throws: RunReviewServiceError.artifactResourceEscapesProject(path: outsideArtifact.path)) {
-            _ = try service.verifiedArtifactResource(
+        do {
+            _ = try await service.verifiedArtifactResource(
                 runID: fixture.runID,
                 artifact: outsideArtifact,
                 projectRoot: fixture.root
             )
+            Issue.record("An artifact outside the project root was exposed to the renderer.")
+        } catch let error as RunReviewServiceError {
+            #expect(error == .artifactResourceEscapesProject(path: outsideArtifact.path))
+        } catch {
+            Issue.record("Unexpected error type: \(error)")
         }
     }
 }
@@ -107,13 +111,11 @@ private struct RunReviewArtifactResourceFixture {
     func service(artifact: FlowRunReviewArtifact) -> RunReviewService {
         let summary = FlowRunLedgerSummary(
             runID: runID,
-            status: .succeeded,
-            runDirectoryPath: root.path(percentEncoded: false)
+            status: .succeeded
         )
         let bundle = FlowRunReviewBundle(
             runID: runID,
             status: .succeeded,
-            runDirectoryPath: root.path(percentEncoded: false),
             summary: summary,
             artifacts: [artifact]
         )
@@ -136,7 +138,8 @@ private struct RunReviewArtifactResourceFixture {
         path: String,
         digest: RoundTripArtifactDigest
     ) -> FlowRunReviewArtifact {
-        FlowRunReviewArtifact(
+        let byteCount = UInt64(digest.byteCount)
+        return FlowRunReviewArtifact(
             role: "waveform",
             artifactID: "waveform",
             stageID: "simulation",
@@ -144,13 +147,13 @@ private struct RunReviewArtifactResourceFixture {
             kind: .waveform,
             format: .csv,
             sha256: digest.sha256,
-            byteCount: digest.byteCount,
+            byteCount: byteCount,
             integrity: FlowRunReviewArtifactIntegrity(
                 status: .verified,
                 expectedSHA256: digest.sha256,
                 actualSHA256: digest.sha256,
-                expectedByteCount: digest.byteCount,
-                actualByteCount: digest.byteCount,
+                expectedByteCount: byteCount,
+                actualByteCount: byteCount,
                 message: "Artifact integrity is verified."
             )
         )
@@ -160,7 +163,7 @@ private struct RunReviewArtifactResourceFixture {
 private struct RunReviewArtifactBundleStub: FlowRunReviewBundling {
     let bundle: FlowRunReviewBundle
 
-    func makeReviewBundle(runID: String, projectRoot: URL) throws -> FlowRunReviewBundle {
+    func makeReviewBundle(runID: String, projectRoot: URL) async throws -> FlowRunReviewBundle {
         bundle
     }
 }

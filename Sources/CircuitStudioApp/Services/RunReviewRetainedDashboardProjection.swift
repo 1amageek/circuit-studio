@@ -1,6 +1,5 @@
 import DesignFlowKernel
 import Foundation
-import DesignFlowKernel
 
 public struct RunReviewRetainedDashboardProjection: Sendable, Hashable, Codable {
     public enum Status: String, Sendable, Hashable, Codable {
@@ -17,7 +16,7 @@ public struct RunReviewRetainedDashboardProjection: Sendable, Hashable, Codable 
         public let path: String
         public let integrityStatus: FlowRunReviewArtifactIntegrityStatus?
         public let sha256: String?
-        public let byteCount: Int64?
+        public let byteCount: UInt64?
         public let diagnosticCodes: [String]
         public let evidenceStatus: String
 
@@ -27,7 +26,7 @@ public struct RunReviewRetainedDashboardProjection: Sendable, Hashable, Codable 
             path: String,
             integrityStatus: FlowRunReviewArtifactIntegrityStatus?,
             sha256: String?,
-            byteCount: Int64?,
+            byteCount: UInt64?,
             diagnosticCodes: [String],
             evidenceStatus: String
         ) {
@@ -67,13 +66,13 @@ public struct RunReviewRetainedDashboardProjection: Sendable, Hashable, Codable 
 
     public struct DecisionSummary: Sendable, Hashable, Identifiable, Codable {
         public let id: String
-        public let kind: XcircuiteRunReviewDecisionActionKind
+        public let kind: FlowRunReviewDecisionKind
         public let decision: String
         public let targetID: String
         public let targetPath: String?
         public let decidedAt: Date
 
-        public init(action: XcircuiteRunReviewDecisionAction) {
+        public init(action: FlowRunReviewDecision) {
             self.id = action.actionRecordID
             self.kind = action.decisionKind
             self.decision = action.decision

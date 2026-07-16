@@ -601,7 +601,7 @@ public final class AppState {
             if let recordingContext {
                 activeRecordingContext = recordingContext
             } else {
-                activeRecordingContext = try beginSimulationRecording(
+                activeRecordingContext = try await beginSimulationRecording(
                     recorder: recorder,
                     intent: "Run \(executedAnalysis.displayName) simulation.",
                     source: spiceSource,
@@ -671,7 +671,7 @@ public final class AppState {
         } catch {
             continuation.finish()
             updateTask.cancel()
-            recordSimulationFailure(
+            await recordSimulationFailure(
                 recorder: recorder,
                 context: activeRecordingContext,
                 reason: error.localizedDescription
@@ -746,7 +746,7 @@ public final class AppState {
             if let recordingContext {
                 activeRecordingContext = recordingContext
             } else {
-                activeRecordingContext = try beginSimulationRecording(
+                activeRecordingContext = try await beginSimulationRecording(
                     recorder: recorder,
                     intent: "Run \(analysisCommand.displayName) schematic simulation.",
                     source: nil,
@@ -825,7 +825,7 @@ public final class AppState {
         } catch {
             continuation.finish()
             updateTask.cancel()
-            recordSimulationFailure(
+            await recordSimulationFailure(
                 recorder: recorder,
                 context: activeRecordingContext,
                 reason: error.localizedDescription
@@ -880,7 +880,7 @@ public final class AppState {
         let initialFileName = mode == .netlist ? spiceFileName : "schematic.cir"
         let recordingContext: SimulationRunContext
         do {
-            recordingContext = try recorder.begin(
+            recordingContext = try await recorder.begin(
                 projectRoot: try requiredProjectRootForSimulation(),
                 intent: "Run the active simulation workflow.",
                 source: initialSource,
@@ -921,7 +921,7 @@ public final class AppState {
                     processConfiguration: processConfiguration.isEmpty ? nil : processConfiguration
                 ))
             } catch {
-                recordSimulationFailure(
+                await recordSimulationFailure(
                     recorder: recorder,
                     context: recordingContext,
                     reason: error.localizedDescription
@@ -943,7 +943,7 @@ public final class AppState {
         case .netlist:
             guard !spiceSource.isEmpty else {
                 simulationError = "No SPICE source loaded"
-                recordSimulationFailure(
+                await recordSimulationFailure(
                     recorder: recorder,
                     context: recordingContext,
                     reason: "No SPICE source loaded"
@@ -958,7 +958,7 @@ public final class AppState {
                     processConfiguration: processConfiguration.isEmpty ? nil : processConfiguration
                 )
             } catch {
-                recordSimulationFailure(
+                await recordSimulationFailure(
                     recorder: recorder,
                     context: recordingContext,
                     reason: error.localizedDescription
@@ -1025,7 +1025,7 @@ public final class AppState {
             if let recordingContext {
                 activeRecordingContext = recordingContext
             } else {
-                activeRecordingContext = try beginSimulationRecording(
+                activeRecordingContext = try await beginSimulationRecording(
                     recorder: recorder,
                     intent: "Run an analysis and corner matrix.",
                     source: source,
@@ -1085,7 +1085,7 @@ public final class AppState {
                 )
             }
         } catch {
-            recordSimulationFailure(
+            await recordSimulationFailure(
                 recorder: recorder,
                 context: activeRecordingContext,
                 reason: error.localizedDescription
@@ -1130,11 +1130,11 @@ public final class AppState {
         source: String?,
         fileName: String?,
         startedAt: Date
-    ) throws -> SimulationRunContext? {
+    ) async throws -> SimulationRunContext? {
         guard let recorder else {
             return nil
         }
-        return try recorder.begin(
+        return try await recorder.begin(
             projectRoot: try requiredProjectRootForSimulation(),
             intent: intent,
             source: source,
@@ -1154,12 +1154,12 @@ public final class AppState {
         recorder: (any SimulationRunRecording)?,
         context: SimulationRunContext?,
         reason: String
-    ) {
+    ) async {
         guard let recorder, let context else {
             return
         }
         do {
-            try recorder.fail(context: context, reason: reason)
+            try await recorder.fail(context: context, reason: reason)
         } catch {
             log(
                 "Failed to persist the simulation failure: \(error.localizedDescription)",

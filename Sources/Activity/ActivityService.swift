@@ -1,6 +1,6 @@
 import DesignFlowKernel
 import Foundation
-import DesignFlowKernel
+import Xcircuite
 
 public actor ActivityService: ActivityRecording, ActivityQuerying {
     private let store: SQLiteActivityStore

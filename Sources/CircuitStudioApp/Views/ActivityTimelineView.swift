@@ -366,7 +366,7 @@ private struct ActivityGroupDetailView: View {
             ActivityArtifactPreview(
                 projectRoot: projectRoot,
                 activity: selection.activity,
-                reference: selection.reference,
+                artifact: selection.artifact,
                 artifactResourceLoader: artifactResourceLoader
             )
             .frame(minWidth: 760, minHeight: 560)
@@ -508,10 +508,10 @@ private struct ActivityGroupDetailView: View {
                     Text("Artifacts")
                         .font(.caption)
                         .bold()
-                    ForEach(Array(activity.artifacts.enumerated()), id: \.offset) { index, reference in
+                    ForEach(Array(activity.artifacts.enumerated()), id: \.offset) { index, artifact in
                         artifactRow(
                             activity: activity,
-                            reference: reference,
+                            artifact: artifact,
                             index: index
                         )
                     }
@@ -554,7 +554,7 @@ private struct ActivityGroupDetailView: View {
 
     private func artifactRow(
         activity: Activity,
-        reference: Activity.ArtifactReference,
+        artifact: Activity.Artifact,
         index: Int
     ) -> some View {
         Group {
@@ -562,42 +562,43 @@ private struct ActivityGroupDetailView: View {
                 Button {
                     selectedArtifact = ActivityArtifactSelection(
                         activity: activity,
-                        reference: reference,
+                        artifact: artifact,
                         index: index
                     )
                 } label: {
-                    artifactLabel(reference)
+                    artifactLabel(artifact)
                 }
                 .buttonStyle(.plain)
             } else {
-                artifactLabel(reference, showsOpenIcon: false)
+                artifactLabel(artifact, showsOpenIcon: false)
             }
         }
     }
 
     private func artifactLabel(
-        _ reference: Activity.ArtifactReference,
+        _ artifact: Activity.Artifact,
         showsOpenIcon: Bool = true
     ) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: reference.direction.systemImage)
-                .foregroundStyle(reference.direction.statusColor)
+            Image(systemName: artifact.direction.systemImage)
+                .foregroundStyle(artifact.direction.statusColor)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
-                Text(reference.displayName)
+                Text(artifact.displayName)
                     .font(.callout)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Text(reference.direction.title)
-                    Text(reference.kind)
-                    Text(reference.format)
-                    if let byteCount = reference.byteCount {
-                        Text(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))
-                    }
+                    Text(artifact.direction.title)
+                    Text(artifact.reference.kind.rawValue)
+                    Text(artifact.reference.format.rawValue)
+                    Text(ByteCountFormatter.string(
+                        fromByteCount: Int64(clamping: artifact.reference.byteCount),
+                        countStyle: .file
+                    ))
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                Text(reference.path)
+                Text(artifact.reference.path)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
                     .lineLimit(2)
@@ -615,12 +616,12 @@ private struct ActivityGroupDetailView: View {
 private struct ActivityArtifactSelection: Identifiable {
     let id: String
     let activity: Activity
-    let reference: Activity.ArtifactReference
+    let artifact: Activity.Artifact
 
-    init(activity: Activity, reference: Activity.ArtifactReference, index: Int) {
+    init(activity: Activity, artifact: Activity.Artifact, index: Int) {
         self.id = "\(activity.id):artifact:\(index)"
         self.activity = activity
-        self.reference = reference
+        self.artifact = artifact
     }
 }
 
@@ -842,10 +843,10 @@ private extension Activity.Status {
     }
 }
 
-private extension Activity.ArtifactReference {
+private extension Activity.Artifact {
     var displayName: String {
-        let name = URL(filePath: path).lastPathComponent
-        return name.isEmpty ? path : name
+        let name = URL(filePath: reference.path).lastPathComponent
+        return name.isEmpty ? reference.path : name
     }
 }
 

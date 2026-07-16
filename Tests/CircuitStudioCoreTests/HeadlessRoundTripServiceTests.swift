@@ -4,6 +4,7 @@ import LayoutCore
 import LayoutTech
 import LayoutVerify
 import DesignFlowKernel
+import Xcircuite
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 @testable import SchematicEditor
@@ -39,7 +40,7 @@ struct HeadlessRoundTripServiceTests {
             pexIR: pexIR
         )
 
-        try assertCompletedRoundTrip(roundTrip)
+        try await assertCompletedRoundTrip(roundTrip)
     }
 
     @Test(.enabled(if: PostLayoutOracleService.ngspiceAvailable()), .timeLimit(.minutes(6)))
@@ -106,7 +107,7 @@ struct HeadlessRoundTripServiceTests {
             pexIR: pexIR
         )
 
-        try assertCompletedRoundTrip(roundTrip)
+        try await assertCompletedRoundTrip(roundTrip)
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -131,7 +132,7 @@ struct HeadlessRoundTripServiceTests {
             pexIR: pexIR
         )
 
-        try assertCompletedRoundTrip(roundTrip)
+        try await assertCompletedRoundTrip(roundTrip)
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -157,7 +158,7 @@ struct HeadlessRoundTripServiceTests {
             pexIR: pexIR
         )
 
-        try assertCompletedRoundTrip(roundTrip)
+        try await assertCompletedRoundTrip(roundTrip)
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -265,7 +266,10 @@ struct HeadlessRoundTripServiceTests {
             projectRoot: root,
             runID: "comparison-mismatch"
         ))
-        let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
+        let comparison = try JSONDecoder().decode(
+            CircuitStudioCore.PostLayoutComparisonReport.self,
+            from: comparisonData
+        )
         #expect(comparison.status == "not-comparable")
         #expect(comparison.diagnostics.contains { $0.contains("Sweep variable mismatch") })
     }
@@ -395,7 +399,10 @@ struct HeadlessRoundTripServiceTests {
             projectRoot: root,
             runID: "comparison-limit-delta"
         ))
-        let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
+        let comparison = try JSONDecoder().decode(
+            CircuitStudioCore.PostLayoutComparisonReport.self,
+            from: comparisonData
+        )
         #expect(comparison.status == "compared")
         #expect(comparison.gateStatus == "failed")
         #expect(comparison.comparisonLimits == PostLayoutComparisonLimits(maxAbsoluteDelta: 0))
@@ -438,7 +445,10 @@ struct HeadlessRoundTripServiceTests {
             projectRoot: root,
             runID: "comparison-limit-pass"
         ))
-        let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
+        let comparison = try JSONDecoder().decode(
+            CircuitStudioCore.PostLayoutComparisonReport.self,
+            from: comparisonData
+        )
         #expect(comparison.comparisonLimits == limits)
         #expect(comparison.gateStatus == "passed")
         #expect(comparison.gateViolations.isEmpty)
@@ -676,10 +686,8 @@ struct HeadlessRoundTripServiceTests {
         #expect(manifest.bottleneckSummary?.recommendations.contains {
             $0.contains("configured design, signoff, and PEX artifact paths")
         } == true)
-        let canonicalManifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: "capture-directory",
-            inProjectAt: root
-        )
+        let canonicalManifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: "capture-directory")
         #expect(canonicalManifest.status == .failed)
         #expect(canonicalManifest.artifacts.contains {
             $0.artifactID == "round-trip-manifest"
@@ -954,7 +962,8 @@ struct HeadlessRoundTripServiceTests {
         }
     }
 
-    private func assertCompletedRoundTrip(_ roundTrip: RoundTripOutput) throws {
+    @MainActor
+    private func assertCompletedRoundTrip(_ roundTrip: RoundTripOutput) async throws {
         defer { removeTemporaryRoot(roundTrip.projectRoot) }
 
         let result = roundTrip.result
@@ -1021,7 +1030,10 @@ struct HeadlessRoundTripServiceTests {
             path: comparisonURL,
             manifestURL: result.manifestURL
         ))
-        let comparison = try JSONDecoder().decode(PostLayoutComparisonReport.self, from: comparisonData)
+        let comparison = try JSONDecoder().decode(
+            CircuitStudioCore.PostLayoutComparisonReport.self,
+            from: comparisonData
+        )
         #expect(comparison.status == "compared")
         #expect(!comparison.comparedVariables.isEmpty)
 
@@ -1031,10 +1043,9 @@ struct HeadlessRoundTripServiceTests {
         let manifest = try decoder.decode(HeadlessRoundTripService.Manifest.self, from: manifestData)
         #expect(manifest == result.manifest)
 
-        let canonicalManifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: result.manifest.runID,
-            inProjectAt: roundTrip.projectRoot
-        )
+        let canonicalManifest = try await XcircuiteWorkspaceStore(
+            projectRoot: roundTrip.projectRoot
+        ).loadRunManifest(runID: result.manifest.runID)
         #expect(canonicalManifest.status == .succeeded)
         #expect(canonicalManifest.intent == result.manifest.title)
         let canonicalArtifactIDs = canonicalManifest.artifacts.compactMap(\.artifactID)

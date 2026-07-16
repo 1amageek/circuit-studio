@@ -86,7 +86,7 @@ struct CircuitLayoutAvailabilityTests {
         #expect(availability.reason?.contains("inductor") == true)
     }
 
-    @Test @MainActor func diagnosticMessageContainsProjectAndCellContext() throws {
+    @Test @MainActor func diagnosticMessageContainsProjectAndCellContext() async throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "LayoutGenerationDiagnostics-\(UUID().uuidString)")
         defer { removeTemporaryDirectory(root) }
@@ -94,10 +94,10 @@ struct CircuitLayoutAvailabilityTests {
         let topCellDirectory = root.appending(path: "cells").appending(path: "Top")
         let leafCellDirectory = root.appending(path: "cells").appending(path: "Leaf")
         let projectService = ProjectService()
-        try projectService.createProject(at: root)
+        try await projectService.createProject(at: root)
         try FileManager.default.createDirectory(at: topCellDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: leafCellDirectory, withIntermediateDirectories: true)
-        try projectService.saveStudioSessionManifest(
+        try await projectService.saveStudioSessionManifest(
             StudioSessionManifest(topCell: "Top", activeCell: "Top"),
             forProjectAt: root
         )
@@ -155,12 +155,12 @@ struct CircuitLayoutAvailabilityTests {
         #expect(report.jsonMessage().contains("\"activeCell\":\"Top\""))
     }
 
-    @Test @MainActor func diagnosticMessageIncludesPathResolutionFailures() throws {
+    @Test @MainActor func diagnosticMessageIncludesPathResolutionFailures() async throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "LayoutGenerationPathResolution-\(UUID().uuidString)")
         defer { removeTemporaryDirectory(root) }
         let projectService = ProjectService()
-        try projectService.createProject(at: root)
+        try await projectService.createProject(at: root)
 
         let invalidCell = CellWorkspace(name: "1Invalid")
         let source = LayoutGenerationSourceSnapshot.capture(
@@ -199,12 +199,12 @@ struct CircuitLayoutAvailabilityTests {
         #expect(report.jsonMessage().contains("\"pathResolutionFailures\""))
     }
 
-    @Test @MainActor func topCirWithoutMaterializedSchematicReportsSpecificReason() throws {
+    @Test @MainActor func topCirWithoutMaterializedSchematicReportsSpecificReason() async throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "LayoutGenerationTopCirOnly-\(UUID().uuidString)")
         defer { removeTemporaryDirectory(root) }
         let projectService = ProjectService()
-        try projectService.createProject(at: root)
+        try await projectService.createProject(at: root)
         try Data("R1 in out 1k\n.end\n".utf8).write(to: root.appending(path: "top.cir"))
 
         let project = StudioSession()
@@ -268,7 +268,7 @@ struct CircuitLayoutAvailabilityTests {
         defer { removeTemporaryDirectory(root) }
 
         let projectService = ProjectService()
-        try projectService.createProject(at: root)
+        try await projectService.createProject(at: root)
         let source = """
         * resistor divider
         V1 in 0 5
@@ -316,7 +316,7 @@ struct CircuitLayoutAvailabilityTests {
         defer { removeTemporaryDirectory(root) }
 
         let projectService = ProjectService()
-        try projectService.createProject(at: root)
+        try await projectService.createProject(at: root)
         try Data("{}".utf8).write(to: try projectService.studioSessionManifestURL(inProjectAt: root))
         try Data("R1 in out 1k\n.end\n".utf8).write(to: root.appending(path: "top.cir"))
 
@@ -349,7 +349,7 @@ struct CircuitLayoutAvailabilityTests {
             topCell: result.topCellName,
             activeCell: result.activeCellName
         )
-        try projectService.saveMaterializedSchematic(result, forProjectAt: root)
+        try await projectService.saveMaterializedSchematic(result, forProjectAt: root)
 
         let report = LayoutGenerationPreflightReport.make(
             context: "test",
@@ -372,7 +372,7 @@ struct CircuitLayoutAvailabilityTests {
         #expect(report.diagnosticMessage().contains("Could not read studio session manifest"))
     }
 
-    @Test @MainActor func duplicateComponentNamesThrowBeforeLayoutGeneration() throws {
+    @Test @MainActor func duplicateComponentNamesThrowBeforeLayoutGeneration() async throws {
         let document = SchematicDocument(components: [
             PlacedComponent(
                 deviceKindID: "resistor",
@@ -393,7 +393,7 @@ struct CircuitLayoutAvailabilityTests {
         }
     }
 
-    @Test @MainActor func componentWithoutWiresGeneratesPlacementOnlyLayout() throws {
+    @Test @MainActor func componentWithoutWiresGeneratesPlacementOnlyLayout() async throws {
         let document = SchematicDocument(components: [
             PlacedComponent(
                 deviceKindID: "resistor",
@@ -411,7 +411,7 @@ struct CircuitLayoutAvailabilityTests {
         #expect(output.designUnit.netNameToLayoutNet.isEmpty)
     }
 
-    @Test @MainActor func sourceOnlyCircuitLayoutThrowsNoPlaceableComponents() throws {
+    @Test @MainActor func sourceOnlyCircuitLayoutThrowsNoPlaceableComponents() async throws {
         let document = SchematicDocument(components: [
             PlacedComponent(
                 deviceKindID: "vsource",

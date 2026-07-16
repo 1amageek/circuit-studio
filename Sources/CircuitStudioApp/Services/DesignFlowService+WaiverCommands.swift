@@ -4,7 +4,7 @@ extension DesignFlowService {
     func applyWaiverEditProposalAndRunPostVerification(
         _ command: DesignFlowCommand
     ) async throws -> DesignFlowCommandResult {
-        let applyResult = try applyWaiverEditProposal(command)
+        let applyResult = try await applyWaiverEditProposal(command)
         let verificationResult = try await runPostWaiverEditVerification(command)
         let actionRecordIDs = [
             applyResult.message,
@@ -53,7 +53,7 @@ extension DesignFlowService {
             throw DesignFlowCommandError.missingVerificationReport
         }
         let projectRoot = URL(filePath: projectRootPath)
-        let record = try RunReviewService().recordWaiverEditVerification(
+        let record = try await RunReviewService().recordWaiverEditVerification(
             runID: runID,
             waiverReviewID: waiverReviewID,
             proposalID: waiverProposalID,
@@ -84,7 +84,7 @@ extension DesignFlowService {
         )
     }
 
-    func applyWaiverEditProposal(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+    func applyWaiverEditProposal(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
         guard let projectRootPath = command.projectRootPath else {
             throw DesignFlowCommandError.missingProjectRoot
         }
@@ -102,7 +102,7 @@ extension DesignFlowService {
         }
 
         let projectRoot = URL(filePath: projectRootPath)
-        let record = try RunReviewService().applyWaiverEditProposal(
+        let record = try await RunReviewService().applyWaiverEditProposal(
             runID: runID,
             waiverReviewID: waiverReviewID,
             proposalID: waiverProposalID,

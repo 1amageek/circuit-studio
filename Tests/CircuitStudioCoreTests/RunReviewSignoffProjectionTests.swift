@@ -3,7 +3,6 @@ import Testing
 import DesignFlowKernel
 import ToolQualification
 import Xcircuite
-import DesignFlowKernel
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 
@@ -39,7 +38,7 @@ struct RunReviewSignoffProjectionTests {
         let waiverSourcePath = fixture.waiverSourcePath
         let service = fixture.service
         let review = fixture.review
-        let verificationContext = try service.waiverEditVerificationContext(
+        let verificationContext = try await service.waiverEditVerificationContext(
             review: review,
             projectRoot: root
         )
@@ -119,7 +118,7 @@ struct RunReviewSignoffProjectionTests {
         #expect(drc.relatedArtifacts.contains { $0.path == drcEnvelopePath })
         #expect(drc.relatedArtifacts.contains { $0.role == "stage-result" })
         #expect(!drc.relatedArtifacts.contains { $0.artifactID == "lvs-summary" })
-        let drcLogPreview = try service.loadArtifactPreview(
+        let drcLogPreview = try await service.loadArtifactPreview(
             runID: runID,
             artifactPath: drcLogPath,
             projectRoot: root,
@@ -127,25 +126,25 @@ struct RunReviewSignoffProjectionTests {
         )
         #expect(drcLogPreview.truncated)
         #expect(drcLogPreview.text == "DRC_SUMMARY ")
-        let drcJSONPreview = try service.loadArtifactPreview(
+        let drcJSONPreview = try await service.loadArtifactPreview(
             runID: runID,
             artifactPath: drcPath,
             projectRoot: root
         )
         #expect(drcJSONPreview.structuredPreview == "{manifestURL, reportURL, schemaVersion, summary}")
         #expect(drcJSONPreview.parseIssue == nil)
-        #expect(throws: RunReviewServiceError.artifactPreviewNotFound(
+        await #expect(throws: RunReviewServiceError.artifactPreviewNotFound(
             runID: runID,
             artifactPath: "\(rawPrefix)/unknown.json"
         )) {
-            try service.loadArtifactPreview(
+            try await service.loadArtifactPreview(
                 runID: runID,
                 artifactPath: "\(rawPrefix)/unknown.json",
                 projectRoot: root
             )
         }
-        #expect(throws: RunReviewServiceError.artifactPreviewEscapesProject(path: symlinkEscapePath)) {
-            try service.loadArtifactPreview(
+        await #expect(throws: RunReviewServiceError.artifactPreviewEscapesProject(path: symlinkEscapePath)) {
+            try await service.loadArtifactPreview(
                 runID: runID,
                 artifactPath: symlinkEscapePath,
                 projectRoot: root
@@ -193,7 +192,7 @@ struct RunReviewSignoffProjectionTests {
         #expect(lvs.relatedArtifacts.contains { $0.artifactID == "lvs-raw-log" })
         #expect(lvs.relatedArtifacts.contains { $0.artifactID == "lvs-repair-hints" })
 
-        let repairPlanning = try service.formulateSignoffRepairPlanningProblem(
+        let repairPlanning = try await service.formulateSignoffRepairPlanningProblem(
             runID: runID,
             actorKind: .agent,
             actorIdentifier: "agent-1",
@@ -215,15 +214,13 @@ struct RunReviewSignoffProjectionTests {
             "planning-repair-plan-formulation",
             "planning-problem",
         ])
-        #expect(repairPlanning.actionRecord.metadata["drcRepairHintPath"] == .string(drcRepairHintPath))
-        #expect(repairPlanning.actionRecord.metadata["lvsRepairHintPath"] == .string(lvsRepairHintPath))
-        #expect(repairPlanning.actionRecord.metadata["note"] == .string(
-            "Generate signoff repair planning problem from review diagnostics."
-        ))
+        #expect(repairPlanning.actionRecord.context.iterationID == repairPlanning.formulationID)
+        #expect(repairPlanning.actionRecord.inputs.map(\.path).contains(drcRepairHintPath))
+        #expect(repairPlanning.actionRecord.inputs.map(\.path).contains(lvsRepairHintPath))
 
-        let planningProblem = try XcircuiteWorkspaceStore().readJSON(
+        let planningProblem = try await XcircuiteWorkspaceStore(projectRoot: root).readJSON(
             XcircuiteCircuitPlanningProblem.self,
-            from: root.appending(path: repairPlanning.planningProblemArtifact.path)
+            from: repairPlanning.planningProblemArtifact.path
         )
         #expect(planningProblem.runID == runID)
         #expect(planningProblem.sourceRefs.contains {
@@ -237,8 +234,8 @@ struct RunReviewSignoffProjectionTests {
         #expect(planningProblem.verificationGates.contains { $0.gateID == "native-drc" })
         #expect(planningProblem.verificationGates.contains { $0.gateID == "native-lvs" })
 
-        let signoffPlanningActions = try XcircuiteWorkspaceStore()
-            .loadRunActions(runID: runID, inProjectAt: root)
+        let signoffPlanningActions = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunActions(runID: runID)
             .filter { $0.actionKind == "review.formulateSignoffRepairPlanningProblem" }
         #expect(signoffPlanningActions.map(\.actionID) == [repairPlanning.actionRecord.actionID])
 
@@ -326,7 +323,7 @@ struct RunReviewSignoffProjectionTests {
         #expect(timingVerdictDetail.metrics.contains { $0.label == "Value" && $0.value == "1.4e-09" })
         #expect(timingVerdictDetail.metrics.contains { $0.label == "Target" && $0.value == "1e-09" })
         #expect(simulationMetric.relatedArtifacts.contains { $0.artifactID == "post-layout-waveform" })
-        let waveformPreview = try service.loadArtifactPreview(
+        let waveformPreview = try await service.loadArtifactPreview(
             runID: runID,
             artifactPath: postLayoutWaveformPath,
             projectRoot: root
@@ -383,7 +380,7 @@ struct RunReviewSignoffProjectionTests {
             .postLayout,
             .waveform,
         ])
-        let loadedDrilldown = try service.loadInteractiveSignoffDrilldown(
+        let loadedDrilldown = try await service.loadInteractiveSignoffDrilldown(
             runID: runID,
             projectRoot: root
         )
@@ -452,7 +449,7 @@ struct RunReviewSignoffProjectionTests {
         #expect(proposal.operation == "remove-json-object")
         #expect(proposal.risk == "low")
 
-        let waiverDecision = try RunReviewService().decideWaiverReview(
+        let waiverDecision = try await RunReviewService().decideWaiverReview(
             runID: runID,
             waiverReviewID: waiver.waiverReviewID,
             decision: .approved,
@@ -460,17 +457,16 @@ struct RunReviewSignoffProjectionTests {
             note: "Waiver scope reviewed against the DRC summary.",
             projectRoot: root
         )
-        #expect(waiverDecision.actionKind == "review.decideWaiver")
+        #expect(waiverDecision.actionKind == FlowRunReviewDecisionKind.waiver.rawValue)
         #expect(waiverDecision.actor.kind == .human)
         #expect(waiverDecision.actor.identifier == "reviewer-1")
-        #expect(waiverDecision.metadata["decision"] == .string("approved"))
-        #expect(waiverDecision.metadata["waiverReviewID"] == .string(waiver.waiverReviewID))
+        let decisionContext = try #require(waiverDecision.context.reviewDecision)
+        #expect(decisionContext.kind == .waiver)
+        #expect(decisionContext.decision == "approved")
+        #expect(decisionContext.targetID == waiver.waiverReviewID)
         #expect(waiverDecision.inputs.first?.artifactID == "drc-summary")
-        #expect(waiverDecision.metadata["editProposalIDs"] == .array([
-            .string("remove-obsolete-drc-waiver"),
-        ]))
 
-        let proposalSelection = try RunReviewService().recordWaiverEditProposalSelection(
+        let proposalSelection = try await RunReviewService().recordWaiverEditProposalSelection(
             runID: runID,
             waiverReviewID: waiver.waiverReviewID,
             proposalID: proposal.proposalID,
@@ -480,10 +476,10 @@ struct RunReviewSignoffProjectionTests {
         )
         #expect(proposalSelection.actionKind == "review.selectWaiverEditProposal")
         #expect(proposalSelection.actor.kind == .human)
-        #expect(proposalSelection.metadata["waiverReviewID"] == .string(waiver.waiverReviewID))
-        #expect(proposalSelection.metadata["proposalID"] == .string("remove-obsolete-drc-waiver"))
-        #expect(proposalSelection.metadata["targetPath"] == .string(waiverSourcePath))
-        #expect(proposalSelection.metadata["operation"] == .string("remove-json-object"))
+        let selectionContext = try #require(proposalSelection.context.reviewDecision)
+        #expect(selectionContext.targetID == waiver.waiverReviewID)
+        #expect(selectionContext.targetPath == "remove-obsolete-drc-waiver")
+        #expect(selectionContext.decision == "selected")
         #expect(proposalSelection.inputs.first?.artifactID == "drc-summary")
 
         // The verification contract requires an explicit layout technology;
@@ -519,7 +515,7 @@ struct RunReviewSignoffProjectionTests {
         #expect(verificationResult.message?.hasPrefix("waiver-edit-proposal-verification-") == true)
 
         let editedWaiverData = try Data(contentsOf: root.appending(path: waiverSourcePath))
-        let editedWaiverDocument = try JSONDecoder().decode(XcircuiteJSONValue.self, from: editedWaiverData)
+        let editedWaiverDocument = try JSONDecoder().decode(WaiverDocumentValue.self, from: editedWaiverData)
         guard case .object(let editedRoot) = editedWaiverDocument,
               case .array(let editedWaivers) = editedRoot["waivers"] else {
             Issue.record("Edited waiver document should remain a JSON object with a waivers array.")
@@ -538,7 +534,7 @@ struct RunReviewSignoffProjectionTests {
             return waiver["waiverID"] == .string("waive-obsolete-rule")
         })
 
-        let approvedReview = try RunReviewService().loadRun(runID: runID, projectRoot: root)
+        let approvedReview = try await RunReviewService().loadRun(runID: runID, projectRoot: root)
         let approvedWaiver = try #require(approvedReview.waivers.items.first)
         #expect(approvedWaiver.status == "approved")
         #expect(approvedWaiver.latestDecision?.actor == "reviewer-1")
@@ -612,7 +608,7 @@ struct RunReviewSignoffProjectionTests {
         let failedVerificationReportURL = root.appending(path: failedVerificationReportPath)
         try RunReviewTestSupport.writeJSON(failedVerificationReport, to: failedVerificationReportURL)
 
-        let failedVerificationAction = try RunReviewService().recordWaiverEditVerification(
+        let failedVerificationAction = try await RunReviewService().recordWaiverEditVerification(
             runID: runID,
             waiverReviewID: waiver.waiverReviewID,
             proposalID: proposal.proposalID,
@@ -624,13 +620,8 @@ struct RunReviewSignoffProjectionTests {
             projectRoot: root
         )
         #expect(failedVerificationAction.actionKind == "review.verifyWaiverEditProposal")
-        #expect(failedVerificationAction.metadata["planningFeedbackStatus"] == XcircuiteJSONValue.string("rejected-plan-recorded"))
-        #expect(failedVerificationAction.metadata["rejectedPlansPath"] == XcircuiteJSONValue.string(".xcircuite/runs/\(runID)/planning/rejected-plans.jsonl"))
-        guard case .object(let failedVerificationSummaryMetadata) = failedVerificationAction.metadata["verificationSummary"] else {
-            Issue.record("Failed verification action should persist a structured verification summary.")
-            return
-        }
-        #expect(failedVerificationSummaryMetadata["readyForPEX"] == .bool(false))
+        #expect(failedVerificationAction.context.reviewDecision?.decision == "rejected-plan-recorded")
+        #expect(failedVerificationAction.context.iterationID?.hasPrefix("waiver-edit-proposal-application-") == true)
         #expect(failedVerificationAction.outputs.contains { $0.artifactID == "planning-rejected-plans" })
         #expect(failedVerificationAction.outputs.contains {
             $0.path == ".xcircuite/runs/\(runID)/planning/waiver-edit-feedback/remove-obsolete-drc-waiver/candidate-plan.json"
@@ -667,7 +658,7 @@ struct RunReviewSignoffProjectionTests {
             "repair-verification-gate:post-waiver-edit-ready-for-pex",
         ])
 
-        let rejectedReview = try RunReviewService().loadRun(runID: runID, projectRoot: root)
+        let rejectedReview = try await RunReviewService().loadRun(runID: runID, projectRoot: root)
         let rejectedWaiver = try #require(rejectedReview.waivers.items.first)
         let rejectedVerification = try #require(rejectedWaiver.editVerifications.last)
         #expect(rejectedVerification.planningFeedbackStatus == "rejected-plan-recorded")
@@ -769,7 +760,8 @@ struct RunReviewSignoffProjectionTests {
             #expect(FileManager.default.fileExists(atPath: cycleRejectedPlansPath))
         }
 
-        let cycleActions = try XcircuiteWorkspaceStore().loadRunActions(runID: runID, inProjectAt: root)
+        let cycleActions = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunActions(runID: runID)
         #expect(cycleActions.contains { $0.actionKind == "planning.execute-candidate-plan" })
         #expect(cycleActions.contains { $0.actionKind == "planning.verify-candidate-plan" })
         let cycleSummaryAction = try #require(cycleActions.first {
@@ -779,29 +771,24 @@ struct RunReviewSignoffProjectionTests {
         #expect(cycleSummaryAction.outputs.contains {
             $0.artifactID == XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID
         })
-        #expect(cycleSummaryAction.metadata["candidateCycleIndex"] == .number(1))
-        #expect(cycleSummaryAction.metadata["rejectedPlanFeedbackRecordCount"] == .number(1))
-        #expect(cycleSummaryAction.metadata["globalRejectedPlanFeedbackCount"] == .number(1))
-        #expect(cycleSummaryAction.metadata["selectedActionIDs"] == .array(
-            cycleTrace.selectedActionIDs.map { .string($0) }
-        ))
-        #expect(cycleSummaryAction.metadata["selectedActionDomainIDs"] == .array(
-            RunReviewTestSupport.selectedActionDomainIDs(from: cycleTrace).map { .string($0) }
-        ))
-        #expect(cycleSummaryAction.metadata["selectedObjectiveDomainIDs"] == .array(
-            RunReviewTestSupport.selectedObjectiveDomainIDs(from: cycleTrace, problem: candidateCyclePlanningProblem).map { .string($0) }
-        ))
-        #expect(cycleSummaryAction.metadata["feedbackPenalizedActionIDs"] == .array(
-            RunReviewTestSupport.feedbackPenalizedActionIDs(from: cycleTrace).map { .string($0) }
-        ))
-        #expect(cycleSummaryAction.metadata["feedbackRankChanges"] == .array(
-            RunReviewTestSupport.feedbackRankChanges(from: cycleTrace).map { .string($0) }
-        ))
-        #expect(cycleSummaryAction.metadata["feedbackScoreDeltas"] == .array(
-            RunReviewTestSupport.feedbackScoreDeltas(from: cycleTrace).map { .string($0) }
-        ))
+        #expect(cycleSummaryAction.context.iterationID == "1")
+        let cycleArtifact = try #require(cycleSummaryAction.outputs.first {
+            $0.artifactID == "signoff-repair-candidate-cycle-1"
+        })
+        let persistedCycle = try JSONDecoder().decode(
+            RunReviewSignoffRepairCandidateCycleHistoryItem.self,
+            from: Data(contentsOf: root.appending(path: cycleArtifact.path))
+        )
+        #expect(persistedCycle.rejectedPlanFeedbackRecordCount == 1)
+        #expect(persistedCycle.globalRejectedPlanFeedbackCount == 1)
+        #expect(persistedCycle.selectedActionIDs == cycleTrace.selectedActionIDs)
+        #expect(persistedCycle.selectedActionDomainIDs == RunReviewTestSupport.selectedActionDomainIDs(from: cycleTrace))
+        #expect(persistedCycle.selectedObjectiveDomainIDs == RunReviewTestSupport.selectedObjectiveDomainIDs(from: cycleTrace, problem: candidateCyclePlanningProblem))
+        #expect(persistedCycle.feedbackPenalizedActionIDs == RunReviewTestSupport.feedbackPenalizedActionIDs(from: cycleTrace))
+        #expect(persistedCycle.feedbackRankChanges == RunReviewTestSupport.feedbackRankChanges(from: cycleTrace))
+        #expect(persistedCycle.feedbackScoreDeltas == RunReviewTestSupport.feedbackScoreDeltas(from: cycleTrace))
 
-        let reloadedReview = try RunReviewService().loadRun(runID: runID, projectRoot: root)
+        let reloadedReview = try await RunReviewService().loadRun(runID: runID, projectRoot: root)
         #expect(reloadedReview.signoff.repairCandidateCycles.count == 1)
         let projectedCycle = try #require(reloadedReview.signoff.repairCandidateCycles.first)
         #expect(projectedCycle.actionID == cycleSummaryAction.actionID)
@@ -863,7 +850,7 @@ struct RunReviewSignoffProjectionTests {
         )
 
         let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
-        let review = try service.loadRun(runID: fixture.runID, projectRoot: fixture.root)
+        let review = try await service.loadRun(runID: fixture.runID, projectRoot: fixture.root)
 
         #expect(!review.signoff.cards.contains { $0.domain == "DRC" })
         #expect(review.signoff.decodeIssues.contains {
@@ -890,12 +877,12 @@ struct RunReviewSignoffProjectionTests {
         )
 
         let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
-        #expect(throws: RunReviewServiceError.signoffRepairHintIntegrityUnverified(
+        await #expect(throws: RunReviewServiceError.signoffRepairHintIntegrityUnverified(
             path: fixture.drcRepairHintPath,
             status: "sha256Mismatch",
             message: "Artifact SHA-256 mismatch"
         )) {
-            try service.formulateSignoffRepairPlanningProblem(
+            try await service.formulateSignoffRepairPlanningProblem(
                 runID: fixture.runID,
                 actorKind: .agent,
                 actorIdentifier: "agent-1",
@@ -921,7 +908,7 @@ struct RunReviewSignoffProjectionTests {
         )
 
         let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
-        let review = try service.loadRun(runID: fixture.runID, projectRoot: fixture.root)
+        let review = try await service.loadRun(runID: fixture.runID, projectRoot: fixture.root)
 
         #expect(review.waivers.items.isEmpty)
         #expect(review.waivers.decodeIssues.contains {
@@ -948,7 +935,7 @@ struct RunReviewSignoffProjectionTests {
         )
 
         let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
-        let review = try service.loadRun(runID: fixture.runID, projectRoot: fixture.root)
+        let review = try await service.loadRun(runID: fixture.runID, projectRoot: fixture.root)
         let drc = try #require(review.signoff.cards.first { $0.domain == "DRC" })
 
         #expect(drc.evaluationEvidence.isEmpty)
@@ -978,7 +965,7 @@ struct RunReviewSignoffProjectionTests {
 
         let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
         do {
-            _ = try service.loadArtifactPreview(
+            _ = try await service.loadArtifactPreview(
                 runID: fixture.runID,
                 artifactPath: fixture.drcLogPath,
                 projectRoot: fixture.root,
@@ -1122,7 +1109,7 @@ struct RunReviewSignoffProjectionTests {
         )
 
         let service = RunReviewService(reviewBundler: StaticRunReviewBundler(bundle: bundle))
-        let preview = try service.loadArtifactPreview(
+        let preview = try await service.loadArtifactPreview(
             runID: fixture.runID,
             artifact: duplicate,
             projectRoot: fixture.root,

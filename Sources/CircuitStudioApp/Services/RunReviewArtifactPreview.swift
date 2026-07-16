@@ -4,7 +4,7 @@ import Foundation
 public struct RunReviewArtifactPreview: Sendable, Hashable {
     public let artifact: FlowRunReviewArtifact
     public let resolvedPath: String
-    public let byteCount: Int64?
+    public let byteCount: UInt64?
     public let previewByteCount: Int
     public let truncated: Bool
     public let isText: Bool
@@ -17,7 +17,7 @@ public struct RunReviewArtifactPreview: Sendable, Hashable {
     public init(
         artifact: FlowRunReviewArtifact,
         resolvedPath: String,
-        byteCount: Int64?,
+        byteCount: UInt64?,
         previewByteCount: Int,
         truncated: Bool,
         isText: Bool,

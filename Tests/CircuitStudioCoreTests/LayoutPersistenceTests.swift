@@ -8,11 +8,11 @@ import Testing
 @testable import SchematicEditor
 
 /// Creates a throwaway project directory initialized as a studio project.
-private func makeTemporaryProject() throws -> URL {
+private func makeTemporaryProject() async throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "layout-persistence-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    try ProjectService().createProject(at: root)
+    try await ProjectService().createProject(at: root)
     return root
 }
 
@@ -38,8 +38,8 @@ private func makeGeneratedSession() -> StudioSession {
 struct LayoutProjectArtifactTests {
 
     @Test("Layout document, tech, and design unit round-trip through the project")
-    func artifactRoundTrip() throws {
-        let root = try makeTemporaryProject()
+    func artifactRoundTrip() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let service = ProjectService()
 
@@ -66,8 +66,8 @@ struct LayoutProjectArtifactTests {
     }
 
     @Test("A cell without a saved layout reports none")
-    func emptyProjectHasNoLayout() throws {
-        let root = try makeTemporaryProject()
+    func emptyProjectHasNoLayout() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let service = ProjectService()
 
@@ -77,8 +77,8 @@ struct LayoutProjectArtifactTests {
     }
 
     @Test("removeCellDesignUnit clears a persisted binding and tolerates absence")
-    func removeDesignUnit() throws {
-        let root = try makeTemporaryProject()
+    func removeDesignUnit() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let service = ProjectService()
         let cell = StudioSession.defaultCellName
@@ -152,8 +152,8 @@ struct LayoutDirtyTrackingTests {
 struct LayoutPersistRestoreTests {
 
     @Test("Persisting writes the editor artifacts and the OASIS interchange file")
-    func persistWritesArtifacts() throws {
-        let root = try makeTemporaryProject()
+    func persistWritesArtifacts() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let projectService = ProjectService()
         let persistence = LayoutPersistenceService(projectService: projectService)
@@ -169,8 +169,8 @@ struct LayoutPersistRestoreTests {
     }
 
     @Test("Persisting without a design unit removes a stale binding")
-    func persistWithoutDesignUnitRemovesBinding() throws {
-        let root = try makeTemporaryProject()
+    func persistWithoutDesignUnitRemovesBinding() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let projectService = ProjectService()
         let persistence = LayoutPersistenceService(projectService: projectService)
@@ -189,8 +189,8 @@ struct LayoutPersistRestoreTests {
     }
 
     @Test("Restore rebuilds the document, binding, and cross-probe, and reads clean")
-    func restoreRoundTrip() throws {
-        let root = try makeTemporaryProject()
+    func restoreRoundTrip() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let persistence = LayoutPersistenceService(projectService: ProjectService())
 
@@ -222,8 +222,8 @@ struct LayoutPersistRestoreTests {
     }
 
     @Test("Restoring a project without a layout returns false and changes nothing")
-    func restoreWithoutLayout() throws {
-        let root = try makeTemporaryProject()
+    func restoreWithoutLayout() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let persistence = LayoutPersistenceService(projectService: ProjectService())
 
@@ -235,8 +235,8 @@ struct LayoutPersistRestoreTests {
     }
 
     @Test("Generating with an open project writes artifacts immediately")
-    func generateWithProjectPersistsImmediately() throws {
-        let root = try makeTemporaryProject()
+    func generateWithProjectPersistsImmediately() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let projectService = ProjectService()
         let persistence = LayoutPersistenceService(projectService: projectService)
@@ -260,8 +260,8 @@ struct LayoutPersistRestoreTests {
     }
 
     @Test("Generation stops when top netlist has no materialized schematic")
-    func generateWithMissingMaterializedSchematicDoesNotPersist() throws {
-        let root = try makeTemporaryProject()
+    func generateWithMissingMaterializedSchematicDoesNotPersist() async throws {
+        let root = try await makeTemporaryProject()
         defer { removeTemporaryProject(root) }
         let projectService = ProjectService()
         try projectService.saveNetlist("* imported netlist\n.op\n.end\n", named: "top.cir", inProjectAt: root)
@@ -323,20 +323,20 @@ struct LayoutPersistenceWiringTests {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    @Test func appRestoresLayoutOnProjectOpenAndPersistsOnSave() throws {
+    @Test func appRestoresLayoutOnProjectOpenAndPersistsOnSave() async throws {
         let app = try source("Sources/CircuitStudioApp/App.swift")
         #expect(app.contains("restoreLayout("), "Opening a project must restore every cell's saved layout")
         #expect(app.contains("persistAllLayouts("), "Cmd-S must persist every cell's layout artifacts")
         #expect(app.contains("wireTerminationGuard()"), "Quitting with unsaved changes must prompt")
     }
 
-    @Test func contentViewSurfacesLayoutStateAndUsesThePersistingGenerate() throws {
+    @Test func contentViewSurfacesLayoutStateAndUsesThePersistingGenerate() async throws {
         let contentView = try source("Sources/CircuitStudioApp/Navigation/ContentView.swift")
         #expect(contentView.contains("project.hasUnsavedChanges"), "Edited badge must include layout and schematic changes across cells")
         #expect(contentView.contains("!project.layoutHasContent"), "Layout pane must show any loaded layout, not only generated ones")
     }
 
-    @Test func uiNeverBypassesThePersistingGenerate() throws {
+    @Test func uiNeverBypassesThePersistingGenerate() async throws {
         for path in [
             "Sources/CircuitStudioApp/App.swift",
             "Sources/CircuitStudioApp/Navigation/ContentView.swift",

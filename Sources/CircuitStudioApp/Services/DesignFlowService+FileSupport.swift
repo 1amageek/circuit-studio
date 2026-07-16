@@ -2,6 +2,7 @@ import Foundation
 import CircuitStudioCore
 import CircuiteFoundation
 import DesignFlowKernel
+import Xcircuite
 
 extension DesignFlowService {
     func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
@@ -92,19 +93,11 @@ extension DesignFlowService {
     }
 
     func absolutePath(
-        for reference: XcircuiteFileReference,
-        projectRoot: URL
-    ) throws -> String {
-        try projectContainedURL(forRelativePath: reference.path, projectRoot: projectRoot)
-            .path(percentEncoded: false)
-    }
-
-    func absolutePath(
         for reference: ArtifactReference,
         projectRoot: URL
     ) throws -> String {
-        try reference.locator.location
-            .resolvedFileURL(relativeTo: projectRoot)
+        try XcircuiteWorkspaceLayout(projectRoot: projectRoot)
+            .url(forProjectRelativePath: reference.path)
             .path(percentEncoded: false)
     }
 
@@ -129,31 +122,4 @@ extension DesignFlowService {
         return value
     }
 
-    private func projectContainedURL(forRelativePath path: String, projectRoot: URL) throws -> URL {
-        try validateProjectRelativeArtifactPath(path)
-        let root = projectRoot.standardizedFileURL
-        let url = root.appending(path: path).standardizedFileURL
-        let rootPath = root.path(percentEncoded: false)
-        let resolvedPath = url.path(percentEncoded: false)
-        guard resolvedPath == rootPath || resolvedPath.hasPrefix(rootPath + "/") else {
-            throw StudioError.projectLoadFailed("Artifact reference escapes project root: \(path)")
-        }
-        return url
-    }
-
-    private func validateProjectRelativeArtifactPath(_ path: String) throws {
-        guard !path.isEmpty else {
-            throw StudioError.projectLoadFailed("Artifact reference path is empty.")
-        }
-        guard !path.hasPrefix("/") else {
-            throw StudioError.projectLoadFailed("Artifact reference must be project-relative: \(path)")
-        }
-        let components = path.split(separator: "/", omittingEmptySubsequences: false)
-        let isSafe = components.allSatisfy { component in
-            !component.isEmpty && component != "." && component != ".."
-        }
-        guard isSafe else {
-            throw StudioError.projectLoadFailed("Artifact reference contains an unsafe path component: \(path)")
-        }
-    }
 }

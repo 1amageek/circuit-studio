@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 
 public struct Activity: Sendable, Hashable, Codable, Identifiable {
@@ -32,30 +33,15 @@ public struct Activity: Sendable, Hashable, Codable, Identifiable {
         case related
     }
 
-    public struct ArtifactReference: Sendable, Hashable, Codable {
-        public let path: String
-        public let role: String
-        public let kind: String
-        public let format: String
-        public let sha256: String?
-        public let byteCount: Int64?
+    public struct Artifact: Sendable, Hashable, Codable {
+        public let reference: CircuiteFoundation.ArtifactReference
         public let direction: ArtifactDirection
 
         public init(
-            path: String,
-            role: String,
-            kind: String,
-            format: String,
-            sha256: String? = nil,
-            byteCount: Int64? = nil,
+            reference: CircuiteFoundation.ArtifactReference,
             direction: ArtifactDirection
         ) {
-            self.path = path
-            self.role = role
-            self.kind = kind
-            self.format = format
-            self.sha256 = sha256
-            self.byteCount = byteCount
+            self.reference = reference
             self.direction = direction
         }
     }
@@ -107,7 +93,7 @@ public struct Activity: Sendable, Hashable, Codable, Identifiable {
     public let title: String
     public let summary: String
     public let command: Command?
-    public let artifacts: [ArtifactReference]
+    public let artifacts: [Artifact]
     public let omittedArtifactCount: Int
     public let diagnostics: [Diagnostic]
     public let omittedDiagnosticCount: Int
@@ -131,7 +117,7 @@ public struct Activity: Sendable, Hashable, Codable, Identifiable {
         title: String,
         summary: String,
         command: Command? = nil,
-        artifacts: [ArtifactReference] = [],
+        artifacts: [Artifact] = [],
         omittedArtifactCount: Int = 0,
         diagnostics: [Diagnostic] = [],
         omittedDiagnosticCount: Int = 0,

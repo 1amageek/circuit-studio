@@ -1,6 +1,5 @@
 import Foundation
 import DesignFlowKernel
-import DesignFlowKernel
 
 extension RunReviewService {
     public func failureStateSummary(from review: RunReview) -> RunReviewFailureStateSummary {
@@ -394,19 +393,19 @@ extension RunReviewService {
         path: String,
         role: String,
         bundle: FlowRunReviewBundle
-    ) -> [RunReviewFailureStateSummary.ArtifactReference] {
+    ) -> [RunReviewFailureStateSummary.ArtifactSummary] {
         let refs = bundle.artifacts.filter { $0.path == path }
         if !refs.isEmpty {
             return refs.map(failureArtifactReference).sorted(by: artifactReferenceSortOrder)
         }
         return [
-            RunReviewFailureStateSummary.ArtifactReference(
+            RunReviewFailureStateSummary.ArtifactSummary(
                 role: role,
                 artifactID: nil,
                 stageID: nil,
                 path: path,
-                kind: XcircuiteFileKind.other.rawValue,
-                format: XcircuiteFileFormat.unknown.rawValue,
+                kind: ArtifactKind.other.rawValue,
+                format: ArtifactFormat.unknown.rawValue,
                 integrityStatus: nil,
                 integrityMessage: nil
             ),
@@ -415,8 +414,8 @@ extension RunReviewService {
 
     private func failureArtifactReference(
         _ artifact: FlowRunReviewArtifact
-    ) -> RunReviewFailureStateSummary.ArtifactReference {
-        RunReviewFailureStateSummary.ArtifactReference(
+    ) -> RunReviewFailureStateSummary.ArtifactSummary {
+        RunReviewFailureStateSummary.ArtifactSummary(
             role: artifact.role,
             artifactID: artifact.artifactID,
             stageID: artifact.stageID,
@@ -503,8 +502,8 @@ extension RunReviewService {
     }
 
     private func artifactReferenceSortOrder(
-        _ left: RunReviewFailureStateSummary.ArtifactReference,
-        _ right: RunReviewFailureStateSummary.ArtifactReference
+        _ left: RunReviewFailureStateSummary.ArtifactSummary,
+        _ right: RunReviewFailureStateSummary.ArtifactSummary
     ) -> Bool {
         if left.role != right.role {
             return left.role < right.role

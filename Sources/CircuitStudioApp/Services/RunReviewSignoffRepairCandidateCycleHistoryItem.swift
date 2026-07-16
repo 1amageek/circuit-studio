@@ -2,14 +2,14 @@ import Foundation
 import CircuiteFoundation
 import DesignFlowKernel
 
-public struct RunReviewSignoffRepairCandidateCycleHistoryItem: Sendable, Hashable, Identifiable {
+public struct RunReviewSignoffRepairCandidateCycleHistoryItem: Sendable, Hashable, Codable, Identifiable {
     public var id: String {
         actionID
     }
 
     public let actionID: String
     public let cycleIndex: Int
-    public let status: XcircuiteRunActionStatus
+    public let status: FlowRunActionStatus
     public let planID: String?
     public let generationStatus: String?
     public let executionStatus: String?
@@ -34,7 +34,7 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryItem: Sendable, Hashabl
     public init(
         actionID: String,
         cycleIndex: Int,
-        status: XcircuiteRunActionStatus,
+        status: FlowRunActionStatus,
         planID: String?,
         generationStatus: String?,
         executionStatus: String?,

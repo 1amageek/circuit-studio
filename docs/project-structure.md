@@ -16,6 +16,8 @@ Xcircuite は **独自ファイル形式を持たない**。
 ```
 my-design/
 ├── .xcircuite/                    # アプリ固有 (隠しディレクトリ)
+│   ├── project.json               # Xcircuite project manifest
+│   ├── runs/                      # immutable run ledger / evidence
 │   ├── workspace.json             # UI 状態
 │   ├── schematic-placement.json   # 回路図エディタのビジュアル配置
 │   └── simulation.json            # シミュレーション設定
@@ -50,6 +52,11 @@ Import/Export では IR 経由で他形式にも対応する。
 | デバイスモデル | `.lib`, `.mod`, `.inc` | `.lib` |
 
 ## `.xcircuite/` ディレクトリ詳細
+
+`project.json` と `runs/` は Xcircuite の root-bound workspace/run store が所有する。
+CircuitStudio は Xcircuite の具体的な永続化 API を使い、独自の run ledger reader や
+artifact schema を持たない。`workspace.json`、`schematic-placement.json`、`simulation.json` は
+CircuitStudio の編集・表示設定であり、回路・layout・検証結果の真実ではない。
 
 ### workspace.json
 
@@ -168,17 +175,22 @@ SwiftUI View
 ## Artifact rendering の責務境界
 
 artifact 表示でも、ファイル形式・検証・描画を単一の View に集約しない。
-`XcircuiteFileKind` と `XcircuiteFileFormat` を run ledger 上の分類 SSOT とし、表示用 MIME は利用側の adapter が決定する。
+`CircuiteFoundation.ArtifactReference` を artifact identity と integrity の SSOT とする。
+`ArtifactLocator` は location、role、kind、format を保持し、`ContentDigest` と byte count は
+artifact bytes の同一性を保持する。CircuitStudio はこれらを別の app-local reference 型へ投影しない。
+表示用 MIME は canonical kind / format から表示層が決定する。
 
 ```mermaid
 flowchart LR
-  Ledger["Xcircuite run ledger\nkind / format / digest"]
+  Foundation["CircuiteFoundation ArtifactReference\nID / locator / digest / byte count"]
+  Ledger["Xcircuite run ledger\ncanonical references"]
   Gate["RunReviewService\ncontainment / current digest"]
   Canvas["ArtifactCanvas(url:)\nfile resolution"]
   Adapter["CircuitArtifactRenderer\nkind + format -> MIME"]
   Parser["CoreSpice / domain parser\nfile -> canonical IR"]
   View["Domain View\nIR -> interaction"]
 
+  Foundation --> Ledger
   Ledger --> Gate
   Gate --> Canvas
   Adapter --> Canvas
@@ -188,7 +200,8 @@ flowchart LR
 
 | Owner | Responsibility |
 |-------|----------------|
-| `Xcircuite workspace` | `kind` / `format` / path / SHA-256 / byte count を永続化する。SwiftUI と MIME を知らない |
+| `CircuiteFoundation` | `ArtifactReference`、`ArtifactLocator`、`ArtifactRole`、kind / format、digest、byte count の共通契約を所有する |
+| `Xcircuite workspace` | Foundation reference を `.xcircuite` ledger にそのまま永続化し、project root containment、symlink rejection、digest / byte count 再検証を行う。SwiftUI と MIME を知らない |
 | `swift-artifact` | URL 解決、一般 MIME 検出、renderer registry、汎用形式の Renderer を提供する。EDA 固有形式を持たない |
 | `CircuitArtifactRenderer` | Xcircuite 分類を利用側 MIME に変換し、EDA ファイルを canonical IR に復元して描画する |
 | `RunReviewService` | ledger 上の同一 artifact を再解決し、project containment と現在の SHA-256 / byte count を検証する |
@@ -200,6 +213,27 @@ RAW は ngspice RAW parser を通して `WaveformData` に復元し、`WaveformV
 
 HTML / React など実行可能な Web artifact は、digest が一致するだけでは安全な実行コンテンツとは判断できない。
 CircuitStudio で登録する場合は、Renderer 追加とは別に navigation、network、script、file access の policy を定義する。
+
+### Run artifact schema
+
+CircuitStudio が run action、stage result、review、Activity index で受け渡す artifact identity は、すべて
+同じ `CircuiteFoundation.ArtifactReference` である。Activity は reference を変更せず、入力・出力・関連の
+方向メタデータだけを `Activity.Artifact` で組み合わせる。
+
+| Field | Meaning |
+|---|---|
+| `id` | artifact の安定した識別子。path や run ID の推測値で代用しない |
+| `locator.location` | project-relative location または明示された absolute file URL |
+| `locator.role` | input / output / primary、またはdomainが定義するopen token |
+| `locator.kind` | report、layout、netlist、waveform等の意味分類 |
+| `locator.format` | JSON、OASIS、GDSII、SPICE、SPEF等の表現形式 |
+| `digest` | algorithmとdigest値。現在の標準はSHA-256 |
+| `byteCount` | digest対象bytesの長さ |
+| `producer` | artifactを生成したtool identity（存在する場合） |
+
+run ID はartifact referenceへ重複格納せず、`.xcircuite/runs/<run-id>/...` のledger ownershipと
+`FlowRunLedger` / `FlowRunActionRecord` が保持する。保存時と読込時は、root-bound
+`XcircuiteWorkspaceStore` がlocationをproject root内へ制限してintegrityを再検証する。
 
 ## PEX 連携ファイル
 

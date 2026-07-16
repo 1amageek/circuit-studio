@@ -564,7 +564,7 @@ public struct DesignFlowService: Sendable {
                 profile: profile,
                 profilePath: profilePath
             )
-            let artifact = try qualificationService.persist(report, forProjectAt: projectRoot)
+            let artifact = try await qualificationService.persist(report, forProjectAt: projectRoot)
             return DesignFlowCommandResult(
                 kind: command.kind,
                 projectRootPath: projectRoot.path(percentEncoded: false),
@@ -608,13 +608,13 @@ public struct DesignFlowService: Sendable {
         case .runSelectedSuggestedCommand:
             return try await runSelectedSuggestedCommand(command)
         case .applyWaiverEditProposal:
-            return try applyWaiverEditProposal(command)
+            return try await applyWaiverEditProposal(command)
         case .runPostWaiverEditVerification:
             return try await runPostWaiverEditVerification(command)
         case .applyWaiverEditProposalAndRunPostVerification:
             return try await applyWaiverEditProposalAndRunPostVerification(command)
         case .formulateSignoffRepairPlanningProblem:
-            return try formulateSignoffRepairPlanningProblem(command)
+            return try await formulateSignoffRepairPlanningProblem(command)
         case .runSignoffRepairCandidateCycle:
             return try await runSignoffRepairCandidateCycle(command)
         case .runGoalLayoutAgent:

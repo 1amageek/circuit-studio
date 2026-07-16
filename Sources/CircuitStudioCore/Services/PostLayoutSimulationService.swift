@@ -49,10 +49,8 @@ public struct PostLayoutSimulationService: Sendable {
         )
     }
 
-    /// Builds a hierarchy-aware deck from the canonical PEX artifact. The
-    /// existing `PEXParasiticIR` overload remains available for legacy flat
-    /// callers; this overload preserves the source `.subckt` boundary and
-    /// validates generated ports before simulation.
+    /// Builds a hierarchy-aware deck from the canonical PEX artifact while
+    /// preserving the source `.subckt` boundary and validating generated ports.
     public func buildHierarchicalPostLayoutNetlist(
         baseNetlist: String,
         canonicalIR: ParasiticIR,

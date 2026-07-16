@@ -1,6 +1,7 @@
 import Foundation
 import CircuiteFoundation
 import DesignFlowKernel
+import Xcircuite
 
 /// Bridges the tapeout evidence bundle into the canonical `.xcircuite`
 /// run ledger, so the human cockpit and the agent loop review ONE
@@ -42,15 +43,19 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
     public struct RecordedRun: Sendable {
         public let runID: String
         public let runDirectory: URL
-        public let manifest: XcircuiteRunManifest
+        public let manifest: FlowRunManifest
     }
 
-    private let store: XcircuiteWorkspaceStore
-    private let hasher: XcircuiteHasher
+    private let digester: any ContentDigesting
+    private let workspaceStoreFactory: @Sendable (URL) throws -> XcircuiteWorkspaceStore
 
-    public init(store: XcircuiteWorkspaceStore = XcircuiteWorkspaceStore()) {
-        self.store = store
-        self.hasher = XcircuiteHasher()
+    public init(
+        workspaceStoreFactory: @escaping @Sendable (URL) throws -> XcircuiteWorkspaceStore = {
+            try XcircuiteWorkspaceStore(projectRoot: $0)
+        }
+    ) {
+        self.digester = SHA256ContentDigester()
+        self.workspaceStoreFactory = workspaceStoreFactory
     }
 
     /// Records `bundle` as run `runID` of the project at `projectRoot`:
@@ -63,49 +68,55 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         _ bundle: TapeoutEvidenceBundle,
         projectRoot: URL,
         runID: String
-    ) throws -> RecordedRun {
-        try store.createWorkspace(at: projectRoot)
-        let runDirectory = try store.createRunDirectory(
-            for: runID,
-            descriptor: XcircuiteRunDescriptor(
-                actor: XcircuiteRunActionActor(
-                    kind: .system,
-                    identifier: "tapeout-evidence-recorder"
-                ),
-                intent: "Record and verify tapeout evidence."
-            ),
-            inProjectAt: projectRoot
+    ) async throws -> RecordedRun {
+        let store = try workspaceStoreFactory(projectRoot)
+        try await store.createWorkspace()
+        let runDirectory = try await store.url(
+            for: "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)"
         )
-        _ = try store.transitionRun(
+        let createdAt = Date()
+        let manifest = try FlowRunManifest(
             runID: runID,
-            transition: XcircuiteRunTransition(status: .running),
-            inProjectAt: projectRoot
+            status: .created,
+            actor: FlowRunActor(
+                kind: .system,
+                identifier: "tapeout-evidence-recorder"
+            ),
+            intent: "Record and verify tapeout evidence.",
+            createdAt: createdAt,
+            updatedAt: createdAt
         )
+        let coordinator = FlowRunLedgerCoordinator(persistence: store)
+        try await coordinator.save(FlowRunLedger(
+            runID: runID,
+            runManifest: manifest,
+            stages: []
+        ))
+        _ = try await coordinator.transition(runID: runID, to: .running, at: createdAt)
         do {
-            return try recordRunningBundle(
+            return try await recordRunningBundle(
                 bundle,
+                store: store,
                 projectRoot: projectRoot,
                 runID: runID,
                 runDirectory: runDirectory
             )
         } catch {
             do {
-                let failureReference = try recordFailure(
+                let failureReference = try await recordFailure(
                     error,
+                    store: store,
                     projectRoot: projectRoot,
                     runID: runID,
                     runDirectory: runDirectory
                 )
-                _ = try store.transitionRun(
+                _ = try await coordinator.transition(
                     runID: runID,
-                    transition: XcircuiteRunTransition(
-                        status: .failed,
-                        artifacts: try legacyReferences([failureReference])
-                    ),
-                    inProjectAt: projectRoot
+                    to: .failed,
+                    registering: [failureReference]
                 )
             } catch let lifecycleError {
-                throw XcircuiteWorkspaceError.writeFailed(
+                throw XcircuiteWorkspaceStoreError.writeFailed(
                     "Evidence recording failed with '\(error.localizedDescription)' and the canonical run could not be marked failed: \(lifecycleError.localizedDescription)"
                 )
             }
@@ -115,10 +126,11 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
 
     private func recordRunningBundle(
         _ bundle: TapeoutEvidenceBundle,
+        store: XcircuiteWorkspaceStore,
         projectRoot: URL,
         runID: String,
         runDirectory: URL
-    ) throws -> RecordedRun {
+    ) async throws -> RecordedRun {
         var artifacts: [ArtifactReference] = []
         var artifactIDs: Set<String> = []
 
@@ -126,35 +138,34 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         try reserveArtifactID("tapeout-evidence", in: &artifactIDs)
         try reserveArtifactID("evidence-error", in: &artifactIDs)
         let evidenceURL = runDirectory.appending(path: "evidence.json")
-        try store.writeJSON(bundle, to: evidenceURL, forProjectAt: projectRoot)
-        try recordArtifact(try artifactReference(
+        let evidencePath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/evidence.json"
+        try await store.writeJSON(bundle, to: evidencePath)
+        try await recordArtifact(try await artifactReference(
             for: evidenceURL,
             artifactID: "tapeout-evidence",
+            store: store,
             projectRoot: projectRoot,
             kind: .report,
-            format: .json,
-            runID: runID
-        ), artifacts: &artifacts, projectRoot: projectRoot, runID: runID)
+            format: .json
+        ), artifacts: &artifacts, store: store, runID: runID)
 
         // Claim artifacts, copied into the immutable capture.
-        let artifactsDirectory = runDirectory.appending(path: "artifacts")
         for claim in bundle.claims {
             guard let artifact = claim.artifact, artifact.status == .available else { continue }
             try reserveArtifactID(artifact.id, in: &artifactIDs)
-            let copied = try copyArtifact(
+            let copied = try await copyArtifact(
                 artifact,
-                into: artifactsDirectory,
-                projectRoot: projectRoot,
+                store: store,
                 runID: runID
             )
-            try recordArtifact(try artifactReference(
+            try await recordArtifact(try await artifactReference(
                 for: copied,
                 artifactID: artifact.id,
+                store: store,
                 projectRoot: projectRoot,
                 kind: fileKind(forClaimArtifactKind: artifact.kind),
-                format: fileFormat(forFileAt: copied),
-                runID: runID
-            ), artifacts: &artifacts, projectRoot: projectRoot, runID: runID)
+                format: fileFormat(forFileAt: copied)
+            ), artifacts: &artifacts, store: store, runID: runID)
         }
 
         if let gdsPath = bundle.gdsPath, !gdsPath.isEmpty {
@@ -165,23 +176,22 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                 path: gdsPath,
                 status: .available
             )
-            let copied = try copyArtifact(
+            let copied = try await copyArtifact(
                 gds,
-                into: artifactsDirectory,
-                projectRoot: projectRoot,
+                store: store,
                 runID: runID
             )
-            try recordArtifact(try artifactReference(
+            try await recordArtifact(try await artifactReference(
                 for: copied,
                 artifactID: gds.id,
+                store: store,
                 projectRoot: projectRoot,
                 kind: .layout,
-                format: .gdsii,
-                runID: runID
-            ), artifacts: &artifacts, projectRoot: projectRoot, runID: runID)
+                format: .gdsii
+            ), artifacts: &artifacts, store: store, runID: runID)
         }
 
-        let status: XcircuiteRunStatus
+        let status: FlowRunStatus
         do {
             // Artifact presence is re-verified against the run's own
             // copies above; here the verdict is about the CLAIMS.
@@ -191,16 +201,17 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
             status = .failed
         }
 
-        let manifest = try store.transitionRun(
+        let ledger = try await FlowRunLedgerCoordinator(persistence: store).transition(
             runID: runID,
-            transition: XcircuiteRunTransition(
-                status: status,
-                artifacts: try legacyReferences(artifacts)
-            ),
-            inProjectAt: projectRoot
+            to: status,
+            registering: artifacts
         )
 
-        return RecordedRun(runID: runID, runDirectory: runDirectory, manifest: manifest)
+        return RecordedRun(
+            runID: runID,
+            runDirectory: runDirectory,
+            manifest: ledger.runManifest
+        )
     }
 
     // MARK: - Internals
@@ -208,20 +219,22 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
     private func recordArtifact(
         _ reference: ArtifactReference,
         artifacts: inout [ArtifactReference],
-        projectRoot: URL,
+        store: XcircuiteWorkspaceStore,
         runID: String
-    ) throws {
+    ) async throws {
         artifacts.append(reference)
-        try store.registerArtifact(reference, runID: runID, inProjectAt: projectRoot)
+        _ = try await FlowRunLedgerCoordinator(persistence: store).register(
+            runID: runID,
+            artifacts: [reference]
+        )
     }
 
     private func copyArtifact(
         _ artifact: TapeoutEvidenceArtifact,
-        into directory: URL,
-        projectRoot: URL,
+        store: XcircuiteWorkspaceStore,
         runID: String
-    ) throws -> URL {
-        try XcircuiteIdentifierValidator().validate(artifact.id, kind: .artifactID)
+    ) async throws -> URL {
+        try FlowIdentifierValidator().validate(artifact.id, kind: .artifactID)
         let source = URL(filePath: artifact.path)
         guard FileManager.default.fileExists(atPath: source.path(percentEncoded: false)) else {
             throw RecorderError.artifactFileMissing(id: artifact.id, path: artifact.path)
@@ -231,10 +244,10 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         guard sourceValues.isRegularFile == true else {
             throw RecorderError.artifactNotRegularFile(id: artifact.id, path: artifact.path)
         }
-        try store.ensureDirectory(at: directory)
-        let relativeDestination = "\(XcircuiteWorkspace.directoryName)/runs/\(runID)/artifacts/\(artifact.id)-\(source.lastPathComponent)"
-        let destination = try XcircuiteWorkspace(projectRoot: projectRoot)
-            .url(forProjectRelativePath: relativeDestination)
+        let relativeDestination = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/artifacts/\(artifact.id)-\(source.lastPathComponent)"
+        let destination = try await store.url(for: relativeDestination)
+        let artifactsPath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/artifacts"
+        try await store.ensureWorkspaceDirectory(at: artifactsPath)
         if FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) {
             throw RecorderError.artifactDestinationExists(
                 destination.path(percentEncoded: false)
@@ -242,7 +255,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         }
         try FileManager.default.copyItem(at: resolvedSource, to: destination)
 
-        let digest = try hasher.sha256(fileAt: destination)
+        let digest = try digester.digest(fileAt: destination, using: .sha256).hexadecimalValue
         if let claimed = artifact.sha256, claimed != digest {
             throw RecorderError.artifactDigestMismatch(
                 id: artifact.id,
@@ -250,7 +263,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
                 actual: digest
             )
         }
-        let byteCount = try hasher.byteCount(fileAt: destination)
+        let byteCount = try fileByteCount(at: destination)
         if let claimed = artifact.byteCount, claimed != byteCount {
             throw RecorderError.artifactByteCountMismatch(
                 id: artifact.id,
@@ -264,28 +277,25 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
     private func artifactReference(
         for url: URL,
         artifactID: String,
+        store: XcircuiteWorkspaceStore,
         projectRoot: URL,
         kind: ArtifactKind,
-        format: ArtifactFormat,
-        runID: String
-    ) throws -> ArtifactReference {
+        format: ArtifactFormat
+    ) async throws -> ArtifactReference {
         let rootPath = projectRoot.standardizedFileURL.path(percentEncoded: false)
         let filePath = url.standardizedFileURL.path(percentEncoded: false)
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         guard filePath.hasPrefix(prefix) else {
-            throw XcircuiteWorkspaceError.unsafeProjectPath(
+            throw XcircuiteWorkspaceStoreError.unsafeProjectPath(
                 "artifact '\(filePath)' is outside the project root '\(rootPath)'"
             )
         }
-        return try store.makeArtifactReference(
+        return try await store.makeArtifactReference(
             forProjectRelativePath: String(filePath.dropFirst(prefix.count)),
             artifactID: artifactID,
             role: .output,
             kind: kind,
-            format: format,
-            inProjectAt: projectRoot,
-            producedByRunID: runID,
-            verifiedByRunID: nil
+            format: format
         )
     }
 
@@ -293,7 +303,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         _ artifactID: String,
         in artifactIDs: inout Set<String>
     ) throws {
-        try XcircuiteIdentifierValidator().validate(artifactID, kind: .artifactID)
+        try FlowIdentifierValidator().validate(artifactID, kind: .artifactID)
         guard artifactIDs.insert(artifactID).inserted else {
             throw RecorderError.duplicateArtifactID(artifactID)
         }
@@ -301,27 +311,28 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
 
     private func recordFailure(
         _ error: Error,
+        store: XcircuiteWorkspaceStore,
         projectRoot: URL,
         runID: String,
         runDirectory: URL
-    ) throws -> ArtifactReference {
+    ) async throws -> ArtifactReference {
         let failureURL = runDirectory.appending(path: "evidence-error.json")
-        try store.writeJSON(
+        let failurePath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/evidence-error.json"
+        try await store.writeJSON(
             EvidenceFailure(
                 reason: error.localizedDescription,
                 errorType: String(describing: type(of: error)),
                 recordedAt: Date()
             ),
-            to: failureURL,
-            forProjectAt: projectRoot
+            to: failurePath
         )
-        return try artifactReference(
+        return try await artifactReference(
             for: failureURL,
             artifactID: "evidence-error",
+            store: store,
             projectRoot: projectRoot,
             kind: .report,
-            format: .json,
-            runID: runID
+            format: .json
         )
     }
 
@@ -363,9 +374,14 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
         }
     }
 
-    private func legacyReferences(
-        _ references: [ArtifactReference]
-    ) throws -> [XcircuiteFileReference] {
-        try references.map(FoundationArtifactTypeProjection.legacyReference)
+    private func fileByteCount(at url: URL) throws -> Int64 {
+        let values = try url.resourceValues(forKeys: [.fileSizeKey])
+        guard let size = values.fileSize, size >= 0 else {
+            throw RecorderError.artifactNotRegularFile(
+                id: url.lastPathComponent,
+                path: url.path(percentEncoded: false)
+            )
+        }
+        return Int64(size)
     }
 }

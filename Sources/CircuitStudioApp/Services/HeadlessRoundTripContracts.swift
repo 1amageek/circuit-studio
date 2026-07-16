@@ -9,7 +9,7 @@ extension HeadlessRoundTripService {
         public let projectRoot: URL
         public let runID: String
         public let title: String
-        public let actor: XcircuiteRunActionActor
+        public let actor: FlowRunActor
         public let testbench: Testbench
         public let postLayoutCommand: AnalysisCommand
         public let pexIR: PEXParasiticIR
@@ -36,7 +36,7 @@ extension HeadlessRoundTripService {
             projectRoot: URL,
             runID: String = UUID().uuidString,
             title: String,
-            actor: XcircuiteRunActionActor = XcircuiteRunActionActor(
+            actor: FlowRunActor = FlowRunActor(
                 kind: .system,
                 identifier: "headless-round-trip"
             ),

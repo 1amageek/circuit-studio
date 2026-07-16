@@ -1,4 +1,5 @@
 import Activity
+import CircuiteFoundation
 import DesignFlowKernel
 import Foundation
 import Testing
@@ -33,6 +34,52 @@ struct ActivityStoreTests {
 
         #expect(allRecords.count == 1)
         #expect(records == [activity])
+    }
+
+    @Test("Store round-trips the canonical artifact reference unchanged")
+    func storesCanonicalArtifactReference() async throws {
+        let store = SQLiteActivityStore(location: .inMemory)
+        let reference = ArtifactReference(
+            id: try ArtifactID(rawValue: "canonical-report"),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(
+                    workspaceRelativePath: ".xcircuite/runs/run-canonical/report.json"
+                ),
+                role: .output,
+                kind: .report,
+                format: .json
+            ),
+            digest: try ContentDigest(
+                algorithm: .sha256,
+                hexadecimalValue: String(repeating: "b", count: 64)
+            ),
+            byteCount: 19
+        )
+        let activity = Activity(
+            id: "project-1|run|canonical-artifact",
+            projectID: "project-1",
+            operationID: "run-canonical",
+            sourceKind: .xcircuiteAction,
+            sourceID: "canonical-artifact",
+            runID: "run-canonical",
+            actorKind: .system,
+            actorIdentifier: "test",
+            kind: "artifact.persisted",
+            status: .succeeded,
+            title: "Artifact persisted",
+            summary: "Canonical artifact reference persisted.",
+            artifacts: [Activity.Artifact(reference: reference, direction: .output)],
+            occurredAt: Date(timeIntervalSince1970: 1_500),
+            indexedAt: Date(timeIntervalSince1970: 1_500)
+        )
+
+        try await store.record(activity)
+        let stored = try #require(
+            try await store.activities(for: ActivityQuery(projectID: "project-1")).first
+        )
+
+        #expect(stored.artifacts == activity.artifacts)
+        #expect(stored.artifacts.first?.reference == reference)
     }
 
     @Test("Repeated projection of the same immutable activity is idempotent")
@@ -98,21 +145,28 @@ struct ActivityStoreTests {
     func projectorProjectsCompleteArtifactsThroughFoundation() throws {
         var ledger = try makeLedger(runID: "run-artifact")
         ledger.actions = [
-            XcircuiteRunActionRecord(
+            FlowRunActionRecord(
                 actionID: "action-artifact",
                 runID: "run-artifact",
-                actor: XcircuiteRunActionActor(kind: .system, identifier: "test"),
+                actor: FlowRunActor(kind: .system, identifier: "test"),
                 actionKind: "artifact.capture",
                 status: .succeeded,
                 outputs: [
-                    XcircuiteFileReference(
-                        artifactID: "captured-report",
-                        path: ".xcircuite/runs/run-artifact/report.json",
-                        kind: .report,
-                        format: .json,
-                        sha256: String(repeating: "a", count: 64),
-                        byteCount: 7,
-                        producedByRunID: "run-artifact"
+                    ArtifactReference(
+                        id: try ArtifactID(rawValue: "captured-report"),
+                        locator: ArtifactLocator(
+                            location: try ArtifactLocation(
+                                workspaceRelativePath: ".xcircuite/runs/run-artifact/report.json"
+                            ),
+                            role: .output,
+                            kind: .report,
+                            format: .json
+                        ),
+                        digest: try ContentDigest(
+                            algorithm: .sha256,
+                            hexadecimalValue: String(repeating: "a", count: 64)
+                        ),
+                        byteCount: 7
                     )
                 ]
             )
@@ -125,31 +179,36 @@ struct ActivityStoreTests {
         let action = try #require(activities.first(where: { $0.kind == "artifact.capture" }))
         let artifact = try #require(action.artifacts.first)
 
-        #expect(artifact.role == "captured-report")
-        #expect(artifact.kind == "report")
-        #expect(artifact.format == "json")
-        #expect(artifact.sha256 == String(repeating: "a", count: 64))
-        #expect(artifact.byteCount == 7)
+        #expect(artifact.reference.id.rawValue == "captured-report")
+        #expect(artifact.reference.locator.role == .output)
+        #expect(artifact.reference.kind == .report)
+        #expect(artifact.reference.format == .json)
+        #expect(artifact.reference.sha256 == String(repeating: "a", count: 64))
+        #expect(artifact.reference.byteCount == 7)
+        #expect(artifact.direction == .output)
     }
 
     @Test("Projector redacts separated secret argument values")
     func projectorRedactsSecretArguments() throws {
         var ledger = try makeLedger(runID: "run-secrets")
         ledger.actions = [
-            XcircuiteRunActionRecord(
+            FlowRunActionRecord(
                 actionID: "action-secrets",
                 runID: "run-secrets",
-                actor: XcircuiteRunActionActor(kind: .agent, identifier: "test-agent"),
+                actor: FlowRunActor(kind: .agent, identifier: "test-agent"),
                 actionKind: "tool.execute",
                 status: .succeeded,
-                metadata: [
-                    "executable": .string("tool"),
-                    "arguments": .array([
-                        .string("--token"),
-                        .string("secret-value"),
-                        .string("--mode=fast")
-                    ])
-                ]
+                context: FlowRunActionContext(
+                    suggestedCommand: FlowRunActionContext.SuggestedCommand(
+                        nextActionID: "run-tool",
+                        nextActionKind: "tool.execute",
+                        commandID: "tool.execute.run",
+                        readiness: "ready",
+                        executable: "tool",
+                        arguments: ["--token", "secret-value", "--mode=fast"],
+                        reason: "Exercise command argument redaction."
+                    )
+                )
             )
         ]
 
@@ -165,17 +224,16 @@ struct ActivityStoreTests {
 
     private func makeLedger(runID: String) throws -> FlowRunLedger {
         let date = Date(timeIntervalSince1970: 3_000)
-        let manifest = try XcircuiteRunManifest(
+        let manifest = try FlowRunManifest(
             runID: runID,
             status: .created,
-            actor: XcircuiteRunActionActor(kind: .agent, identifier: "test-agent"),
+            actor: FlowRunActor(kind: .agent, identifier: "test-agent"),
             intent: "Project activity test",
             createdAt: date,
             updatedAt: date
         )
         return FlowRunLedger(
             runID: runID,
-            runDirectory: URL(fileURLWithPath: "/tmp/\(runID)"),
             runManifest: manifest,
             stages: []
         )

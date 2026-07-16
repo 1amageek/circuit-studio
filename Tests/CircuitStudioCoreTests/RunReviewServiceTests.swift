@@ -4,7 +4,6 @@ import DesignFlowKernel
 import LayoutCore
 import ToolQualification
 import Xcircuite
-import DesignFlowKernel
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 
@@ -39,7 +38,7 @@ struct RunReviewServiceTests {
             RunReviewPassingExecutor(
                 stageID: "001-drc",
                 artifacts: [
-                    XcircuiteFileReference(
+                    try RunReviewTestSupport.artifactReference(
                         artifactID: "drc-summary",
                         path: summaryPath,
                         kind: .report,
@@ -52,7 +51,7 @@ struct RunReviewServiceTests {
         ]
 
         // 1. The flow blocks at the approval gate.
-        let blocked = try await DefaultFlowOrchestrator().run(
+        let blocked = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: request,
             toolRegistry: ToolRegistry(),
             healthResults: [:],
@@ -63,10 +62,10 @@ struct RunReviewServiceTests {
         // 2. The cockpit reads the ledger: one run, one stage awaiting
         //    this reviewer.
         let service = RunReviewService()
-        let runs = try service.listRuns(projectRoot: root)
+        let runs = try await service.listRuns(projectRoot: root)
         #expect(runs.map(\.runID) == ["run-review"])
 
-        var review = try service.loadRun(runID: "run-review", projectRoot: root)
+        var review = try await service.loadRun(runID: "run-review", projectRoot: root)
         #expect(review.status == .blocked)
         #expect(review.stages.count == 1)
         #expect(review.bundle.reviewItems.contains {
@@ -83,14 +82,14 @@ struct RunReviewServiceTests {
                 && $0.artifactID == "drc-summary"
                 && $0.path == summaryPath
                 && $0.integrity?.status == .verified
-                && $0.integrity?.actualByteCount == Int64(summaryPayload.count)
+                && $0.integrity?.actualByteCount == UInt64(summaryPayload.count)
         })
         let awaiting = try #require(review.stages.first)
         #expect(awaiting.awaitingApproval)
         #expect(awaiting.approval == nil)
 
         // 3. The reviewer decides; the decision lands in the ledger.
-        _ = try service.decide(
+        _ = try await service.decide(
             runID: "run-review",
             stageID: "001-drc",
             verdict: .approved,
@@ -98,29 +97,28 @@ struct RunReviewServiceTests {
             note: "verified against the report",
             projectRoot: root
         )
-        review = try service.loadRun(runID: "run-review", projectRoot: root)
+        review = try await service.loadRun(runID: "run-review", projectRoot: root)
         #expect(review.bundle.reviewItems.contains {
             $0.kind == .approvalGate
                 && $0.status == .readyToResume
                 && $0.nextActionID == "001-drc-resume-run"
                 && $0.artifactPaths.contains(".xcircuite/runs/run-review/approvals/001-drc.json")
         })
-        let approvalActions = try XcircuiteWorkspaceStore().loadRunActions(
-            runID: "run-review",
-            inProjectAt: root
-        )
+        let approvalStore = try XcircuiteWorkspaceStore(projectRoot: root)
+        let approvalActions = try await approvalStore.loadRunActions(runID: "run-review")
         let approvalAction = try #require(approvalActions.first {
-            $0.actionKind == XcircuiteRunReviewDecisionActionKind.approval.rawValue
+            $0.actionKind == FlowRunReviewDecisionKind.approval.rawValue
         })
         #expect(approvalAction.actor.kind == .human)
         #expect(approvalAction.actor.identifier == "reviewer-1")
-        #expect(approvalAction.metadata["source"] == .string("circuit-studio.run-review"))
-        #expect(approvalAction.metadata["decision"] == .string("approved"))
-        #expect(approvalAction.outputs.map(\.path) == [".xcircuite/runs/run-review/approvals/001-drc.json"])
+        let approvalDecision = try #require(try FlowRunReviewDecision(record: approvalAction))
+        #expect(approvalDecision.decision == "approved")
+        #expect(approvalDecision.targetID == "001-drc")
+        #expect(approvalDecision.reason == "verified against the report")
 
         // 4. Re-running the same runID resumes past the gate; the
         //    cockpit shows the full picture.
-        let resumed = try await DefaultFlowOrchestrator().run(
+        let resumed = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: request,
             toolRegistry: ToolRegistry(),
             healthResults: [:],
@@ -128,7 +126,7 @@ struct RunReviewServiceTests {
         )
         #expect(resumed.status == .succeeded)
 
-        review = try service.loadRun(runID: "run-review", projectRoot: root)
+        review = try await service.loadRun(runID: "run-review", projectRoot: root)
         #expect(review.stages.count == 2)
         let decided = try #require(review.stages.first { $0.result.stageID == "001-drc" })
         #expect(!decided.awaitingApproval)
@@ -146,7 +144,7 @@ struct RunReviewServiceTests {
         let runID = "run-flow-review"
         let stageID = "001-drc"
         let summaryPath = ".xcircuite/runs/\(runID)/stages/\(stageID)/raw/drc-summary.json"
-        _ = try await DefaultFlowOrchestrator().run(
+        _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
                 projectRoot: root,
                 runID: runID,
@@ -161,7 +159,7 @@ struct RunReviewServiceTests {
                 RunReviewPassingExecutor(
                     stageID: stageID,
                     artifacts: [
-                        XcircuiteFileReference(
+                        try RunReviewTestSupport.artifactReference(
                             artifactID: "drc-summary",
                             path: summaryPath,
                             kind: .report,
@@ -173,33 +171,33 @@ struct RunReviewServiceTests {
             ]
         )
 
-        let store = XcircuiteWorkspaceStore()
+        let store = try XcircuiteWorkspaceStore(projectRoot: root)
         let ladderPath = ".xcircuite/runs/\(runID)/review/stage-artifact-ladder.json"
         let planningPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
         let retainedPath = ".xcircuite/runs/\(runID)/retention/retained-ci-regression-budget.json"
         let waiverPath = ".xcircuite/runs/\(runID)/waivers/waiver-review.json"
-        _ = try RunReviewTestSupport.writeRunJSONArtifact(
+        _ = try await RunReviewTestSupport.writeRunJSONArtifact(
             Data(#"{"schemaVersion":1,"readiness":"needsReview"}"#.utf8),
             path: ladderPath,
             artifactID: "review-stage-artifact-ladder",
             root: root,
             runID: runID
         )
-        _ = try RunReviewTestSupport.writeRunJSONArtifact(
+        _ = try await RunReviewTestSupport.writeRunJSONArtifact(
             Data(#"{"schemaVersion":1,"planID":"plan-1","steps":[]}"#.utf8),
             path: planningPath,
             artifactID: "planning-candidate-plan",
             root: root,
             runID: runID
         )
-        _ = try RunReviewTestSupport.writeRunJSONArtifact(
+        _ = try await RunReviewTestSupport.writeRunJSONArtifact(
             Data(#"{"schemaVersion":1,"status":"failed","failures":[{"code":"retained_ci_regression_budget_evidence_stale"}]}"#.utf8),
             path: retainedPath,
             artifactID: "retained-ci-regression-budget",
             root: root,
             runID: runID
         )
-        let waiverRef = try RunReviewTestSupport.writeRunJSONArtifact(
+        let waiverRef = try await RunReviewTestSupport.writeRunJSONArtifact(
             Data(#"{"schemaVersion":1,"waiverID":"waiver-1","status":"accepted"}"#.utf8),
             path: waiverPath,
             artifactID: "waiver-review",
@@ -208,7 +206,7 @@ struct RunReviewServiceTests {
         )
 
         let service = RunReviewService()
-        _ = try service.decide(
+        _ = try await service.decide(
             runID: runID,
             stageID: stageID,
             verdict: .approved,
@@ -216,35 +214,33 @@ struct RunReviewServiceTests {
             note: "reviewed",
             projectRoot: root
         )
-        try store.appendReviewDecisionAction(
-            XcircuiteRunReviewDecisionActionRequest(
+        try await store.appendReviewDecisionAction(
+            FlowRunReviewDecisionRequest(
                 actionID: "waiver-decision-1",
                 runID: runID,
                 stageID: stageID,
-                actor: XcircuiteRunActionActor(kind: .human, identifier: "reviewer-1"),
+                actor: FlowRunActor(kind: .human, identifier: "reviewer-1"),
                 decisionKind: .waiver,
                 decision: "accepted",
                 targetID: "waiver-1",
                 targetPath: waiverPath,
                 reason: "Reviewed waiver is accepted.",
                 outputs: [waiverRef]
-            ),
-            inProjectAt: root
+            )
         )
-        try store.appendReviewDecisionAction(
-            XcircuiteRunReviewDecisionActionRequest(
+        try await store.appendReviewDecisionAction(
+            FlowRunReviewDecisionRequest(
                 actionID: "resume-decision-1",
                 runID: runID,
-                actor: XcircuiteRunActionActor(kind: .human, identifier: "reviewer-1"),
+                actor: FlowRunActor(kind: .human, identifier: "reviewer-1"),
                 decisionKind: .resume,
                 decision: "requested",
                 targetID: runID,
                 reason: "Approval and waiver decisions are recorded."
-            ),
-            inProjectAt: root
+            )
         )
 
-        let review = try service.loadRun(runID: runID, projectRoot: root)
+        let review = try await service.loadRun(runID: runID, projectRoot: root)
         #expect(review.flowReview.hasContent)
         #expect(review.flowReview.signoffLadderArtifacts.contains {
             $0.role == "stage-artifact-ladder" && $0.path == ladderPath
@@ -292,7 +288,7 @@ struct RunReviewServiceTests {
         #expect(review.retainedDashboard.decisionSummaries.map(\.targetID).contains(runID))
         #expect(review.retainedDashboard.diagnosticCodes.contains("retained_ci_regression_budget_evidence_stale"))
 
-        let dashboardRef = try service.persistRetainedDashboardProjection(
+        let dashboardRef = try await service.persistRetainedDashboardProjection(
             runID: runID,
             projectRoot: root
         )
@@ -308,9 +304,9 @@ struct RunReviewServiceTests {
         )
         #expect(persistedProjection.status == .needsRepair)
         #expect(persistedProjection.artifactStates.contains { $0.path == retainedPath })
-        let runManifest = try store.readJSON(
-            XcircuiteRunManifest.self,
-            from: root.appending(path: ".xcircuite/runs/\(runID)/manifest.json")
+        let runManifest = try await store.readJSON(
+            FlowRunManifest.self,
+            from: ".xcircuite/runs/\(runID)/manifest.json"
         )
         #expect(runManifest.artifacts.contains {
             $0.artifactID == "retained-dashboard-projection"
@@ -326,7 +322,7 @@ struct RunReviewServiceTests {
 
         let runID = "run-flow-integrity"
         let stageID = "001-plan"
-        _ = try await DefaultFlowOrchestrator().run(
+        _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
                 projectRoot: root,
                 runID: runID,
@@ -343,7 +339,7 @@ struct RunReviewServiceTests {
         )
 
         let planningPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
-        _ = try RunReviewTestSupport.writeRunJSONArtifact(
+        _ = try await RunReviewTestSupport.writeRunJSONArtifact(
             Data(#"{"schemaVersion":1,"planID":"plan-1","steps":[]}"#.utf8),
             path: planningPath,
             artifactID: "planning-candidate-plan",
@@ -353,7 +349,7 @@ struct RunReviewServiceTests {
         try Data(#"{"schemaVersion":1,"planID":"plan-2","steps":[]}"#.utf8)
             .write(to: root.appending(path: planningPath), options: .atomic)
 
-        let review = try RunReviewService().loadRun(runID: runID, projectRoot: root)
+        let review = try await RunReviewService().loadRun(runID: runID, projectRoot: root)
         #expect(!review.flowReview.planningArtifacts.contains { $0.path == planningPath })
         #expect(review.flowReview.integrityIssueArtifacts.contains {
             $0.path == planningPath && $0.integrity?.status == .sha256Mismatch
@@ -365,7 +361,7 @@ struct RunReviewServiceTests {
         #expect(planningDomain.unverifiedArtifactPaths.contains(planningPath))
     }
 
-    @Test func retainedDashboardProjectionRejectsUnsafeRunIDBeforeWriting() throws {
+    @Test func retainedDashboardProjectionRejectsUnsafeRunIDBeforeWriting() async throws {
         let parent = FileManager.default.temporaryDirectory
             .appendingPathComponent("retained-dashboard-validation-\(UUID().uuidString)")
         let root = parent.appending(path: "project")
@@ -377,19 +373,17 @@ struct RunReviewServiceTests {
         let bundle = FlowRunReviewBundle(
             runID: invalidRunID,
             status: .blocked,
-            runDirectoryPath: ".xcircuite/runs/\(invalidRunID)",
             summary: FlowRunLedgerSummary(
                 runID: invalidRunID,
-                status: .blocked,
-                runDirectoryPath: ".xcircuite/runs/\(invalidRunID)"
+                status: .blocked
             )
         )
         let service = RunReviewService(
             reviewBundler: RetainedDashboardStaticReviewBundler(bundle: bundle)
         )
 
-        #expect(throws: XcircuiteWorkspaceError.invalidIdentifier(kind: "runID", value: invalidRunID)) {
-            _ = try service.persistRetainedDashboardProjection(
+        await #expect(throws: FlowIdentifierValidationError.invalidIdentifier(kind: "runID", value: invalidRunID)) {
+            _ = try await service.persistRetainedDashboardProjection(
                 runID: invalidRunID,
                 projectRoot: root
             )
@@ -445,7 +439,7 @@ struct RunReviewServiceTests {
         let mismatchPayload = Data(#"{"state":"original"}"#.utf8)
         // The stale artifact above pre-seeds the run directory, so the
         // run must opt in to reusing it.
-        _ = try await DefaultFlowOrchestrator().run(
+        _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
                 projectRoot: root,
                 runID: runID,
@@ -461,19 +455,19 @@ struct RunReviewServiceTests {
                 RunReviewPassingExecutor(
                     stageID: stageID,
                     artifacts: [
-                        XcircuiteFileReference(
+                        try RunReviewTestSupport.artifactReference(
                             artifactID: "missing-report",
                             path: missingPath,
                             kind: .report,
                             format: .json
                         ),
-                        XcircuiteFileReference(
+                        try RunReviewTestSupport.artifactReference(
                             artifactID: "mismatch-report",
                             path: mismatchPath,
                             kind: .report,
                             format: .json
                         ),
-                        XcircuiteFileReference(
+                        try RunReviewTestSupport.artifactReference(
                             artifactID: "stale-report",
                             path: stalePath,
                             kind: .report,
@@ -491,7 +485,7 @@ struct RunReviewServiceTests {
         try Data(#"{"state":"changed-after-ledger"}"#.utf8).write(to: mismatchURL, options: .atomic)
 
         let service = RunReviewService()
-        let review = try service.loadRun(runID: runID, projectRoot: root)
+        let review = try await service.loadRun(runID: runID, projectRoot: root)
         let failureStates = review.failureStates
 
         #expect(failureStates.count(of: .missingArtifact) >= 1)
@@ -530,11 +524,9 @@ struct RunReviewServiceTests {
         let unsupportedBundle = FlowRunReviewBundle(
             runID: "unsupported-action",
             status: .blocked,
-            runDirectoryPath: ".xcircuite/runs/unsupported-action",
             summary: FlowRunLedgerSummary(
                 runID: "unsupported-action",
                 status: .blocked,
-                runDirectoryPath: ".xcircuite/runs/unsupported-action",
                 nextActions: [
                     FlowRunNextAction(
                         actionID: "unsupported-repair",
@@ -578,7 +570,7 @@ struct RunReviewServiceTests {
         let layoutDocumentPath = ".xcircuite/runs/\(runID)/stages/\(stageID)/raw/layout-document.json"
         let service = RunReviewService()
 
-        _ = try await DefaultFlowOrchestrator().run(
+        _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
                 projectRoot: root,
                 runID: runID,
@@ -593,7 +585,7 @@ struct RunReviewServiceTests {
                 RunReviewPassingExecutor(
                     stageID: stageID,
                     artifacts: [
-                        XcircuiteFileReference(
+                        try RunReviewTestSupport.artifactReference(
                             artifactID: "design-spec",
                             path: designSpecPath,
                             kind: .other,
@@ -607,9 +599,9 @@ struct RunReviewServiceTests {
             ]
         )
 
-        let missingLayoutReview = try service.loadRun(runID: runID, projectRoot: root)
-        #expect(throws: RunReviewServiceError.waiverEditVerificationLayoutDocumentNotFound(runID: runID)) {
-            try service.waiverEditVerificationContext(
+        let missingLayoutReview = try await service.loadRun(runID: runID, projectRoot: root)
+        await #expect(throws: RunReviewServiceError.waiverEditVerificationLayoutDocumentNotFound(runID: runID)) {
+            try await service.waiverEditVerificationContext(
                 review: missingLayoutReview,
                 projectRoot: root
             )
@@ -617,22 +609,21 @@ struct RunReviewServiceTests {
 
         // Add a deliberately missing artifact reference without rewriting the
         // already-succeeded run lifecycle or replaying its stage evidence.
-        _ = try XcircuiteWorkspaceStore().upsertRunArtifacts(
-            [
-                XcircuiteFileReference(
-                    artifactID: "layout-document",
-                    path: layoutDocumentPath,
-                    kind: .layout,
-                    format: .json
-                ),
-            ],
-            runID: runID,
-            inProjectAt: root
+        let store = try XcircuiteWorkspaceStore(projectRoot: root)
+        var ledger = try await store.loadRunLedger(runID: runID)
+        ledger.artifacts.append(
+            try RunReviewTestSupport.artifactReference(
+                artifactID: "layout-document",
+                path: layoutDocumentPath,
+                kind: .layout,
+                format: .json
+            )
         )
+        try await store.saveRunLedger(ledger)
 
-        let missingFileReview = try service.loadRun(runID: runID, projectRoot: root)
-        #expect(throws: RunReviewServiceError.waiverEditVerificationInputMissing(path: layoutDocumentPath)) {
-            try service.waiverEditVerificationContext(
+        let missingFileReview = try await service.loadRun(runID: runID, projectRoot: root)
+        await #expect(throws: RunReviewServiceError.waiverEditVerificationInputMissing(path: layoutDocumentPath)) {
+            try await service.waiverEditVerificationContext(
                 review: missingFileReview,
                 projectRoot: root
             )
@@ -658,14 +649,14 @@ struct RunReviewServiceTests {
         )
         let executors: [any FlowStageExecutor] = [RunReviewPassingExecutor(stageID: "001-drc")]
 
-        _ = try await DefaultFlowOrchestrator().run(
+        _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: request,
             toolRegistry: ToolRegistry(),
             healthResults: [:],
             executors: executors
         )
         let service = RunReviewService()
-        _ = try service.decide(
+        _ = try await service.decide(
             runID: "run-reject",
             stageID: "001-drc",
             verdict: .rejected,
@@ -673,7 +664,7 @@ struct RunReviewServiceTests {
             note: "rail too narrow",
             projectRoot: root
         )
-        let rerun = try await DefaultFlowOrchestrator().run(
+        let rerun = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: request,
             toolRegistry: ToolRegistry(),
             healthResults: [:],
@@ -681,7 +672,7 @@ struct RunReviewServiceTests {
         )
         #expect(rerun.status == .failed)
 
-        let review = try service.loadRun(runID: "run-reject", projectRoot: root)
+        let review = try await service.loadRun(runID: "run-reject", projectRoot: root)
         let stage = try #require(review.stages.first)
         #expect(stage.approval?.verdict == .rejected)
         #expect(stage.result.gates.contains { $0.gateID == "approval" && $0.status == .failed })

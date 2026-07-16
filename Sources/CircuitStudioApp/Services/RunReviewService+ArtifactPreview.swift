@@ -8,11 +8,14 @@ extension RunReviewService {
         artifactPath: String,
         projectRoot: URL,
         maxBytes: Int = 4096
-    ) throws -> RunReviewArtifactPreview {
+    ) async throws -> RunReviewArtifactPreview {
         guard maxBytes > 0 else {
             throw RunReviewServiceError.artifactPreviewInvalidLimit(limit: maxBytes)
         }
-        let bundle = try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let loader = configuredLedgerLoader(store: store)
+        let bundle = try await configuredReviewBundler(store: store, loader: loader)
+            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
         guard let artifact = bundle.artifacts.first(where: { $0.path == artifactPath }) else {
             throw RunReviewServiceError.artifactPreviewNotFound(
                 runID: runID,
@@ -31,11 +34,14 @@ extension RunReviewService {
         artifact: FlowRunReviewArtifact,
         projectRoot: URL,
         maxBytes: Int = 4096
-    ) throws -> RunReviewArtifactPreview {
+    ) async throws -> RunReviewArtifactPreview {
         guard maxBytes > 0 else {
             throw RunReviewServiceError.artifactPreviewInvalidLimit(limit: maxBytes)
         }
-        let bundle = try reviewBundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let loader = configuredLedgerLoader(store: store)
+        let bundle = try await configuredReviewBundler(store: store, loader: loader)
+            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
         guard let resolvedArtifact = bundle.artifacts.first(where: { isSameArtifact($0, as: artifact) }) else {
             throw RunReviewServiceError.artifactPreviewNotFound(
                 runID: runID,
@@ -164,8 +170,8 @@ extension RunReviewService {
                 message: error.localizedDescription
             )
         }
-        let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? artifact.byteCount ?? 0
-        guard byteCount <= Int64(maxBytes) else {
+        let byteCount = (attributes[.size] as? NSNumber)?.uint64Value ?? artifact.byteCount ?? 0
+        guard byteCount <= UInt64(maxBytes) else {
             throw RunReviewServiceError.artifactPreviewTooLarge(
                 path: artifact.path,
                 byteCount: byteCount,
@@ -175,7 +181,7 @@ extension RunReviewService {
         do {
             let data = try Data(contentsOf: url, options: [.mappedIfSafe])
             if let expectedByteCount = artifact.byteCount,
-               Int64(data.count) != expectedByteCount {
+               UInt64(data.count) != expectedByteCount {
                 throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
                     path: artifact.path,
                     status: FlowRunReviewArtifactIntegrityStatus.byteCountMismatch.rawValue,

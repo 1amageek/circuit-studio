@@ -89,7 +89,7 @@ extension ActivityRecord {
             title: title,
             summary: summary,
             command: try Self.decode(Activity.Command?.self, from: commandJSON, field: "commandJSON"),
-            artifacts: try Self.decode([Activity.ArtifactReference].self, from: artifactsJSON, field: "artifactsJSON"),
+            artifacts: try Self.decode([Activity.Artifact].self, from: artifactsJSON, field: "artifactsJSON"),
             omittedArtifactCount: omittedArtifactCount,
             diagnostics: try Self.decode([Activity.Diagnostic].self, from: diagnosticsJSON, field: "diagnosticsJSON"),
             omittedDiagnosticCount: omittedDiagnosticCount,

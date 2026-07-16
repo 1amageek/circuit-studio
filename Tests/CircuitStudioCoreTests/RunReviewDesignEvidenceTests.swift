@@ -1,6 +1,8 @@
 import Foundation
 import Testing
+import CircuiteFoundation
 import DesignFlowKernel
+import Xcircuite
 @testable import CircuitStudioApp
 
 @Suite("Run review design evidence", .timeLimit(.minutes(2)))
@@ -51,22 +53,27 @@ struct RunReviewDesignEvidenceTests {
             withIntermediateDirectories: true
         )
         try data.write(to: url, options: .atomic)
-        let reference = XcircuiteFileReference(
-            artifactID: "analysis-waveform",
-            path: path,
-            kind: .waveform,
-            format: .csv,
-            sha256: XcircuiteHasher().sha256(data: data),
-            byteCount: Int64(data.count),
-            producedByRunID: fixture.runID
+        let reference = ArtifactReference(
+            id: try ArtifactID(rawValue: "analysis-waveform"),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: path),
+                role: .output,
+                kind: .waveform,
+                format: .csv
+            ),
+            digest: try SHA256ContentDigester().digest(data: data, using: .sha256),
+            byteCount: UInt64(data.count)
         )
-        try XcircuiteWorkspaceStore().upsertRunArtifacts(
-            [reference],
+        let store = try XcircuiteWorkspaceStore(projectRoot: fixture.root)
+        _ = try await FlowRunLedgerCoordinator(persistence: store).register(
             runID: fixture.runID,
-            inProjectAt: fixture.root
+            artifacts: [reference]
         )
 
-        let review = try fixture.service.loadRun(runID: fixture.runID, projectRoot: fixture.root)
+        let review = try await fixture.service.loadRun(
+            runID: fixture.runID,
+            projectRoot: fixture.root
+        )
         let evidence = await fixture.service.loadDesignEvidence(
             runID: fixture.runID,
             bundle: review.bundle,

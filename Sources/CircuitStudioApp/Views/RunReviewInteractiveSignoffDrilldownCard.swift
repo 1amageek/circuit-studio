@@ -162,7 +162,7 @@ struct RunReviewInteractiveSignoffDrilldownCard: View {
 
     @ViewBuilder
     private func artifactReferences(
-        _ refs: [RunReviewInteractiveSignoffDrilldown.ArtifactReference]
+        _ refs: [RunReviewInteractiveSignoffDrilldown.ArtifactSummary]
     ) -> some View {
         if !refs.isEmpty {
             VStack(alignment: .leading, spacing: 2) {

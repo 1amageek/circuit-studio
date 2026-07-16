@@ -172,6 +172,7 @@ let package = Package(
                 .product(name: "LayoutEditor", package: "semiconductor-layout"),
                 .product(name: "LayoutCore", package: "semiconductor-layout"),
                 .product(name: "LayoutEngine", package: "semiconductor-layout"),
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
                 .product(name: "OpenVAFSupport", package: "swift-openvaf"),
@@ -205,6 +206,7 @@ let package = Package(
             name: "ActivityTests",
             dependencies: [
                 "Activity",
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
             ]
         ),

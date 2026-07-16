@@ -1,11 +1,10 @@
 import SwiftUI
 import DesignFlowKernel
-import DesignFlowKernel
 
 struct RunReviewStageCard: View {
     let stage: RunReviewService.StageReview
     @Binding var note: String
-    let decide: (XcircuiteApprovalRecord.Verdict, String) -> Void
+    let decide: (FlowApprovalRecord.Verdict, String) -> Void
 
     var body: some View {
         GroupBox {

@@ -1,51 +1,52 @@
 import DesignFlowKernel
 import Foundation
 import Xcircuite
-import DesignFlowKernel
 
 extension RunReviewService {
     func waiverDecisionsByReviewID(
-        from actions: [XcircuiteRunActionRecord]
+        from actions: [FlowRunActionRecord]
     ) -> [String: RunReviewWaiverDecision] {
         var decisions: [String: RunReviewWaiverDecision] = [:]
         for action in actions where action.actionKind == RunReviewWaiverDecision.actionKind {
-            guard let reviewID = waiverStringMetadata("waiverReviewID", in: action),
-                  let rawDecision = waiverStringMetadata("decision", in: action),
-                  let decision = RunReviewWaiverDecisionValue(rawValue: rawDecision)
+            guard let context = action.context.reviewDecision,
+                  context.kind == .waiver,
+                  let decision = RunReviewWaiverDecisionValue(rawValue: context.decision)
             else {
                 continue
             }
-            decisions[reviewID] = RunReviewWaiverDecision(
+            decisions[context.targetID] = RunReviewWaiverDecision(
                 actionRecordID: action.actionID,
                 runID: action.runID,
                 actor: action.actor.identifier,
                 decision: decision,
                 decidedAt: action.createdAt,
-                note: waiverStringMetadata("note", in: action) ?? ""
+                note: context.reason
             )
         }
         return decisions
     }
 
     func waiverEditProposalSelectionsByReviewID(
-        from actions: [XcircuiteRunActionRecord]
+        from actions: [FlowRunActionRecord]
     ) -> [String: [RunReviewWaiverEditProposalSelection]] {
         var selections: [String: [RunReviewWaiverEditProposalSelection]] = [:]
         for action in actions where action.actionKind == RunReviewWaiverEditProposalSelection.actionKind {
-            guard let reviewID = waiverStringMetadata("waiverReviewID", in: action),
-                  let proposalID = waiverStringMetadata("proposalID", in: action)
+            guard let context = action.context.reviewDecision,
+                  context.kind == .waiver,
+                  context.decision == "selected",
+                  let proposalID = context.targetPath
             else {
                 continue
             }
-            selections[reviewID, default: []].append(
+            selections[context.targetID, default: []].append(
                 RunReviewWaiverEditProposalSelection(
                     actionRecordID: action.actionID,
                     runID: action.runID,
                     actor: action.actor.identifier,
-                    waiverReviewID: reviewID,
+                    waiverReviewID: context.targetID,
                     proposalID: proposalID,
                     selectedAt: action.createdAt,
-                    note: waiverStringMetadata("note", in: action) ?? ""
+                    note: context.reason
                 )
             )
         }
@@ -53,32 +54,31 @@ extension RunReviewService {
     }
 
     func waiverEditApplicationsByReviewID(
-        from actions: [XcircuiteRunActionRecord]
+        from actions: [FlowRunActionRecord]
     ) -> [String: [RunReviewWaiverEditApplication]] {
         var applications: [String: [RunReviewWaiverEditApplication]] = [:]
         for action in actions where action.actionKind == RunReviewWaiverEditApplication.actionKind {
-            guard let reviewID = waiverStringMetadata("waiverReviewID", in: action),
-                  let proposalID = waiverStringMetadata("proposalID", in: action),
-                  let targetPath = waiverStringMetadata("targetPath", in: action),
-                  let operation = waiverStringMetadata("operation", in: action),
-                  let beforeSHA256 = waiverStringMetadata("beforeSHA256", in: action),
-                  let afterSHA256 = waiverStringMetadata("afterSHA256", in: action)
+            guard let context = action.context.reviewDecision,
+                  context.kind == .waiver,
+                  let proposalID = context.targetPath,
+                  let before = action.inputs.last,
+                  let after = action.outputs.first
             else {
                 continue
             }
-            applications[reviewID, default: []].append(
+            applications[context.targetID, default: []].append(
                 RunReviewWaiverEditApplication(
                     actionRecordID: action.actionID,
                     runID: action.runID,
                     actor: action.actor.identifier,
-                    waiverReviewID: reviewID,
+                    waiverReviewID: context.targetID,
                     proposalID: proposalID,
-                    targetPath: targetPath,
-                    operation: operation,
-                    beforeSHA256: beforeSHA256,
-                    afterSHA256: afterSHA256,
+                    targetPath: after.path,
+                    operation: context.decision,
+                    beforeSHA256: before.sha256,
+                    afterSHA256: after.sha256,
                     appliedAt: action.createdAt,
-                    note: waiverStringMetadata("note", in: action) ?? ""
+                    note: context.reason
                 )
             )
         }
@@ -86,120 +86,81 @@ extension RunReviewService {
     }
 
     func waiverEditVerificationsByReviewID(
-        from actions: [XcircuiteRunActionRecord]
-    ) -> [String: [RunReviewWaiverEditVerification]] {
+        from actions: [FlowRunActionRecord],
+        projectRoot: URL
+    ) throws -> [String: [RunReviewWaiverEditVerification]] {
         var verifications: [String: [RunReviewWaiverEditVerification]] = [:]
         for action in actions where action.actionKind == RunReviewWaiverEditVerification.actionKind {
-            guard let reviewID = waiverStringMetadata("waiverReviewID", in: action),
-                  let proposalID = waiverStringMetadata("proposalID", in: action),
-                  let applicationActionID = waiverStringMetadata("applicationActionID", in: action),
-                  let verificationReportPath = waiverStringMetadata("verificationReportPath", in: action),
-                  let status = waiverStringMetadata("verificationStatus", in: action),
-                  let readyForPEX = waiverBoolMetadata("readyForPEX", in: action),
-                  let drcPassed = waiverBoolMetadata("drcPassed", in: action),
-                  let drcViolationCount = waiverIntMetadata("drcViolationCount", in: action),
-                  let lvsPassed = waiverBoolMetadata("lvsPassed", in: action)
+            guard let context = action.context.reviewDecision,
+                  context.kind == .waiver,
+                  let proposalID = context.targetPath,
+                  let applicationActionID = action.context.iterationID,
+                  let verificationArtifact = action.outputs.first(where: {
+                      $0.artifactID == "post-waiver-edit-physical-verification"
+                  })
             else {
                 continue
             }
-            verifications[reviewID, default: []].append(
+            let reportURL = projectRoot.appending(path: verificationArtifact.path)
+            let report = try JSONDecoder().decode(
+                DesignFlowVerificationReport.self,
+                from: Data(contentsOf: reportURL)
+            )
+            let layoutTrustPath = action.outputs.first(where: {
+                $0.artifactID == "post-waiver-edit-layout-trust"
+            })?.path
+            let rejectedPlansPath = action.outputs.first(where: {
+                $0.artifactID == XcircuitePlanningArtifactStore.rejectedPlansArtifactID
+            })?.path
+            verifications[context.targetID, default: []].append(
                 RunReviewWaiverEditVerification(
                     actionRecordID: action.actionID,
                     runID: action.runID,
                     actor: action.actor.identifier,
-                    waiverReviewID: reviewID,
+                    waiverReviewID: context.targetID,
                     proposalID: proposalID,
                     applicationActionID: applicationActionID,
-                    verificationReportPath: verificationReportPath,
-                    layoutTrustReportPath: waiverStringMetadata("layoutTrustReportPath", in: action),
-                    status: status,
-                    readyForPEX: readyForPEX,
-                    drcPassed: drcPassed,
-                    drcViolationCount: drcViolationCount,
-                    lvsPassed: lvsPassed,
-                    planningFeedbackStatus: waiverStringMetadata("planningFeedbackStatus", in: action) ?? "not-recorded",
-                    rejectedPlansPath: waiverStringMetadata("rejectedPlansPath", in: action),
-                    reportSummary: waiverEditVerificationReportSummary(
-                        in: action,
-                        status: status,
-                        readyForPEX: readyForPEX,
-                        drcPassed: drcPassed,
-                        drcViolationCount: drcViolationCount,
-                        lvsPassed: lvsPassed
-                    ),
+                    verificationReportPath: verificationArtifact.path,
+                    layoutTrustReportPath: layoutTrustPath,
+                    status: report.status,
+                    readyForPEX: report.readyForPEX,
+                    drcPassed: report.drc.passed,
+                    drcViolationCount: report.drc.violationCount,
+                    lvsPassed: report.lvs.passed,
+                    planningFeedbackStatus: context.decision,
+                    rejectedPlansPath: rejectedPlansPath,
+                    reportSummary: waiverEditVerificationReportSummary(report),
                     verifiedAt: action.createdAt,
-                    note: waiverStringMetadata("note", in: action) ?? ""
+                    note: context.reason
                 )
             )
         }
         return verifications
     }
 
-    func waiverStringMetadata(_ key: String, in action: XcircuiteRunActionRecord) -> String? {
-        guard case .string(let value) = action.metadata[key] else {
-            return nil
-        }
-        return value
-    }
-
-    func waiverBoolMetadata(_ key: String, in action: XcircuiteRunActionRecord) -> Bool? {
-        guard case .bool(let value) = action.metadata[key] else {
-            return nil
-        }
-        return value
-    }
-
-    func waiverIntMetadata(_ key: String, in action: XcircuiteRunActionRecord) -> Int? {
-        guard case .number(let value) = action.metadata[key] else {
-            return nil
-        }
-        return Int(value)
-    }
-
-    func waiverEditVerificationSummaryMetadataValue(
+    func waiverEditVerificationReportSummary(
         _ report: DesignFlowVerificationReport
-    ) -> XcircuiteJSONValue {
-        var summary: [String: XcircuiteJSONValue] = [
-            "status": .string(report.status),
-            "readyForPEX": .bool(report.readyForPEX),
-            "drc": .object([
-                "passed": .bool(report.drc.passed),
-                "violationCount": .number(Double(report.drc.violationCount)),
-                "violationsByKind": .array(
-                    report.drc.violationsByKind
-                        .sorted { $0.key < $1.key }
-                        .map { waiverVerificationBucketMetadataValue(label: $0.key, count: $0.value) }
-                ),
-            ]),
-            "lvs": .object([
-                "passed": .bool(report.lvs.passed),
-                "schematicHashMatches": .bool(report.lvs.schematicHashMatches),
-                "connectivityExtractionSkipped": .bool(report.lvs.connectivityExtractionSkipped),
-                "issueCounts": .array(
-                    lvsIssueBuckets(report.lvs).map {
-                        waiverVerificationBucketMetadataValue(label: $0.label, count: $0.count)
-                    }
-                ),
-            ]),
-        ]
-        if let layoutTrust = report.layoutTrust {
-            summary["layoutTrustPassed"] = .bool(layoutTrust.passed)
-        }
-        if let externalSignoff = report.externalSignoff {
-            summary["externalSignoffPassed"] = .bool(externalSignoff.passed)
-            summary["externalSignoffReadyForPEX"] = .bool(externalSignoff.readyForPEX)
-        }
-        return .object(summary)
-    }
-
-    func waiverVerificationBucketMetadataValue(
-        label: String,
-        count: Int
-    ) -> XcircuiteJSONValue {
-        .object([
-            "label": .string(label),
-            "count": .number(Double(count)),
-        ])
+    ) -> RunReviewWaiverEditVerificationReportSummary {
+        RunReviewWaiverEditVerificationReportSummary(
+            status: report.status,
+            readyForPEX: report.readyForPEX,
+            drc: RunReviewWaiverEditVerificationDRCSummary(
+                passed: report.drc.passed,
+                violationCount: report.drc.violationCount,
+                violationsByKind: report.drc.violationsByKind
+                    .sorted { $0.key < $1.key }
+                    .map { RunReviewWaiverVerificationBucket(label: $0.key, count: $0.value) }
+            ),
+            lvs: RunReviewWaiverEditVerificationLVSSummary(
+                passed: report.lvs.passed,
+                schematicHashMatches: report.lvs.schematicHashMatches,
+                connectivityExtractionSkipped: report.lvs.connectivityExtractionSkipped,
+                issueCounts: lvsIssueBuckets(report.lvs)
+            ),
+            layoutTrustPassed: report.layoutTrust?.passed,
+            externalSignoffPassed: report.externalSignoff?.passed,
+            externalSignoffReadyForPEX: report.externalSignoff?.readyForPEX
+        )
     }
 
     func lvsIssueBuckets(
@@ -233,129 +194,6 @@ extension RunReviewService {
         if summary.connectivityExtractionSkipped {
             append("connectivityExtractionSkipped", 1)
         }
-
         return buckets
-    }
-
-    func waiverEditVerificationReportSummary(
-        in action: XcircuiteRunActionRecord,
-        status: String,
-        readyForPEX: Bool,
-        drcPassed: Bool,
-        drcViolationCount: Int,
-        lvsPassed: Bool
-    ) -> RunReviewWaiverEditVerificationReportSummary {
-        guard case .object(let summaryObject) = action.metadata["verificationSummary"],
-              let summaryStatus = waiverStringValue("status", in: summaryObject),
-              let summaryReadyForPEX = waiverBoolValue("readyForPEX", in: summaryObject),
-              let drc = drcSummaryValue(in: summaryObject),
-              let lvs = lvsSummaryValue(in: summaryObject)
-        else {
-            return RunReviewWaiverEditVerificationReportSummary(
-                status: status,
-                readyForPEX: readyForPEX,
-                drc: RunReviewWaiverEditVerificationDRCSummary(
-                    passed: drcPassed,
-                    violationCount: drcViolationCount
-                ),
-                lvs: RunReviewWaiverEditVerificationLVSSummary(
-                    passed: lvsPassed,
-                    schematicHashMatches: lvsPassed,
-                    connectivityExtractionSkipped: false
-                )
-            )
-        }
-
-        return RunReviewWaiverEditVerificationReportSummary(
-            status: summaryStatus,
-            readyForPEX: summaryReadyForPEX,
-            drc: drc,
-            lvs: lvs,
-            layoutTrustPassed: waiverBoolValue("layoutTrustPassed", in: summaryObject),
-            externalSignoffPassed: waiverBoolValue("externalSignoffPassed", in: summaryObject),
-            externalSignoffReadyForPEX: waiverBoolValue("externalSignoffReadyForPEX", in: summaryObject)
-        )
-    }
-
-    func drcSummaryValue(
-        in object: [String: XcircuiteJSONValue]
-    ) -> RunReviewWaiverEditVerificationDRCSummary? {
-        guard case .object(let drcObject) = object["drc"],
-              let passed = waiverBoolValue("passed", in: drcObject),
-              let violationCount = waiverIntValue("violationCount", in: drcObject)
-        else {
-            return nil
-        }
-        return RunReviewWaiverEditVerificationDRCSummary(
-            passed: passed,
-            violationCount: violationCount,
-            violationsByKind: waiverBucketArrayValue("violationsByKind", in: drcObject)
-        )
-    }
-
-    func lvsSummaryValue(
-        in object: [String: XcircuiteJSONValue]
-    ) -> RunReviewWaiverEditVerificationLVSSummary? {
-        guard case .object(let lvsObject) = object["lvs"],
-              let passed = waiverBoolValue("passed", in: lvsObject),
-              let schematicHashMatches = waiverBoolValue("schematicHashMatches", in: lvsObject),
-              let connectivityExtractionSkipped = waiverBoolValue("connectivityExtractionSkipped", in: lvsObject)
-        else {
-            return nil
-        }
-        return RunReviewWaiverEditVerificationLVSSummary(
-            passed: passed,
-            schematicHashMatches: schematicHashMatches,
-            connectivityExtractionSkipped: connectivityExtractionSkipped,
-            issueCounts: waiverBucketArrayValue("issueCounts", in: lvsObject)
-        )
-    }
-
-    func waiverBucketArrayValue(
-        _ key: String,
-        in object: [String: XcircuiteJSONValue]
-    ) -> [RunReviewWaiverVerificationBucket] {
-        guard case .array(let values) = object[key] else {
-            return []
-        }
-        return values.compactMap { value in
-            guard case .object(let bucketObject) = value,
-                  let label = waiverStringValue("label", in: bucketObject),
-                  let count = waiverIntValue("count", in: bucketObject)
-            else {
-                return nil
-            }
-            return RunReviewWaiverVerificationBucket(label: label, count: count)
-        }
-    }
-
-    func waiverStringValue(
-        _ key: String,
-        in object: [String: XcircuiteJSONValue]
-    ) -> String? {
-        guard case .string(let value) = object[key] else {
-            return nil
-        }
-        return value
-    }
-
-    func waiverBoolValue(
-        _ key: String,
-        in object: [String: XcircuiteJSONValue]
-    ) -> Bool? {
-        guard case .bool(let value) = object[key] else {
-            return nil
-        }
-        return value
-    }
-
-    func waiverIntValue(
-        _ key: String,
-        in object: [String: XcircuiteJSONValue]
-    ) -> Int? {
-        guard case .number(let value) = object[key] else {
-            return nil
-        }
-        return Int(value)
     }
 }

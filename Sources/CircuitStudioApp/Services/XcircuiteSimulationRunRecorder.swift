@@ -2,22 +2,25 @@ import Foundation
 import CircuitStudioCore
 import CircuiteFoundation
 import DesignFlowKernel
+import Xcircuite
 
 public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
-    private let store: XcircuiteWorkspaceStore
-    private let actor: XcircuiteRunActionActor
+    private let actor: FlowRunActor
     private let runID: @Sendable () -> String
+    private let workspaceStoreFactory: @Sendable (URL) throws -> XcircuiteWorkspaceStore
 
     public init(
-        store: XcircuiteWorkspaceStore = XcircuiteWorkspaceStore(),
-        actor: XcircuiteRunActionActor,
+        actor: FlowRunActor,
         runID: @escaping @Sendable () -> String = {
             "simulation-\(UUID().uuidString.lowercased())"
+        },
+        workspaceStoreFactory: @escaping @Sendable (URL) throws -> XcircuiteWorkspaceStore = {
+            try XcircuiteWorkspaceStore(projectRoot: $0)
         }
     ) {
-        self.store = store
         self.actor = actor
         self.runID = runID
+        self.workspaceStoreFactory = workspaceStoreFactory
     }
 
     public func begin(
@@ -26,18 +29,24 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         source: String?,
         fileName: String?,
         startedAt: Date
-    ) throws -> SimulationRunContext {
-        try store.createWorkspace(at: projectRoot)
+    ) async throws -> SimulationRunContext {
+        let store = try workspaceStoreFactory(projectRoot)
+        try await store.createWorkspace()
         let identifier = runID()
-        _ = try store.createRunDirectory(
-            for: identifier,
-            descriptor: XcircuiteRunDescriptor(
-                actor: actor,
-                intent: intent,
-                createdAt: startedAt
-            ),
-            inProjectAt: projectRoot
+        let manifest = try FlowRunManifest(
+            runID: identifier,
+            status: .created,
+            actor: actor,
+            intent: intent,
+            createdAt: startedAt,
+            updatedAt: startedAt
         )
+        let coordinator = FlowRunLedgerCoordinator(persistence: store)
+        try await coordinator.save(FlowRunLedger(
+            runID: identifier,
+            runManifest: manifest,
+            stages: []
+        ))
         let context = SimulationRunContext(
             runID: identifier,
             projectRoot: projectRoot,
@@ -46,45 +55,39 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
 
         var setupArtifacts: [ArtifactReference] = []
         do {
-            setupArtifacts.append(try writeRequest(
+            setupArtifacts.append(try await writeRequest(
                 intent: intent,
                 fileName: fileName,
                 startedAt: startedAt,
                 context: context
             ))
             if let source {
-                setupArtifacts.append(try writeInputNetlist(
+                setupArtifacts.append(try await writeInputNetlist(
                     source,
                     context: context
                 ))
             }
-            _ = try store.transitionRun(
+            _ = try await coordinator.transition(
                 runID: identifier,
-                transition: XcircuiteRunTransition(
-                    status: .running,
-                    artifacts: try legacyReferences(setupArtifacts),
-                    occurredAt: startedAt
-                ),
-                inProjectAt: projectRoot
+                to: .running,
+                registering: setupArtifacts,
+                at: startedAt
             )
             return context
         } catch {
             do {
-                _ = try store.transitionRun(
+                _ = try await coordinator.transition(
                     runID: identifier,
-                    transition: XcircuiteRunTransition(
-                        status: .running,
-                        artifacts: try legacyReferences(setupArtifacts),
-                        occurredAt: startedAt
-                    ),
-                    inProjectAt: projectRoot
+                    to: .running,
+                    registering: setupArtifacts,
+                    at: startedAt
                 )
-                try fail(
+                try await fail(
                     context: context,
                     reason: "Simulation run setup failed: \(error.localizedDescription)"
                 )
             } catch let lifecycleError {
-                throw XcircuiteWorkspaceError.writeFailed(
+                throw XcircuiteWorkspaceStoreError.writeFailed(
                     "Simulation run setup failed with '\(error.localizedDescription)' and lifecycle finalization failed: \(lifecycleError.localizedDescription)"
                 )
             }
@@ -97,15 +100,14 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         source: String?,
         records: [AnalysisRunRecord]
     ) async throws {
+        let store = try workspaceStoreFactory(context.projectRoot)
+        let coordinator = FlowRunLedgerCoordinator(persistence: store)
         do {
             var references: [ArtifactReference] = []
-            let existing = try store.loadRunManifest(
-                runID: context.runID,
-                inProjectAt: context.projectRoot
-            )
+            let existing = try await store.loadRunManifest(runID: context.runID)
             if let source,
                !existing.artifacts.contains(where: { $0.artifactID == "simulation-input-netlist" }) {
-                references.append(try writeInputNetlist(
+                references.append(try await writeInputNetlist(
                     source,
                     context: context
                 ))
@@ -123,9 +125,9 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
                     )
                 }
             )
-            let summaryURL = try runDirectory(for: context).appending(path: "simulation-summary.json")
-            try store.writeJSON(summary, to: summaryURL, forProjectAt: context.projectRoot)
-            references.append(try store.makeArtifactReference(
+            let summaryPath = runRelativePath("simulation-summary.json", context: context)
+            try await store.writeJSON(summary, to: summaryPath)
+            references.append(try await store.makeArtifactReference(
                 forProjectRelativePath: runRelativePath(
                     "simulation-summary.json",
                     context: context
@@ -133,25 +135,19 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
                 artifactID: "simulation-summary",
                 role: .output,
                 kind: .report,
-                format: .json,
-                inProjectAt: context.projectRoot,
-                producedByRunID: context.runID,
-                verifiedByRunID: nil
+                format: .json
             ))
 
-            _ = try store.transitionRun(
+            _ = try await coordinator.transition(
                 runID: context.runID,
-                transition: XcircuiteRunTransition(
-                    status: canonicalStatus(records),
-                    artifacts: try legacyReferences(references)
-                ),
-                inProjectAt: context.projectRoot
+                to: canonicalStatus(records),
+                registering: references
             )
         } catch {
             do {
-                try fail(context: context, reason: error.localizedDescription)
+                try await fail(context: context, reason: error.localizedDescription)
             } catch let lifecycleError {
-                throw XcircuiteWorkspaceError.writeFailed(
+                throw XcircuiteWorkspaceStoreError.writeFailed(
                     "Simulation evidence persistence failed with '\(error.localizedDescription)' and lifecycle finalization failed: \(lifecycleError.localizedDescription)"
                 )
             }
@@ -162,45 +158,39 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
     public func fail(
         context: SimulationRunContext,
         reason: String
-    ) throws {
-        let errorURL = try runDirectory(for: context).appending(path: "simulation-error.json")
+    ) async throws {
+        let store = try workspaceStoreFactory(context.projectRoot)
+        let coordinator = FlowRunLedgerCoordinator(persistence: store)
+        let errorPath = runRelativePath("simulation-error.json", context: context)
         let payload = SimulationFailure(reason: reason, recordedAt: Date())
-        try store.writeJSON(payload, to: errorURL, forProjectAt: context.projectRoot)
-        let reference = try store.makeArtifactReference(
+        try await store.writeJSON(payload, to: errorPath)
+        let reference = try await store.makeArtifactReference(
             forProjectRelativePath: runRelativePath("simulation-error.json", context: context),
             artifactID: "simulation-error",
             role: .output,
             kind: .report,
-            format: .json,
-            inProjectAt: context.projectRoot,
-            producedByRunID: context.runID,
-            verifiedByRunID: nil
+            format: .json
         )
-        _ = try store.transitionRun(
+        _ = try await coordinator.transition(
             runID: context.runID,
-            transition: XcircuiteRunTransition(
-                status: .failed,
-                artifacts: try legacyReferences([reference])
-            ),
-            inProjectAt: context.projectRoot
+            to: .failed,
+            registering: [reference]
         )
     }
 
     private func writeInputNetlist(
         _ source: String,
         context: SimulationRunContext
-    ) throws -> ArtifactReference {
-        let inputURL = try runDirectory(for: context).appending(path: "input.cir")
-        try store.writeText(source, to: inputURL)
-        return try store.makeArtifactReference(
+    ) async throws -> ArtifactReference {
+        let store = try workspaceStoreFactory(context.projectRoot)
+        let path = runRelativePath("input.cir", context: context)
+        try await store.writeWorkspaceText(source, to: path)
+        return try await store.makeArtifactReference(
             forProjectRelativePath: runRelativePath("input.cir", context: context),
             artifactID: "simulation-input-netlist",
             role: .input,
             kind: .netlist,
-            format: .spice,
-            inProjectAt: context.projectRoot,
-            producedByRunID: context.runID,
-            verifiedByRunID: nil
+            format: .spice
         )
     }
 
@@ -209,23 +199,21 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         fileName: String?,
         startedAt: Date,
         context: SimulationRunContext
-    ) throws -> ArtifactReference {
-        let requestURL = try runDirectory(for: context).appending(path: "simulation-request.json")
+    ) async throws -> ArtifactReference {
+        let store = try workspaceStoreFactory(context.projectRoot)
+        let path = runRelativePath("simulation-request.json", context: context)
         let request = SimulationRequest(
             intent: intent,
             sourceFileName: fileName,
             startedAt: startedAt
         )
-        try store.writeJSON(request, to: requestURL, forProjectAt: context.projectRoot)
-        return try store.makeArtifactReference(
+        try await store.writeJSON(request, to: path)
+        return try await store.makeArtifactReference(
             forProjectRelativePath: runRelativePath("simulation-request.json", context: context),
             artifactID: "simulation-request",
             role: .input,
             kind: .report,
-            format: .json,
-            inProjectAt: context.projectRoot,
-            producedByRunID: context.runID,
-            verifiedByRunID: nil
+            format: .json
         )
     }
 
@@ -233,8 +221,11 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         records: [AnalysisRunRecord],
         context: SimulationRunContext
     ) async throws -> [(index: Int, reference: ArtifactReference)] {
+        let store = try workspaceStoreFactory(context.projectRoot)
         let waveformsDirectory = try runDirectory(for: context).appending(path: "waveforms")
-        try store.ensureDirectory(at: waveformsDirectory)
+        try await store.ensureWorkspaceDirectory(
+            at: runRelativePath("waveforms", context: context)
+        )
         var references: [(index: Int, reference: ArtifactReference)] = []
         for (index, record) in records.enumerated() {
             guard let waveform = record.result?.waveform else {
@@ -243,22 +234,19 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
             let name = waveformFileName(index: index, record: record)
             let waveformURL = waveformsDirectory.appending(path: name)
             try await WaveformService().export(waveform: waveform, to: waveformURL)
-            let reference = try store.makeArtifactReference(
+            let reference = try await store.makeArtifactReference(
                 forProjectRelativePath: runRelativePath("waveforms/\(name)", context: context),
                 artifactID: "simulation-waveform-\(index)",
                 role: .output,
                 kind: .waveform,
-                format: .csv,
-                inProjectAt: context.projectRoot,
-                producedByRunID: context.runID,
-                verifiedByRunID: nil
+                format: .csv
             )
             references.append((index, reference))
         }
         return references
     }
 
-    private func canonicalStatus(_ records: [AnalysisRunRecord]) -> XcircuiteRunStatus {
+    private func canonicalStatus(_ records: [AnalysisRunRecord]) -> FlowRunStatus {
         if records.isEmpty || records.contains(where: { $0.status == .failed }) {
             return .failed
         }
@@ -283,18 +271,12 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
     }
 
     private func runRelativePath(_ suffix: String, context: SimulationRunContext) -> String {
-        "\(XcircuiteWorkspace.directoryName)/runs/\(context.runID)/\(suffix)"
+        "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(context.runID)/\(suffix)"
     }
 
     private func runDirectory(for context: SimulationRunContext) throws -> URL {
-        try XcircuiteWorkspace(projectRoot: context.projectRoot)
+        try XcircuiteWorkspaceLayout(projectRoot: context.projectRoot)
             .runDirectoryURL(for: context.runID)
-    }
-
-    private func legacyReferences(
-        _ references: [ArtifactReference]
-    ) throws -> [XcircuiteFileReference] {
-        try references.map(FoundationArtifactTypeProjection.legacyReference)
     }
 
     private struct SimulationSummary: Sendable, Encodable {

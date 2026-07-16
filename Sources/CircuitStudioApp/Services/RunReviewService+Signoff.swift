@@ -2,14 +2,13 @@ import DesignFlowKernel
 import Foundation
 import CircuiteFoundation
 import Xcircuite
-import DesignFlowKernel
 
 extension RunReviewService {
     func signoffReview(
         bundle: FlowRunReviewBundle,
-        actions: [XcircuiteRunActionRecord],
+        actions: [FlowRunActionRecord],
         projectRoot: URL
-    ) -> RunReviewSignoffSummary {
+    ) throws -> RunReviewSignoffSummary {
         var cards: [RunReviewSignoffCard] = []
         var decodeIssues: [RunReviewArtifactDecodeIssue] = []
 
@@ -99,63 +98,30 @@ extension RunReviewService {
                 }
                 return left.artifact.path < right.artifact.path
             },
-            repairCandidateCycles: signoffRepairCandidateCycles(from: actions),
+            repairCandidateCycles: try signoffRepairCandidateCycles(
+                from: actions,
+                projectRoot: projectRoot
+            ),
             decodeIssues: decodeIssues
         )
     }
 
     private func signoffRepairCandidateCycles(
-        from actions: [XcircuiteRunActionRecord]
-    ) -> [RunReviewSignoffRepairCandidateCycleHistoryItem] {
+        from actions: [FlowRunActionRecord],
+        projectRoot: URL
+    ) throws -> [RunReviewSignoffRepairCandidateCycleHistoryItem] {
         var cycles: [RunReviewSignoffRepairCandidateCycleHistoryItem] = []
         for action in actions where action.actionKind == "review.runSignoffRepairCandidateCycle" {
-            let cycleIndex = intMetadata("candidateCycleIndex", in: action) ?? cycles.count + 1
+            guard let artifact = action.outputs.first(where: {
+                $0.artifactID.hasPrefix("signoff-repair-candidate-cycle-")
+            }) else {
+                continue
+            }
+            let artifactURL = projectRoot.appending(path: artifact.path)
             cycles.append(
-                RunReviewSignoffRepairCandidateCycleHistoryItem(
-                    actionID: action.actionID,
-                    cycleIndex: cycleIndex,
-                    status: action.status,
-                    planID: stringMetadata("planID", in: action),
-                    generationStatus: stringMetadata("generationStatus", in: action),
-                    executionStatus: stringMetadata("executionStatus", in: action),
-                    verificationStatus: stringMetadata("verificationStatus", in: action),
-                    accepted: boolMetadata("accepted", in: action) ?? (action.status == .succeeded),
-                    rejectedPlansPath: nonEmptyStringMetadata("rejectedPlansPath", in: action),
-                    rejectedPlanFeedbackRecordCount: intMetadata(
-                        "rejectedPlanFeedbackRecordCount",
-                        in: action
-                    ) ?? 0,
-                    globalRejectedPlanFeedbackCount: intMetadata(
-                        "globalRejectedPlanFeedbackCount",
-                        in: action
-                    ) ?? 0,
-                    selectedActionIDs: stringArrayMetadata("selectedActionIDs", in: action),
-                    selectedActionDomainIDs: stringArrayMetadata("selectedActionDomainIDs", in: action),
-                    selectedObjectiveDomainIDs: stringArrayMetadata("selectedObjectiveDomainIDs", in: action),
-                    feedbackPenalizedActionIDs: stringArrayMetadata(
-                        "feedbackPenalizedActionIDs",
-                        in: action
-                    ),
-                    feedbackRankChanges: stringArrayMetadata("feedbackRankChanges", in: action),
-                    feedbackScoreDeltas: stringArrayMetadata("feedbackScoreDeltas", in: action),
-                    candidatePlanArtifact: outputArtifact(
-                        artifactID: XcircuitePlanningArtifactStore.candidatePlanArtifactID,
-                        in: action
-                    ),
-                    planExecutionArtifact: outputArtifact(
-                        artifactID: XcircuitePlanningArtifactStore.planExecutionArtifactID,
-                        in: action
-                    ),
-                    planVerificationArtifact: outputArtifact(
-                        artifactID: XcircuitePlanningArtifactStore.planVerificationArtifactID,
-                        in: action
-                    ),
-                    rejectedPlansArtifact: outputArtifact(
-                        artifactID: XcircuitePlanningArtifactStore.rejectedPlansArtifactID,
-                        in: action
-                    ),
-                    designDiffArtifact: designDiffOutputArtifact(in: action),
-                    createdAt: action.createdAt
+                try JSONDecoder().decode(
+                    RunReviewSignoffRepairCandidateCycleHistoryItem.self,
+                    from: Data(contentsOf: artifactURL)
                 )
             )
         }
@@ -165,73 +131,6 @@ extension RunReviewService {
             }
             return left.createdAt < right.createdAt
         }
-    }
-
-    private func stringMetadata(_ key: String, in action: XcircuiteRunActionRecord) -> String? {
-        guard case .string(let value) = action.metadata[key] else {
-            return nil
-        }
-        return value
-    }
-
-    private func nonEmptyStringMetadata(
-        _ key: String,
-        in action: XcircuiteRunActionRecord
-    ) -> String? {
-        guard let value = stringMetadata(key, in: action), !value.isEmpty else {
-            return nil
-        }
-        return value
-    }
-
-    private func boolMetadata(_ key: String, in action: XcircuiteRunActionRecord) -> Bool? {
-        guard case .bool(let value) = action.metadata[key] else {
-            return nil
-        }
-        return value
-    }
-
-    private func intMetadata(_ key: String, in action: XcircuiteRunActionRecord) -> Int? {
-        guard case .number(let value) = action.metadata[key] else {
-            return nil
-        }
-        return Int(value)
-    }
-
-    private func stringArrayMetadata(
-        _ key: String,
-        in action: XcircuiteRunActionRecord
-    ) -> [String] {
-        guard case .array(let values) = action.metadata[key] else {
-            return []
-        }
-        return values.compactMap { value in
-            guard case .string(let string) = value else {
-                return nil
-            }
-            return string
-        }
-    }
-
-    private func outputArtifact(
-        artifactID: String,
-        in action: XcircuiteRunActionRecord
-    ) -> ArtifactReference? {
-        guard let legacy = action.outputs.first(where: { $0.artifactID == artifactID }) else {
-            return nil
-        }
-        return FoundationArtifactTypeProjection.reference(legacy)
-    }
-
-    private func designDiffOutputArtifact(
-        in action: XcircuiteRunActionRecord
-    ) -> ArtifactReference? {
-        guard let legacy = action.outputs.first(where: { artifact in
-            artifact.kind == .designDiff || artifact.path.hasSuffix("/design-diff.json")
-        }) else {
-            return nil
-        }
-        return FoundationArtifactTypeProjection.reference(legacy)
     }
 
     private func appendDecodedCard<Document: Decodable>(

@@ -278,7 +278,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let waiverIDs: [String]
     public let waiverReviewID: String?
     public let waiverProposalID: String?
-    public let actionActorKind: XcircuiteRunActionActor.Kind?
+    public let actionActorKind: FlowRunActor.Kind?
     public let drcRepairHintPath: String?
     public let lvsRepairHintPath: String?
     public let planningFormulationID: String?
@@ -343,7 +343,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         waiverIDs: [String] = [],
         waiverReviewID: String? = nil,
         waiverProposalID: String? = nil,
-        actionActorKind: XcircuiteRunActionActor.Kind? = nil,
+        actionActorKind: FlowRunActor.Kind? = nil,
         drcRepairHintPath: String? = nil,
         lvsRepairHintPath: String? = nil,
         planningFormulationID: String? = nil,
@@ -481,7 +481,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let approvalRecordPath: String?
     public let approvalRecord: GateApprovalRecord?
     public let roundTripReview: RoundTripReviewSummary?
-    public let selectedSuggestedCommand: XcircuiteSuggestedCommandSelection?
+    public let selectedSuggestedCommand: FlowSuggestedCommandSelection?
     public let signoffRepairPlanningResult: RunReviewSignoffRepairPlanningResult?
     public let signoffRepairCandidateCycleResult: RunReviewSignoffRepairCandidateCycleResult?
     public let signoffRepairCandidateCycleHistorySummary: RunReviewSignoffRepairCandidateCycleHistorySummary?
@@ -551,7 +551,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         approvalRecordPath: String? = nil,
         approvalRecord: GateApprovalRecord? = nil,
         roundTripReview: RoundTripReviewSummary? = nil,
-        selectedSuggestedCommand: XcircuiteSuggestedCommandSelection? = nil,
+        selectedSuggestedCommand: FlowSuggestedCommandSelection? = nil,
         signoffRepairPlanningResult: RunReviewSignoffRepairPlanningResult? = nil,
         signoffRepairCandidateCycleResult: RunReviewSignoffRepairCandidateCycleResult? = nil,
         signoffRepairCandidateCycleHistorySummary: RunReviewSignoffRepairCandidateCycleHistorySummary? = nil,

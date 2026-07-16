@@ -12,11 +12,11 @@ public struct RoundTripSelectedSuggestedCommandResolutionRequest: Sendable, Hash
 }
 
 public struct RoundTripResolvedSuggestedCommand: Sendable, Hashable, Codable {
-    public let selection: XcircuiteSuggestedCommandSelection
+    public let selection: FlowSuggestedCommandSelection
     public let command: DesignFlowCommand
 
     public init(
-        selection: XcircuiteSuggestedCommandSelection,
+        selection: FlowSuggestedCommandSelection,
         command: DesignFlowCommand
     ) {
         self.selection = selection
@@ -102,7 +102,7 @@ public struct RoundTripSelectedSuggestedCommandResolver: Sendable {
         runID: String,
         commandID: String?,
         manifestURL: URL
-    ) throws -> XcircuiteSuggestedCommandSelection {
+    ) throws -> FlowSuggestedCommandSelection {
         let selections = try actionLogService.loadSuggestedCommandSelections(manifestURL: manifestURL)
         let matching = selections.filter { selection in
             guard selection.status == .succeeded else {
@@ -123,7 +123,7 @@ public struct RoundTripSelectedSuggestedCommandResolver: Sendable {
     }
 
     private func validate(
-        selection: XcircuiteSuggestedCommandSelection,
+        selection: FlowSuggestedCommandSelection,
         request: RoundTripSelectedSuggestedCommandResolutionRequest
     ) throws {
         guard selection.executable == "swift" else {
@@ -145,7 +145,7 @@ public struct RoundTripSelectedSuggestedCommandResolver: Sendable {
     }
 
     private func flowRunnerArguments(
-        from selection: XcircuiteSuggestedCommandSelection
+        from selection: FlowSuggestedCommandSelection
     ) throws -> [String] {
         let arguments = selection.arguments
         guard arguments.first == "run" else {
@@ -170,7 +170,7 @@ public struct RoundTripSelectedSuggestedCommandResolver: Sendable {
 
     private func commandFromRunnerArguments(
         _ runnerArguments: [String],
-        selection: XcircuiteSuggestedCommandSelection,
+        selection: FlowSuggestedCommandSelection,
         request: RoundTripSelectedSuggestedCommandResolutionRequest,
         projectRoot: URL,
         manifestURL: URL
@@ -200,7 +200,7 @@ public struct RoundTripSelectedSuggestedCommandResolver: Sendable {
 
     private func reviewRoundTripCommand(
         options: FlowRunnerCommandOptions,
-        selection: XcircuiteSuggestedCommandSelection,
+        selection: FlowSuggestedCommandSelection,
         manifestURL: URL
     ) throws -> DesignFlowCommand {
         guard let reviewManifestURL = options.reviewManifestURL else {
@@ -222,7 +222,7 @@ public struct RoundTripSelectedSuggestedCommandResolver: Sendable {
 
     private func projectRootCommand(
         options: FlowRunnerCommandOptions,
-        selection: XcircuiteSuggestedCommandSelection,
+        selection: FlowSuggestedCommandSelection,
         projectRoot: URL
     ) throws -> DesignFlowCommand {
         guard options.outputURL != nil else {

@@ -1,6 +1,8 @@
 import Foundation
 import Testing
+import CircuiteFoundation
 import DesignFlowKernel
+import Xcircuite
 @testable import CircuitStudioApp
 
 /// P1 artifact-contract gate: evidence bundles land in the canonical
@@ -32,14 +34,14 @@ struct XcircuiteEvidenceRunRecorderTests {
         return url
     }
 
-    @Test func bundleLandsInRunLedgerWithVerifiedCopies() throws {
+    @Test func bundleLandsInRunLedgerWithVerifiedCopies() async throws {
         let root = try makeProject()
         defer { removeProject(root) }
         let scratch = root.appendingPathComponent("scratch")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
 
         let report = try writeFixture("drc clean", named: "drc.rpt", in: scratch)
-        let digest = try XcircuiteHasher().sha256(fileAt: report)
+        let digest = try SHA256ContentDigester().digest(fileAt: report, using: .sha256).hexadecimalValue
         let reportBytes = Int64(try Data(contentsOf: report).count)
         let gds = try writeFixture("fake-gds", named: "top.gds", in: scratch)
 
@@ -78,7 +80,7 @@ struct XcircuiteEvidenceRunRecorderTests {
             gdsPath: gds.path
         )
 
-        let recorded = try XcircuiteEvidenceRunRecorder().record(
+        let recorded = try await XcircuiteEvidenceRunRecorder().record(
             bundle, projectRoot: root, runID: "run-evidence-1"
         )
 
@@ -93,21 +95,19 @@ struct XcircuiteEvidenceRunRecorderTests {
         for reference in recorded.manifest.artifacts {
             let url = root.appendingPathComponent(reference.path)
             #expect(FileManager.default.fileExists(atPath: url.path), "\(reference.path)")
-            #expect(reference.sha256 == (try XcircuiteHasher().sha256(fileAt: url)))
-            #expect(reference.producedByRunID == "run-evidence-1")
+            #expect(reference.sha256 == (try SHA256ContentDigester().digest(fileAt: url, using: .sha256).hexadecimalValue))
+            #expect(reference.path.hasPrefix(".xcircuite/runs/run-evidence-1/"))
         }
         let kinds = Set(recorded.manifest.artifacts.map(\.kind))
         #expect(kinds.contains(.report))
         #expect(kinds.contains(.layout))
 
-        // The project manifest only locates the run; lifecycle is resolved from its manifest.
-        let snapshots = try XcircuiteWorkspaceStore().listRunSnapshots(inProjectAt: root)
-        let snapshot = try #require(snapshots.first { $0.runID == "run-evidence-1" })
-        #expect(snapshot.status == .succeeded)
-        #expect(snapshot.reference.manifestPath == ".xcircuite/runs/run-evidence-1/manifest.json")
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: "run-evidence-1")
+        #expect(manifest.status == .succeeded)
     }
 
-    @Test func failingBundleIsRecordedAsFailed() throws {
+    @Test func failingBundleIsRecordedAsFailed() async throws {
         let root = try makeProject()
         defer { removeProject(root) }
 
@@ -123,13 +123,13 @@ struct XcircuiteEvidenceRunRecorderTests {
             gdsPath: nil
         )
 
-        let recorded = try XcircuiteEvidenceRunRecorder().record(
+        let recorded = try await XcircuiteEvidenceRunRecorder().record(
             bundle, projectRoot: root, runID: "run-evidence-2"
         )
         #expect(recorded.manifest.status == .failed)
     }
 
-    @Test func tamperedArtifactDigestIsAnIntegrityError() throws {
+    @Test func tamperedArtifactDigestIsAnIntegrityError() async throws {
         let root = try makeProject()
         defer { removeProject(root) }
         let scratch = root.appendingPathComponent("scratch")
@@ -158,27 +158,25 @@ struct XcircuiteEvidenceRunRecorderTests {
             gdsPath: nil
         )
 
-        #expect(throws: XcircuiteEvidenceRunRecorder.RecorderError.self) {
-            try XcircuiteEvidenceRunRecorder().record(
+        await #expect(throws: XcircuiteEvidenceRunRecorder.RecorderError.self) {
+            try await XcircuiteEvidenceRunRecorder().record(
                 bundle, projectRoot: root, runID: "run-evidence-3"
             )
         }
-        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: "run-evidence-3",
-            inProjectAt: root
-        )
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: "run-evidence-3")
         #expect(manifest.status == .failed)
         #expect(manifest.artifacts.contains { $0.path.hasSuffix("evidence.json") })
         #expect(manifest.artifacts.contains { $0.artifactID == "evidence-error" })
     }
 
-    @Test func tamperedArtifactByteCountIsAnIntegrityError() throws {
+    @Test func tamperedArtifactByteCountIsAnIntegrityError() async throws {
         let root = try makeProject()
         defer { removeProject(root) }
         let scratch = root.appendingPathComponent("scratch")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         let report = try writeFixture("byte-count content", named: "drc.rpt", in: scratch)
-        let digest = try XcircuiteHasher().sha256(fileAt: report)
+        let digest = try SHA256ContentDigester().digest(fileAt: report, using: .sha256).hexadecimalValue
         let reportBytes = Int64(try Data(contentsOf: report).count)
 
         let bundle = TapeoutEvidenceBundle(
@@ -202,28 +200,26 @@ struct XcircuiteEvidenceRunRecorderTests {
             gdsPath: nil
         )
 
-        #expect(throws: XcircuiteEvidenceRunRecorder.RecorderError.artifactByteCountMismatch(
+        await #expect(throws: XcircuiteEvidenceRunRecorder.RecorderError.artifactByteCountMismatch(
             id: "drc-report",
             claimed: reportBytes + 1,
             actual: reportBytes
         )) {
-            try XcircuiteEvidenceRunRecorder().record(
+            try await XcircuiteEvidenceRunRecorder().record(
                 bundle, projectRoot: root, runID: "run-evidence-4"
             )
         }
-        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: "run-evidence-4",
-            inProjectAt: root
-        )
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: "run-evidence-4")
         #expect(manifest.status == .failed)
         #expect(manifest.artifacts.contains { $0.artifactID == "evidence-error" })
     }
 
-    @Test func unsafeArtifactIDIsRejectedBeforeCapture() throws {
+    @Test func unsafeArtifactIDIsRejectedBeforeCapture() async throws {
         let root = try makeProject()
         defer { removeProject(root) }
         let report = try writeFixture("drc clean", named: "unsafe-id.rpt", in: root)
-        let digest = try XcircuiteHasher().sha256(fileAt: report)
+        let digest = try SHA256ContentDigester().digest(fileAt: report, using: .sha256).hexadecimalValue
         let byteCount = Int64(try Data(contentsOf: report).count)
         let bundle = TapeoutEvidenceBundle(
             designName: "TOP",
@@ -248,31 +244,29 @@ struct XcircuiteEvidenceRunRecorderTests {
             gdsPath: nil
         )
 
-        #expect(throws: XcircuiteWorkspaceError.invalidIdentifier(
-            kind: XcircuiteIdentifierKind.artifactID.rawValue,
+        await #expect(throws: FlowIdentifierValidationError.invalidIdentifier(
+            kind: FlowIdentifierKind.artifactID.rawValue,
             value: "../escape"
         )) {
-            try XcircuiteEvidenceRunRecorder().record(
+            try await XcircuiteEvidenceRunRecorder().record(
                 bundle,
                 projectRoot: root,
                 runID: "run-evidence-unsafe-id"
             )
         }
-        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: "run-evidence-unsafe-id",
-            inProjectAt: root
-        )
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: "run-evidence-unsafe-id")
         #expect(manifest.status == .failed)
         #expect(manifest.artifacts.contains { $0.artifactID == "evidence-error" })
     }
 
-    @Test func duplicateArtifactIDsAreRejectedAsAmbiguousEvidence() throws {
+    @Test func duplicateArtifactIDsAreRejectedAsAmbiguousEvidence() async throws {
         let root = try makeProject()
         defer { removeProject(root) }
         let first = try writeFixture("drc clean", named: "first.rpt", in: root)
         let second = try writeFixture("lvs clean", named: "second.rpt", in: root)
-        let firstDigest = try XcircuiteHasher().sha256(fileAt: first)
-        let secondDigest = try XcircuiteHasher().sha256(fileAt: second)
+        let firstDigest = try SHA256ContentDigester().digest(fileAt: first, using: .sha256).hexadecimalValue
+        let secondDigest = try SHA256ContentDigester().digest(fileAt: second, using: .sha256).hexadecimalValue
         let firstByteCount = Int64(try Data(contentsOf: first).count)
         let secondByteCount = Int64(try Data(contentsOf: second).count)
         let bundle = TapeoutEvidenceBundle(
@@ -313,28 +307,26 @@ struct XcircuiteEvidenceRunRecorderTests {
             gdsPath: nil
         )
 
-        #expect(throws: XcircuiteEvidenceRunRecorder.RecorderError.duplicateArtifactID(
+        await #expect(throws: XcircuiteEvidenceRunRecorder.RecorderError.duplicateArtifactID(
             "signoff-report"
         )) {
-            try XcircuiteEvidenceRunRecorder().record(
+            try await XcircuiteEvidenceRunRecorder().record(
                 bundle,
                 projectRoot: root,
                 runID: "run-evidence-duplicate-id"
             )
         }
-        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: "run-evidence-duplicate-id",
-            inProjectAt: root
-        )
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: "run-evidence-duplicate-id")
         #expect(manifest.status == .failed)
         #expect(manifest.artifacts.contains { $0.artifactID == "evidence-error" })
     }
 
-    @Test func reservedFailureArtifactIDCannotBeClaimedByBundle() throws {
+    @Test func reservedFailureArtifactIDCannotBeClaimedByBundle() async throws {
         let root = try makeProject()
         defer { removeProject(root) }
         let report = try writeFixture("drc clean", named: "reserved-id.rpt", in: root)
-        let digest = try XcircuiteHasher().sha256(fileAt: report)
+        let digest = try SHA256ContentDigester().digest(fileAt: report, using: .sha256).hexadecimalValue
         let byteCount = Int64(try Data(contentsOf: report).count)
         let bundle = TapeoutEvidenceBundle(
             designName: "TOP",
@@ -359,24 +351,22 @@ struct XcircuiteEvidenceRunRecorderTests {
             gdsPath: nil
         )
 
-        #expect(throws: XcircuiteEvidenceRunRecorder.RecorderError.duplicateArtifactID(
+        await #expect(throws: XcircuiteEvidenceRunRecorder.RecorderError.duplicateArtifactID(
             "evidence-error"
         )) {
-            try XcircuiteEvidenceRunRecorder().record(
+            try await XcircuiteEvidenceRunRecorder().record(
                 bundle,
                 projectRoot: root,
                 runID: "run-evidence-reserved-id"
             )
         }
-        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: "run-evidence-reserved-id",
-            inProjectAt: root
-        )
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: "run-evidence-reserved-id")
         #expect(manifest.status == .failed)
         #expect(manifest.artifacts.filter { $0.artifactID == "evidence-error" }.count == 1)
     }
 
-    @Test func symlinkedSourceIsCapturedAsARegularImmutableFile() throws {
+    @Test func symlinkedSourceIsCapturedAsARegularImmutableFile() async throws {
         let root = try makeProject()
         let outside = try makeProject()
         defer { removeProject(root) }
@@ -384,7 +374,7 @@ struct XcircuiteEvidenceRunRecorderTests {
         let target = try writeFixture("verified report", named: "target.rpt", in: outside)
         let source = root.appending(path: "source-link.rpt")
         try FileManager.default.createSymbolicLink(at: source, withDestinationURL: target)
-        let digest = try XcircuiteHasher().sha256(fileAt: target)
+        let digest = try SHA256ContentDigester().digest(fileAt: target, using: .sha256).hexadecimalValue
         let byteCount = Int64(try Data(contentsOf: target).count)
         let bundle = TapeoutEvidenceBundle(
             designName: "TOP",
@@ -409,7 +399,7 @@ struct XcircuiteEvidenceRunRecorderTests {
             gdsPath: nil
         )
 
-        let recorded = try XcircuiteEvidenceRunRecorder().record(
+        let recorded = try await XcircuiteEvidenceRunRecorder().record(
             bundle,
             projectRoot: root,
             runID: "run-evidence-source-link"
@@ -424,13 +414,13 @@ struct XcircuiteEvidenceRunRecorderTests {
         #expect(try String(contentsOf: capturedURL, encoding: .utf8) == "verified report")
     }
 
-    @Test func symlinkedCaptureDirectoryCannotEscapeProjectRoot() throws {
+    @Test func symlinkedCaptureDirectoryCannotEscapeProjectRoot() async throws {
         let root = try makeProject()
         let outside = try makeProject()
         defer { removeProject(root) }
         defer { removeProject(outside) }
         let source = try writeFixture("drc clean", named: "source.rpt", in: root)
-        let digest = try XcircuiteHasher().sha256(fileAt: source)
+        let digest = try SHA256ContentDigester().digest(fileAt: source, using: .sha256).hexadecimalValue
         let byteCount = Int64(try Data(contentsOf: source).count)
         let runID = "run-evidence-symlink"
         let runDirectory = root.appending(path: ".xcircuite/runs/\(runID)")
@@ -464,10 +454,10 @@ struct XcircuiteEvidenceRunRecorderTests {
             ],
             gdsPath: nil
         )
-        let escapedPath = "\(XcircuiteWorkspace.directoryName)/runs/\(runID)/artifacts/symlink-report-source.rpt"
+        let escapedPath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/artifacts/symlink-report-source.rpt"
 
-        #expect(throws: XcircuiteWorkspaceError.unsafeProjectPath(escapedPath)) {
-            try XcircuiteEvidenceRunRecorder().record(
+        await #expect(throws: XcircuiteWorkspaceStoreError.pathOutsideWorkspace(escapedPath)) {
+            try await XcircuiteEvidenceRunRecorder().record(
                 bundle,
                 projectRoot: root,
                 runID: runID
@@ -478,10 +468,8 @@ struct XcircuiteEvidenceRunRecorderTests {
             includingPropertiesForKeys: nil
         )
         #expect(outsideContents.isEmpty)
-        let manifest = try XcircuiteWorkspaceStore().loadRunManifest(
-            runID: runID,
-            inProjectAt: root
-        )
+        let manifest = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunManifest(runID: runID)
         #expect(manifest.status == .failed)
         #expect(manifest.artifacts.contains { $0.artifactID == "evidence-error" })
     }

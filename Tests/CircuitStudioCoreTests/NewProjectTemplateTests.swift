@@ -8,7 +8,7 @@ struct NewProjectTemplateTests {
 
     @Test
     @MainActor
-    func templateContentIsConsistent() throws {
+    func templateContentIsConsistent() async throws {
         let content = try NewProjectTemplate.cmosInverter()
 
         #expect(content.netlistFileName == "top.cir")
@@ -31,15 +31,15 @@ struct NewProjectTemplateTests {
 
     @Test
     @MainActor
-    func installTemplateSeedsProjectFiles() throws {
+    func installTemplateSeedsProjectFiles() async throws {
         let root = try makeTemporaryProjectRoot("install")
         defer { removeTemporaryProjectRoot(root) }
 
         let service = ProjectService()
-        try service.createProject(at: root)
+        try await service.createProject(at: root)
 
         let content = try NewProjectTemplate.cmosInverter()
-        try service.installTemplate(content, forProjectAt: root)
+        try await service.installTemplate(content, forProjectAt: root)
 
         let netlistURL = root.appending(path: content.netlistFileName)
         let savedNetlist = try String(contentsOf: netlistURL, encoding: .utf8)

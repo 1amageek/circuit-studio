@@ -1,6 +1,7 @@
 import Foundation
 import CircuiteFoundation
 import DesignFlowKernel
+import Xcircuite
 
 public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: Sendable {
     public static let reportArtifactID = "planning-candidate-cycle-history-qualification"
@@ -492,15 +493,12 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
     }
 
     private let indexService: RunReviewSignoffRepairCandidateCycleHistoryIndexService
-    private let workspaceStore: XcircuiteWorkspaceStore
 
     public init(
         indexService: RunReviewSignoffRepairCandidateCycleHistoryIndexService =
-            RunReviewSignoffRepairCandidateCycleHistoryIndexService(),
-        workspaceStore: XcircuiteWorkspaceStore = XcircuiteWorkspaceStore()
+            RunReviewSignoffRepairCandidateCycleHistoryIndexService()
     ) {
         self.indexService = indexService
-        self.workspaceStore = workspaceStore
     }
 
     public func qualify(
@@ -650,30 +648,18 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
     public func persist(
         _ report: Report,
         forProjectAt projectRoot: URL
-    ) throws -> ArtifactReference {
-        try workspaceStore.createWorkspace(at: projectRoot)
-        let workspaceURL = workspaceStore.workspaceURL(forProjectAt: projectRoot)
-        let retainedDirectory = workspaceURL.appending(path: "retained")
-        try workspaceStore.ensureDirectory(at: retainedDirectory)
-
-        let reportURL = retainedDirectory.appending(path: "signoff-repair-cycle-history-qualification.json")
-        try workspaceStore.writeJSON(report, to: reportURL, forProjectAt: projectRoot)
-
-        let projectRelativePath = "\(XcircuiteWorkspace.directoryName)/\(Self.reportRelativePath)"
-        let legacyReference = try workspaceStore.fileReference(
+    ) async throws -> ArtifactReference {
+        let workspaceStore = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+        try await workspaceStore.createWorkspace()
+        try await workspaceStore.ensureWorkspaceDirectory(at: ".xcircuite/retained")
+        try await workspaceStore.writeJSON(report, to: ".xcircuite/\(Self.reportRelativePath)")
+        let projectRelativePath = "\(XcircuiteWorkspaceLayout.directoryName)/\(Self.reportRelativePath)"
+        return try await workspaceStore.makeArtifactReference(
             forProjectRelativePath: projectRelativePath,
             artifactID: Self.reportArtifactID,
+            role: .output,
             kind: .other,
-            format: .json,
-            inProjectAt: projectRoot
+            format: .json
         )
-        try workspaceStore.upsertFileReference(legacyReference, forProjectAt: projectRoot)
-        guard let reference = FoundationArtifactTypeProjection.reference(legacyReference) else {
-            throw RunReviewServiceError.artifactReferenceProjectionFailed(
-                path: legacyReference.path,
-                message: "Persisted qualification artifact has invalid integrity, kind, or format metadata."
-            )
-        }
-        return reference
     }
 }

@@ -45,14 +45,14 @@ public struct CircuitStudioApp: App {
         CommandGroup(replacing: .newItem) {
             Button("New Cell...") { appState.isNewCellSheetPresented = true }
                 .keyboardShortcut("n")
-            Button("New Project...") { newProject() }
+            Button("New Project...") { Task { await newProject() } }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(documentReplacementDisabled)
             Divider()
-            Button("Open...") { openSPICEFile() }
+            Button("Open...") { Task { await openSPICEFile() } }
                 .keyboardShortcut("o")
                 .disabled(documentReplacementDisabled)
-            Button("Open Folder...") { openFolder() }
+            Button("Open Folder...") { Task { await openFolder() } }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
                 .disabled(documentReplacementDisabled)
             openRecentMenu
@@ -77,7 +77,7 @@ public struct CircuitStudioApp: App {
     private var openRecentMenu: some View {
         Menu("Open Recent") {
             ForEach(services.recentDocumentsStore.documents) { document in
-                Button(document.displayName) { openRecent(document) }
+                Button(document.displayName) { Task { await openRecent(document) } }
                     .help(document.abbreviatedPath)
                     .disabled(documentReplacementDisabled)
             }
@@ -302,9 +302,9 @@ public struct CircuitStudioApp: App {
 
     // MARK: - File Operations
 
-    private func newProject() {
+    private func newProject() async {
         guard !documentReplacementDisabled else { return }
-        guard confirmProjectReplacementIfNeeded() else { return }
+        guard await confirmProjectReplacementIfNeeded() else { return }
         let panel = NSSavePanel()
         panel.title = "New Project"
         panel.nameFieldLabel = "Project Name:"
@@ -319,8 +319,8 @@ public struct CircuitStudioApp: App {
                 at: url,
                 withIntermediateDirectories: true
             )
-            try services.projectService.createProject(at: url)
-            try services.projectService.installTemplate(
+            try await services.projectService.createProject(at: url)
+            try await services.projectService.installTemplate(
                 try NewProjectTemplate.cmosInverter(),
                 forProjectAt: url
             )
@@ -344,9 +344,9 @@ public struct CircuitStudioApp: App {
         }
     }
 
-    private func openSPICEFile() {
+    private func openSPICEFile() async {
         guard !documentReplacementDisabled else { return }
-        guard confirmProjectReplacementIfNeeded() else { return }
+        guard await confirmProjectReplacementIfNeeded() else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = FileContentTypes.spiceOpen
         panel.allowsMultipleSelection = false
@@ -372,9 +372,9 @@ public struct CircuitStudioApp: App {
         }
     }
 
-    private func openFolder() {
+    private func openFolder() async {
         guard !documentReplacementDisabled else { return }
-        guard confirmProjectReplacementIfNeeded() else { return }
+        guard await confirmProjectReplacementIfNeeded() else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -426,9 +426,9 @@ public struct CircuitStudioApp: App {
 
     // MARK: - Open Recent
 
-    private func openRecent(_ document: RecentDocument) {
+    private func openRecent(_ document: RecentDocument) async {
         guard !documentReplacementDisabled else { return }
-        guard confirmProjectReplacementIfNeeded() else { return }
+        guard await confirmProjectReplacementIfNeeded() else { return }
         do {
             let url = try services.recentDocumentsStore.beginAccess(to: document)
             switch document.kind {
@@ -651,7 +651,7 @@ public struct CircuitStudioApp: App {
                 activeCell: result.activeCellName
             )
             if let projectRoot {
-                try services.projectService.saveMaterializedSchematic(
+                try await services.projectService.saveMaterializedSchematic(
                     result,
                     forProjectAt: projectRoot
                 )
@@ -683,14 +683,14 @@ public struct CircuitStudioApp: App {
         appDelegate.hasUnsavedChanges = {
             appState.isNetlistDirty || appState.isProjectFileDirty || project.hasUnsavedChanges
         }
-        appDelegate.performSave = { saveAction() }
+        appDelegate.performSave = { await performSaveAction() }
     }
 
     private func saveAction() {
-        _ = performSaveAction()
+        Task { _ = await performSaveAction() }
     }
 
-    private func performSaveAction() -> Bool {
+    private func performSaveAction() async -> Bool {
         if appState.isProjectFileDirty {
             guard saveSelectedProjectFile() else { return false }
             if case .projectFile = appState.editorDestination {
@@ -700,9 +700,9 @@ public struct CircuitStudioApp: App {
             return true
         }
         if let projectRoot = appState.projectRootURL {
-            return saveProject(projectRoot: projectRoot)
+            return await saveProject(projectRoot: projectRoot)
         } else if project.hasUnsavedChanges {
-            return saveStandaloneSessionAsProject()
+            return await saveStandaloneSessionAsProject()
         } else {
             do {
                 try appState.saveSPICEFile()
@@ -714,7 +714,7 @@ public struct CircuitStudioApp: App {
         }
     }
 
-    private func saveStandaloneSessionAsProject() -> Bool {
+    private func saveStandaloneSessionAsProject() async -> Bool {
         let panel = NSSavePanel()
         panel.title = "Save Project"
         panel.nameFieldLabel = "Project Name:"
@@ -726,11 +726,11 @@ public struct CircuitStudioApp: App {
 
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            try services.projectService.createProject(at: url)
+            try await services.projectService.createProject(at: url)
             let tree = try services.fileSystemService.scanDirectory(at: url)
             appState.setProjectRoot(url, fileTree: tree)
             reconcileActivity(for: url)
-            guard saveProject(projectRoot: url) else { return false }
+            guard await saveProject(projectRoot: url) else { return false }
             noteRecent(url, kind: .projectFolder)
             return true
         } catch {
@@ -756,7 +756,7 @@ public struct CircuitStudioApp: App {
     }
 
     @discardableResult
-    private func saveProject(projectRoot: URL) -> Bool {
+    private func saveProject(projectRoot: URL) async -> Bool {
         do {
             try services.projectService.ensurePEXProjectFiles(forProjectAt: projectRoot)
 
@@ -782,7 +782,7 @@ public struct CircuitStudioApp: App {
                     forProjectAt: projectRoot
                 )
             }
-            try services.projectService.saveStudioSessionManifest(
+            try await services.projectService.saveStudioSessionManifest(
                 StudioSessionManifest(
                     topCell: project.topCellName,
                     activeCell: project.activeCellName
@@ -822,7 +822,7 @@ public struct CircuitStudioApp: App {
         }
     }
 
-    private func confirmProjectReplacementIfNeeded() -> Bool {
+    private func confirmProjectReplacementIfNeeded() async -> Bool {
         guard appState.isNetlistDirty
                 || appState.isProjectFileDirty
                 || project.hasUnsavedChanges else {
@@ -838,7 +838,7 @@ public struct CircuitStudioApp: App {
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return performSaveAction()
+            return await performSaveAction()
         case .alertThirdButtonReturn:
             return true
         default:

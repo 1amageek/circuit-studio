@@ -80,7 +80,7 @@ extension RunReviewService {
             projectRoot: projectRoot,
             issues: &issues
         )
-        let waveforms = loadWaveformEvidence(
+        let waveforms = await loadWaveformEvidence(
             runID: runID,
             artifacts: waveformArtifacts,
             projectRoot: projectRoot,
@@ -185,14 +185,21 @@ extension RunReviewService {
         artifacts: [FlowRunReviewArtifact],
         projectRoot: URL,
         issues: inout [RunReviewDesignEvidence.Issue]
-    ) -> [RunReviewDesignEvidence.WaveformEvidence] {
-        artifacts.compactMap { artifact in
+    ) async -> [RunReviewDesignEvidence.WaveformEvidence] {
+        var evidence: [RunReviewDesignEvidence.WaveformEvidence] = []
+        for artifact in artifacts {
             do {
                 let maxBytes = min(
-                    max(Int(artifact.byteCount ?? 0), 4096),
+                    max(
+                        Int(min(
+                            artifact.byteCount ?? 0,
+                            UInt64(Self.visualArtifactReadLimit)
+                        )),
+                        4096
+                    ),
                     Self.visualArtifactReadLimit
                 )
-                let preview = try loadArtifactPreview(
+                let preview = try await loadArtifactPreview(
                     runID: runID,
                     artifact: artifact,
                     projectRoot: projectRoot,
@@ -203,18 +210,18 @@ extension RunReviewService {
                         artifactPath: artifact.path,
                         message: preview.parseIssue ?? "Waveform artifact could not be projected."
                     ))
-                    return nil
+                    continue
                 }
-                return RunReviewDesignEvidence.WaveformEvidence(
+                evidence.append(RunReviewDesignEvidence.WaveformEvidence(
                     phase: designPhase(for: artifact),
                     preview: waveform,
                     artifact: artifact
-                )
+                ))
             } catch {
                 issues.append(designEvidenceIssue(for: artifact, error: error))
-                return nil
             }
         }
+        return evidence
     }
 
     private func isDesignEvidenceArtifact(_ artifact: FlowRunReviewArtifact) -> Bool {

@@ -72,21 +72,13 @@ struct RunReviewArtifactBrowser: View {
         } else if let resource,
                   resource.runID == runID,
                   resource.artifact == artifact {
-            if let kind = FoundationArtifactTypeProjection.kind(artifact.kind),
-               let format = FoundationArtifactTypeProjection.format(artifact.format) {
-                ArtifactCanvas(
-                    url: resource.url,
-                    type: typeResolver.artifactType(kind: kind, format: format),
-                    title: artifactTitle(artifact)
-                )
-                .artifactContentMaxHeight(nil)
-                .id(resource.digest)
-            } else {
-                ContentUnavailableView(
-                    "Artifact format is not supported",
-                    systemImage: "doc.questionmark"
-                )
-            }
+            ArtifactCanvas(
+                url: resource.url,
+                type: typeResolver.artifactType(kind: artifact.kind, format: artifact.format),
+                title: artifactTitle(artifact)
+            )
+            .artifactContentMaxHeight(nil)
+            .id(resource.digest)
         } else {
             ContentUnavailableView(
                 "Artifact is not verified",
@@ -113,7 +105,7 @@ struct RunReviewArtifactBrowser: View {
                     Text(artifact.role)
                     Text(artifact.format.rawValue)
                     if let byteCount = artifact.byteCount {
-                        Text(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))
+                        Text(formattedByteCount(byteCount))
                     }
                 }
                 .font(.caption2)
@@ -156,6 +148,13 @@ struct RunReviewArtifactBrowser: View {
             return artifactID
         }
         return URL(filePath: artifact.path).lastPathComponent
+    }
+
+    private func formattedByteCount(_ byteCount: UInt64) -> String {
+        guard byteCount <= UInt64(Int64.max) else {
+            return "\(byteCount) bytes"
+        }
+        return ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file)
     }
 
     private func integrityIcon(_ status: FlowRunReviewArtifactIntegrityStatus?) -> String {

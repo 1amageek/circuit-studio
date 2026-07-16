@@ -14,7 +14,7 @@ public actor RunReviewArtifactResourceLoader: RunReviewArtifactResourceLoading {
         projectRoot: URL
     ) async throws -> RunReviewArtifactResource {
         try Task.checkCancellation()
-        let resource = try service.verifiedArtifactResource(
+        let resource = try await service.verifiedArtifactResource(
             runID: runID,
             artifact: artifact,
             projectRoot: projectRoot

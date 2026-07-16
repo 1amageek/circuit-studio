@@ -92,7 +92,7 @@ struct RunReviewFailureStateReviewCard: View {
     }
 
     @ViewBuilder
-    private func artifactReferences(_ refs: [RunReviewFailureStateSummary.ArtifactReference]) -> some View {
+    private func artifactReferences(_ refs: [RunReviewFailureStateSummary.ArtifactSummary]) -> some View {
         if !refs.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(refs.prefix(4), id: \.path) { ref in
