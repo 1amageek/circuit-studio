@@ -42,9 +42,9 @@ struct RunReviewSignoffProjectionTests {
             review: review,
             projectRoot: root
         )
-        #expect(verificationContext.designSpecArtifact.path == designSpecPath)
-        #expect(verificationContext.layoutDocumentArtifact.path == layoutDocumentPath)
-        #expect(verificationContext.designUnitArtifact?.path == designUnitPath)
+        #expect(verificationContext.designSpecArtifact.reference.path == designSpecPath)
+        #expect(verificationContext.layoutDocumentArtifact.reference.path == layoutDocumentPath)
+        #expect(verificationContext.designUnitArtifact?.reference.path == designUnitPath)
         #expect(review.signoff.decodeIssues.isEmpty)
         #expect(review.signoff.cards.map(\.domain) == [
             "DRC",
@@ -1095,10 +1095,19 @@ struct RunReviewSignoffProjectionTests {
 
         var bundle = fixture.review.bundle
         let logIndex = try #require(bundle.artifacts.firstIndex { $0.reference.locator.location.value == fixture.drcLogPath })
-        var duplicate = bundle.artifacts[logIndex]
-        duplicate.role = "alias-log"
-        duplicate.stageID = "alias-stage"
-        duplicate.artifactID = "drc-raw-log-alias"
+        let original = bundle.artifacts[logIndex]
+        let duplicate = FlowRunReviewArtifact(
+            reference: ArtifactReference(
+                id: try ArtifactID(rawValue: "drc-raw-log-alias"),
+                locator: original.reference.locator,
+                digest: original.reference.digest,
+                byteCount: original.reference.byteCount,
+                producer: original.reference.producer
+            ),
+            purpose: try FlowRunReviewArtifactPurpose(validatingRawValue: "alias-log"),
+            stageID: "alias-stage",
+            integrity: original.integrity
+        )
         bundle.artifacts[logIndex].integrity = FlowRunReviewArtifactIntegrity(
             status: .sha256Mismatch,
             expectedSHA256: String(repeating: "a", count: 64),

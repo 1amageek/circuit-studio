@@ -3,6 +3,8 @@ import PEXEngine
 
 /// Persisted PEX configuration shared between CircuitStudio and the standalone `pexengine` CLI.
 public struct PEXProjectConfig: Sendable, Codable, Hashable {
+    public static let currentVersion = 1
+
     public struct InputPaths: Sendable, Codable, Hashable {
         public var layout: String
         public var netlist: String
@@ -109,7 +111,15 @@ public struct PEXProjectConfig: Sendable, Codable, Hashable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        let version = try container.decode(Int.self, forKey: .version)
+        guard version == Self.currentVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .version,
+                in: container,
+                debugDescription: "Unsupported PEX project configuration version \(version)."
+            )
+        }
+        self.version = version
         self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         self.executablePath = try container.decodeIfPresent(String.self, forKey: .executablePath)
         self.topCell = try container.decodeIfPresent(String.self, forKey: .topCell) ?? "TOP"

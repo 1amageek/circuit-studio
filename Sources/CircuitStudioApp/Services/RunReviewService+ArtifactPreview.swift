@@ -127,16 +127,19 @@ extension RunReviewService {
         projectRoot: URL
     ) throws -> URL {
         let rootPath = (projectRoot.path(percentEncoded: false) as NSString).standardizingPath
-        let artifactPath = if artifact.reference.locator.location.value.hasPrefix("/") {
-            (artifact.reference.locator.location.value as NSString).standardizingPath
-        } else {
-            ((rootPath as NSString).appendingPathComponent(artifact.reference.locator.location.value) as NSString).standardizingPath
+        let artifactURL: URL
+        do {
+            artifactURL = try artifact.reference.locator.location.resolvedFileURL(relativeTo: projectRoot)
+        } catch {
+            throw RunReviewServiceError.artifactPreviewEscapesProject(
+                path: artifact.reference.locator.location.value
+            )
         }
         let canonicalRootPath = URL(filePath: rootPath)
             .resolvingSymlinksInPath()
             .standardizedFileURL
             .path(percentEncoded: false)
-        let canonicalArtifactPath = URL(filePath: artifactPath)
+        let canonicalArtifactPath = artifactURL
             .resolvingSymlinksInPath()
             .standardizedFileURL
             .path(percentEncoded: false)

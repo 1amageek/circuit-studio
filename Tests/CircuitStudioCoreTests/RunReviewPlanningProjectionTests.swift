@@ -320,10 +320,10 @@ struct RunReviewPlanningProjectionTests {
         let service = RunReviewService()
         let review = try await service.loadRun(runID: "run-planning", projectRoot: root)
         #expect(review.planning.hasContent)
-        #expect(review.planning.candidatePlanArtifact?.artifactID == "planning-candidate-plan")
-        #expect(review.planning.candidatePlanArtifact?.path == candidatePlanPath)
-        #expect(review.planning.planVerificationArtifact?.artifactID == "planning-plan-verification")
-        #expect(review.planning.planVerificationArtifact?.path == planVerificationPath)
+        #expect(review.planning.candidatePlanArtifact?.reference.artifactID == "planning-candidate-plan")
+        #expect(review.planning.candidatePlanArtifact?.reference.path == candidatePlanPath)
+        #expect(review.planning.planVerificationArtifact?.reference.artifactID == "planning-plan-verification")
+        #expect(review.planning.planVerificationArtifact?.reference.path == planVerificationPath)
         #expect(review.planning.decodeIssues.isEmpty)
         #expect(review.planning.candidatePlan?.steps.first?.operationID == "lvs.policy-repair")
         #expect(review.planning.candidatePlan?.riskClassifications.first?.requiredApprovals == [
@@ -843,7 +843,7 @@ struct RunReviewPlanningProjectionTests {
 
         let review = try await service.loadRun(runID: runID, projectRoot: root)
 
-        #expect(review.planning.candidatePlanArtifact?.path == candidatePlanPath)
+        #expect(review.planning.candidatePlanArtifact?.reference.path == candidatePlanPath)
         #expect(review.planning.candidatePlan == nil)
         #expect(review.planning.decodeIssues.contains {
             $0.artifactPath == candidatePlanPath

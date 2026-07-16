@@ -1,6 +1,8 @@
 import Foundation
 
 public struct TechnologyPackageManifest: Sendable, Hashable, Codable {
+    public static let currentVersion = 1
+
     public struct LayoutTechnologyReference: Sendable, Hashable, Codable {
         public enum Kind: String, Sendable, Hashable, Codable {
             case builtin
@@ -143,7 +145,15 @@ public struct TechnologyPackageManifest: Sendable, Hashable, Codable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        let version = try container.decode(Int.self, forKey: .version)
+        guard version == Self.currentVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .version,
+                in: container,
+                debugDescription: "Unsupported technology package manifest version \(version)."
+            )
+        }
+        self.version = version
         self.packageID = try container.decode(String.self, forKey: .packageID)
         self.name = try container.decode(String.self, forKey: .name)
         self.processTechnologyPath = try container.decodeIfPresent(String.self, forKey: .processTechnologyPath)

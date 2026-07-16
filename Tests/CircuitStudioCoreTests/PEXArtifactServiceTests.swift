@@ -38,13 +38,13 @@ struct PEXArtifactServiceTests {
         #expect(manifest.corners.count == 1)
         #expect(manifest.corners[0].cornerID.value == "tt")
         #expect(resolver.completenessReport().status == .complete)
-        #expect(resolver.records(kind: .parasiticIR, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
+        #expect(resolver.records(kind: .parasiticIR, cornerID: cornerID, availability: .available).map { resolver.url(for: $0) } == [
             runDirectory.appending(path: "ir").appending(path: "tt.json"),
         ])
-        #expect(resolver.records(kind: .rawOutput, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
+        #expect(resolver.records(kind: .rawOutput, cornerID: cornerID, availability: .available).map { resolver.url(for: $0) } == [
             runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "tt.spef"),
         ])
-        #expect(resolver.records(kind: .log, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
+        #expect(resolver.records(kind: .log, cornerID: cornerID, availability: .available).map { resolver.url(for: $0) } == [
             runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "extraction.log"),
         ])
     }
@@ -79,13 +79,13 @@ struct PEXArtifactServiceTests {
         let resolver = try PEXArtifactResolver(manifestURL: manifestURL)
         let cornerID = PEXCornerID("tt")
 
-        #expect(resolver.records(kind: .rawOutput, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
+        #expect(resolver.records(kind: .rawOutput, cornerID: cornerID, availability: .available).map { resolver.url(for: $0) } == [
             runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "tt.spef"),
         ])
-        #expect(resolver.records(kind: .parasiticIR, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
+        #expect(resolver.records(kind: .parasiticIR, cornerID: cornerID, availability: .available).map { resolver.url(for: $0) } == [
             runDirectory.appending(path: "ir").appending(path: "tt.json"),
         ])
-        #expect(resolver.records(kind: .log, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
+        #expect(resolver.records(kind: .log, cornerID: cornerID, availability: .available).map { resolver.url(for: $0) } == [
             runDirectory.appending(path: "raw").appending(path: "tt").appending(path: "extraction.log"),
         ])
     }
@@ -181,7 +181,7 @@ struct PEXArtifactServiceTests {
         #expect(manifest.status == .success)
         #expect(manifest.corners.count == 1)
         #expect(resolver.completenessReport().status == .complete)
-        #expect(resolver.records(kind: .rawOutput, cornerID: PEXCornerID("tt"), status: .available).map { resolver.url(for: $0) } == [
+        #expect(resolver.records(kind: .rawOutput, cornerID: PEXCornerID("tt"), availability: .available).map { resolver.url(for: $0) } == [
             root
                 .appending(path: result.runID.description)
                 .appending(path: "raw")
@@ -231,8 +231,8 @@ struct PEXArtifactServiceTests {
         #expect(manifest.status == .success)
         #expect(manifest.corners.count == 2)
         #expect(resolver.completenessReport().status == .complete)
-        #expect(resolver.records(kind: .rawOutput, cornerID: PEXCornerID("tt_25c_1v0"), status: .available).count == 1)
-        #expect(resolver.records(kind: .log, cornerID: PEXCornerID("tt_25c_1v0"), status: .available).first.map { resolver.url(for: $0).lastPathComponent } == "extraction.log")
+        #expect(resolver.records(kind: .rawOutput, cornerID: PEXCornerID("tt_25c_1v0"), availability: .available).count == 1)
+        #expect(resolver.records(kind: .log, cornerID: PEXCornerID("tt_25c_1v0"), availability: .available).first.map { resolver.url(for: $0).lastPathComponent } == "extraction.log")
         #expect(ir.units == .canonical)
         #expect(ir.elements.count == 3)
         #expect(ir.elements.contains(PEXParasiticElement(
@@ -331,82 +331,93 @@ struct PEXArtifactServiceTests {
         irFile: String? = nil,
         logFile: String? = nil,
         artifactDataByPath: [String: Data] = [:]
-    ) -> String {
+    ) throws -> String {
+        _ = runID
         let resolvedRawFiles = rawFiles ?? ["raw/\(cornerID)/\(cornerID).spef"]
         let resolvedIRFile = irFile ?? "ir/\(cornerID).json"
         let resolvedLogFile = logFile ?? "raw/\(cornerID)/extraction.log"
-        let rawRecords = resolvedRawFiles.enumerated().map { index, path in
-            """
-            {
-              "id": "raw-\(cornerID)-\(index)",
-              "kind": "rawOutput",
-              "stage": "backendExecution",
-              "cornerID": { "value": "\(cornerID)" },
-              "relativePath": { "value": "\(path)" },
-              "sha256": "\(artifactDigest(artifactDataByPath[path] ?? Data()))",
-              "byteCount": \((artifactDataByPath[path] ?? Data()).count),
-              "createdAt": "2026-05-07T00:00:00Z",
-              "status": "available"
-            }
-            """
+        let createdAt = Date(timeIntervalSince1970: 1_777_920_000)
+        let corner = PEXCornerID(cornerID)
+
+        func record(
+            id: String,
+            kind: PEXArtifactKind,
+            stage: PEXStage,
+            path: String,
+            format: ArtifactFormat
+        ) throws -> PEXArtifactRecord {
+            let data = artifactDataByPath[path] ?? Data()
+            let reference = ArtifactReference(
+                id: try ArtifactID(rawValue: id),
+                locator: ArtifactLocator(
+                    location: try ArtifactLocation(workspaceRelativePath: path),
+                    role: .output,
+                    kind: try ArtifactKind(rawValue: kind.foundationRawValue),
+                    format: format
+                ),
+                digest: try ContentDigest(
+                    algorithm: .sha256,
+                    hexadecimalValue: artifactDigest(data)
+                ),
+                byteCount: UInt64(data.count)
+            )
+            return PEXArtifactRecord(
+                payload: .available(reference),
+                stage: stage,
+                cornerID: corner,
+                createdAt: createdAt
+            )
         }
-        let artifactIDs = (resolvedRawFiles.indices.map { "\"raw-\(cornerID)-\($0)\"" } + ["\"ir-\(cornerID)\"", "\"log-\(cornerID)\""]).joined(separator: ", ")
-        let artifactRecords = (rawRecords + [
-            """
-            {
-              "id": "ir-\(cornerID)",
-              "kind": "parasiticIR",
-              "stage": "persistence",
-              "cornerID": { "value": "\(cornerID)" },
-              "relativePath": { "value": "\(resolvedIRFile)" },
-              "sha256": "\(artifactDigest(artifactDataByPath[resolvedIRFile] ?? Data()))",
-              "byteCount": \((artifactDataByPath[resolvedIRFile] ?? Data()).count),
-              "createdAt": "2026-05-07T00:00:00Z",
-              "status": "available"
-            }
-            """,
-            """
-            {
-              "id": "log-\(cornerID)",
-              "kind": "log",
-              "stage": "backendExecution",
-              "cornerID": { "value": "\(cornerID)" },
-              "relativePath": { "value": "\(resolvedLogFile)" },
-              "sha256": "\(artifactDigest(artifactDataByPath[resolvedLogFile] ?? Data()))",
-              "byteCount": \((artifactDataByPath[resolvedLogFile] ?? Data()).count),
-              "createdAt": "2026-05-07T00:00:00Z",
-              "status": "available"
-            }
-            """,
-        ]).joined(separator: ",\n")
-        return """
-        {
-          "version": 2,
-          "runID": { "value": "00000000-0000-0000-0000-000000000001" },
-          "requestHash": { "value": "abc" },
-          "backendID": "mock",
-          "status": "success",
-          "startedAt": "2026-05-07T00:00:00Z",
-          "finishedAt": "2026-05-07T00:00:01Z",
-          "corners": [
-            {
-              "cornerID": { "value": "\(cornerID)" },
-              "status": "success",
-              "artifactIDs": [\(artifactIDs)]
-            }
-          ],
-          "artifacts": [
-            \(artifactRecords)
-          ],
-          "warnings": [
-            {
-              "stage": "reporting",
-              "message": "low confidence"
-            }
-          ],
-          "metadata": {}
+
+        let rawRecords = try resolvedRawFiles.enumerated().map { index, path in
+            try record(
+                id: "raw-\(cornerID)-\(index)",
+                kind: .rawOutput,
+                stage: .backendExecution,
+                path: path,
+                format: .spef
+            )
         }
-        """
+        let records = try rawRecords + [
+            record(
+                id: "ir-\(cornerID)",
+                kind: .parasiticIR,
+                stage: .persistence,
+                path: resolvedIRFile,
+                format: .json
+            ),
+            record(
+                id: "log-\(cornerID)",
+                kind: .log,
+                stage: .backendExecution,
+                path: resolvedLogFile,
+                format: .text
+            ),
+        ]
+        guard let identifier = UUID(uuidString: "00000000-0000-0000-0000-000000000001") else {
+            throw StudioError.projectLoadFailed("Invalid PEX manifest fixture run identifier.")
+        }
+        let manifest = PEXArtifactManifest(
+            runID: PEXRunID(identifier),
+            requestHash: PEXRequestHash("abc"),
+            backendID: "mock",
+            status: .success,
+            startedAt: createdAt,
+            finishedAt: createdAt.addingTimeInterval(1),
+            corners: [
+                PEXArtifactCorner(
+                    cornerID: corner,
+                    status: .success,
+                    artifactIDs: records.map(\.id)
+                ),
+            ],
+            artifacts: records,
+            warnings: [PEXWarning(stage: .reporting, message: "low confidence")]
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return String(decoding: try encoder.encode(manifest), as: UTF8.self)
     }
 
     private func pexEngineIRJSON(cornerID: String) -> String {

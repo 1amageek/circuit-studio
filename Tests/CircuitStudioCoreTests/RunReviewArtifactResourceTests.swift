@@ -38,7 +38,7 @@ struct RunReviewArtifactResourceTests {
                 Issue.record("Unexpected run review error: \(error)")
                 return
             }
-            #expect(status == "sha256Mismatch")
+            #expect(status == "digestMismatch")
         } catch {
             Issue.record("Unexpected error type: \(error)")
         }
@@ -151,7 +151,7 @@ private struct RunReviewArtifactResourceFixture {
                 location: path.hasPrefix("/")
                     ? try ArtifactLocation(fileURL: URL(filePath: path))
                     : try ArtifactLocation(workspaceRelativePath: path),
-                role: .waveform,
+                role: try ArtifactRole(validatingRawValue: "waveform"),
                 kind: .waveform,
                 format: .csv
             ),

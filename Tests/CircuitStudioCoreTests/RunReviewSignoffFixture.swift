@@ -211,7 +211,7 @@ struct RunReviewSignoffFixture {
             drcPath: Data(
                 """
                 {
-                  "schemaVersion": 1,
+                  "schemaVersion": 2,
                   "reportURL": "\(root.appending(path: drcPath).absoluteString)",
                   "manifestURL": "\(root.appending(path: "\(rawPrefix)/drc-artifact-manifest.json").absoluteString)",
                   "summary": {
@@ -833,9 +833,20 @@ struct RunReviewSignoffFixture {
                       "readinessFailureCount": 0,
                       "requiredProbeIDs": ["drc-clean"],
                       "report": {
-                        "status": "available",
-                        "path": "\(drcOracleLaneReportPath)",
-                        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "id": "drc-external-oracle-report",
+                        "locator": {
+                          "location": {
+                            "storage": "workspaceRelative",
+                            "value": "\(drcOracleLaneReportPath)"
+                          },
+                          "role": "drc-external-oracle-report",
+                          "kind": "report",
+                          "format": "json"
+                        },
+                        "digest": {
+                          "algorithm": "sha256",
+                          "hexadecimalValue": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                        },
                         "byteCount": 128
                       }
                     },

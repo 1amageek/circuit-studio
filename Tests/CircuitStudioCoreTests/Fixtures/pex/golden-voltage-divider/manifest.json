@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "runID": { "value": "00000000-0000-0000-0000-000000000100" },
   "requestHash": { "value": "fixture" },
   "backendID": "golden-fixture",
@@ -20,70 +20,160 @@
   ],
   "artifacts": [
     {
-      "id": "raw-tt",
-      "kind": "rawOutput",
+      "payload": {
+        "available": {
+          "_0": {
+            "id": "raw-tt",
+            "locator": {
+              "location": {
+                "storage": "workspaceRelative",
+                "value": "raw/tt_25c_1v0/voltage-divider.spef"
+              },
+              "role": "output",
+              "kind": "pex.rawOutput",
+              "format": "spef"
+            },
+            "digest": {
+              "algorithm": "sha256",
+              "hexadecimalValue": "23ffadbcf1e1bb2ddcf69289c2c05193b0bd4ddf6de1ec867117b6aa3e69ba4b"
+            },
+            "byteCount": 289
+          }
+        }
+      },
       "stage": "backendExecution",
       "cornerID": { "value": "tt_25c_1v0" },
-      "relativePath": { "value": "raw/tt_25c_1v0/voltage-divider.spef" },
-      "sha256": "23ffadbcf1e1bb2ddcf69289c2c05193b0bd4ddf6de1ec867117b6aa3e69ba4b",
-      "byteCount": 289,
-      "createdAt": "2026-05-07T00:00:00Z",
-      "status": "available"
+      "createdAt": "2026-05-07T00:00:00Z"
     },
     {
-      "id": "ir-tt",
-      "kind": "parasiticIR",
+      "payload": {
+        "available": {
+          "_0": {
+            "id": "ir-tt",
+            "locator": {
+              "location": {
+                "storage": "workspaceRelative",
+                "value": "ir/tt_25c_1v0.json"
+              },
+              "role": "output",
+              "kind": "pex.parasiticIR",
+              "format": "json"
+            },
+            "digest": {
+              "algorithm": "sha256",
+              "hexadecimalValue": "f9bf974701b5622f3ce8e3c1cf12183767a79b2f53df2546b1cd2fe973536b98"
+            },
+            "byteCount": 1006
+          }
+        }
+      },
       "stage": "persistence",
       "cornerID": { "value": "tt_25c_1v0" },
-      "relativePath": { "value": "ir/tt_25c_1v0.json" },
-      "sha256": "f9bf974701b5622f3ce8e3c1cf12183767a79b2f53df2546b1cd2fe973536b98",
-      "byteCount": 1006,
-      "createdAt": "2026-05-07T00:00:00Z",
-      "status": "available"
+      "createdAt": "2026-05-07T00:00:00Z"
     },
     {
-      "id": "log-tt",
-      "kind": "log",
+      "payload": {
+        "available": {
+          "_0": {
+            "id": "log-tt",
+            "locator": {
+              "location": {
+                "storage": "workspaceRelative",
+                "value": "raw/tt_25c_1v0/extraction.log"
+              },
+              "role": "output",
+              "kind": "pex.log",
+              "format": "text"
+            },
+            "digest": {
+              "algorithm": "sha256",
+              "hexadecimalValue": "55bcff438361d0766a90f07cc0c5531904e1c6f45c058644873527cada1dbb77"
+            },
+            "byteCount": 101
+          }
+        }
+      },
       "stage": "backendExecution",
       "cornerID": { "value": "tt_25c_1v0" },
-      "relativePath": { "value": "raw/tt_25c_1v0/extraction.log" },
-      "sha256": "55bcff438361d0766a90f07cc0c5531904e1c6f45c058644873527cada1dbb77",
-      "byteCount": 101,
-      "createdAt": "2026-05-07T00:00:00Z",
-      "status": "available"
+      "createdAt": "2026-05-07T00:00:00Z"
     },
     {
-      "id": "raw-ss",
-      "kind": "rawOutput",
+      "payload": {
+        "available": {
+          "_0": {
+            "id": "raw-ss",
+            "locator": {
+              "location": {
+                "storage": "workspaceRelative",
+                "value": "raw/ss_125c_0v9/voltage-divider.spef"
+              },
+              "role": "output",
+              "kind": "pex.rawOutput",
+              "format": "spef"
+            },
+            "digest": {
+              "algorithm": "sha256",
+              "hexadecimalValue": "59c3fe237acd49eec5446b4c5f8f0257e118fa39921b1022eb5fba71a499bd00"
+            },
+            "byteCount": 289
+          }
+        }
+      },
       "stage": "backendExecution",
       "cornerID": { "value": "ss_125c_0v9" },
-      "relativePath": { "value": "raw/ss_125c_0v9/voltage-divider.spef" },
-      "sha256": "59c3fe237acd49eec5446b4c5f8f0257e118fa39921b1022eb5fba71a499bd00",
-      "byteCount": 289,
-      "createdAt": "2026-05-07T00:00:00Z",
-      "status": "available"
+      "createdAt": "2026-05-07T00:00:00Z"
     },
     {
-      "id": "ir-ss",
-      "kind": "parasiticIR",
+      "payload": {
+        "available": {
+          "_0": {
+            "id": "ir-ss",
+            "locator": {
+              "location": {
+                "storage": "workspaceRelative",
+                "value": "ir/ss_125c_0v9.json"
+              },
+              "role": "output",
+              "kind": "pex.parasiticIR",
+              "format": "json"
+            },
+            "digest": {
+              "algorithm": "sha256",
+              "hexadecimalValue": "072c5d6a9bd3acf0f5ba532c0243c302b0c66f991aeec3e304542f82c1da72d8"
+            },
+            "byteCount": 1007
+          }
+        }
+      },
       "stage": "persistence",
       "cornerID": { "value": "ss_125c_0v9" },
-      "relativePath": { "value": "ir/ss_125c_0v9.json" },
-      "sha256": "072c5d6a9bd3acf0f5ba532c0243c302b0c66f991aeec3e304542f82c1da72d8",
-      "byteCount": 1007,
-      "createdAt": "2026-05-07T00:00:00Z",
-      "status": "available"
+      "createdAt": "2026-05-07T00:00:00Z"
     },
     {
-      "id": "log-ss",
-      "kind": "log",
+      "payload": {
+        "available": {
+          "_0": {
+            "id": "log-ss",
+            "locator": {
+              "location": {
+                "storage": "workspaceRelative",
+                "value": "raw/ss_125c_0v9/extraction.log"
+              },
+              "role": "output",
+              "kind": "pex.log",
+              "format": "text"
+            },
+            "digest": {
+              "algorithm": "sha256",
+              "hexadecimalValue": "38795603b4ae643f462db609f27fc4d42de77a3fbb4902a38ce7b4df7d928045"
+            },
+            "byteCount": 102
+          }
+        }
+      },
       "stage": "backendExecution",
       "cornerID": { "value": "ss_125c_0v9" },
-      "relativePath": { "value": "raw/ss_125c_0v9/extraction.log" },
-      "sha256": "38795603b4ae643f462db609f27fc4d42de77a3fbb4902a38ce7b4df7d928045",
-      "byteCount": 102,
-      "createdAt": "2026-05-07T00:00:00Z",
-      "status": "available"
+      "createdAt": "2026-05-07T00:00:00Z"
     }
   ],
   "warnings": []
