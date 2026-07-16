@@ -1,3 +1,4 @@
+import CircuitSignoff
 import Foundation
 
 /// Turns a signoff review into STRUCTURED, actionable findings — the "Explain" stage

@@ -1,5 +1,5 @@
 import Foundation
-import CircuitStudioApp
+import CircuitSignoff
 import PEXEngine
 
 /// `signoff` — a small, consistent CLI harness for real physical verification.
@@ -17,50 +17,55 @@ import PEXEngine
 ///   --json          machine-readable report
 ///
 /// Exit codes: 0 pass · 1 usage/IO · 2 toolchain unavailable · 3 checks failed.
-@main
-struct SignoffRunner {
+public enum SignoffCommand {
 
-    static func main() async {
-        let args = Array(CommandLine.arguments.dropFirst())
-        let options = Options(args: Array(args.dropFirst()))
+    public static func run(
+        arguments args: [String],
+        output: SignoffCommandOutput = .standard,
+        runtime: any SignoffCommandRuntime = LiveSignoffCommandRuntime()
+    ) async -> Int32 {
+        let options = SignoffCommandOptions(arguments: Array(args.dropFirst()))
         do {
             switch args.first {
             case "doctor":
-                exit(try runDoctor(options))
+                return try runtime.inspectToolchain(options: options, output: output)
             case "check":
-                exit(try await runCheck(options))
+                return try await runCheck(options, output: output, runtime: runtime)
             case "iterate":
-                exit(try await runIterate(options))
+                return try await runtime.runIteration(options: options, output: output)
             case "-h", "--help", "help", .none:
-                usage()
-                exit(args.first == nil ? 1 : 0)
+                usage(output: output)
+                return args.first == nil ? 1 : 0
             case .some(let other):
-                FileHandle.standardError.write(Data("error: unknown command '\(other)'\n".utf8))
-                usage()
-                exit(1)
+                output.writeStandardErrorLine("error: unknown command '\(other)'")
+                usage(output: output)
+                return 1
             }
         } catch let error as CLIError {
-            FileHandle.standardError.write(Data("error: \(error.message)\n".utf8))
-            exit(error.code)
+            output.writeStandardErrorLine("error: \(error.message)")
+            return error.code
         } catch let error as PDKCellLayoutService.LayoutError {
             // Materializing the cell failed (bad cell name / Magic error): a setup
             // problem, not a design that failed its checks — exit 2, never 3.
-            FileHandle.standardError.write(Data("error: \(error.localizedDescription)\n".utf8))
-            exit(2)
+            output.writeStandardErrorLine("error: \(error.localizedDescription)")
+            return 2
         } catch let error as MagicLayoutExtractor.ExtractionError {
             // The LVS-netlist extraction failed: again a tooling/setup problem, not
             // a DRC/LVS verdict — exit 2.
-            FileHandle.standardError.write(Data("error: \(error.localizedDescription)\n".utf8))
-            exit(2)
+            output.writeStandardErrorLine("error: \(error.localizedDescription)")
+            return 2
         } catch {
-            FileHandle.standardError.write(Data("error: \(error.localizedDescription)\n".utf8))
-            exit(3)
+            output.writeStandardErrorLine("error: \(error.localizedDescription)")
+            return 3
         }
     }
 
     // MARK: - doctor
 
-    private static func runDoctor(_ options: Options) throws -> Int32 {
+    static func inspectLiveToolchain(
+        _ options: SignoffCommandOptions,
+        output: SignoffCommandOutput
+    ) throws -> Int32 {
         let drc = MagicDRCSignoff.locate()
         let lvs = NetgenLVSSignoff.locate()
         let pex = MagicToolchain.locate()
@@ -68,69 +73,76 @@ struct SignoffRunner {
         // reference schematic; verify it here so Ready is not an over-promise.
         let schematics = PDKSchematicProvider.locate()?.hasLibraryDeck() ?? false
         let ok = drc != nil && lvs != nil && pex != nil && schematics
-        if options.flag("--json") {
+        if options.contains("--json") {
             try emitJSON([
                 "magicDRC": drc != nil, "netgenLVS": lvs != nil, "magicPEX": pex != nil,
                 "pdkSchematics": schematics, "ready": ok,
-            ])
+            ], output: output)
         } else {
-            print("Signoff toolchain:")
-            print("  Magic DRC      : \(drc != nil ? "found" : "MISSING")")
-            print("  Netgen LVS     : \(lvs != nil ? "found" : "MISSING")")
-            print("  Magic PEX      : \(pex != nil ? "found" : "MISSING")")
-            print("  PDK schematics : \(schematics ? "found" : "MISSING")")
-            if let drc { print("  PDK_ROOT       : \(drc.pdkRoot)") }
-            print(ok ? "Ready." : "Toolchain incomplete (see docs/TOOLCHAIN.md).")
+            output.writeStandardOutputLine("Signoff toolchain:")
+            output.writeStandardOutputLine("  Magic DRC      : \(drc != nil ? "found" : "MISSING")")
+            output.writeStandardOutputLine("  Netgen LVS     : \(lvs != nil ? "found" : "MISSING")")
+            output.writeStandardOutputLine("  Magic PEX      : \(pex != nil ? "found" : "MISSING")")
+            output.writeStandardOutputLine("  PDK schematics : \(schematics ? "found" : "MISSING")")
+            if let drc { output.writeStandardOutputLine("  PDK_ROOT       : \(drc.pdkRoot)") }
+            output.writeStandardOutputLine(ok ? "Ready." : "Toolchain incomplete (see docs/TOOLCHAIN.md).")
         }
         return ok ? 0 : 2
     }
 
     // MARK: - check (DRC + LVS + PEX)
 
-    private static func runCheck(_ options: Options) async throws -> Int32 {
+    private static func runCheck(
+        _ options: SignoffCommandOptions,
+        output: SignoffCommandOutput,
+        runtime: any SignoffCommandRuntime
+    ) async throws -> Int32 {
         // Batch: --cells a,b,c evaluates each cell consistently and aggregates.
         if let list = options.value("--cells") {
             let cells = parseCellList(list)
             guard !cells.isEmpty else { throw CLIError(code: 1, message: "--cells is empty") }
             var allPassed = true
             for (index, cell) in cells.enumerated() {
-                if index > 0 { print("") }
-                var cellOptions = options.with(key: "--cell", value: cell)
+                if index > 0 { output.writeStandardOutputLine() }
+                var cellOptions = options.replacing("--cell", with: cell)
                 // Isolate each cell's artifacts under <dir>/<cell>/ so the per-cell
                 // logs don't overwrite each other (without --artifacts each cell
                 // already gets its own temp dir).
                 if let base = options.value("--artifacts") {
-                    cellOptions = cellOptions.with(
-                        key: "--artifacts",
-                        value: try batchCellArtifactDirectory(base: base, cell: cell)
+                    cellOptions = cellOptions.replacing(
+                        "--artifacts",
+                        with: try batchCellArtifactDirectory(base: base, cell: cell)
                     )
                 }
-                let passed = try await evaluate(cellOptions)
+                let passed = try await runtime.evaluateDesign(options: cellOptions, output: output)
                 allPassed = allPassed && passed
             }
-            print("\nOverall: \(allPassed ? "PASS" : "FAIL") across \(cells.count) cells")
+            output.writeStandardOutputLine("\nOverall: \(allPassed ? "PASS" : "FAIL") across \(cells.count) cells")
             return allPassed ? 0 : 3
         }
-        return try await evaluate(options) ? 0 : 3
+        return try await runtime.evaluateDesign(options: options, output: output) ? 0 : 3
     }
 
     /// Runs DRC + LVS + PEX (+ back-annotation) on one design and returns whether
     /// the overall signoff completed cleanly. DRC/LVS remain the primary verdict,
     /// but a PEX failure on an otherwise clean design is still a failed signoff run.
-    private static func evaluate(_ options: Options) async throws -> Bool {
+    static func evaluateLiveDesign(
+        _ options: SignoffCommandOptions,
+        output: SignoffCommandOutput
+    ) async throws -> Bool {
         let design = try await resolveDesign(options)
-        let rc = options.flag("--rc")
+        let rc = options.contains("--rc")
         let corner = options.value("--corner") ?? "tt"
 
-        let review: ExternalSignoffReview
-        do {
-            review = try await DesignFlowService().runLiveSignoff(
-                layoutGDS: design.layoutGDS, topCell: design.topCell,
-                schematicNetlist: design.schematic, artifactDirectory: design.artifacts.appending(path: "signoff")
-            )
-        } catch DesignFlowCommandError.signoffToolchainUnavailable {
+        guard let signoff = LiveSignoffService.locate() else {
             throw CLIError(code: 2, message: "signoff toolchain unavailable — run `signoff doctor`")
         }
+        let review = try await signoff.run(
+            layoutGDS: design.layoutGDS,
+            topCell: design.topCell,
+            schematicNetlist: design.schematic,
+            artifactDirectory: design.artifacts.appending(path: "signoff")
+        )
 
         // PEX runs AFTER the DRC/LVS verdict so a parasitic-extraction hiccup (a
         // tooling problem) never suppresses or masquerades as the physical-
@@ -140,7 +152,7 @@ struct SignoffRunner {
         var pex: PEXSummary?
         var pexError: String?
         do {
-            pex = try await extractPEX(design: design, rc: rc, corner: corner)
+            pex = try await extractPEX(design: design, rc: rc, corner: corner, output: output)
         } catch let error as CLIError {
             pexError = error.message
         } catch {
@@ -148,7 +160,7 @@ struct SignoffRunner {
         }
 
         report(design: design, review: review, pex: pex, pexError: pexError,
-               rc: rc, corner: corner, json: options.flag("--json"))
+               rc: rc, corner: corner, json: options.contains("--json"), output: output)
 
         if let pexError, review.passed {
             throw CLIError(code: 2, message: pexError)
@@ -162,7 +174,10 @@ struct SignoffRunner {
     /// cells: each is materialized + given its PDK schematic, then run through real
     /// DRC+LVS; the loop converges on the first candidate that passes. The candidate
     /// list is the agent's proposed fixes (in order).
-    private static func runIterate(_ options: Options) async throws -> Int32 {
+    static func runLiveIteration(
+        _ options: SignoffCommandOptions,
+        output: SignoffCommandOutput
+    ) async throws -> Int32 {
         guard let list = options.value("--cells") else {
             throw CLIError(code: 1, message: "iterate requires --cells <a,b,c> (the candidate sequence)")
         }
@@ -193,15 +208,18 @@ struct SignoffRunner {
             return SignoffIterationLoop.Candidate(layoutGDS: gds, topCell: cell, schematicNetlist: schematic)
         }
 
-        print("iterate (\(cells.count) candidates, max \(maxIterations) iterations)")
+        output.writeStandardOutputLine("iterate (\(cells.count) candidates, max \(maxIterations) iterations)")
         for outcome in result.iterations {
-            print("  iter \(outcome.index): \(outcome.candidate.topCell) [\(outcome.passed ? "PASS" : "FAIL")]")
+            let verdict = outcome.passed ? "PASS" : "FAIL"
+            output.writeStandardOutputLine(
+                "  iter \(outcome.index): \(outcome.candidate.topCell) [\(verdict)]"
+            )
         }
         if result.converged, let last = result.iterations.last {
-            print("Converged: \(last.candidate.topCell) passed at iteration \(last.index)")
+            output.writeStandardOutputLine("Converged: \(last.candidate.topCell) passed at iteration \(last.index)")
             return 0
         }
-        print("Did not converge within \(maxIterations) iterations")
+        output.writeStandardOutputLine("Did not converge within \(maxIterations) iterations")
         return 3
     }
 
@@ -215,7 +233,7 @@ struct SignoffRunner {
         let materializedByName: Bool
     }
 
-    private static func resolveDesign(_ options: Options) async throws -> Design {
+    private static func resolveDesign(_ options: SignoffCommandOptions) async throws -> Design {
         let artifacts = options.artifactsDirectory()
         try FileManager.default.createDirectory(at: artifacts, withIntermediateDirectories: true)
 
@@ -275,7 +293,12 @@ struct SignoffRunner {
         reviewPassed && pexError == nil
     }
 
-    private static func extractPEX(design: Design, rc: Bool, corner: String) async throws -> PEXSummary {
+    private static func extractPEX(
+        design: Design,
+        rc: Bool,
+        corner: String,
+        output: SignoffCommandOutput
+    ) async throws -> PEXSummary {
         guard MagicToolchain.locate() != nil else {
             throw CLIError(code: 2, message: "PEX toolchain unavailable — run `signoff doctor`")
         }
@@ -313,8 +336,9 @@ struct SignoffRunner {
         do {
             backAnnotation = try await ParasiticBackAnnotationService().backAnnotate(ir: ir)
         } catch {
-            FileHandle.standardError.write(
-                Data("warning: back-annotation skipped (\(error.localizedDescription))\n".utf8))
+            output.writeStandardErrorLine(
+                "warning: back-annotation skipped (\(error.localizedDescription))"
+            )
             backAnnotation = nil
         }
         return PEXSummary(
@@ -342,8 +366,16 @@ struct SignoffRunner {
 
     // MARK: - report
 
-    private static func report(design: Design, review: ExternalSignoffReview, pex: PEXSummary?,
-                               pexError: String?, rc: Bool, corner: String, json: Bool) {
+    private static func report(
+        design: Design,
+        review: ExternalSignoffReview,
+        pex: PEXSummary?,
+        pexError: String?,
+        rc: Bool,
+        corner: String,
+        json: Bool,
+        output: SignoffCommandOutput
+    ) {
         let drc = review.reports.first { $0.kind == .drc }?.passed ?? false
         let lvs = review.reports.first { $0.kind == .lvs }?.passed ?? false
         let overall = overallPassed(reviewPassed: review.passed, pexError: pexError)
@@ -369,35 +401,50 @@ struct SignoffRunner {
                 obj["pex"] = ["error": pexError ?? "extraction failed"]
             }
             do {
-                try emitJSON(obj)
+                try emitJSON(obj, output: output)
             } catch {
-                FileHandle.standardError.write(
-                    Data("error: failed to emit JSON (\(error.localizedDescription))\n".utf8))
+                output.writeStandardErrorLine(
+                    "error: failed to emit JSON (\(error.localizedDescription))"
+                )
             }
             return
         }
-        print("check \(design.topCell)\(design.materializedByName ? " (materialized + PDK schematic)" : "")")
-        print("  DRC  [\(drc ? "PASS" : "FAIL")]")
+        output.writeStandardOutputLine(
+            "check \(design.topCell)\(design.materializedByName ? " (materialized + PDK schematic)" : "")"
+        )
+        output.writeStandardOutputLine("  DRC  [\(drc ? "PASS" : "FAIL")]")
         for d in review.reports.first(where: { $0.kind == .drc })?.diagnostics.filter({ $0.severity == .error }) ?? [] {
-            print("       - \(d.ruleID ?? "?"): \(d.message)")
+            output.writeStandardOutputLine("       - \(d.ruleID ?? "?"): \(d.message)")
         }
-        print("  LVS  [\(lvs ? "PASS" : "FAIL")]")
+        output.writeStandardOutputLine("  LVS  [\(lvs ? "PASS" : "FAIL")]")
         for d in review.reports.first(where: { $0.kind == .lvs })?.diagnostics.filter({ $0.severity == .error }) ?? [] {
-            print("       - \(d.ruleID ?? "?"): \(d.message)")
+            output.writeStandardOutputLine("       - \(d.ruleID ?? "?"): \(d.message)")
         }
         if let pex {
             var pexLine = String(format: "  PEX  %d elements, %d nets, ground %.3f fF, coupling %.3f fF",
                                  pex.elementCount, pex.netCount, pex.groundCapF * 1e15, pex.couplingCapF * 1e15)
-            if rc { pexLine += String(format: ", %d resistors (Σ %.1f Ω)", pex.resistorCount, pex.totalResistanceOhm) }
-            print(pexLine)
+            if rc {
+                pexLine += String(
+                    format: ", %d resistors (Σ %.1f Ω)",
+                    pex.resistorCount,
+                    pex.totalResistanceOhm
+                )
+            }
+            output.writeStandardOutputLine(pexLine)
             if let ba = pex.backAnnotation {
-                print(String(format: "  RC   back-annotated τ: R·C %.3f ns vs sim %.3f ns [%@]",
-                             ba.expectedTauS * 1e9, ba.measuredTauS * 1e9, ba.consistent ? "consistent" : "INCONSISTENT"))
+                output.writeStandardOutputLine(
+                    String(
+                        format: "  RC   back-annotated τ: R·C %.3f ns vs sim %.3f ns [%@]",
+                        ba.expectedTauS * 1e9,
+                        ba.measuredTauS * 1e9,
+                        ba.consistent ? "consistent" : "INCONSISTENT"
+                    )
+                )
             }
         } else {
-            print("  PEX  FAILED: \(pexError ?? "extraction failed")")
+            output.writeStandardOutputLine("  PEX  FAILED: \(pexError ?? "extraction failed")")
         }
-        print("Result: \(overall ? "PASS" : "FAIL")")
+        output.writeStandardOutputLine("Result: \(overall ? "PASS" : "FAIL")")
     }
 
     // MARK: - helpers
@@ -428,13 +475,16 @@ struct SignoffRunner {
         return trimmed
     }
 
-    private static func emitJSON(_ object: [String: Any]) throws {
+    private static func emitJSON(
+        _ object: [String: Any],
+        output: SignoffCommandOutput
+    ) throws {
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
-        print(String(data: data, encoding: .utf8) ?? "{}")
+        output.writeStandardOutputLine(String(data: data, encoding: .utf8) ?? "{}")
     }
 
-    private static func usage() {
-        print("""
+    private static func usage(output: SignoffCommandOutput) {
+        output.writeStandardOutputLine("""
         signoff — real physical-verification harness (Magic DRC · Netgen LVS · Magic PEX)
 
         Usage:
@@ -453,40 +503,13 @@ struct SignoffRunner {
         """)
     }
 
-    struct CLIError: Error { let code: Int32; let message: String }
+    public struct CLIError: Error {
+        public let code: Int32
+        public let message: String
 
-    struct Options {
-        private var values: [String: String] = [:]
-        init(args: [String]) {
-            var i = 0
-            while i < args.count {
-                let a = args[i]
-                if a.hasPrefix("--"), i + 1 < args.count, !args[i + 1].hasPrefix("--") {
-                    values[a] = args[i + 1]; i += 2
-                } else { values[a] = ""; i += 1 }
-            }
-        }
-        func value(_ key: String) -> String? { values[key].flatMap { $0.isEmpty ? nil : $0 } }
-        func flag(_ key: String) -> Bool { values[key] != nil }
-        func require(_ key: String) throws -> String {
-            guard let v = value(key) else { throw CLIError(code: 1, message: "missing required \(key)") }
-            return v
-        }
-        func fileURL(_ key: String) throws -> URL {
-            let path = try require(key)
-            guard FileManager.default.fileExists(atPath: path) else {
-                throw CLIError(code: 1, message: "\(key) file not found: \(path)")
-            }
-            return URL(filePath: path)
-        }
-        func artifactsDirectory() -> URL {
-            if let dir = value("--artifacts") { return URL(filePath: dir) }
-            return FileManager.default.temporaryDirectory.appending(path: "signoff-\(UUID().uuidString)")
-        }
-        func with(key: String, value: String) -> Options {
-            var copy = self
-            copy.values[key] = value
-            return copy
+        public init(code: Int32, message: String) {
+            self.code = code
+            self.message = message
         }
     }
 }

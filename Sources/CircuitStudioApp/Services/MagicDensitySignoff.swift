@@ -1,3 +1,4 @@
+import CircuitSignoff
 import Foundation
 
 /// The metal-density window policy: per-layer [min, max] coverage fractions. The window is

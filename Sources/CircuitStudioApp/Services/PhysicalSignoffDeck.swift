@@ -1,3 +1,4 @@
+import CircuitSignoff
 import Foundation
 
 /// Runs the full physical-signoff deck on a synthesized design and folds it into per-axis

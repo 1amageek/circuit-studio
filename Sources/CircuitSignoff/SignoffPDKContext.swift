@@ -1,10 +1,6 @@
 import Foundation
 import SignoffToolSupport
 
-public enum SignoffPDKContextError: Error, Sendable, Hashable {
-    case rootNotFound(profileID: String, requirementID: String)
-}
-
 public struct SignoffPDKContext: Sendable, Hashable {
     public static let profilePathEnvironmentKey = "CIRCUIT_STUDIO_SIGNOFF_PDK_PROFILE"
     public static let profileResourceEnvironmentKey = "CIRCUIT_STUDIO_SIGNOFF_PDK_PROFILE_RESOURCE"

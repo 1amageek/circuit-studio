@@ -11,11 +11,13 @@ produce.
 | Target | Responsibility |
 |---|---|
 | `CircuitStudioCore` | Shared app-domain logic |
+| `CircuitSignoff` | UI-independent DRC/LVS execution, PDK discovery, signoff reports, and PEX back-annotation |
 | `SchematicEditor` | Schematic capture UI |
 | `WaveformViewer` | Simulation waveform display |
-| `CircuitStudioApp` | The app: editor workspaces, services (signoff, evidence recording, run review, goal-driven layout agent) |
+| `CircuitStudioApp` | The app: editor workspaces, evidence recording, run review, and goal-driven layout agent |
 | `circuit-studio-flow-runner` | Headless flow execution executable |
-| `signoff` | Headless signoff executable |
+| `SignoffCLICore` | Reusable signoff command dispatch, typed exit status, injectable output, and protocol-based execution runtime |
+| `signoff` | Thin executable entry point over `SignoffCLICore` |
 
 ## Workspaces
 
@@ -62,8 +64,15 @@ perl -e 'alarm shift; exec @ARGV' 120 \
 perl -e 'alarm shift; exec @ARGV' 120 \
   xcodebuild test -workspace Xcircuite.xcworkspace -scheme CircuitStudioApp \
   -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
+
+perl -e 'alarm shift; exec @ARGV' 120 \
+  xcodebuild test -workspace .swiftpm/xcode/package.xcworkspace -scheme SignoffCLI \
+  -destination 'platform=macOS' -parallel-testing-enabled NO \
+  -test-timeouts-enabled YES -maximum-test-execution-time-allowance 30 \
+  CODE_SIGNING_ALLOWED=NO
 ```
 
-Tool-gated suites for Magic, Netgen, and ngspice report an explicit skip when
-the corresponding executable is unavailable. Verification commands always use
-a bounded timeout and produce an Xcode result bundle in workspace verification.
+`SignoffCLITests` injects a deterministic `SignoffCommandRuntime`; normal unit
+results never depend on installed tools. Set `CIRCUIT_STUDIO_RUN_LIVE_SIGNOFF_TESTS=1`
+to opt into the separately named live Magic/Netgen/PEX integration suite. Verification
+commands always use a bounded timeout and produce an Xcode result bundle.

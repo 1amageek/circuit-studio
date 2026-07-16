@@ -1,3 +1,4 @@
+import CircuitSignoff
 import Foundation
 
 /// Builds a Magic-driven antenna signoff command for `ExternalSignoffCommandService`.

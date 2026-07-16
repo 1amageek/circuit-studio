@@ -6,11 +6,13 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .library(name: "CircuitStudioCore", targets: ["CircuitStudioCore"]),
+        .library(name: "CircuitSignoff", targets: ["CircuitSignoff"]),
         .library(name: "SchematicEditor", targets: ["SchematicEditor"]),
         .library(name: "WaveformViewer", targets: ["WaveformViewer"]),
         .library(name: "CircuitArtifactRenderer", targets: ["CircuitArtifactRenderer"]),
         .library(name: "CircuitPhysicalDesign", targets: ["CircuitPhysicalDesign"]),
         .library(name: "CircuitStudioApp", targets: ["CircuitStudioApp"]),
+        .library(name: "SignoffCLICore", targets: ["SignoffCLICore"]),
         .executable(name: "circuit-studio-flow-runner", targets: ["CircuitStudioFlowRunner"]),
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
@@ -91,9 +93,24 @@ let package = Package(
             ]
         ),
         .target(
+            name: "CircuitSignoff",
+            dependencies: [
+                "CircuitStudioCore",
+                .product(name: "PEXEngine", package: "PEXEngine"),
+                .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
+            ],
+            resources: [
+                .copy("Resources/drc.tcl"),
+                .copy("Resources/lvs.tcl"),
+                .copy("Resources/extract_lvs.tcl"),
+                .copy("Resources/materialize_cell.tcl"),
+            ]
+        ),
+        .target(
             name: "CircuitStudioApp",
             dependencies: [
                 "Activity",
+                "CircuitSignoff",
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
@@ -116,10 +133,6 @@ let package = Package(
                 .product(name: "MacComponent", package: "mac-component"),
             ],
             resources: [
-                .copy("Resources/drc.tcl"),
-                .copy("Resources/lvs.tcl"),
-                .copy("Resources/extract_lvs.tcl"),
-                .copy("Resources/materialize_cell.tcl"),
                 .copy("Resources/antenna.tcl"),
                 .copy("Resources/density.tcl"),
                 .copy("Resources/layout-technology-catalog.json"),
@@ -143,12 +156,18 @@ let package = Package(
                 "SchematicEditor",
             ]
         ),
+        .target(
+            name: "SignoffCLICore",
+            dependencies: [
+                "CircuitSignoff",
+                .product(name: "PEXEngine", package: "PEXEngine"),
+            ],
+            path: "Sources/SignoffRunner"
+        ),
         .executableTarget(
             name: "SignoffRunner",
-            dependencies: [
-                "CircuitStudioApp",
-                .product(name: "PEXEngine", package: "PEXEngine"),
-            ]
+            dependencies: ["SignoffCLICore"],
+            path: "Sources/SignoffRunnerEntry"
         ),
         .testTarget(
             name: "CircuitArtifactRendererTests",
@@ -167,7 +186,7 @@ let package = Package(
                 "SchematicEditor",
                 "WaveformViewer",
                 "CircuitStudioApp",
-                "SignoffRunner",
+                "CircuitSignoff",
                 .product(name: "LayoutEditor", package: "semiconductor-layout"),
                 .product(name: "LayoutCore", package: "semiconductor-layout"),
                 .product(name: "LayoutEngine", package: "semiconductor-layout"),
@@ -186,6 +205,17 @@ let package = Package(
                 .copy("Fixtures/signoff"),
                 .copy("Fixtures/layout"),
                 .copy("Fixtures/pex"),
+                .copy("Fixtures/magic"),
+                .copy("Fixtures/lvs"),
+            ]
+        ),
+        .testTarget(
+            name: "SignoffCLITests",
+            dependencies: [
+                "CircuitSignoff",
+                "SignoffCLICore",
+            ],
+            resources: [
                 .copy("Fixtures/magic"),
                 .copy("Fixtures/lvs"),
             ]

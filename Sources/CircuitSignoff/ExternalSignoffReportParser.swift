@@ -207,7 +207,11 @@ public struct ExternalSignoffReportParser: Sendable {
     }
 
     private func isFailingStatus(_ status: String) -> Bool {
-        ["fail", "failed", "error", "mismatch", "violation", "violations", "incorrect", "not_equivalent"].contains(status)
+        let failingStatuses = [
+            "fail", "failed", "error", "mismatch", "violation",
+            "violations", "incorrect", "not_equivalent",
+        ]
+        return failingStatuses.contains(status)
     }
 
     private func calibreDRCResultCount(in rawOutput: String) -> Int? {
@@ -421,7 +425,8 @@ public struct ExternalSignoffReportParser: Sendable {
             return nil
         }
         let severityToken = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard severityToken == "ERROR" || severityToken == "WARNING" || severityToken == "WARN" || severityToken == "INFO" else {
+        let acceptedSeverities = ["ERROR", "WARNING", "WARN", "INFO"]
+        guard acceptedSeverities.contains(severityToken) else {
             return nil
         }
         let ruleID = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)

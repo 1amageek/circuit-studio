@@ -25,18 +25,21 @@ CircuitStudio は「回路は常に生きている」をコンセプトとする
 ### モジュール構成 (Package.swift)
 
 ```
-CircuitStudioApp ──┬── SchematicEditor ──── CircuitStudioCore ──── CoreSpice
-                   ├── WaveformViewer ───── CircuitStudioCore        ├── CoreSpiceIO
-                   └── LayoutEditor ──┬── LayoutCore                 └── CoreSpiceWaveform
-                                      ├── LayoutTech ──── LayoutCore
-                                      ├── LayoutVerify ── LayoutCore + LayoutTech
-                                      ├── LayoutIO ────── LayoutCore + LayoutTech
-                                      └── LayoutIntegration ── LayoutCore + LayoutTech + LayoutIO + LayoutVerify
+SignoffCLICore ──────────────── CircuitSignoff ──┬── CircuitStudioCore ── CoreSpice
+CircuitStudioApp ─┬─────────── CircuitSignoff    ├── SignoffToolSupport
+                  ├── SchematicEditor ────────── CircuitStudioCore
+                  ├── WaveformViewer ─────────── CircuitStudioCore
+                  └── LayoutEditor ──┬── LayoutCore
+                                     ├── LayoutTech ──── LayoutCore
+                                     ├── LayoutVerify ── LayoutCore + LayoutTech
+                                     └── LayoutIO ────── LayoutCore + LayoutTech
 ```
 
-**ライブラリ (10 プロダクト)**:
-CircuitStudioCore, SchematicEditor, WaveformViewer, CircuitStudioApp,
-LayoutCore, LayoutTech, LayoutVerify, LayoutIO, LayoutIntegration, LayoutEditor
+`CircuitSignoff` は UI、editor、artifact renderer に依存しない。DRC/LVS 実行、
+PDK 解決、signoff report、PEX back-annotation を所有し、app と CLI が同じ実装を直接利用する。
+`SignoffCLICore` は `SignoffCommandRuntime` を実行境界とし、既定の
+`LiveSignoffCommandRuntime` だけが `CircuitSignoff` の実ツール処理へ接続する。
+通常の CLI unit test は決定的 runtime を注入し、実ツール統合は環境変数で明示的に有効化する。
 
 ### シミュレーションパイプライン
 

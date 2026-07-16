@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CircuitSignoff
 @testable import CircuitStudioApp
 
 /// Tests for deriving a cell's reference schematic from the PDK (so design-by-name

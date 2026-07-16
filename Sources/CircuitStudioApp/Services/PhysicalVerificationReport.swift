@@ -1,3 +1,4 @@
+import CircuitSignoff
 public struct PhysicalVerificationReport: Sendable, Hashable {
     public let drc: DRCVerificationReport
     public let lvs: LVSVerificationReport

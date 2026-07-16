@@ -1,3 +1,4 @@
+import CircuitSignoff
 import Foundation
 
 public struct SignoffAdapterRequest: Sendable, Hashable {
