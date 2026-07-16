@@ -650,16 +650,19 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
         forProjectAt projectRoot: URL
     ) async throws -> ArtifactReference {
         let workspaceStore = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
-        try await workspaceStore.createWorkspace()
-        try await workspaceStore.ensureWorkspaceDirectory(at: ".xcircuite/retained")
-        try await workspaceStore.writeJSON(report, to: ".xcircuite/\(Self.reportRelativePath)")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let projectRelativePath = "\(XcircuiteWorkspaceLayout.directoryName)/\(Self.reportRelativePath)"
-        return try await workspaceStore.makeArtifactReference(
-            forProjectRelativePath: projectRelativePath,
-            artifactID: Self.reportArtifactID,
-            role: .output,
-            kind: .other,
-            format: .json
+        return try await workspaceStore.persistProjectArtifact(
+            content: encoder.encode(report),
+            id: ArtifactID(rawValue: Self.reportArtifactID),
+            locator: ArtifactLocator(
+                location: ArtifactLocation(workspaceRelativePath: projectRelativePath),
+                role: .output,
+                kind: .report,
+                format: .json
+            ),
+            mode: .replaceable
         )
     }
 }

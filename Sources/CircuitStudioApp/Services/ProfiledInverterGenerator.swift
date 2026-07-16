@@ -150,10 +150,10 @@ public struct ProfiledInverterGenerator: StandardCellGenerator {
         ]
         var cell = LayoutCell(name: name, shapes: shapes)
         cell.labels = [
-            label("A", layers.gateConductor, layoutPolicy.inputLabelX, deviceWidth + layoutPolicy.inputLabelYOffset),
-            label("Y", layers.localInterconnect, layoutPolicy.outputLabelX, layoutPolicy.outputLabelY),
-            label("VPWR", layers.localInterconnect, layoutPolicy.powerLabelX, pmosBot + layoutPolicy.powerLabelYOffset),
-            label("VGND", layers.localInterconnect, layoutPolicy.groundLabelX, layoutPolicy.groundLabelY),
+            label("A", .gateConductor, layoutPolicy.inputLabelX, deviceWidth + layoutPolicy.inputLabelYOffset),
+            label("Y", .localInterconnect, layoutPolicy.outputLabelX, layoutPolicy.outputLabelY),
+            label("VPWR", .localInterconnect, layoutPolicy.powerLabelX, pmosBot + layoutPolicy.powerLabelYOffset),
+            label("VGND", .localInterconnect, layoutPolicy.groundLabelX, layoutPolicy.groundLabelY),
         ]
         return LayoutDocument(name: name, cells: [cell], topCellID: cell.id)
     }
@@ -187,11 +187,12 @@ public struct ProfiledInverterGenerator: StandardCellGenerator {
 
     private func label(
         _ text: String,
-        _ layer: LayoutTechnologyLayerReference,
+        _ role: StandardCellLayoutProfile.LayerRole,
         _ x: Double,
         _ y: Double
     ) -> LayoutLabel {
-        LayoutLabel(
+        let layer = profile.labelLayerReference(for: role)
+        return LayoutLabel(
             text: text,
             position: LayoutPoint(x: x, y: y),
             layer: LayoutLayerID(name: layer.name, purpose: layer.purpose)

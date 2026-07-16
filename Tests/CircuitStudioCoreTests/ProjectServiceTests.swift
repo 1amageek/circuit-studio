@@ -93,12 +93,12 @@ struct ProjectServiceTests {
         #expect(manifest.topCell == "Amp")
         #expect(manifest.activeCell == "Buffer")
 
-        let packageManifest = try String(
-            contentsOf: root.appending(path: ".xcircuite/project.json"),
-            encoding: .utf8
+        let packageManifest = try JSONDecoder().decode(
+            XcircuiteProjectManifest.self,
+            from: Data(contentsOf: root.appending(path: ".xcircuite/project.json"))
         )
-        #expect(packageManifest.contains("\"topDesignName\" : \"Amp\""))
-        #expect(packageManifest.contains("\"schemaVersion\""))
+        #expect(packageManifest.identity.topDesignName == "Amp")
+        #expect(packageManifest.schemaVersion == XcircuiteProjectManifest.currentSchemaVersion)
 
         let loadedSimulation = try service.loadSimulationConfig(forProjectAt: root)
         #expect(loadedSimulation.version == 1)
@@ -312,11 +312,11 @@ struct ProjectServiceTests {
         #expect(manifest.topCell == "Top")
         #expect(manifest.activeCell == "Top")
 
-        let packageManifest = try String(
-            contentsOf: root.appending(path: ".xcircuite/project.json"),
-            encoding: .utf8
+        let packageManifest = try JSONDecoder().decode(
+            XcircuiteProjectManifest.self,
+            from: Data(contentsOf: root.appending(path: ".xcircuite/project.json"))
         )
-        #expect(packageManifest.contains("\"topDesignName\" : \"Top\""))
+        #expect(packageManifest.identity.topDesignName == "Top")
     }
 
     private func makeTemporaryProjectRoot(_ name: String) throws -> URL {

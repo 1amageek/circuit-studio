@@ -681,6 +681,16 @@ public struct StandardCellLayoutProfile: Codable, Sendable, Hashable {
         }
     }
 
+    /// Returns the GDS text layer associated with a physical conductor role.
+    ///
+    /// Geometry and labels intentionally use distinct layer purposes. Treating a
+    /// label as drawing geometry makes a reverse GDS layer map ambiguous when a
+    /// technology defines drawing, pin, and label datatypes for the same layer.
+    public func labelLayerReference(for role: LayerRole) -> LayoutTechnologyLayerReference {
+        let conductor = layerReference(for: role)
+        return LayoutTechnologyLayerReference(name: conductor.name, purpose: "label")
+    }
+
     private static func validate(_ reference: LayoutTechnologyLayerReference, field: String) throws {
         try requireNonEmpty(reference.name, field: "\(field).name")
         try requireNonEmpty(reference.purpose, field: "\(field).purpose")

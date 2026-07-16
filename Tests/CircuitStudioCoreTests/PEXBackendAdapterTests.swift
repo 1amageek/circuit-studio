@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CircuitStudioCore
+import PEXEngine
 
 @Suite("PEXBackendAdapter Tests")
 struct PEXBackendAdapterTests {
@@ -99,9 +100,9 @@ struct PEXBackendAdapterTests {
         let irDirectory = runDirectory.appending(path: "ir")
         try FileManager.default.createDirectory(at: rawDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: irDirectory, withIntermediateDirectories: true)
-        try "mock spef".write(to: rawDirectory.appending(path: "top.spef"), atomically: true, encoding: .utf8)
-        try "mock log".write(to: rawDirectory.appending(path: "extraction.log"), atomically: true, encoding: .utf8)
-        try """
+        let spefData = Data("mock spef".utf8)
+        let logData = Data("mock log".utf8)
+        let irData = Data("""
         {
           "version": "1.0",
           "cornerID": { "value": "tt_25c_1v0" },
@@ -119,7 +120,10 @@ struct PEXBackendAdapterTests {
           ],
           "metadata": {}
         }
-        """.write(to: irDirectory.appending(path: "tt_25c_1v0.json"), atomically: true, encoding: .utf8)
+        """.utf8)
+        try spefData.write(to: rawDirectory.appending(path: "top.spef"), options: .atomic)
+        try logData.write(to: rawDirectory.appending(path: "extraction.log"), options: .atomic)
+        try irData.write(to: irDirectory.appending(path: "tt_25c_1v0.json"), options: .atomic)
         try """
         {
           "version": 2,
@@ -143,6 +147,8 @@ struct PEXBackendAdapterTests {
               "stage": "backendExecution",
               "cornerID": { "value": "tt_25c_1v0" },
               "relativePath": { "value": "raw/tt_25c_1v0/top.spef" },
+              "sha256": "\(artifactDigest(spefData))",
+              "byteCount": \(spefData.count),
               "createdAt": "2026-05-07T00:00:00Z",
               "status": "available"
             },
@@ -152,6 +158,8 @@ struct PEXBackendAdapterTests {
               "stage": "persistence",
               "cornerID": { "value": "tt_25c_1v0" },
               "relativePath": { "value": "ir/tt_25c_1v0.json" },
+              "sha256": "\(artifactDigest(irData))",
+              "byteCount": \(irData.count),
               "createdAt": "2026-05-07T00:00:00Z",
               "status": "available"
             },
@@ -161,6 +169,8 @@ struct PEXBackendAdapterTests {
               "stage": "backendExecution",
               "cornerID": { "value": "tt_25c_1v0" },
               "relativePath": { "value": "raw/tt_25c_1v0/extraction.log" },
+              "sha256": "\(artifactDigest(logData))",
+              "byteCount": \(logData.count),
               "createdAt": "2026-05-07T00:00:00Z",
               "status": "available"
             }
@@ -168,6 +178,10 @@ struct PEXBackendAdapterTests {
           "warnings": []
         }
         """.write(to: runDirectory.appending(path: "manifest.json"), atomically: true, encoding: .utf8)
+    }
+
+    private func artifactDigest(_ data: Data) -> String {
+        PEXRequestHash.compute(from: data).value
     }
 
     private func fixtureURL(_ name: String, extension ext: String, subdirectory: String) throws -> URL {

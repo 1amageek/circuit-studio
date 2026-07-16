@@ -2,6 +2,7 @@ import Foundation
 import DesignFlowKernel
 import Testing
 import LayoutCore
+import PEXEngine
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 @testable import SchematicEditor
@@ -48,9 +49,9 @@ enum DesignFlowServiceTestSupport {
         let irDirectory = runDirectory.appending(path: "ir")
         try FileManager.default.createDirectory(at: rawDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: irDirectory, withIntermediateDirectories: true)
-        try "mock spef".write(to: rawDirectory.appending(path: "top.spef"), atomically: true, encoding: .utf8)
-        try "mock log".write(to: rawDirectory.appending(path: "extraction.log"), atomically: true, encoding: .utf8)
-        try """
+        let spefData = Data("mock spef".utf8)
+        let logData = Data("mock log".utf8)
+        let irData = Data("""
         {
           "version": "1.0",
           "cornerID": { "value": "tt_25c_1v0" },
@@ -68,7 +69,10 @@ enum DesignFlowServiceTestSupport {
           ],
           "metadata": {}
         }
-        """.write(to: irDirectory.appending(path: "tt_25c_1v0.json"), atomically: true, encoding: .utf8)
+        """.utf8)
+        try spefData.write(to: rawDirectory.appending(path: "top.spef"), options: .atomic)
+        try logData.write(to: rawDirectory.appending(path: "extraction.log"), options: .atomic)
+        try irData.write(to: irDirectory.appending(path: "tt_25c_1v0.json"), options: .atomic)
         try """
         {
           "version": 2,
@@ -92,6 +96,8 @@ enum DesignFlowServiceTestSupport {
               "stage": "backendExecution",
               "cornerID": { "value": "tt_25c_1v0" },
               "relativePath": { "value": "raw/tt_25c_1v0/top.spef" },
+              "sha256": "\(PEXRequestHash.compute(from: spefData).value)",
+              "byteCount": \(spefData.count),
               "createdAt": "2026-05-07T00:00:00Z",
               "status": "available"
             },
@@ -101,6 +107,8 @@ enum DesignFlowServiceTestSupport {
               "stage": "persistence",
               "cornerID": { "value": "tt_25c_1v0" },
               "relativePath": { "value": "ir/tt_25c_1v0.json" },
+              "sha256": "\(PEXRequestHash.compute(from: irData).value)",
+              "byteCount": \(irData.count),
               "createdAt": "2026-05-07T00:00:00Z",
               "status": "available"
             },
@@ -110,6 +118,8 @@ enum DesignFlowServiceTestSupport {
               "stage": "backendExecution",
               "cornerID": { "value": "tt_25c_1v0" },
               "relativePath": { "value": "raw/tt_25c_1v0/extraction.log" },
+              "sha256": "\(PEXRequestHash.compute(from: logData).value)",
+              "byteCount": \(logData.count),
               "createdAt": "2026-05-07T00:00:00Z",
               "status": "available"
             }

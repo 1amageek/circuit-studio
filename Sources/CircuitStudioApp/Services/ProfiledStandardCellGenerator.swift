@@ -46,7 +46,7 @@ public struct ProfiledStandardCellGenerator: StandardCellGenerator {
             }
         )
         cell.labels = cellProfile.labels.map { label in
-            let layer = profile.layerReference(for: label.layer)
+            let layer = profile.labelLayerReference(for: label.layer)
             return LayoutLabel(
                 text: label.text,
                 position: LayoutPoint(x: label.x, y: label.y),

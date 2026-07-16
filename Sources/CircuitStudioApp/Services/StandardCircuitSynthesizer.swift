@@ -178,7 +178,7 @@ public struct StandardCircuitSynthesizer: Sendable {
         _ x: Double,
         _ y: Double
     ) -> LayoutLabel {
-        let layer = profile.layerReference(for: role)
+        let layer = profile.labelLayerReference(for: role)
         return LayoutLabel(
             text: t,
             position: LayoutPoint(x: x, y: y),

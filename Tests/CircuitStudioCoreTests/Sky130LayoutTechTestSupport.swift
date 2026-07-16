@@ -20,8 +20,8 @@ enum Sky130LayoutTech {
         return resourceName
     }
 
-    static func layer(_ name: String) -> LayoutLayerID {
-        LayoutTechnologyCatalog.defaultLayer(name)
+    static func layer(_ name: String, purpose: String? = nil) -> LayoutLayerID {
+        LayoutTechnologyCatalog.defaultLayer(name, purpose: purpose)
     }
 
     static func loadTech() throws -> LayoutTechDatabase {

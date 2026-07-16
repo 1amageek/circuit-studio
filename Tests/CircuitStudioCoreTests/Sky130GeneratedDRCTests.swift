@@ -885,7 +885,11 @@ struct Sky130GeneratedDRCTests {
     }
 
     private func label(_ text: String, _ layer: String, _ x: Double, _ y: Double) -> LayoutLabel {
-        LayoutLabel(text: text, position: LayoutPoint(x: x, y: y), layer: Sky130LayoutTech.layer(layer))
+        LayoutLabel(
+            text: text,
+            position: LayoutPoint(x: x, y: y),
+            layer: Sky130LayoutTech.layer(layer, purpose: "label")
+        )
     }
 
     /// The inverter core with port net labels (A on the poly gate, Y on the output

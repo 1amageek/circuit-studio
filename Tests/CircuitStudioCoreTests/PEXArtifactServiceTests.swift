@@ -21,6 +21,9 @@ struct PEXArtifactServiceTests {
         )
 
         let manifestURL = runDirectory.appending(path: "manifest.json")
+        try writeArtifact(Data(), relativePath: "ir/tt.json", in: runDirectory)
+        try writeArtifact(Data(), relativePath: "raw/tt/tt.spef", in: runDirectory)
+        try writeArtifact(Data(), relativePath: "raw/tt/extraction.log", in: runDirectory)
         try manifestJSON(runID: "run-1", cornerID: "tt")
             .write(to: manifestURL, atomically: true, encoding: .utf8)
 
@@ -34,6 +37,7 @@ struct PEXArtifactServiceTests {
         #expect(manifest.warnings.map(\.message) == ["low confidence"])
         #expect(manifest.corners.count == 1)
         #expect(manifest.corners[0].cornerID.value == "tt")
+        #expect(resolver.completenessReport().status == .complete)
         #expect(resolver.records(kind: .parasiticIR, cornerID: cornerID, status: .available).map { resolver.url(for: $0) } == [
             runDirectory.appending(path: "ir").appending(path: "tt.json"),
         ])
@@ -59,6 +63,9 @@ struct PEXArtifactServiceTests {
             at: runDirectory.appending(path: "ir"),
             withIntermediateDirectories: true
         )
+        try writeArtifact(Data(), relativePath: "ir/tt.json", in: runDirectory)
+        try writeArtifact(Data(), relativePath: "raw/tt/tt.spef", in: runDirectory)
+        try writeArtifact(Data(), relativePath: "raw/tt/extraction.log", in: runDirectory)
         try manifestJSON(
             runID: "run-1",
             cornerID: "tt",
@@ -91,16 +98,47 @@ struct PEXArtifactServiceTests {
         let irDirectory = runDirectory.appending(path: "ir")
         try FileManager.default.createDirectory(at: irDirectory, withIntermediateDirectories: true)
         let manifestURL = runDirectory.appending(path: "manifest.json")
-        try manifestJSON(runID: "run-1", cornerID: "tt")
-            .write(to: manifestURL, atomically: true, encoding: .utf8)
-        try pexEngineIRJSON(cornerID: "tt")
-            .write(to: irDirectory.appending(path: "tt.json"), atomically: true, encoding: .utf8)
+        let irJSON = pexEngineIRJSON(cornerID: "tt")
+        let irData = Data(irJSON.utf8)
+        try irData.write(to: irDirectory.appending(path: "tt.json"), options: .atomic)
+        try manifestJSON(
+            runID: "run-1",
+            cornerID: "tt",
+            artifactDataByPath: ["ir/tt.json": irData]
+        ).write(to: manifestURL, atomically: true, encoding: .utf8)
 
         let service = PEXArtifactService()
         let ir = try service.loadIR(for: "tt", manifestURL: manifestURL)
 
         #expect(ir.cornerID == "tt")
         #expect(ir.elements.count == 3)
+    }
+
+    @Test func loadIRRejectsArtifactWhoseDigestDoesNotMatchManifest() throws {
+        let root = try makeTemporaryRoot("corner-integrity")
+        defer { removeTemporaryRoot(root) }
+
+        let runDirectory = root.appending(path: "run-1")
+        let irURL = runDirectory.appending(path: "ir/tt.json")
+        try FileManager.default.createDirectory(
+            at: irURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let irData = Data(pexEngineIRJSON(cornerID: "tt").utf8)
+        try irData.write(to: irURL, options: .atomic)
+        let manifestURL = runDirectory.appending(path: "manifest.json")
+        try manifestJSON(
+            runID: "run-1",
+            cornerID: "tt",
+            artifactDataByPath: ["ir/tt.json": Data("different artifact".utf8)]
+        ).write(to: manifestURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try PEXArtifactService().loadIR(for: "tt", manifestURL: manifestURL)
+            Issue.record("Expected PEX artifact integrity validation to fail")
+        } catch {
+            #expect(error.localizedDescription.contains("IR artifact integrity check failed"))
+        }
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -142,6 +180,7 @@ struct PEXArtifactServiceTests {
 
         #expect(manifest.status == .success)
         #expect(manifest.corners.count == 1)
+        #expect(resolver.completenessReport().status == .complete)
         #expect(resolver.records(kind: .rawOutput, cornerID: PEXCornerID("tt"), status: .available).map { resolver.url(for: $0) } == [
             root
                 .appending(path: result.runID.description)
@@ -191,6 +230,7 @@ struct PEXArtifactServiceTests {
         #expect(manifest.backendID == "golden-fixture")
         #expect(manifest.status == .success)
         #expect(manifest.corners.count == 2)
+        #expect(resolver.completenessReport().status == .complete)
         #expect(resolver.records(kind: .rawOutput, cornerID: PEXCornerID("tt_25c_1v0"), status: .available).count == 1)
         #expect(resolver.records(kind: .log, cornerID: PEXCornerID("tt_25c_1v0"), status: .available).first.map { resolver.url(for: $0).lastPathComponent } == "extraction.log")
         #expect(ir.units == .canonical)
@@ -289,7 +329,8 @@ struct PEXArtifactServiceTests {
         cornerID: String,
         rawFiles: [String]? = nil,
         irFile: String? = nil,
-        logFile: String? = nil
+        logFile: String? = nil,
+        artifactDataByPath: [String: Data] = [:]
     ) -> String {
         let resolvedRawFiles = rawFiles ?? ["raw/\(cornerID)/\(cornerID).spef"]
         let resolvedIRFile = irFile ?? "ir/\(cornerID).json"
@@ -302,6 +343,8 @@ struct PEXArtifactServiceTests {
               "stage": "backendExecution",
               "cornerID": { "value": "\(cornerID)" },
               "relativePath": { "value": "\(path)" },
+              "sha256": "\(artifactDigest(artifactDataByPath[path] ?? Data()))",
+              "byteCount": \((artifactDataByPath[path] ?? Data()).count),
               "createdAt": "2026-05-07T00:00:00Z",
               "status": "available"
             }
@@ -316,6 +359,8 @@ struct PEXArtifactServiceTests {
               "stage": "persistence",
               "cornerID": { "value": "\(cornerID)" },
               "relativePath": { "value": "\(resolvedIRFile)" },
+              "sha256": "\(artifactDigest(artifactDataByPath[resolvedIRFile] ?? Data()))",
+              "byteCount": \((artifactDataByPath[resolvedIRFile] ?? Data()).count),
               "createdAt": "2026-05-07T00:00:00Z",
               "status": "available"
             }
@@ -327,6 +372,8 @@ struct PEXArtifactServiceTests {
               "stage": "backendExecution",
               "cornerID": { "value": "\(cornerID)" },
               "relativePath": { "value": "\(resolvedLogFile)" },
+              "sha256": "\(artifactDigest(artifactDataByPath[resolvedLogFile] ?? Data()))",
+              "byteCount": \((artifactDataByPath[resolvedLogFile] ?? Data()).count),
               "createdAt": "2026-05-07T00:00:00Z",
               "status": "available"
             }
@@ -402,6 +449,19 @@ struct PEXArtifactServiceTests {
           "metadata": {}
         }
         """
+    }
+
+    private func artifactDigest(_ data: Data) -> String {
+        PEXRequestHash.compute(from: data).value
+    }
+
+    private func writeArtifact(_ data: Data, relativePath: String, in runDirectory: URL) throws {
+        let url = runDirectory.appending(path: relativePath)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url, options: .atomic)
     }
 
     private func makeTechnologyIR() -> TechnologyIR {

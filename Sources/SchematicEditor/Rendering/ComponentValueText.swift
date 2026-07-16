@@ -8,6 +8,11 @@ public enum ComponentValueText {
     /// The annotation for a placed component, or `nil` when the device has
     /// nothing meaningful to show.
     public static func annotation(for component: PlacedComponent, kind: DeviceKind) -> String? {
+        let model = component.modelName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let model, !model.isEmpty {
+            return model
+        }
+
         let instanceParameters = kind.parameterSchema.filter { !$0.isModelParameter }
         let valued: [(schema: ParameterSchema, value: Double)] = instanceParameters.compactMap { schema in
             guard let value = component.parameters[schema.id] ?? schema.defaultValue else { return nil }
@@ -19,7 +24,6 @@ public enum ComponentValueText {
         }
 
         let required = valued.filter { $0.schema.isRequired }
-        let model = component.modelName?.trimmingCharacters(in: .whitespacesAndNewlines)
         if required.count == 1, let only = required.first {
             return EngineeringNotation.format(only.value, unit: only.schema.unit)
         }
@@ -29,9 +33,6 @@ public enum ComponentValueText {
                 .joined(separator: " ")
         }
 
-        if let model, !model.isEmpty {
-            return model
-        }
         return nil
     }
 

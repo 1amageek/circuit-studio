@@ -67,8 +67,7 @@ struct SPICESchematicImporterLayoutTests {
         #expect(currentAnnotation.contains("PULSE"))
         #expect(currentAnnotation.contains("20"))
         #expect(!currentAnnotation.contains("1 mA"))
-        #expect(pmosAnnotation.contains("W="))
-        #expect(pmosAnnotation.contains("L="))
+        #expect(pmosAnnotation == firstPMOS.modelName)
 
         let regenerated = try NetlistGenerator().generate(
             from: document,

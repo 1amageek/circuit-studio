@@ -365,7 +365,7 @@ struct DesignFlowSpecValidationCommandTests {
         #expect(scaledDesign.pexIR?.elements.first { $0.id == "r_out" }?.value == 1.0)
         #expect(scaledDesign.pexIR?.elements.first { $0.id == "c_out" }?.value == 2.0e-15)
 
-        let unsupportedElementKindURL = root.appending(path: "unsupported-pex-element-kind.json")
+        let inductorElementURL = root.appending(path: "inductor-pex-element.json")
         try DesignFlowServiceTestSupport.writeDesignSpecJSON(
             DesignFlowServiceTestSupport.agentResistorDividerSpecJSON(
                 pexUnits: "",
@@ -379,11 +379,14 @@ struct DesignFlowSpecValidationCommandTests {
                 }
                 """
             ),
-            to: unsupportedElementKindURL
+            to: inductorElementURL
         )
-        #expect(throws: DesignFlowDesignSpecError.unsupportedPEXElementKind("inductor")) {
-            _ = try service.loadDesignSpec(unsupportedElementKindURL)
-        }
+        let inductorDesign = try service.loadDesignSpec(inductorElementURL).build()
+        let inductor = try #require(inductorDesign.pexIR?.elements.first { $0.id == "l_out" })
+        #expect(inductor.kind == .inductor)
+        #expect(inductor.nodeA == "out")
+        #expect(inductor.nodeB == "out_pex")
+        #expect(inductor.value == 0.5)
 
         let unsupportedDiagnosticSeverityURL = root.appending(path: "unsupported-pex-diagnostic-severity.json")
         let unsupportedDiagnosticSeverityJSON = DesignFlowServiceTestSupport.agentResistorDividerSpecJSON(

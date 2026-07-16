@@ -1,6 +1,6 @@
 {
   "units" : {
-    "dbuPerMicron" : 1000
+    "scale" : 1000
   },
   "grid" : 0.005,
   "layers" : [
@@ -175,7 +175,7 @@
       "visibleByDefault" : true
     },
     {
-      "id" : { "name" : "nwell", "purpose" : "drawing" },
+      "id" : { "name" : "nwell", "purpose" : "pin" },
       "displayName" : "N-Well Pin",
       "gdsLayer" : 64,
       "gdsDatatype" : 16,
@@ -185,7 +185,7 @@
       "visibleByDefault" : true
     },
     {
-      "id" : { "name" : "nwell", "purpose" : "drawing" },
+      "id" : { "name" : "nwell", "purpose" : "label" },
       "displayName" : "N-Well Label",
       "gdsLayer" : 64,
       "gdsDatatype" : 5,
@@ -195,7 +195,7 @@
       "visibleByDefault" : true
     },
     {
-      "id" : { "name" : "tap", "purpose" : "drawing" },
+      "id" : { "name" : "pwell", "purpose" : "label" },
       "displayName" : "P-Well Label",
       "gdsLayer" : 64,
       "gdsDatatype" : 59,
@@ -205,7 +205,7 @@
       "visibleByDefault" : true
     },
     {
-      "id" : { "name" : "tap", "purpose" : "drawing" },
+      "id" : { "name" : "pwell", "purpose" : "pin" },
       "displayName" : "P-Well Pin",
       "gdsLayer" : 122,
       "gdsDatatype" : 16,
@@ -215,7 +215,67 @@
       "visibleByDefault" : true
     },
     {
-      "id" : { "name" : "li1", "purpose" : "drawing" },
+      "id" : { "name" : "diff", "purpose" : "label" },
+      "displayName" : "Diffusion Label",
+      "gdsLayer" : 65,
+      "gdsDatatype" : 6,
+      "color" : { "red" : 0.2, "green" : 0.6, "blue" : 0.2, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "diff", "purpose" : "pin" },
+      "displayName" : "Diffusion Pin",
+      "gdsLayer" : 65,
+      "gdsDatatype" : 16,
+      "color" : { "red" : 0.2, "green" : 0.6, "blue" : 0.2, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "tap", "purpose" : "label" },
+      "displayName" : "Tap Label",
+      "gdsLayer" : 65,
+      "gdsDatatype" : 5,
+      "color" : { "red" : 0.3, "green" : 0.5, "blue" : 0.3, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "tap", "purpose" : "pin" },
+      "displayName" : "Tap Pin",
+      "gdsLayer" : 65,
+      "gdsDatatype" : 48,
+      "color" : { "red" : 0.3, "green" : 0.5, "blue" : 0.3, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "poly", "purpose" : "label" },
+      "displayName" : "Poly Label",
+      "gdsLayer" : 66,
+      "gdsDatatype" : 5,
+      "color" : { "red" : 0.8, "green" : 0.1, "blue" : 0.1, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "poly", "purpose" : "pin" },
+      "displayName" : "Poly Pin",
+      "gdsLayer" : 66,
+      "gdsDatatype" : 16,
+      "color" : { "red" : 0.8, "green" : 0.1, "blue" : 0.1, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "li1", "purpose" : "label" },
       "displayName" : "Local Interconnect Label",
       "gdsLayer" : 67,
       "gdsDatatype" : 5,
@@ -225,7 +285,7 @@
       "visibleByDefault" : true
     },
     {
-      "id" : { "name" : "li1", "purpose" : "drawing" },
+      "id" : { "name" : "li1", "purpose" : "pin" },
       "displayName" : "Local Interconnect Pin",
       "gdsLayer" : 67,
       "gdsDatatype" : 16,
@@ -235,7 +295,7 @@
       "visibleByDefault" : true
     },
     {
-      "id" : { "name" : "met1", "purpose" : "drawing" },
+      "id" : { "name" : "met1", "purpose" : "label" },
       "displayName" : "Metal1 Label",
       "gdsLayer" : 68,
       "gdsDatatype" : 5,
@@ -245,11 +305,71 @@
       "visibleByDefault" : true
     },
     {
-      "id" : { "name" : "met1", "purpose" : "drawing" },
+      "id" : { "name" : "met1", "purpose" : "pin" },
       "displayName" : "Metal1 Pin",
       "gdsLayer" : 68,
       "gdsDatatype" : 16,
       "color" : { "red" : 0.2, "green" : 0.5, "blue" : 0.8, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "met2", "purpose" : "label" },
+      "displayName" : "Metal2 Label",
+      "gdsLayer" : 69,
+      "gdsDatatype" : 5,
+      "color" : { "red" : 0.2, "green" : 0.6, "blue" : 0.8, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "met2", "purpose" : "pin" },
+      "displayName" : "Metal2 Pin",
+      "gdsLayer" : 69,
+      "gdsDatatype" : 16,
+      "color" : { "red" : 0.2, "green" : 0.6, "blue" : 0.8, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "met3", "purpose" : "label" },
+      "displayName" : "Metal3 Label",
+      "gdsLayer" : 70,
+      "gdsDatatype" : 5,
+      "color" : { "red" : 0.5, "green" : 0.3, "blue" : 0.7, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "met3", "purpose" : "pin" },
+      "displayName" : "Metal3 Pin",
+      "gdsLayer" : 70,
+      "gdsDatatype" : 16,
+      "color" : { "red" : 0.5, "green" : 0.3, "blue" : 0.7, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "met4", "purpose" : "label" },
+      "displayName" : "Metal4 Label",
+      "gdsLayer" : 71,
+      "gdsDatatype" : 5,
+      "color" : { "red" : 0.4, "green" : 0.4, "blue" : 0.7, "alpha" : 1.0 },
+      "fillPattern" : "forwardDiagonal",
+      "preferredDirection" : "none",
+      "visibleByDefault" : true
+    },
+    {
+      "id" : { "name" : "met4", "purpose" : "pin" },
+      "displayName" : "Metal4 Pin",
+      "gdsLayer" : 71,
+      "gdsDatatype" : 16,
+      "color" : { "red" : 0.4, "green" : 0.4, "blue" : 0.7, "alpha" : 1.0 },
       "fillPattern" : "forwardDiagonal",
       "preferredDirection" : "none",
       "visibleByDefault" : true

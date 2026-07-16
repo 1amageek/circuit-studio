@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import LayoutCore
+import LayoutIO
 @testable import CircuitStudioApp
 
 @Suite("Standard-cell layout profile")
@@ -15,6 +17,7 @@ struct StandardCellLayoutProfileTests {
         #expect(profile.layers.diffusion.name == "diff")
         #expect(profile.layers.contactCut.purpose == "cut")
         #expect(profile.layers.metal2.name == "met2")
+        #expect(profile.labelLayerReference(for: .metal2).purpose == "label")
         #expect(profile.deviceModels.nmos == "sky130_fd_pr__nfet_01v8")
         #expect(profile.manufacturingGridMicrons == 0.005)
         #expect(profile.inverter.defaultDeviceWidth == 0.42)
@@ -23,6 +26,60 @@ struct StandardCellLayoutProfileTests {
         #expect(profile.circuitRouting.signalTrackSpacingLayer == .metal3)
         #expect(profile.fixedCells["nand2"]?.shapes.count == 24)
         #expect(profile.fixedCells["nor2"]?.devices.count == 4)
+    }
+
+    @Test("Bundled generated-cell label roles resolve to distinct technology label datatypes")
+    func bundledGeneratedCellLabelRolesResolveInTechnology() throws {
+        let profile = try Self.bundledProfile()
+        let technology = try LayoutTechnologyResource.bundled(
+            resourceName: profile.targetTechnologyResourceName
+        )
+        let roles: [StandardCellLayoutProfile.LayerRole] = [
+            .gateConductor,
+            .localInterconnect,
+            .metal2,
+        ]
+
+        for role in roles {
+            let drawing = profile.layerReference(for: role)
+            let label = profile.labelLayerReference(for: role)
+            let drawingID = LayoutLayerID(name: drawing.name, purpose: drawing.purpose)
+            let labelID = LayoutLayerID(name: label.name, purpose: label.purpose)
+            let drawingDefinition = try #require(technology.layerDefinition(for: drawingID))
+            let labelDefinition = try #require(technology.layerDefinition(for: labelID))
+
+            #expect(drawingID != labelID)
+            #expect(drawingDefinition.gdsDatatype != labelDefinition.gdsDatatype)
+        }
+    }
+
+    @Test("Generated inverter GDS preserves drawing geometry and label datatypes")
+    func generatedInverterGDSPreservesLayerPurposes() throws {
+        let profile = try Self.bundledProfile()
+        let technology = try LayoutTechnologyResource.bundled(
+            resourceName: profile.targetTechnologyResourceName
+        )
+        let generator = ProfiledInverterGenerator(profile: profile)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "StandardCellLayerPurposeTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { removeCoreTestTemporaryDirectory(directory) }
+        let gdsURL = directory.appending(path: "inverter.gds")
+        let converter = MaskDataFormatConverter(tech: technology)
+
+        try converter.exportDocument(generator.generate(name: "inverter"), to: gdsURL, format: .gds)
+        let roundTripped = try converter.importDocument(from: gdsURL, format: .gds)
+        let cell = try #require(roundTripped.cells.first)
+
+        #expect(cell.shapes.contains {
+            $0.layer == LayoutLayerID(name: "nwell", purpose: "drawing")
+        })
+        #expect(cell.labels.contains {
+            $0.text == "A" && $0.layer == LayoutLayerID(name: "poly", purpose: "label")
+        })
+        #expect(cell.labels.contains {
+            $0.text == "Y" && $0.layer == LayoutLayerID(name: "li1", purpose: "label")
+        })
     }
 
     @Test("CMOSGateLibrary derives device sizing from standard-cell profile")
@@ -127,6 +184,7 @@ struct StandardCellLayoutProfileTests {
         #expect(layerNames.contains("contact_custom"))
         #expect(!layerNames.contains("diff"))
         #expect(labelLayerNames.contains("local_custom"))
+        #expect(document.cells.flatMap(\.labels).allSatisfy { $0.layer.purpose == "label" })
         #expect(schematic.contains("custom_pfet"))
         #expect(schematic.contains("custom_nfet"))
     }
@@ -215,8 +273,10 @@ struct StandardCellLayoutProfileTests {
         #expect(nandLayers.contains("active_custom"))
         #expect(nandLayers.contains("contact_custom"))
         #expect(!nandLayers.contains("diff"))
+        #expect(nandDocument.cells.flatMap(\.labels).allSatisfy { $0.layer.purpose == "label" })
         #expect(norLayers.contains("local_custom"))
         #expect(norLayers.contains("well_custom"))
+        #expect(norDocument.cells.flatMap(\.labels).allSatisfy { $0.layer.purpose == "label" })
         #expect(nandSchematic.contains("custom_pfet"))
         #expect(nandSchematic.contains("custom_nfet"))
         #expect(norSchematic.contains("custom_pfet"))
@@ -254,6 +314,7 @@ struct StandardCellLayoutProfileTests {
         #expect(layerNames.contains("active_custom"))
         #expect(layerNames.contains("metal2_custom"))
         #expect(!layerNames.contains("diff"))
+        #expect(layout.labels.allSatisfy { $0.layer.purpose == "label" })
         #expect(schematic.contains("custom_pfet"))
         #expect(schematic.contains("custom_nfet"))
     }

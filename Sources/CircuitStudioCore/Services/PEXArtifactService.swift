@@ -8,7 +8,7 @@ public struct PEXArtifactService: Sendable {
         do {
             return try PEXArtifactResolver(manifestURL: manifestURL).manifest
         } catch {
-            throw StudioError.projectLoadFailed("Failed to load PEX artifact manifest: \(error.localizedDescription)")
+            throw StudioError.projectLoadFailed("Failed to load PEX artifact manifest: \(describe(error))")
         }
     }
 
@@ -18,7 +18,7 @@ public struct PEXArtifactService: Sendable {
             let ir = try resolver.loadIR(cornerID: PEXCornerID(cornerID))
             return try convert(ir)
         } catch {
-            throw StudioError.projectLoadFailed("PEX corner '\(cornerID)' has no readable IR artifact: \(error.localizedDescription)")
+            throw StudioError.projectLoadFailed("PEX corner '\(cornerID)' has no readable IR artifact: \(describe(error))")
         }
     }
 
@@ -28,7 +28,7 @@ public struct PEXArtifactService: Sendable {
             return try resolver.loadIR(cornerID: PEXCornerID(cornerID))
         } catch {
             throw StudioError.projectLoadFailed(
-                "PEX corner '\(cornerID)' has no readable canonical IR artifact: \(error.localizedDescription)"
+                "PEX corner '\(cornerID)' has no readable canonical IR artifact: \(describe(error))"
             )
         }
     }
@@ -43,8 +43,15 @@ public struct PEXArtifactService: Sendable {
             let artifactURLs = try records.map { try resolver.validatedURL(for: $0) }
             return [manifestURL] + artifactURLs
         } catch {
-            throw StudioError.projectLoadFailed("Failed to resolve PEX audit artifacts: \(error.localizedDescription)")
+            throw StudioError.projectLoadFailed("Failed to resolve PEX audit artifacts: \(describe(error))")
         }
+    }
+
+    private func describe(_ error: any Error) -> String {
+        if let pexError = error as? PEXError {
+            return pexError.description
+        }
+        return error.localizedDescription
     }
 
     private func convert(_ ir: ParasiticIR) throws -> PEXParasiticIR {

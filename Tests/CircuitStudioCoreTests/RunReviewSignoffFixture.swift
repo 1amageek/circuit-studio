@@ -664,30 +664,40 @@ struct RunReviewSignoffFixture {
                       ],
                       "sourceArtifactRefs": [
                         {
-                          "role": "standard-layout",
-                          "artifactID": "layout-gds",
-                          "stageID": null,
-                          "path": "\(rawPrefix)/layout.gds",
-                          "kind": "layout",
-                          "format": "gds",
-                          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-                          "byteCount": 1024,
-                          "integrityStatus": "verified",
-                          "integrityMessage": null
+                          "id": "layout-gds",
+                          "locator": {
+                            "location": {
+                              "storage": "workspaceRelative",
+                              "value": "\(rawPrefix)/layout.gds"
+                            },
+                            "role": "output",
+                            "kind": "layout",
+                            "format": "gds"
+                          },
+                          "digest": {
+                            "algorithm": "sha256",
+                            "hexadecimalValue": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                          },
+                          "byteCount": 1024
                         }
                       ],
                       "signoffArtifactRefs": [
                         {
-                          "role": "drc-summary",
-                          "artifactID": "drc-summary",
-                          "stageID": "010-drc",
-                          "path": "\(drcPath)",
-                          "kind": "report",
-                          "format": "json",
-                          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-                          "byteCount": 256,
-                          "integrityStatus": "verified",
-                          "integrityMessage": null
+                          "id": "drc-summary",
+                          "locator": {
+                            "location": {
+                              "storage": "workspaceRelative",
+                              "value": "\(drcPath)"
+                            },
+                            "role": "output",
+                            "kind": "report",
+                            "format": "json"
+                          },
+                          "digest": {
+                            "algorithm": "sha256",
+                            "hexadecimalValue": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                          },
+                          "byteCount": 256
                         }
                       ],
                       "diagnostics": []
@@ -762,16 +772,21 @@ struct RunReviewSignoffFixture {
                       "sourceArtifactRefs": [],
                       "signoffArtifactRefs": [
                         {
-                          "role": "lvs-summary",
-                          "artifactID": "lvs-summary",
-                          "stageID": "020-lvs",
-                          "path": "\(lvsPath)",
-                          "kind": "report",
-                          "format": "json",
-                          "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-                          "byteCount": 256,
-                          "integrityStatus": "verified",
-                          "integrityMessage": null
+                          "id": "lvs-summary",
+                          "locator": {
+                            "location": {
+                              "storage": "workspaceRelative",
+                              "value": "\(lvsPath)"
+                            },
+                            "role": "output",
+                            "kind": "report",
+                            "format": "json"
+                          },
+                          "digest": {
+                            "algorithm": "sha256",
+                            "hexadecimalValue": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                          },
+                          "byteCount": 256
                         }
                       ],
                       "diagnostics": [
