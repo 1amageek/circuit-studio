@@ -1,4 +1,5 @@
 import Foundation
+import SignoffToolSupport
 
 /// Executes the standalone `pexengine` command from CircuitStudio.
 public struct PEXCommandService: Sendable {
@@ -40,6 +41,8 @@ public struct PEXCommandService: Sendable {
                 throw PEXCommandError.invalidConfiguration(message)
             case .launchFailed(_, let message):
                 throw PEXCommandError.launchFailed(message)
+            case .cancellationCheckFailed(_, let message, _, _):
+                throw PEXCommandError.launchFailed("Cancellation check failed: \(message)")
             case .cancelled(_, let standardOutput, let standardError):
                 throw PEXCommandError.cancelled(stdout: standardOutput, stderr: standardError)
             case .timedOut(let executablePath, let timeoutSeconds, let standardOutput, let standardError):

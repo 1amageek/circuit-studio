@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import SignoffToolSupport
 
 public struct ExternalSignoffCommand: Sendable, Hashable, Codable {
     public let kind: ExternalSignoffToolReport.Kind

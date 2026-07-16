@@ -44,6 +44,7 @@ let package = Package(
                 .product(name: "CoreSpice", package: "CoreSpice"),
                 .product(name: "CoreSpiceIO", package: "CoreSpice"),
                 .product(name: "PEXEngine", package: "PEXEngine"),
+                .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
                 .product(name: "OpenVAFSupport", package: "swift-openvaf"),
                 .product(name: "VerilogACompiler", package: "swift-openvaf"),
             ]
@@ -96,6 +97,7 @@ let package = Package(
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
+                .product(name: "PEXEngine", package: "PEXEngine"),
                 .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
                 "CircuitStudioCore",
                 "CircuitPhysicalDesign",
@@ -175,6 +177,7 @@ let package = Package(
                 .product(name: "OpenVAFSupport", package: "swift-openvaf"),
                 .product(name: "VerilogACompiler", package: "swift-openvaf"),
                 .product(name: "PEXEngine", package: "PEXEngine"),
+                .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
             ],
             resources: [
                 .copy("Fixtures/virtual_pdk.json"),

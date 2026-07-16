@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import SignoffToolSupport
 
 /// Materializes a real PDK cell (or composed block) layout to a GDS file via
 /// Magic, so a design referenced by cell name flows into signoff without a

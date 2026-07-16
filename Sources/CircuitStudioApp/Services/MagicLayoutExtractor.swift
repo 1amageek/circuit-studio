@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import SignoffToolSupport
 
 /// Extracts an LVS-mode SPICE netlist (device-level, no parasitics) from a layout
 /// GDS using Magic, so Netgen can compare it against the schematic. Distinct from

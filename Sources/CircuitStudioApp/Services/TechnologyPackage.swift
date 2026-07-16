@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import PEXEngine
 
 public struct TechnologyPackage: Sendable, Hashable {
     public let manifestURL: URL

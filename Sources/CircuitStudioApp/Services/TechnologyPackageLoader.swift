@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import PEXEngine
 
 public struct TechnologyPackageLoader: Sendable {
     public enum LoaderError: Error, LocalizedError, Equatable {

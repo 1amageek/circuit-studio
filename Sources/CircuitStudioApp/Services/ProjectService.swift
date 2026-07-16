@@ -4,6 +4,7 @@ import LayoutCore
 import LayoutTech
 import LayoutIO
 import DesignFlowKernel
+import PEXEngine
 import Xcircuite
 
 /// Manages `.xcircuite/` project directory for persistent workspace state.
@@ -270,7 +271,7 @@ public struct ProjectService: Sendable {
         if FileManager.default.fileExists(atPath: configURL.path(percentEncoded: false)) {
             config = try loadPEXProjectConfig(forProjectAt: projectRoot)
         } else {
-            config = PEXProjectConfig()
+            config = PEXProjectConfig(options: .init(strictValidation: true))
             try savePEXProjectConfig(config, forProjectAt: projectRoot)
         }
 
@@ -299,7 +300,7 @@ public struct ProjectService: Sendable {
         if FileManager.default.fileExists(atPath: configURL.path(percentEncoded: false)) {
             config = try loadPEXProjectConfig(forProjectAt: projectRoot)
         } else {
-            config = PEXProjectConfig()
+            config = PEXProjectConfig(options: .init(strictValidation: true))
         }
         guard config.topCell != topCell else { return }
         config.topCell = topCell

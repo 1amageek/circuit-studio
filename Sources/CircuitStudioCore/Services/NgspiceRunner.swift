@@ -1,5 +1,6 @@
 import Foundation
 import CoreSpiceEvent
+import SignoffToolSupport
 
 /// Executes ngspice in batch mode and returns the generated RAW output.
 public struct NgspiceRunner: Sendable {
@@ -72,7 +73,7 @@ public struct NgspiceRunner: Sendable {
             result = try await TimedProcessRunner(
                 timeoutSeconds: timeoutSeconds,
                 terminationGraceSeconds: terminationGraceSeconds
-            ).run(process: process, shouldCancel: { cancellation.isCancelled })
+            ).run(process: process, cancellationCheck: { cancellation.isCancelled })
         } catch let error as TimedProcessError {
             switch error {
             case .invalidConfiguration(let message):
@@ -81,6 +82,8 @@ public struct NgspiceRunner: Sendable {
                 throw StudioError.simulationFailure("ngspice timed out after \(seconds)s: \(standardOutput)\(standardError)")
             case .launchFailed(_, let message):
                 throw StudioError.simulationFailure("ngspice failed to launch: \(message)")
+            case .cancellationCheckFailed(_, let message, _, _):
+                throw StudioError.simulationFailure("ngspice cancellation check failed: \(message)")
             case .cancelled:
                 throw StudioError.cancelled
             }
