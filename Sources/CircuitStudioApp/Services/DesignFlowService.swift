@@ -15,6 +15,7 @@ public struct DesignFlowService: Sendable {
     private let netlistGenerator: NetlistGenerator
     private let layoutTrustEvaluator: any LayoutTrustEvaluating
     private let layoutTrustArtifactWriter: any LayoutTrustArtifactWriting
+    private let pexRunner: any PEXRunning
     public let layoutEngineCatalog: any LayoutEngineCataloging
 
     public init(
@@ -22,12 +23,14 @@ public struct DesignFlowService: Sendable {
         netlistGenerator: NetlistGenerator = NetlistGenerator(),
         layoutTrustEvaluator: any LayoutTrustEvaluating = LayoutTrustEvaluationService(),
         layoutTrustArtifactWriter: any LayoutTrustArtifactWriting = LayoutTrustArtifactWriter(),
+        pexRunner: any PEXRunning = DefaultPEXEngine.withDefaults(),
         layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog()
     ) {
         self.simulationService = simulationService
         self.netlistGenerator = netlistGenerator
         self.layoutTrustEvaluator = layoutTrustEvaluator
         self.layoutTrustArtifactWriter = layoutTrustArtifactWriter
+        self.pexRunner = pexRunner
         self.layoutEngineCatalog = layoutEngineCatalog
     }
 
@@ -277,14 +280,13 @@ public struct DesignFlowService: Sendable {
 
     public func runPEXExtraction(
         _ request: DesignFlowPEXExtractionRequest
-    ) async throws -> PEXBackendExtractionResult {
-        let adapter = PEXEngineCommandBackendAdapter(executablePath: request.executablePath)
-        return try await adapter.extract(request: PEXBackendExtractionRequest(
+    ) async throws -> PEXExtractionResult {
+        try await PEXExtractionService(engine: pexRunner).extract(PEXExtractionRequest(
             configURL: request.configURL,
-            workingDirectory: request.workingDirectory,
+            projectDirectory: request.projectDirectory,
+            workspaceDirectory: request.workspaceDirectory,
             cornerID: request.cornerID,
-            executablePath: request.executablePath,
-            additionalArguments: request.additionalArguments
+            executablePath: request.executablePath
         ))
     }
 
@@ -1165,9 +1167,9 @@ public struct DesignFlowService: Sendable {
                   let lvsLogPath = lvs.replayLogPath else {
                 return nil
             }
-            let adapter = try SignoffAdapterFactory().replayAdapter(adapterID: signoff.adapterID)
-            return try await adapter.run(request: SignoffAdapterRequest(
-                replayLogs: [
+            let parser = try SignoffReportParserCatalog().parser(for: signoff.reportStyleID)
+            let loader: any SignoffReviewLoading = ExternalSignoffArtifactService(parser: parser)
+            return try loader.load(logs: [
                 ExternalSignoffLogArtifact(
                     kind: .drc,
                     toolName: drc.toolName,
@@ -1180,9 +1182,7 @@ public struct DesignFlowService: Sendable {
                     logURL: package.resolvedURL(for: lvsLogPath),
                     success: lvs.expectedSuccess
                 ),
-                ],
-                artifactDirectory: package.rootURL
-            ))
+                ])
         case (.some(let drcPath), .some(let lvsPath)):
             return try loadExternalSignoffReview(logs: [
                 ExternalSignoffLogArtifact(

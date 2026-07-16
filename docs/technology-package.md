@@ -24,7 +24,7 @@ flowchart LR
 | `processTechnologyPath` | Relative or absolute path to `ProcessTechnology` JSON used by netlist generation and simulation include resolution. |
 | `spiceModelSearchPaths` | Relative or absolute include search paths for SPICE model resolution. |
 | `layoutTechnology` | Builtin or JSON `LayoutTechDatabase` reference used by auto layout and DRC/LVS. |
-| `signoff` | Adapter ID plus DRC/LVS tool or replay-log references. |
+| `signoff` | Report style ID plus DRC/LVS tool or replay-log references. |
 | `pex` | PEX backend/config/saved-manifest references and default PEX corner. |
 | `corpus` | Optional golden corpus manifest references. |
 | `corners` | Cross-domain corner mapping between process corner IDs and PEX corner IDs. |

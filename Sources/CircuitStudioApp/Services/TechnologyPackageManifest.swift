@@ -52,12 +52,12 @@ public struct TechnologyPackageManifest: Sendable, Hashable, Codable {
             }
         }
 
-        public var adapterID: String
+        public var reportStyleID: String
         public var drc: Tool?
         public var lvs: Tool?
 
-        public init(adapterID: String, drc: Tool? = nil, lvs: Tool? = nil) {
-            self.adapterID = adapterID
+        public init(reportStyleID: String, drc: Tool? = nil, lvs: Tool? = nil) {
+            self.reportStyleID = reportStyleID
             self.drc = drc
             self.lvs = lvs
         }

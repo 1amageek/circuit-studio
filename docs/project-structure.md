@@ -186,14 +186,14 @@ flowchart LR
   Ledger["Xcircuite run ledger\ncanonical references"]
   Gate["RunReviewService\ncontainment / current digest"]
   Canvas["ArtifactCanvas(url:)\nfile resolution"]
-  Adapter["CircuitArtifactRenderer\nkind + format -> MIME"]
+  Renderer["CircuitArtifactRenderer\nkind + format -> MIME"]
   Parser["CoreSpice / domain parser\nfile -> canonical IR"]
   View["Domain View\nIR -> interaction"]
 
   Foundation --> Ledger
   Ledger --> Gate
   Gate --> Canvas
-  Adapter --> Canvas
+  Renderer --> Canvas
   Canvas --> Parser
   Parser --> View
 ```

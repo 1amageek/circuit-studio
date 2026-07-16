@@ -311,6 +311,10 @@ public struct ProjectService: Sendable {
         projectRoot.appending(path: Self.pexTOMLFileName)
     }
 
+    func pexConfigURL(inProjectAt projectRoot: URL) throws -> URL {
+        try pexConfigurationURL(inProjectAt: projectRoot)
+    }
+
     func pexWorkspaceDirectory(inProjectAt projectRoot: URL) -> URL {
         pexRunsDirectoryURL(inProjectAt: projectRoot)
     }

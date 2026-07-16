@@ -198,11 +198,11 @@ public struct TechnologyPackageLoader: Sendable {
             ))
             return
         }
-        if signoff.adapterID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if signoff.reportStyleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             diagnostics.append(.init(
                 severity: .error,
                 code: "missing_signoff_adapter",
-                message: "Signoff adapterID must not be empty."
+                message: "Signoff reportStyleID must not be empty."
             ))
         }
         validateFile(signoff.drc?.replayLogPath, rootURL: rootURL, code: "missing_drc_replay_log", diagnostics: &diagnostics)

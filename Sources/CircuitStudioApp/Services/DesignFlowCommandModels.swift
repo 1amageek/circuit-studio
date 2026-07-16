@@ -180,23 +180,23 @@ public struct DesignFlowPEXInput: Sendable, Hashable {
 
 public struct DesignFlowPEXExtractionRequest: Sendable, Hashable {
     public let configURL: URL
-    public let workingDirectory: URL?
+    public let projectDirectory: URL?
+    public let workspaceDirectory: URL?
     public let cornerID: String
     public let executablePath: String?
-    public let additionalArguments: [String]
 
     public init(
         configURL: URL,
-        workingDirectory: URL? = nil,
+        projectDirectory: URL? = nil,
+        workspaceDirectory: URL? = nil,
         cornerID: String = "tt_25c_1v0",
-        executablePath: String? = nil,
-        additionalArguments: [String] = []
+        executablePath: String? = nil
     ) {
         self.configURL = configURL
-        self.workingDirectory = workingDirectory
+        self.projectDirectory = projectDirectory
+        self.workspaceDirectory = workspaceDirectory
         self.cornerID = cornerID
         self.executablePath = executablePath
-        self.additionalArguments = additionalArguments
     }
 }
 

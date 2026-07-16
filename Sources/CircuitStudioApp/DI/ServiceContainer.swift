@@ -15,7 +15,6 @@ public final class ServiceContainer {
     public let netlistParsingService: NetlistParsingService
     public let projectService: ProjectService
     public let layoutPersistenceService: LayoutPersistenceService
-    public let pexCommandService: PEXCommandService
     public let recentDocumentsStore: RecentDocumentsStore
     public let simulationRunRecorder: any SimulationRunRecording
     public let activityService: ActivityService
@@ -36,7 +35,6 @@ public final class ServiceContainer {
         let projectService = ProjectService()
         self.projectService = projectService
         self.layoutPersistenceService = LayoutPersistenceService(projectService: projectService)
-        self.pexCommandService = PEXCommandService()
         self.recentDocumentsStore = RecentDocumentsStore()
         self.simulationRunRecorder = XcircuiteSimulationRunRecorder(
             actor: FlowRunActor(kind: .human, identifier: NSUserName())

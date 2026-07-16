@@ -209,28 +209,21 @@ struct DesignFlowUnifiedAPICommandTests {
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
-    func commandAPIRunsPEXExtractionThroughBackendAdapter() async throws {
+    func commandAPIRunsPEXExtractionThroughEngineProtocol() async throws {
         let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("pex-extraction-command")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root.appending(path: "pex-runs").appending(path: "mock-run")
         try DesignFlowServiceTestSupport.writePEXArtifacts(runDirectory: runDirectory)
         let configURL = root.appending(path: "pex-config.json")
-        try "{}".write(to: configURL, atomically: true, encoding: .utf8)
-        let executable = try DesignFlowServiceTestSupport.writeExecutable(
-            named: "mock-pexengine",
-            in: root,
-            contents: """
-            #!/bin/sh
-            printf '{"artifacts":{"manifestURL":"%s"}}\\n' "\(runDirectory.appending(path: "manifest.json").path(percentEncoded: false))"
-            exit 0
-            """
-        )
+        try DesignFlowServiceTestSupport.writePEXConfig(to: configURL)
+        let runResult = try DesignFlowServiceTestSupport.makePEXRunResult(runDirectory: runDirectory)
 
-        let result = try await DesignFlowService().execute(DesignFlowCommand(
+        let result = try await DesignFlowService(
+            pexRunner: StubPEXRunner(result: runResult)
+        ).execute(DesignFlowCommand(
             kind: .runPEXExtraction,
             pexCornerID: "tt_25c_1v0",
-            pexConfigPath: configURL.path(percentEncoded: false),
-            pexExecutablePath: executable.path(percentEncoded: false)
+            pexConfigPath: configURL.path(percentEncoded: false)
         ))
 
         #expect(result.kind == .runPEXExtraction)
@@ -247,23 +240,14 @@ struct DesignFlowUnifiedAPICommandTests {
         let runDirectory = root.appending(path: "pex-runs").appending(path: "mock-run")
         try DesignFlowServiceTestSupport.writePEXArtifacts(runDirectory: runDirectory)
         let configURL = root.appending(path: "pex-config.json")
-        try "{}".write(to: configURL, atomically: true, encoding: .utf8)
-        let executable = try DesignFlowServiceTestSupport.writeExecutable(
-            named: "mock-pexengine",
-            in: root,
-            contents: """
-            #!/bin/sh
-            printf '{"artifacts":{"manifestURL":"%s"}}\\n' "\(runDirectory.appending(path: "manifest.json").path(percentEncoded: false))"
-            exit 0
-            """
-        )
+        try DesignFlowServiceTestSupport.writePEXConfig(to: configURL)
+        let runResult = try DesignFlowServiceTestSupport.makePEXRunResult(runDirectory: runDirectory)
 
-        let service = DesignFlowService()
+        let service = DesignFlowService(pexRunner: StubPEXRunner(result: runResult))
         let extraction = try await service.runPEXExtraction(DesignFlowPEXExtractionRequest(
             configURL: configURL,
-            workingDirectory: root,
-            cornerID: "tt_25c_1v0",
-            executablePath: executable.path(percentEncoded: false)
+            workspaceDirectory: root,
+            cornerID: "tt_25c_1v0"
         ))
         let postLayoutNetlist = service.buildPostLayoutNetlist(
             baseNetlist: """
@@ -275,7 +259,7 @@ struct DesignFlowUnifiedAPICommandTests {
             parasitics: extraction.ir
         )
 
-        #expect(extraction.commandResult?.exitCode == 0)
+        #expect(extraction.runResult == runResult)
         #expect(extraction.manifestURL == runDirectory.appending(path: "manifest.json"))
         #expect(extraction.ir.elements.count == 1)
         #expect(postLayoutNetlist.contains("* --- Extracted parasitics ---"))

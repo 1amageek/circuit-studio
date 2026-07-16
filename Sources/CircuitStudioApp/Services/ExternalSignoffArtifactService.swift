@@ -40,7 +40,7 @@ public enum ExternalSignoffArtifactError: Error, LocalizedError, Equatable {
     }
 }
 
-public struct ExternalSignoffArtifactService: Sendable {
+public struct ExternalSignoffArtifactService: SignoffReviewLoading {
     private let parser: ExternalSignoffReportParser
 
     public init(parser: ExternalSignoffReportParser = ExternalSignoffReportParser()) {

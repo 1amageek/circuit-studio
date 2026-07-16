@@ -130,6 +130,58 @@ enum DesignFlowServiceTestSupport {
         }
         """.write(to: runDirectory.appending(path: "manifest.json"), atomically: true, encoding: .utf8)
     }
+
+    static func makePEXRunResult(runDirectory: URL) throws -> PEXRunResult {
+        let manifestURL = runDirectory.appending(path: "manifest.json")
+        let resolver = try PEXArtifactResolver(manifestURL: manifestURL)
+        let manifest = resolver.manifest
+        let ir = try resolver.loadIR(cornerID: "tt_25c_1v0")
+        return try PEXRunResult(
+            runID: manifest.runID,
+            requestHash: manifest.requestHash,
+            status: .success,
+            startedAt: manifest.startedAt,
+            finishedAt: manifest.finishedAt,
+            cornerResults: [
+                PEXCornerResult(
+                    cornerID: "tt_25c_1v0",
+                    status: .success,
+                    ir: ir,
+                    metrics: PEXCornerMetrics(
+                        durationSeconds: 0.1,
+                        netCount: ir.nets.count,
+                        elementCount: ir.elements.count
+                    )
+                ),
+            ],
+            warnings: [],
+            artifactManifest: manifest,
+            manifestURL: manifestURL,
+            metrics: PEXRunMetrics(
+                totalDurationSeconds: 0.1,
+                cornerCount: 1,
+                successCount: 1,
+                failureCount: 0
+            )
+        )
+    }
+
+    static func writePEXConfig(to url: URL) throws {
+        let config = PEXProjectConfig(
+            topCell: "TOP",
+            backendID: "mock-pexengine",
+            corners: ["tt_25c_1v0"],
+            inputs: PEXProjectConfig.InputPaths(
+                layout: "top.gds",
+                netlist: "top.spice",
+                technology: "technology.json"
+            ),
+            output: PEXProjectConfig.OutputPaths(workspace: "pex-runs")
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(config).write(to: url, options: .atomic)
+    }
     
     static func writeExecutable(named name: String, in root: URL, contents: String) throws -> URL {
         let url = root.appending(path: name)

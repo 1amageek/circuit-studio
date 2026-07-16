@@ -1,7 +1,7 @@
 import Foundation
 import SignoffToolSupport
 
-public struct ExternalSignoffCommandService: Sendable {
+public struct ExternalSignoffCommandService: SignoffCommandRunning {
     private let parser: ExternalSignoffReportParser
 
     public init(parser: ExternalSignoffReportParser = ExternalSignoffReportParser()) {

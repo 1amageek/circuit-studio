@@ -16,7 +16,7 @@ public struct PEXArtifactService: Sendable {
         do {
             let resolver = try PEXArtifactResolver(manifestURL: manifestURL)
             let ir = try resolver.loadIR(cornerID: PEXCornerID(cornerID))
-            return try convert(ir)
+            return try makeStudioIR(from: ir)
         } catch {
             throw StudioError.projectLoadFailed("PEX corner '\(cornerID)' has no readable IR artifact: \(describe(error))")
         }
@@ -54,7 +54,7 @@ public struct PEXArtifactService: Sendable {
         return error.localizedDescription
     }
 
-    private func convert(_ ir: ParasiticIR) throws -> PEXParasiticIR {
+    public func makeStudioIR(from ir: ParasiticIR) throws -> PEXParasiticIR {
         var elements: [PEXParasiticElement] = []
         var diagnostics: [PEXArtifactDiagnostic] = []
         let resistanceScale = scaleToOhm(ir.units.resistance)

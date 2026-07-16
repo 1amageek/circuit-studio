@@ -1045,11 +1045,11 @@ public final class HeadlessRoundTripService {
         }
 
         let artifactDirectory = runDirectory.appending(path: "external-signoff")
-        let adapter = try SignoffAdapterFactory().commandAdapter()
-        var review = try await adapter.run(request: SignoffAdapterRequest(
+        let runner: any SignoffCommandRunning = ExternalSignoffCommandService()
+        var review = try await runner.run(
             commands: configuration.externalSignoffCommands,
             artifactDirectory: artifactDirectory
-        ))
+        )
         try store.save(review, forProjectAt: configuration.projectRoot)
 
         if let approvedBy = configuration.approvedBy,

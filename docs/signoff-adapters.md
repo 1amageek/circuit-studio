@@ -1,41 +1,36 @@
-# Signoff Adapter Contract
+# Signoff Review Sources
 
-`SignoffReviewRunning` is the shared boundary for DRC/LVS execution and replay. It normalizes command output, imported logs, and tool-specific log dialects into `ExternalSignoffReview`, so the PEX gate does not depend on how signoff evidence was produced.
+Signoff execution and persisted-review loading are separate responsibilities.
+The concrete services directly conform to their domain protocols; there is no
+factory, shared request envelope, or internal adapter layer.
 
 ```mermaid
 flowchart LR
-  Command["External command"]
-  Replay["Golden log replay"]
-  Parser["Tool-style parser"]
+  Commands["ExternalSignoffCommand list"]
+  Runner["ExternalSignoffCommandService\nSignoffCommandRunning"]
+  Logs["ExternalSignoffLogArtifact list"]
+  Loader["ExternalSignoffArtifactService\nSignoffReviewLoading"]
+  Catalog["SignoffReportParserCatalog"]
   Review["ExternalSignoffReview"]
   Gate["Pre-PEX gate"]
 
-  Command --> Parser
-  Replay --> Parser
-  Parser --> Review --> Gate
+  Commands --> Runner --> Review
+  Logs --> Loader --> Review
+  Catalog --> Loader
+  Review --> Gate
 ```
 
-## Adapters
+## API
 
-| Adapter ID | Input | Current behavior |
-|---|---|---|
-| `generic-command` | `ExternalSignoffCommand` | Runs local commands, captures stdout/stderr logs, parses diagnostics, and returns an unapproved review. |
-| `golden-log-replay` | Existing DRC/LVS logs | Loads golden/replay logs without launching tools. |
-| `calibre-like` | Command or replay logs | Uses Calibre-oriented diagnostics, including incorrect/mismatch summaries. |
-| `magic-netgen-like` | Command or replay logs | Uses Magic/Netgen-style LVS mismatch and property mismatch diagnostics. |
-| `klayout-like` | Command or replay logs | Uses KLayout-style `severity: rule: detail` diagnostics. |
-
-## API Surface
-
-| Type | Purpose |
+| Type | Responsibility |
 |---|---|
-| `SignoffReviewRunning` | Protocol for all signoff backends. |
-| `SignoffAdapterRequest` | Shared request containing commands, replay logs, and artifact directory. |
-| `ExternalCommandSignoffAdapter` | Generic local command adapter. |
-| `GoldenLogReplaySignoffAdapter` | Existing artifact replay adapter. |
-| `SignoffAdapterFactory` | Resolves adapter IDs and parser styles. |
-| `ExternalSignoffReportParser.Style` | Selects generic, Calibre-like, Magic/Netgen-like, or KLayout-like normalization. |
+| `SignoffCommandRunning` | Executes typed external signoff commands and produces a review. |
+| `ExternalSignoffCommandService` | Direct implementation of `SignoffCommandRunning`. |
+| `SignoffReviewLoading` | Loads an existing review from typed log artifacts. |
+| `ExternalSignoffArtifactService` | Direct implementation of `SignoffReviewLoading`. |
+| `SignoffReportParserCatalog` | Resolves a declared report dialect to a parser. |
+| `TechnologyPackageManifest.SignoffReference.reportStyleID` | Declares the report dialect for imported package evidence. |
 
-## Current Limit
-
-This layer normalizes evidence and adapter selection, but it does not bundle real foundry decks or invoke installed commercial/open-source signoff tools yet. Real tool fixture execution and deck-specific corpus coverage remain follow-up work.
+Command execution remains an external-tool boundary, but it is expressed through
+the domain protocol already owned by CircuitStudio. Stored evidence is loaded by a
+separate protocol so implementations never receive irrelevant command or replay fields.

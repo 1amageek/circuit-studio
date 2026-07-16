@@ -949,21 +949,18 @@ public struct CircuitStudioApp: App {
 
             appState.log("Running pexengine extract...", kind: .info)
             let designFlowService = services.designFlowService
-            let configURL = services.projectService.pexTOMLURL(inProjectAt: projectRoot)
+            let configURL = try services.projectService.pexConfigURL(inProjectAt: projectRoot)
             let extraction = try await Task.detached(priority: .userInitiated) {
                 try await designFlowService.runPEXExtraction(DesignFlowPEXExtractionRequest(
                     configURL: configURL,
-                    workingDirectory: projectRoot,
+                    projectDirectory: projectRoot,
                     cornerID: config.normalizedCorners.first ?? "tt_25c_1v0",
                     executablePath: config.executablePath
                 ))
             }.value
 
-            if let result = extraction.commandResult, !result.standardOutput.isEmpty {
-                appState.log(result.standardOutput, kind: .output)
-            }
-            if let result = extraction.commandResult, !result.standardError.isEmpty {
-                appState.log(result.standardError, kind: .warning)
+            for warning in extraction.runResult?.warnings ?? [] {
+                appState.log(warning.message, kind: .warning)
             }
             for diagnostic in extraction.ir.diagnostics {
                 appState.log(diagnostic.message, kind: .warning)

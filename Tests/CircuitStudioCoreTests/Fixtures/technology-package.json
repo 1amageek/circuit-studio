@@ -12,7 +12,7 @@
     "id": "sampleProcess"
   },
   "signoff": {
-    "adapterID": "golden-log-replay",
+    "reportStyleID": "golden-log-replay",
     "drc": {
       "toolName": "golden-calibre",
       "arguments": [],

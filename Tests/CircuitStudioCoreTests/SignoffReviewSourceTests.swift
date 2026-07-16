@@ -3,9 +3,9 @@ import Foundation
 import Testing
 @testable import CircuitStudioApp
 
-@Suite("SignoffReviewRunning Tests")
-struct SignoffReviewRunningTests {
-    @Test func commandAdapterRunsExternalCommands() async throws {
+@Suite("Signoff review sources")
+struct SignoffReviewSourceTests {
+    @Test func commandServiceRunsExternalCommands() async throws {
         let root = try makeTemporaryRoot("command")
         defer { removeTemporaryRoot(root) }
         let executable = try writeExecutable(
@@ -18,9 +18,9 @@ struct SignoffReviewRunningTests {
             exit 0
             """
         )
-        let adapter = try SignoffAdapterFactory().commandAdapter()
+        let runner: any SignoffCommandRunning = ExternalSignoffCommandService()
 
-        let review = try await adapter.run(request: SignoffAdapterRequest(
+        let review = try await runner.run(
             commands: [
                 ExternalSignoffCommand(
                     kind: .drc,
@@ -29,15 +29,14 @@ struct SignoffReviewRunningTests {
                 ),
             ],
             artifactDirectory: root.appending(path: "artifacts")
-        ))
+        )
 
-        #expect(adapter.adapterID == "generic-command")
         #expect(review.reports.count == 1)
         #expect(review.passed)
         #expect(review.reports[0].diagnostics.first?.ruleID == "DRC_CLEAN")
     }
 
-    @Test func replayAdapterLoadsGoldenLogs() async throws {
+    @Test func artifactServiceLoadsGoldenLogs() async throws {
         let root = try makeTemporaryRoot("replay")
         defer { removeTemporaryRoot(root) }
         let logURL = root.appending(path: "calibre-lvs.log")
@@ -45,21 +44,18 @@ struct SignoffReviewRunningTests {
         Calibre nmLVS summary
         LVS MISMATCH rule=LVS_SHORT instance=MN1 net=out message="layout net shorted against schematic"
         """.write(to: logURL, atomically: true, encoding: .utf8)
-        let adapter = try SignoffAdapterFactory().replayAdapter(adapterID: "calibre-like")
+        let parser = try SignoffReportParserCatalog().parser(for: "calibre-like")
+        let loader: any SignoffReviewLoading = ExternalSignoffArtifactService(parser: parser)
 
-        let review = try await adapter.run(request: SignoffAdapterRequest(
-            replayLogs: [
+        let review = try loader.load(logs: [
                 ExternalSignoffLogArtifact(
                     kind: .lvs,
                     toolName: "calibre-lvs",
                     logURL: logURL,
                     success: true
                 ),
-            ],
-            artifactDirectory: root.appending(path: "unused")
-        ))
+            ])
 
-        #expect(adapter.adapterID == "calibre-like")
         #expect(!review.passed)
         #expect(review.reports[0].diagnostics == [
             ExternalSignoffDiagnostic(
@@ -73,8 +69,9 @@ struct SignoffReviewRunningTests {
         ])
     }
 
-    @Test func toolSpecificParsersNormalizeDiagnostics() {
-        let magicReport = SignoffAdapterFactory().parser(adapterID: "magic-netgen-like").parse(
+    @Test func toolSpecificParsersNormalizeDiagnostics() throws {
+        let catalog = SignoffReportParserCatalog()
+        let magicReport = try catalog.parser(for: "magic-netgen-like").parse(
             kind: .lvs,
             toolName: "netgen",
             logPath: "/tmp/netgen.log",
@@ -92,7 +89,7 @@ struct SignoffReviewRunningTests {
             ),
         ])
 
-        let klayoutReport = SignoffAdapterFactory().parser(adapterID: "klayout-like").parse(
+        let klayoutReport = try catalog.parser(for: "klayout-like").parse(
             kind: .drc,
             toolName: "klayout",
             logPath: "/tmp/klayout.log",
@@ -109,7 +106,7 @@ struct SignoffReviewRunningTests {
             ),
         ])
 
-        let calibreReport = SignoffAdapterFactory().parser(adapterID: "calibre-like").parse(
+        let calibreReport = try catalog.parser(for: "calibre-like").parse(
             kind: .lvs,
             toolName: "calibre",
             logPath: "/tmp/calibre.log",
@@ -126,15 +123,15 @@ struct SignoffReviewRunningTests {
         ])
     }
 
-    @Test func unsupportedAdapterIDIsTypedError() throws {
-        #expect(throws: SignoffAdapterError.unsupportedAdapterID("unknown")) {
-            _ = try SignoffAdapterFactory().commandAdapter(adapterID: "unknown")
+    @Test func unsupportedReportStyleIDIsTypedError() throws {
+        #expect(throws: SignoffReportParserCatalogError.unsupportedStyleID("unknown")) {
+            _ = try SignoffReportParserCatalog().parser(for: "unknown")
         }
     }
 
     private func makeTemporaryRoot(_ name: String) throws -> URL {
         let root = FileManager.default.temporaryDirectory
-            .appending(path: "CircuitStudioSignoffReviewRunningTests-\(name)-\(UUID().uuidString)")
+            .appending(path: "CircuitStudioSignoffReviewSourceTests-\(name)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }
