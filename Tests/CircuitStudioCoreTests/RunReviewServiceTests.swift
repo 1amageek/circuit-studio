@@ -71,13 +71,13 @@ struct RunReviewServiceTests {
                 && $0.stageID == "001-drc"
         })
         #expect(review.bundle.artifacts.contains {
-            $0.role == "stage-result"
-                && $0.path == ".xcircuite/runs/run-review/stages/001-drc/result.json"
+            $0.purpose.rawValue == "stage-result"
+                && $0.reference.locator.location.value == ".xcircuite/runs/run-review/stages/001-drc/result.json"
         })
         #expect(review.bundle.artifacts.contains {
-            $0.role == "stage-summary"
-                && $0.artifactID == "drc-summary"
-                && $0.path == summaryPath
+            $0.purpose.rawValue == "stage-summary"
+                && $0.reference.id.rawValue == "drc-summary"
+                && $0.reference.locator.location.value == summaryPath
                 && $0.integrity?.status == .verified
                 && $0.integrity?.actualByteCount == UInt64(summaryPayload.count)
         })
@@ -242,13 +242,13 @@ struct RunReviewServiceTests {
         let review = try await service.loadRun(runID: runID, projectRoot: root)
         #expect(review.flowReview.hasContent)
         #expect(review.flowReview.signoffLadderArtifacts.contains {
-            $0.role == "stage-artifact-ladder" && $0.path == ladderPath
+            $0.purpose.rawValue == "stage-artifact-ladder" && $0.reference.locator.location.value == ladderPath
         })
         #expect(review.flowReview.planningArtifacts.contains {
-            $0.role == "planning-candidate-plan" && $0.path == planningPath
+            $0.purpose.rawValue == "planning-candidate-plan" && $0.reference.locator.location.value == planningPath
         })
         #expect(review.flowReview.retainedHistoryArtifacts.contains {
-            $0.role == "retained-ci-regression-budget" && $0.path == retainedPath
+            $0.purpose.rawValue == "retained-ci-regression-budget" && $0.reference.locator.location.value == retainedPath
         })
         #expect(review.flowReview.approvalActions.map(\.decision) == ["approved"])
         #expect(review.flowReview.waiverActions.map(\.targetID) == ["waiver-1"])
@@ -349,9 +349,9 @@ struct RunReviewServiceTests {
             .write(to: root.appending(path: planningPath), options: .atomic)
 
         let review = try await RunReviewService().loadRun(runID: runID, projectRoot: root)
-        #expect(!review.flowReview.planningArtifacts.contains { $0.path == planningPath })
+        #expect(!review.flowReview.planningArtifacts.contains { $0.reference.locator.location.value == planningPath })
         #expect(review.flowReview.integrityIssueArtifacts.contains {
-            $0.path == planningPath && $0.integrity?.status == .sha256Mismatch
+            $0.reference.locator.location.value == planningPath && $0.integrity?.status == .sha256Mismatch
         })
         let planningDomain = try #require(review.flowReview.coverageDomains.first {
             $0.domain == "planning"

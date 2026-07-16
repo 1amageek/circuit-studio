@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 
 public enum ArtifactSetPublisherError: Error, LocalizedError, Equatable {
@@ -108,7 +109,12 @@ public struct ArtifactSetPublisher: Sendable {
         try validateUniqueItems(items)
         return try items.map { item in
             let artifactPath = try RoundTripArtifactPath(item.relativePath)
-            let digest = RoundTripArtifactDigest.compute(data: item.data)
+            let reference = try ArtifactReference.circuitStudioReference(
+                id: item.id,
+                kind: item.kind,
+                relativePath: artifactPath.value,
+                data: item.data
+            )
             return PreparedItem(
                 item: Item(
                     id: item.id,
@@ -117,13 +123,8 @@ public struct ArtifactSetPublisher: Sendable {
                     data: item.data,
                     sourcePath: item.sourcePath
                 ),
-                record: try ArtifactPublicationRecord(
-                    id: item.id,
-                    kind: item.kind,
-                    path: artifactPath.value,
-                    status: .available,
-                    sha256: digest.sha256,
-                    byteCount: digest.byteCount,
+                record: ArtifactPublicationRecord(
+                    reference: reference,
                     createdAt: createdAt,
                     sourcePath: item.sourcePath
                 )
@@ -256,14 +257,18 @@ public struct ArtifactSetPublisher: Sendable {
         let item = prepared.item
         let record = prepared.record
         let canonicalPath = try RoundTripArtifactPath(item.relativePath).value
-        let digest = RoundTripArtifactDigest.compute(data: item.data)
+        let expectedReference = try ArtifactReference.circuitStudioReference(
+            id: item.id,
+            kind: item.kind,
+            relativePath: canonicalPath,
+            data: item.data
+        )
         let checks: [(Bool, String)] = [
             (record.id == item.id, "record id '\(record.id)' differs from item id '\(item.id)'"),
             (record.kind == item.kind, "record kind '\(record.kind)' differs from item kind '\(item.kind)'"),
             (record.path == canonicalPath, "record path '\(record.path)' differs from item path '\(canonicalPath)'"),
             (record.status == .available, "record status must be available"),
-            (record.sha256 == digest.sha256, "record sha256 does not match payload bytes"),
-            (record.byteCount == digest.byteCount, "record byteCount does not match payload bytes"),
+            (record.reference == expectedReference, "record ArtifactReference does not match payload bytes"),
             (record.sourcePath == item.sourcePath, "record sourcePath differs from item sourcePath"),
         ]
         if let failed = checks.first(where: { !$0.0 }) {

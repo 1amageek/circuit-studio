@@ -36,8 +36,8 @@ extension RunReviewService {
             } catch {
                 decodeIssues.append(
                     RunReviewArtifactDecodeIssue(
-                        artifactRole: envelopeArtifact.role,
-                        artifactPath: envelopeArtifact.path,
+                        artifactRole: envelopeArtifact.purpose.rawValue,
+                        artifactPath: envelopeArtifact.reference.locator.location.value,
                         message: error.localizedDescription
                     )
                 )
@@ -51,18 +51,18 @@ extension RunReviewService {
     }
 
     private func isArtifactEvaluationEnvelope(_ artifact: FlowRunReviewArtifact) -> Bool {
-        guard artifact.format == .json else {
+        guard artifact.reference.locator.format == .json else {
             return false
         }
         let searchable = [
-            artifact.artifactID,
-            artifact.role,
-            artifact.path,
+            artifact.reference.id.rawValue,
+            artifact.purpose.rawValue,
+            artifact.reference.locator.location.value,
         ]
         .compactMap { $0?.lowercased() }
         .joined(separator: " ")
         return searchable.contains("envelope")
-            || artifact.path.lowercased().contains("/evidence/")
+            || artifact.reference.locator.location.value.lowercased().contains("/evidence/")
     }
 
     private func loadArtifactEvaluationEnvelope(
@@ -81,14 +81,14 @@ extension RunReviewService {
     ) throws {
         guard let integrity = artifact.integrity else {
             throw RunReviewServiceError.artifactEvaluationEnvelopeIntegrityUnverified(
-                path: artifact.path,
+                path: artifact.reference.locator.location.value,
                 status: "missing",
                 message: "No recorded artifact integrity state is available."
             )
         }
         guard integrity.status == .verified else {
             throw RunReviewServiceError.artifactEvaluationEnvelopeIntegrityUnverified(
-                path: artifact.path,
+                path: artifact.reference.locator.location.value,
                 status: integrity.status.rawValue,
                 message: integrity.message
             )
@@ -99,22 +99,20 @@ extension RunReviewService {
         for artifact: FlowRunReviewArtifact,
         projectRoot: URL
     ) -> URL {
-        if artifact.path.hasPrefix("/") {
-            return URL(filePath: artifact.path)
+        if artifact.reference.locator.location.value.hasPrefix("/") {
+            return URL(filePath: artifact.reference.locator.location.value)
         }
-        return projectRoot.appending(path: artifact.path)
+        return projectRoot.appending(path: artifact.reference.locator.location.value)
     }
 
     private func artifactEvaluationEnvelope(
         _ envelope: FlowArtifactEnvelope,
         references artifact: FlowRunReviewArtifact
     ) -> Bool {
-        if envelope.reference.path == artifact.path {
+        if envelope.reference.path == artifact.reference.locator.location.value {
             return true
         }
-        guard let artifactID = artifact.artifactID else {
-            return false
-        }
+        let artifactID = artifact.reference.id.rawValue
         return envelope.artifactID == artifactID
             || envelope.reference.artifactID == artifactID
     }

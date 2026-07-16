@@ -37,9 +37,9 @@ public struct PEXArtifactService: Sendable {
         do {
             let resolver = try PEXArtifactResolver(manifestURL: manifestURL)
             let corner = PEXCornerID(cornerID)
-            let records = resolver.records(kind: .rawOutput, cornerID: corner, status: .available)
-                + resolver.records(kind: .parasiticIR, cornerID: corner, status: .available)
-                + resolver.records(kind: .log, cornerID: corner, status: .available)
+            let records = resolver.records(kind: .rawOutput, cornerID: corner, availability: .available)
+                + resolver.records(kind: .parasiticIR, cornerID: corner, availability: .available)
+                + resolver.records(kind: .log, cornerID: corner, availability: .available)
             let artifactURLs = try records.map { try resolver.validatedURL(for: $0) }
             return [manifestURL] + artifactURLs
         } catch {

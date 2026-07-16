@@ -800,13 +800,8 @@ struct RunReviewPlanningProjectionTests {
             byteCount: UInt64(payload.count)
         )
         let artifact = FlowRunReviewArtifact(
-            role: "planning-candidate-plan",
-            artifactID: "planning-candidate-plan",
-            path: candidatePlanPath,
-            kind: .other,
-            format: .json,
-            sha256: reference.sha256,
-            byteCount: reference.byteCount,
+            reference: reference,
+            purpose: .planningCandidatePlan,
             integrity: FlowRunReviewArtifactIntegrity(
                 status: .sha256Mismatch,
                 expectedSHA256: String(repeating: "a", count: 64),

@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 
 public enum TimingArtifactStatus: String, Sendable, Hashable, Codable {
@@ -94,49 +95,60 @@ public struct TimingArtifactProvenance: Sendable, Hashable, Codable {
 }
 
 public struct TimingArtifactRecord: Sendable, Hashable, Codable {
-    public let id: String
+    public let publication: ArtifactPublicationRecord
     public let kind: TimingArtifactKind
-    public let path: String
-    public let status: TimingArtifactStatus
-    public let sha256: String?
-    public let byteCount: Int64?
-    public let createdAt: Date
     public let provenance: TimingArtifactProvenance?
 
     public init(
-        id: String,
+        reference: ArtifactReference,
         kind: TimingArtifactKind,
-        path: String,
-        status: TimingArtifactStatus,
-        sha256: String? = nil,
-        byteCount: Int64? = nil,
         createdAt: Date = Date(),
         provenance: TimingArtifactProvenance? = nil
     ) {
-        self.id = id
+        publication = ArtifactPublicationRecord(
+            reference: reference,
+            createdAt: createdAt,
+            sourcePath: provenance?.sourcePath
+        )
         self.kind = kind
-        self.path = path
-        self.status = status
-        self.sha256 = sha256
-        self.byteCount = byteCount
-        self.createdAt = createdAt
+        self.provenance = provenance
+    }
+
+    public init(
+        id: ArtifactID,
+        locator: ArtifactLocator,
+        kind: TimingArtifactKind,
+        status: TimingArtifactStatus,
+        createdAt: Date = Date(),
+        provenance: TimingArtifactProvenance? = nil
+    ) throws {
+        publication = try ArtifactPublicationRecord(
+            id: id,
+            locator: locator,
+            status: ArtifactPublicationStatus(timingStatus: status),
+            createdAt: createdAt,
+            sourcePath: provenance?.sourcePath
+        )
+        self.kind = kind
         self.provenance = provenance
     }
 
     public init(publicationRecord: ArtifactPublicationRecord, kind: TimingArtifactKind) {
-        self.init(
-            id: publicationRecord.id,
-            kind: kind,
-            path: publicationRecord.path,
-            status: TimingArtifactStatus(publicationStatus: publicationRecord.status),
-            sha256: publicationRecord.sha256,
-            byteCount: publicationRecord.byteCount,
-            createdAt: publicationRecord.createdAt,
-            provenance: publicationRecord.sourcePath.map {
-                TimingArtifactProvenance(sourcePath: $0)
-            }
-        )
+        publication = publicationRecord
+        self.kind = kind
+        provenance = publicationRecord.sourcePath.map {
+            TimingArtifactProvenance(sourcePath: $0)
+        }
     }
+
+    public var id: String { publication.id }
+    public var path: String { publication.path }
+    public var status: TimingArtifactStatus { TimingArtifactStatus(publicationStatus: publication.status) }
+    public var reference: ArtifactReference? { publication.reference }
+    public var locator: ArtifactLocator { publication.locator }
+    public var sha256: String? { reference?.digest.hexadecimalValue }
+    public var byteCount: Int64? { reference.map { Int64($0.byteCount) } }
+    public var createdAt: Date { publication.createdAt }
 }
 
 extension TimingArtifactStatus {
@@ -152,90 +164,16 @@ extension TimingArtifactStatus {
     }
 }
 
-extension TimingArtifactRecord {
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case kind
-        case path
-        case status
-        case sha256
-        case byteCount
-        case createdAt
-        case provenance
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let decodedStatus = try container.decode(TimingArtifactStatus.self, forKey: .status)
-        let decodedSha256 = try container.decodeIfPresent(String.self, forKey: .sha256)
-        let decodedByteCount = try container.decodeIfPresent(Int64.self, forKey: .byteCount)
-        if let validationError = Self.validationErrorDescription(
-            status: decodedStatus,
-            sha256: decodedSha256,
-            byteCount: decodedByteCount
-        ) {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: validationError
-                )
-            )
+extension ArtifactPublicationStatus {
+    fileprivate init(timingStatus: TimingArtifactStatus) {
+        switch timingStatus {
+        case .available:
+            self = .available
+        case .omitted:
+            self = .omitted
+        case .missing:
+            self = .missing
         }
-
-        id = try container.decode(String.self, forKey: .id)
-        kind = try container.decode(TimingArtifactKind.self, forKey: .kind)
-        path = try container.decode(String.self, forKey: .path)
-        status = decodedStatus
-        sha256 = decodedSha256
-        byteCount = decodedByteCount
-        createdAt = try TimingArtifactDateCoding.decode(from: container, forKey: .createdAt)
-        provenance = try container.decodeIfPresent(TimingArtifactProvenance.self, forKey: .provenance)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        if let validationError = Self.validationErrorDescription(
-            status: status,
-            sha256: sha256,
-            byteCount: byteCount
-        ) {
-            throw EncodingError.invalidValue(
-                self,
-                EncodingError.Context(
-                    codingPath: encoder.codingPath,
-                    debugDescription: validationError
-                )
-            )
-        }
-
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(kind, forKey: .kind)
-        try container.encode(path, forKey: .path)
-        try container.encode(status, forKey: .status)
-        try container.encodeIfPresent(sha256, forKey: .sha256)
-        try container.encodeIfPresent(byteCount, forKey: .byteCount)
-        try TimingArtifactDateCoding.encode(createdAt, to: &container, forKey: .createdAt)
-        try container.encodeIfPresent(provenance, forKey: .provenance)
-    }
-
-    private static func validationErrorDescription(
-        status: TimingArtifactStatus,
-        sha256: String?,
-        byteCount: Int64?
-    ) -> String? {
-        if let byteCount, byteCount < 0 {
-            return "Timing artifact byteCount must be non-negative."
-        }
-        guard status == .available else {
-            return nil
-        }
-        guard let sha256, RoundTripArtifactDigest.isValidSHA256(sha256) else {
-            return "Available timing artifacts must include a 64-character hexadecimal sha256 digest."
-        }
-        guard byteCount != nil else {
-            return "Available timing artifacts must include byteCount."
-        }
-        return nil
     }
 }
 

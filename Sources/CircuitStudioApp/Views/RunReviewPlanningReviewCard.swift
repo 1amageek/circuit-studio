@@ -364,7 +364,7 @@ struct RunReviewPlanningReviewCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.caption.weight(.semibold))
-                Text(artifact.path)
+                Text(artifact.reference.locator.location.value)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(2)

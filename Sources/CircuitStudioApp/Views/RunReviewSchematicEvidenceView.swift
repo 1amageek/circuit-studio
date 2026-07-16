@@ -120,7 +120,7 @@ struct RunReviewSchematicEvidenceView: View {
                 .foregroundStyle(.green)
             Text(evidence.sourceKind.rawValue)
                 .font(.caption2.weight(.semibold))
-            Text(evidence.artifact.path)
+            Text(evidence.artifact.reference.locator.location.value)
                 .font(.caption2.monospaced())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

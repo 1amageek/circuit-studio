@@ -454,10 +454,10 @@ extension RunReviewService {
             return RunReviewSignoffDetailRow(
                 label: lane.domain,
                 metrics: oracleCompactMetrics([
-                    ("Status", report.status),
-                    ("Path", report.path),
-                    ("SHA", report.sha256),
-                    ("Bytes", report.byteCount.map(String.init)),
+                    ("Status", lane.status),
+                    ("Path", report.locator.location.value),
+                    ("SHA", report.digest.hexadecimalValue),
+                    ("Bytes", String(report.byteCount)),
                 ])
             )
         }

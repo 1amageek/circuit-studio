@@ -1,21 +1,24 @@
 import DesignFlowKernel
+import CircuiteFoundation
 import Foundation
 
 public struct RunReviewArtifactResource: Sendable, Hashable {
     public let runID: String
     public let artifact: FlowRunReviewArtifact
     public let url: URL
-    public let digest: RoundTripArtifactDigest
+    public let reference: ArtifactReference
 
     public init(
         runID: String,
         artifact: FlowRunReviewArtifact,
         url: URL,
-        digest: RoundTripArtifactDigest
+        reference: ArtifactReference
     ) {
         self.runID = runID
         self.artifact = artifact
         self.url = url
-        self.digest = digest
+        self.reference = reference
     }
+
+    public var digest: ContentDigest { reference.digest }
 }

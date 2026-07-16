@@ -8,11 +8,11 @@ struct RunReviewWaveformEvidenceView: View {
 
     init(waveforms: [RunReviewDesignEvidence.WaveformEvidence]) {
         self.waveforms = waveforms
-        let selectedPath = waveforms.first?.artifact.path ?? ""
+        let selectedPath = waveforms.first?.artifact.reference.locator.location.value ?? ""
         _selectedPath = State(initialValue: selectedPath)
         _signalSelections = State(initialValue: Dictionary(
             uniqueKeysWithValues: waveforms.map { waveform in
-                (waveform.artifact.path, Self.defaultSignals(for: waveform.preview))
+                (waveform.artifact.reference.locator.location.value, Self.defaultSignals(for: waveform.preview))
             }
         ))
     }
@@ -21,9 +21,9 @@ struct RunReviewWaveformEvidenceView: View {
         VStack(alignment: .leading, spacing: 8) {
             if waveforms.count > 1 {
                 Picker("Waveform source", selection: $selectedPath) {
-                    ForEach(waveforms, id: \.artifact.path) { waveform in
+                    ForEach(waveforms, id: \.artifact.reference.locator.location.value) { waveform in
                         Text(waveform.phase.rawValue)
-                            .tag(waveform.artifact.path)
+                            .tag(waveform.artifact.reference.locator.location.value)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -50,7 +50,7 @@ struct RunReviewWaveformEvidenceView: View {
                                 signal.name,
                                 isOn: signalBinding(
                                     signal.name,
-                                    artifactPath: selectedWaveform.artifact.path
+                                    artifactPath: selectedWaveform.artifact.reference.locator.location.value
                                 )
                             )
                             .toggleStyle(.checkbox)
@@ -63,13 +63,13 @@ struct RunReviewWaveformEvidenceView: View {
 
                 RunReviewWaveformEvidenceChart(
                     preview: selectedWaveform.preview,
-                    selectedSignalNames: signalSelections[selectedWaveform.artifact.path] ?? []
+                    selectedSignalNames: signalSelections[selectedWaveform.artifact.reference.locator.location.value] ?? []
                 )
 
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.shield.fill")
                         .foregroundStyle(.green)
-                    Text(selectedWaveform.artifact.path)
+                    Text(selectedWaveform.artifact.reference.locator.location.value)
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -77,7 +77,7 @@ struct RunReviewWaveformEvidenceView: View {
                 }
             }
         }
-        .onChange(of: waveforms.map(\.artifact.path)) { _, paths in
+        .onChange(of: waveforms.map(\.artifact.reference.locator.location.value)) { _, paths in
             if !paths.contains(selectedPath) {
                 selectedPath = paths.first ?? ""
             }
@@ -85,7 +85,7 @@ struct RunReviewWaveformEvidenceView: View {
     }
 
     private var selectedWaveform: RunReviewDesignEvidence.WaveformEvidence? {
-        waveforms.first { $0.artifact.path == selectedPath } ?? waveforms.first
+        waveforms.first { $0.artifact.reference.locator.location.value == selectedPath } ?? waveforms.first
     }
 
     private func signalBinding(_ name: String, artifactPath: String) -> Binding<Bool> {

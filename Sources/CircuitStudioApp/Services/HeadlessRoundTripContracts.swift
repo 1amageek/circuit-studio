@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 import CircuitStudioCore
 import CoreSpiceWaveform
@@ -188,24 +189,20 @@ extension HeadlessRoundTripService {
     }
 
     public struct Artifact: Sendable, Hashable, Codable {
-        public let kind: String
-        public let path: String
+        public let reference: ArtifactReference
         public let sourcePath: String?
-        public let sha256: String
-        public let byteCount: Int64
 
         public init(
-            kind: String,
-            path: String,
-            sourcePath: String? = nil,
-            sha256: String,
-            byteCount: Int64
+            reference: ArtifactReference,
+            sourcePath: String? = nil
         ) {
-            self.kind = kind
-            self.path = path
+            self.reference = reference
             self.sourcePath = sourcePath
-            self.sha256 = sha256
-            self.byteCount = byteCount
         }
+
+        public var kind: String { reference.locator.kind.rawValue }
+        public var path: String { reference.locator.location.value }
+        public var sha256: String { reference.digest.hexadecimalValue }
+        public var byteCount: Int64 { Int64(reference.byteCount) }
     }
 }

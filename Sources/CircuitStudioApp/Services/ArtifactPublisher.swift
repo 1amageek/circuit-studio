@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 
 public enum ArtifactPublisherError: Error, LocalizedError, Equatable {
@@ -87,9 +88,14 @@ public struct ArtifactPublisher: ArtifactPublishing {
             throw ArtifactPublisherError.writeFailed(path: stagingPath, reason: error.localizedDescription)
         }
 
-        let digest: RoundTripArtifactDigest
+        let reference: ArtifactReference
         do {
-            digest = try RoundTripArtifactDigest.compute(url: stagingURL)
+            reference = try ArtifactReference.circuitStudioReference(
+                id: id,
+                kind: kind,
+                relativePath: artifactPath.value,
+                fileURL: stagingURL
+            )
         } catch {
             try cleanupAndThrow(stagingURL, error: error)
         }
@@ -107,13 +113,8 @@ public struct ArtifactPublisher: ArtifactPublishing {
             )
         }
 
-        return try ArtifactPublicationRecord(
-            id: id,
-            kind: kind,
-            path: artifactPath.value,
-            status: .available,
-            sha256: digest.sha256,
-            byteCount: digest.byteCount,
+        return ArtifactPublicationRecord(
+            reference: reference,
             sourcePath: sourcePath
         )
     }

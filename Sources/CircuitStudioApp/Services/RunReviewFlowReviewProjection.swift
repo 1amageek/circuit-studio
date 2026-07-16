@@ -44,13 +44,13 @@ public struct RunReviewFlowReviewProjection: Sendable, Hashable {
             matchingRoles: ["stage-artifact-ladder"]
         )
         let planningCandidates = bundle.artifacts
-            .filter { $0.role.hasPrefix("planning-") }
+            .filter { $0.purpose.rawValue.hasPrefix("planning-") }
             .sorted(by: Self.artifactSort)
         let retainedHistoryCandidates = bundle.artifacts
             .filter { artifact in
-                artifact.role.hasPrefix("retained-")
-                    || artifact.role.hasPrefix("retention-")
-                    || artifact.role.hasPrefix("release-")
+                artifact.purpose.rawValue.hasPrefix("retained-")
+                    || artifact.purpose.rawValue.hasPrefix("retention-")
+                    || artifact.purpose.rawValue.hasPrefix("release-")
             }
             .sorted(by: Self.artifactSort)
         self.coverageRefs = refs
@@ -91,26 +91,28 @@ public struct RunReviewFlowReviewProjection: Sendable, Hashable {
     private static func coverageDomains(
         from refs: [FlowRunReviewBundle.CoverageRef]
     ) -> [CoverageDomain] {
-        Dictionary(grouping: refs, by: \.domain)
-            .map { domain, refs in
-                CoverageDomain(
-                    domain: domain,
-                    refCount: refs.count,
-                    roles: Array(Set(refs.map(\.role))).sorted(),
-                    artifactPaths: Array(Set(refs.compactMap { ref in
-                        coverageRefIsVerifiedOrDecision(ref) ? ref.path : nil
-                    })).sorted(),
-                    unverifiedArtifactPaths: Array(Set(refs.compactMap { ref in
-                        coverageRefIsUnverifiedArtifact(ref) ? ref.path : nil
-                    })).sorted()
-                )
+        let groupedRefs = Dictionary(grouping: refs, by: \.domain)
+        let domains: [CoverageDomain] = groupedRefs.map { domain, domainRefs in
+            let artifactPaths = domainRefs.compactMap { ref in
+                coverageRefIsVerifiedOrDecision(ref) ? ref.path : nil
             }
-            .sorted { left, right in
-                if left.domain != right.domain {
-                    return left.domain < right.domain
-                }
-                return left.refCount > right.refCount
+            let unverifiedArtifactPaths = domainRefs.compactMap { ref in
+                coverageRefIsUnverifiedArtifact(ref) ? ref.path : nil
             }
+            return CoverageDomain(
+                domain: domain,
+                refCount: domainRefs.count,
+                roles: Array(Set(domainRefs.map(\.role))).sorted(),
+                artifactPaths: Array(Set(artifactPaths)).sorted(),
+                unverifiedArtifactPaths: Array(Set(unverifiedArtifactPaths)).sorted()
+            )
+        }
+        return domains.sorted { left, right in
+            if left.domain != right.domain {
+                return left.domain < right.domain
+            }
+            return left.refCount > right.refCount
+        }
     }
 
     private static func artifacts(
@@ -118,7 +120,7 @@ public struct RunReviewFlowReviewProjection: Sendable, Hashable {
         matchingRoles roles: Set<String>
     ) -> [FlowRunReviewArtifact] {
         artifacts
-            .filter { roles.contains($0.role) }
+            .filter { roles.contains($0.purpose.rawValue) }
             .sorted(by: artifactSort)
     }
 
@@ -135,7 +137,7 @@ public struct RunReviewFlowReviewProjection: Sendable, Hashable {
         return artifacts
             .filter { $0.integrity?.status != .verified }
             .filter { artifact in
-                let key = "\(artifact.role)\u{0}\(artifact.path)"
+                let key = "\(artifact.purpose.rawValue)\u{0}\(artifact.reference.locator.location.value)"
                 guard !seen.contains(key) else {
                     return false
                 }
@@ -184,10 +186,10 @@ public struct RunReviewFlowReviewProjection: Sendable, Hashable {
         _ left: FlowRunReviewArtifact,
         _ right: FlowRunReviewArtifact
     ) -> Bool {
-        if left.role != right.role {
-            return left.role < right.role
+        if left.purpose != right.purpose {
+            return left.purpose.rawValue < right.purpose.rawValue
         }
-        return left.path < right.path
+        return left.reference.locator.location.value < right.reference.locator.location.value
     }
 
     private static func itemSort(

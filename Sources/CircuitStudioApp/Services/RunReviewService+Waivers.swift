@@ -39,7 +39,7 @@ extension RunReviewService {
                     kind: .waiver,
                     decision: decision.rawValue,
                     targetID: item.waiverReviewID,
-                    targetPath: item.artifact.path,
+                    targetPath: item.artifact.reference.locator.location.value,
                     reason: note
                 )
             )
@@ -365,7 +365,7 @@ extension RunReviewService {
         var items: [RunReviewWaiverItem] = []
         var decodeIssues: [RunReviewArtifactDecodeIssue] = []
 
-        for artifact in bundle.artifacts where artifact.format == .json {
+        for artifact in bundle.artifacts where artifact.reference.locator.format == .json {
             switch waiverArtifactKind(for: artifact) {
             case .drc:
                 appendWaiverItem(
@@ -401,7 +401,7 @@ extension RunReviewService {
                 if left.domain != right.domain {
                     return left.domain < right.domain
                 }
-                return left.artifact.path < right.artifact.path
+                return left.artifact.reference.locator.location.value < right.artifact.reference.locator.location.value
             },
             decodeIssues: decodeIssues
         )
@@ -443,8 +443,8 @@ extension RunReviewService {
         } catch {
             decodeIssues.append(
                 RunReviewArtifactDecodeIssue(
-                    artifactRole: artifact.role,
-                    artifactPath: artifact.path,
+                    artifactRole: artifact.purpose.rawValue,
+                    artifactPath: artifact.reference.locator.location.value,
                     message: error.localizedDescription
                 )
             )
@@ -454,14 +454,14 @@ extension RunReviewService {
     private func validateWaiverArtifactIntegrity(_ artifact: FlowRunReviewArtifact) throws {
         guard let integrity = artifact.integrity else {
             throw RunReviewServiceError.waiverArtifactIntegrityUnverified(
-                path: artifact.path,
+                path: artifact.reference.locator.location.value,
                 status: "missing",
                 message: "Artifact integrity was not recorded."
             )
         }
         guard integrity.status == .verified else {
             throw RunReviewServiceError.waiverArtifactIntegrityUnverified(
-                path: artifact.path,
+                path: artifact.reference.locator.location.value,
                 status: integrity.status.rawValue,
                 message: integrity.message
             )
@@ -554,8 +554,8 @@ extension RunReviewService {
 
 
     private func waiverArtifactKind(for artifact: FlowRunReviewArtifact) -> WaiverArtifactKind? {
-        let artifactID = artifact.artifactID ?? ""
-        let path = artifact.path.lowercased()
+        let artifactID = artifact.reference.id.rawValue
+        let path = artifact.reference.locator.location.value.lowercased()
         if artifactID == "drc-summary" || path.hasSuffix("drc-summary.json") {
             return .drc
         }
@@ -577,7 +577,7 @@ extension RunReviewService {
     }
 
     private func waiverReviewID(domain: String, artifact: FlowRunReviewArtifact) -> String {
-        "\(domain.lowercased())-waiver:\(artifact.path)"
+        "\(domain.lowercased())-waiver:\(artifact.reference.locator.location.value)"
     }
 
     private func waiverStatus(
@@ -591,24 +591,16 @@ extension RunReviewService {
     }
 
     private func fileReference(from artifact: FlowRunReviewArtifact) throws -> ArtifactReference {
-        guard let digest = artifact.sha256,
-              let byteCount = artifact.byteCount,
-              byteCount >= 0 else {
-            throw RunReviewServiceError.invalidArtifactReference(
-                path: artifact.path,
-                message: "Review artifact is missing verified integrity metadata."
-            )
-        }
         return ArtifactReference(
-            id: try artifact.artifactID.map(ArtifactID.init(rawValue:)),
+            id: artifact.reference.id,
             locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: artifact.path),
+                location: try ArtifactLocation(workspaceRelativePath: artifact.reference.locator.location.value),
                 role: .input,
-                kind: artifact.kind,
-                format: artifact.format
+                kind: artifact.reference.locator.kind,
+                format: artifact.reference.locator.format
             ),
-            digest: try ContentDigest(algorithm: .sha256, hexadecimalValue: digest),
-            byteCount: UInt64(byteCount)
+            digest: artifact.reference.digest,
+            byteCount: artifact.reference.byteCount
         )
     }
 
@@ -1093,10 +1085,10 @@ extension RunReviewService {
     }
 
     private func waiverArtifactURL(for artifact: FlowRunReviewArtifact, projectRoot: URL) -> URL {
-        if artifact.path.hasPrefix("/") {
-            URL(filePath: artifact.path)
+        if artifact.reference.locator.location.value.hasPrefix("/") {
+            URL(filePath: artifact.reference.locator.location.value)
         } else {
-            projectRoot.appending(path: artifact.path)
+            projectRoot.appending(path: artifact.reference.locator.location.value)
         }
     }
 
@@ -1104,8 +1096,8 @@ extension RunReviewService {
         in artifacts: [FlowRunReviewArtifact]
     ) -> FlowRunReviewArtifact? {
         artifacts.last {
-            $0.format == .json
-                && ($0.artifactID == "design-spec" || $0.path.hasSuffix("design-spec.json"))
+            $0.reference.locator.format == .json
+                && ($0.reference.id.rawValue == "design-spec" || $0.reference.locator.location.value.hasSuffix("design-spec.json"))
         }
     }
 
@@ -1113,13 +1105,13 @@ extension RunReviewService {
         in artifacts: [FlowRunReviewArtifact]
     ) -> FlowRunReviewArtifact? {
         artifacts.last {
-            $0.kind == .layout
-                && $0.format == .json
+            $0.reference.locator.kind == .layout
+                && $0.reference.locator.format == .json
                 && (
-                    $0.artifactID == "layout-document"
-                        || $0.artifactID == "drc-layout"
-                        || $0.artifactID?.hasSuffix("-layout") == true
-                        || $0.path.hasSuffix("layout-document.json")
+                    $0.reference.id.rawValue == "layout-document"
+                        || $0.reference.id.rawValue == "drc-layout"
+                        || $0.reference.id.rawValue.hasSuffix("-layout")
+                        || $0.reference.locator.location.value.hasSuffix("layout-document.json")
                 )
         }
     }
@@ -1128,8 +1120,8 @@ extension RunReviewService {
         in artifacts: [FlowRunReviewArtifact]
     ) -> FlowRunReviewArtifact? {
         artifacts.last {
-            $0.format == .json
-                && ($0.artifactID == "design-unit" || $0.path.hasSuffix("design-unit.json"))
+            $0.reference.locator.format == .json
+                && ($0.reference.id.rawValue == "design-unit" || $0.reference.locator.location.value.hasSuffix("design-unit.json"))
         }
     }
 
@@ -1139,7 +1131,7 @@ extension RunReviewService {
     ) throws -> URL {
         let url = waiverArtifactURL(for: artifact, projectRoot: projectRoot)
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
-            throw RunReviewServiceError.waiverEditVerificationInputMissing(path: artifact.path)
+            throw RunReviewServiceError.waiverEditVerificationInputMissing(path: artifact.reference.locator.location.value)
         }
         return url
     }

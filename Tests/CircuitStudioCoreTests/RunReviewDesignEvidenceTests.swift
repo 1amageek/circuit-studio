@@ -21,12 +21,12 @@ struct RunReviewDesignEvidenceTests {
 
         let schematic = try #require(evidence.schematic)
         #expect(schematic.sourceKind == .designSpec)
-        #expect(schematic.artifact.path == fixture.designSpecPath)
+        #expect(schematic.artifact.reference.locator.location.value == fixture.designSpecPath)
         #expect(!schematic.document.components.isEmpty)
         #expect(!schematic.document.wires.isEmpty)
 
         let layout = try #require(evidence.layout)
-        #expect(layout.artifact.path == fixture.layoutDocumentPath)
+        #expect(layout.artifact.reference.locator.location.value == fixture.layoutDocumentPath)
         #expect(!layout.document.cells.isEmpty)
         #expect(layout.document.cells.contains { !$0.shapes.isEmpty })
 
@@ -80,7 +80,7 @@ struct RunReviewDesignEvidenceTests {
             projectRoot: fixture.root
         )
         let waveform = try #require(evidence.waveforms.first {
-            $0.artifact.artifactID == "analysis-waveform"
+            $0.artifact.reference.id.rawValue == "analysis-waveform"
         })
         let signal = try #require(waveform.preview.signals.first)
 

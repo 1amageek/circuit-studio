@@ -17,20 +17,18 @@ struct RunReviewSignoffArtifactRows: View {
                     .foregroundStyle(integrityColor(artifact.integrity?.status))
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(artifact.role)
+                        Text(artifact.purpose.rawValue)
                             .font(.caption2.monospaced())
                             .foregroundStyle(.secondary)
-                        if let artifactID = artifact.artifactID {
-                            Text(artifactID)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
-                        }
+                        Text(artifact.reference.id.rawValue)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
                         Spacer()
-                        Text(artifact.format.rawValue)
+                        Text(artifact.reference.locator.format.rawValue)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    Text(artifact.path)
+                    Text(artifact.reference.locator.location.value)
                         .font(.caption2.monospaced())
                         .foregroundStyle(integrityColor(artifact.integrity?.status))
                         .lineLimit(2)

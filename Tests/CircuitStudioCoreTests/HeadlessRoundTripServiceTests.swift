@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 import Testing
 import LayoutCore
@@ -1017,10 +1018,11 @@ struct HeadlessRoundTripServiceTests {
                 && $0.path.contains("input-artifacts/signoff/")
         })
         for artifact in result.manifest.artifacts {
-            let artifactURL = artifactURL(path: artifact.path, manifestURL: result.manifestURL)
-            let digest = try RoundTripArtifactDigest.compute(url: artifactURL)
-            #expect(artifact.sha256 == digest.sha256)
-            #expect(artifact.byteCount == digest.byteCount)
+            let integrity = LocalArtifactVerifier().verify(
+                artifact.reference,
+                relativeTo: result.manifestURL.deletingLastPathComponent()
+            )
+            #expect(integrity.isVerified)
         }
 
         let comparisonURL = try #require(result.manifest.artifacts.first {

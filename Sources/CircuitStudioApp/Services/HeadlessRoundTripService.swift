@@ -1174,15 +1174,18 @@ public final class HeadlessRoundTripService {
         runDirectory: URL,
         sourcePath: String? = nil
     ) throws -> Artifact {
-        let digest = try RoundTripArtifactDigest.compute(url: url)
-        return Artifact(
+        let path = try RoundTripArtifactResolver(
+            runDirectory: runDirectory
+        ).relativePath(for: url)
+        let reference = try ArtifactReference.circuitStudioReference(
+            id: "\(kind)-\(path)",
             kind: kind,
-            path: try RoundTripArtifactResolver(
-                runDirectory: runDirectory
-            ).relativePath(for: url),
-            sourcePath: sourcePath,
-            sha256: digest.sha256,
-            byteCount: digest.byteCount
+            relativePath: path,
+            fileURL: url
+        )
+        return Artifact(
+            reference: reference,
+            sourcePath: sourcePath
         )
     }
 

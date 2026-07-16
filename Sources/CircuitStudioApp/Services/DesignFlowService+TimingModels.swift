@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 import CircuitPhysicalDesign
 import DesignFlowKernel
@@ -128,12 +129,12 @@ extension DesignFlowService {
             }
             let profileURL = URL(filePath: profilePath)
             let profile = try Level1DeviceModelProfile.load(from: profileURL)
-            let digest = try RoundTripArtifactDigest.compute(url: profileURL)
+            let digest = try SHA256ContentDigester().digest(fileAt: profileURL, using: .sha256)
             return (
                 profile,
                 try profile.technologyContext(
                     path: profileURL.path(percentEncoded: false),
-                    sha256: digest.sha256
+                    sha256: digest.hexadecimalValue
                 ),
                 profileURL.path(percentEncoded: false),
                 nil,
@@ -181,12 +182,12 @@ extension DesignFlowService {
             )
         }
         try validateCatalogCorner(entry: catalogEntry, profile: profile)
-        let digest = try RoundTripArtifactDigest.compute(url: profilePath)
+        let digest = try SHA256ContentDigester().digest(fileAt: profilePath, using: .sha256)
         return (
             profile,
             try profile.technologyContext(
                 path: profilePath.path(percentEncoded: false),
-                sha256: digest.sha256
+                sha256: digest.hexadecimalValue
             ),
             profilePath.path(percentEncoded: false),
             catalog.catalogID,
@@ -258,7 +259,7 @@ extension DesignFlowService {
 
         do {
             let profile = try Level1DeviceModelProfile.load(from: profileURL)
-            let digest = try RoundTripArtifactDigest.compute(url: profileURL)
+            let digest = try SHA256ContentDigester().digest(fileAt: profileURL, using: .sha256)
             let modelHash = try TimingTopologyHasher.hashModel(profile.model)
             var diagnostics: [TimingModelProfileCatalogInspection.Diagnostic] = []
             if profile.profileID != entry.profileID {
@@ -290,7 +291,7 @@ extension DesignFlowService {
                 deviceModelID: profile.technology.deviceModelID,
                 supplyVoltage: profile.model.supplyVoltage,
                 deviceModelHash: modelHash,
-                sha256: digest.sha256,
+                sha256: digest.hexadecimalValue,
                 diagnostics: diagnostics
             )
         } catch {

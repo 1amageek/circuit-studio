@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 
 public enum ArtifactPublicationStatus: String, Sendable, Hashable, Codable {
@@ -7,143 +8,135 @@ public enum ArtifactPublicationStatus: String, Sendable, Hashable, Codable {
 }
 
 public enum ArtifactPublicationRecordValidationError: Error, LocalizedError, Equatable {
-    case negativeByteCount
-    case missingAvailableSHA256
-    case invalidAvailableSHA256
-    case missingAvailableByteCount
+    case unavailableStatusRequired
+    case payloadStatusMismatch
 
     public var errorDescription: String? {
         switch self {
-        case .negativeByteCount:
-            return "Artifact byteCount must be non-negative."
-        case .missingAvailableSHA256:
-            return "Available artifacts must include a 64-character hexadecimal sha256 digest."
-        case .invalidAvailableSHA256:
-            return "Available artifacts must include a 64-character hexadecimal sha256 digest."
-        case .missingAvailableByteCount:
-            return "Available artifacts must include byteCount."
+        case .unavailableStatusRequired:
+            return "An unavailable artifact declaration must be omitted or missing."
+        case .payloadStatusMismatch:
+            return "Artifact publication payload does not match its status."
         }
     }
 }
 
 public struct ArtifactPublicationRecord: Sendable, Hashable, Codable {
-    public let id: String
-    public let kind: String
-    public let path: String
+    public enum Payload: Sendable, Hashable, Codable {
+        case available(ArtifactReference)
+        case unavailable(id: ArtifactID, locator: ArtifactLocator)
+    }
+
+    public let payload: Payload
     public let status: ArtifactPublicationStatus
-    public let sha256: String?
-    public let byteCount: Int64?
     public let createdAt: Date
     public let sourcePath: String?
 
     public init(
-        id: String,
-        kind: String,
-        path: String,
-        status: ArtifactPublicationStatus,
-        sha256: String? = nil,
-        byteCount: Int64? = nil,
+        reference: ArtifactReference,
         createdAt: Date = Date(),
         sourcePath: String? = nil
-    ) throws {
-        try Self.validate(status: status, sha256: sha256, byteCount: byteCount)
-        self.id = id
-        self.kind = kind
-        self.path = path
-        self.status = status
-        self.sha256 = sha256
-        self.byteCount = byteCount
+    ) {
+        payload = .available(reference)
+        status = .available
         self.createdAt = createdAt
         self.sourcePath = sourcePath
     }
-}
 
-extension ArtifactPublicationRecord: ArtifactIntegrityRecord {
-    public var artifactKind: String { kind }
-    public var artifactPath: String { path }
-    public var artifactSHA256: String? { sha256 }
-    public var artifactByteCount: Int64? { byteCount }
-    public var artifactIsAvailable: Bool { status == .available }
-}
+    public init(
+        id: ArtifactID,
+        locator: ArtifactLocator,
+        status: ArtifactPublicationStatus,
+        createdAt: Date = Date(),
+        sourcePath: String? = nil
+    ) throws {
+        switch status {
+        case .available:
+            throw ArtifactPublicationRecordValidationError.unavailableStatusRequired
+        case .omitted, .missing:
+            payload = .unavailable(id: id, locator: locator)
+        }
+        self.status = status
+        self.createdAt = createdAt
+        self.sourcePath = sourcePath
+    }
 
-extension ArtifactPublicationRecord {
+    public var reference: ArtifactReference? {
+        guard case .available(let reference) = payload else { return nil }
+        return reference
+    }
+
+    public var id: String {
+        switch payload {
+        case .available(let reference):
+            return reference.id.rawValue
+        case .unavailable(let id, _):
+            return id.rawValue
+        }
+    }
+
+    public var locator: ArtifactLocator {
+        switch payload {
+        case .available(let reference):
+            return reference.locator
+        case .unavailable(_, let locator):
+            return locator
+        }
+    }
+
+    public var kind: String { locator.kind.rawValue }
+    public var path: String { locator.location.value }
+    public var sha256: String? { reference?.digest.hexadecimalValue }
+    public var byteCount: Int64? { reference.map { Int64($0.byteCount) } }
+
     private enum CodingKeys: String, CodingKey {
-        case id
-        case kind
-        case path
+        case payload
         case status
-        case sha256
-        case byteCount
         case createdAt
         case sourcePath
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let decodedStatus = try container.decode(ArtifactPublicationStatus.self, forKey: .status)
-        let decodedSHA256 = try container.decodeIfPresent(String.self, forKey: .sha256)
-        let decodedByteCount = try container.decodeIfPresent(Int64.self, forKey: .byteCount)
-        do {
-            try Self.validate(status: decodedStatus, sha256: decodedSHA256, byteCount: decodedByteCount)
-        } catch {
+        let payload = try container.decode(Payload.self, forKey: .payload)
+        let status = try container.decode(ArtifactPublicationStatus.self, forKey: .status)
+        guard Self.matches(payload: payload, status: status) else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
-                    debugDescription: error.localizedDescription
+                    debugDescription: ArtifactPublicationRecordValidationError.payloadStatusMismatch.localizedDescription
                 )
             )
         }
-
-        id = try container.decode(String.self, forKey: .id)
-        kind = try container.decode(String.self, forKey: .kind)
-        path = try container.decode(String.self, forKey: .path)
-        status = decodedStatus
-        sha256 = decodedSHA256
-        byteCount = decodedByteCount
+        self.payload = payload
+        self.status = status
         createdAt = try TimingArtifactDateCoding.decode(from: container, forKey: .createdAt)
         sourcePath = try container.decodeIfPresent(String.self, forKey: .sourcePath)
     }
 
     public func encode(to encoder: Encoder) throws {
-        do {
-            try Self.validate(status: status, sha256: sha256, byteCount: byteCount)
-        } catch {
+        guard Self.matches(payload: payload, status: status) else {
             throw EncodingError.invalidValue(
                 self,
-                EncodingError.Context(codingPath: encoder.codingPath, debugDescription: error.localizedDescription)
+                EncodingError.Context(
+                    codingPath: encoder.codingPath,
+                    debugDescription: ArtifactPublicationRecordValidationError.payloadStatusMismatch.localizedDescription
+                )
             )
         }
-
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(kind, forKey: .kind)
-        try container.encode(path, forKey: .path)
+        try container.encode(payload, forKey: .payload)
         try container.encode(status, forKey: .status)
-        try container.encodeIfPresent(sha256, forKey: .sha256)
-        try container.encodeIfPresent(byteCount, forKey: .byteCount)
         try TimingArtifactDateCoding.encode(createdAt, to: &container, forKey: .createdAt)
         try container.encodeIfPresent(sourcePath, forKey: .sourcePath)
     }
 
-    private static func validate(
-        status: ArtifactPublicationStatus,
-        sha256: String?,
-        byteCount: Int64?
-    ) throws {
-        if let byteCount, byteCount < 0 {
-            throw ArtifactPublicationRecordValidationError.negativeByteCount
-        }
-        guard status == .available else {
-            return
-        }
-        guard let sha256 else {
-            throw ArtifactPublicationRecordValidationError.missingAvailableSHA256
-        }
-        guard RoundTripArtifactDigest.isValidSHA256(sha256) else {
-            throw ArtifactPublicationRecordValidationError.invalidAvailableSHA256
-        }
-        guard byteCount != nil else {
-            throw ArtifactPublicationRecordValidationError.missingAvailableByteCount
+    private static func matches(payload: Payload, status: ArtifactPublicationStatus) -> Bool {
+        switch (payload, status) {
+        case (.available, .available), (.unavailable, .omitted), (.unavailable, .missing):
+            return true
+        default:
+            return false
         }
     }
 }

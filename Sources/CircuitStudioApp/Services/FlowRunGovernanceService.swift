@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 
 public enum FlowGateID: String, Sendable, Hashable, Codable {
@@ -480,7 +481,7 @@ public struct FlowRunGovernanceService: Sendable {
     }
 
     private func sha256(of url: URL) throws -> String {
-        try RoundTripArtifactDigest.compute(url: url).sha256
+        try SHA256ContentDigester().digest(fileAt: url, using: .sha256).hexadecimalValue
     }
 
     private func validateRunID(_ runID: String) throws {

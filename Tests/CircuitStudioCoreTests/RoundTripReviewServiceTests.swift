@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 import DesignFlowKernel
 import Testing
@@ -321,52 +322,10 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func escapingReviewArtifactIsDiagnosticAndIsNotRead() throws {
-        let root = try makeTemporaryRoot("review-escape-artifact")
-        defer { removeTemporaryRoot(root) }
-
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "review-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-
-        let outsideComparisonURL = runDirectory
-            .deletingLastPathComponent()
-            .appending(path: "outside-comparison.json")
-        try writeJSON(makeComparisonReport(), to: outsideComparisonURL)
-
-        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
-        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
-
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        var manifest = try makeManifest(comparisonURL: outsideComparisonURL, signoffURL: signoffURL)
-        manifest = HeadlessRoundTripService.Manifest(
-            runID: manifest.runID,
-            title: manifest.title,
-            createdAt: manifest.createdAt,
-            isRoundTripComplete: manifest.isRoundTripComplete,
-            isReadyForPEX: manifest.isReadyForPEX,
-            stages: manifest.stages,
-            artifacts: [
-                manifest.artifacts[0],
-                HeadlessRoundTripService.Artifact(
-                    kind: "post-layout-comparison",
-                    path: "../outside-comparison.json",
-                    sha256: try RoundTripArtifactDigest.compute(url: outsideComparisonURL).sha256,
-                    byteCount: try RoundTripArtifactDigest.compute(url: outsideComparisonURL).byteCount
-                ),
-            ],
-            bottleneckSummary: manifest.bottleneckSummary
-        )
-        try writeJSON(manifest, to: manifestURL)
-
-        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
-
-        #expect(summary.status == .incomplete)
-        #expect(summary.postLayoutComparison == nil)
-        #expect(summary.diagnostics.contains { $0.contains("escapes") })
-        #expect(summary.warnings.isEmpty)
+    func escapingReviewArtifactCannotBeRepresented() {
+        #expect(throws: ArtifactLocationError.self) {
+            _ = try ArtifactLocation(workspaceRelativePath: "../outside-comparison.json")
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -426,7 +385,13 @@ struct RoundTripReviewServiceTests {
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
         var manifest = try makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL)
-        let comparisonDigest = try RoundTripArtifactDigest.compute(url: comparisonURL)
+        let absoluteLocator = ArtifactLocator(
+            location: try ArtifactLocation(fileURL: comparisonURL),
+            role: .output,
+            kind: try ArtifactKind(rawValue: "post-layout-comparison"),
+            format: .json
+        )
+        let absoluteReference = try LocalArtifactReferencer().reference(absoluteLocator)
         manifest = HeadlessRoundTripService.Manifest(
             runID: manifest.runID,
             title: manifest.title,
@@ -436,12 +401,7 @@ struct RoundTripReviewServiceTests {
             stages: manifest.stages,
             artifacts: [
                 manifest.artifacts[0],
-                HeadlessRoundTripService.Artifact(
-                    kind: "post-layout-comparison",
-                    path: comparisonURL.path(percentEncoded: false),
-                    sha256: comparisonDigest.sha256,
-                    byteCount: comparisonDigest.byteCount
-                ),
+                HeadlessRoundTripService.Artifact(reference: absoluteReference),
             ],
             bottleneckSummary: manifest.bottleneckSummary
         )
@@ -738,13 +698,16 @@ struct RoundTripReviewServiceTests {
         url: URL,
         sourcePath: String? = nil
     ) throws -> HeadlessRoundTripService.Artifact {
-        let digest = try RoundTripArtifactDigest.compute(url: url)
-        return HeadlessRoundTripService.Artifact(
+        let path = url.lastPathComponent
+        let reference = try ArtifactReference.circuitStudioReference(
+            id: "\(kind)-\(path)",
             kind: kind,
-            path: url.lastPathComponent,
-            sourcePath: sourcePath,
-            sha256: digest.sha256,
-            byteCount: digest.byteCount
+            relativePath: path,
+            fileURL: url
+        )
+        return HeadlessRoundTripService.Artifact(
+            reference: reference,
+            sourcePath: sourcePath
         )
     }
 

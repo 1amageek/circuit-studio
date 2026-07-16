@@ -26,10 +26,7 @@ let package = Package(
             url: "https://github.com/1amageek/swift-artifact.git",
             exact: "0.17.0"
         ),
-        .package(
-            url: "https://github.com/1amageek/swift-openvaf.git",
-            revision: "3037901f3c59ecdd41f4d87b2cf3adb62d9395c1"
-        ),
+        .package(path: "../swift-openvaf"),
         .package(
             url: "https://github.com/1amageek/mac-component.git",
             revision: "d3aee65b8dd73a838bcfba124e7c1afe520b97bb"

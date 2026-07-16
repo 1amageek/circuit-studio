@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 import DesignFlowKernel
 import Testing
@@ -18,7 +19,7 @@ struct DesignFlowTimingProfileCommandTests {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(profile).write(to: profileURL, options: .atomic)
-        let profileDigest = try RoundTripArtifactDigest.compute(url: profileURL)
+        let profileDigest = try SHA256ContentDigester().digest(fileAt: profileURL, using: .sha256)
         let catalogURL = root.appending(path: "timing-profile-catalog.json")
         let catalog = try TimingModelProfileCatalog(
             catalogID: "unit-timing-profile-catalog",
@@ -36,7 +37,7 @@ struct DesignFlowTimingProfileCommandTests {
             model: profile.model,
             technologyContext: try profile.technologyContext(
                 path: profileURL.path(percentEncoded: false),
-                sha256: profileDigest.sha256
+                sha256: profileDigest.hexadecimalValue
             )
         )
 
@@ -69,7 +70,7 @@ struct DesignFlowTimingProfileCommandTests {
         #expect(manifest.runID == "timing-profile-run")
         #expect(manifest.technology.modelProfile?.profileID == profile.profileID)
         #expect(manifest.technology.modelProfile?.path == profileURL.path(percentEncoded: false))
-        #expect(manifest.technology.modelProfile?.sha256 == profileDigest.sha256)
+        #expect(manifest.technology.modelProfile?.sha256 == profileDigest.hexadecimalValue)
         #expect(manifest.artifacts.contains { $0.id == "timing-library" && $0.status == .available })
         #expect(manifest.artifacts.contains { $0.id == "timing-model-profile-selection" && $0.status == .available })
         #expect(manifest.artifacts.contains { $0.id == "combinational-characterization" && $0.status == .available })
@@ -85,7 +86,7 @@ struct DesignFlowTimingProfileCommandTests {
         #expect(selection.catalogPath == catalogURL.path(percentEncoded: false))
         #expect(selection.profile.profileID == profile.profileID)
         #expect(selection.profile.path == profileURL.path(percentEncoded: false))
-        #expect(selection.profile.sha256 == profileDigest.sha256)
+        #expect(selection.profile.sha256 == profileDigest.hexadecimalValue)
         #expect(selection.technology.modelProfile == selection.profile)
     }
 

@@ -86,7 +86,7 @@ extension RunReviewService {
         let artifacts = drilldownArtifactReferences([card.artifact] + card.relatedArtifacts)
         let issues = card.issues.enumerated().map { index, issue in
             RunReviewInteractiveSignoffDrilldown.Issue(
-                issueID: "\(card.artifact.path)#issue-\(index)",
+                issueID: "\(card.artifact.reference.locator.location.value)#issue-\(index)",
                 severity: issue.severity,
                 label: issue.label,
                 count: issue.count,
@@ -98,7 +98,7 @@ extension RunReviewService {
             )
         }
         return RunReviewInteractiveSignoffDrilldown.Item(
-            itemID: "signoff:\(domain.rawValue):\(card.artifact.path)",
+            itemID: "signoff:\(domain.rawValue):\(card.artifact.reference.locator.location.value)",
             domain: domain,
             title: card.title,
             status: card.status,
@@ -119,32 +119,32 @@ extension RunReviewService {
         var items: [RunReviewInteractiveSignoffDrilldown.Item] = []
         var waveformArtifacts: [FlowRunReviewArtifact] = []
         for card in cards {
-            for artifact in [card.artifact] + card.relatedArtifacts where artifact.kind == .waveform {
-                guard seenPaths.insert(artifact.path).inserted else {
+            for artifact in [card.artifact] + card.relatedArtifacts where artifact.reference.locator.kind == .waveform {
+                guard seenPaths.insert(artifact.reference.locator.location.value).inserted else {
                     continue
                 }
                 waveformArtifacts.append(artifact)
             }
         }
         waveformArtifacts.sort { left, right in
-            (left.artifactID ?? left.path) < (right.artifactID ?? right.path)
+            left.reference.id.rawValue < right.reference.id.rawValue
         }
 
         for artifact in waveformArtifacts {
             items.append(
                 RunReviewInteractiveSignoffDrilldown.Item(
-                    itemID: "waveform:\(artifact.path)",
+                    itemID: "waveform:\(artifact.reference.locator.location.value)",
                     domain: .waveform,
-                    title: artifact.artifactID ?? artifact.role,
+                    title: artifact.reference.id.rawValue,
                     status: artifact.integrity?.status.rawValue ?? "available",
                     passed: artifact.integrity?.status == .verified ? true : nil,
                     stageID: artifact.stageID,
                     interactions: [.artifactPreview, .waveformTraceSelection],
                     artifactReferences: drilldownArtifactReferences([artifact]),
                     metrics: compactDrilldownMetrics([
-                        ("Role", artifact.role),
-                        ("Format", artifact.format.rawValue),
-                        ("Bytes", artifact.byteCount.map { String($0) }),
+                        ("Role", artifact.purpose.rawValue),
+                        ("Format", artifact.reference.locator.format.rawValue),
+                        ("Bytes", String(artifact.reference.byteCount)),
                         ("Integrity", artifact.integrity?.status.rawValue),
                     ])
                 )
@@ -153,13 +153,13 @@ extension RunReviewService {
 
         for card in cards {
             let comparisonArtifacts = ([card.artifact] + card.relatedArtifacts)
-                .filter { $0.kind == .waveform }
+                .filter { $0.reference.locator.kind == .waveform }
             guard comparisonArtifacts.count >= 2 else {
                 continue
             }
             items.append(
                 RunReviewInteractiveSignoffDrilldown.Item(
-                    itemID: "waveform-comparison:\(card.artifact.path)",
+                    itemID: "waveform-comparison:\(card.artifact.reference.locator.location.value)",
                     domain: .waveform,
                     title: "\(card.title) waveform comparison",
                     status: card.status,
@@ -423,7 +423,7 @@ extension RunReviewService {
         if card.issues.contains(where: { !$0.repairActionHints.isEmpty }) {
             interactions.append(.repairActionSelection)
         }
-        if ([card.artifact] + card.relatedArtifacts).filter({ $0.kind == .waveform }).count >= 2 {
+        if ([card.artifact] + card.relatedArtifacts).filter({ $0.reference.locator.kind == .waveform }).count >= 2 {
             interactions.append(.waveformComparison)
         }
         return interactions
@@ -499,7 +499,7 @@ extension RunReviewService {
     ) -> [RunReviewInteractiveSignoffDrilldown.ArtifactSummary] {
         var seenPaths = Set<String>()
         return artifacts.filter { artifact in
-            seenPaths.insert(artifact.path).inserted
+            seenPaths.insert(artifact.reference.locator.location.value).inserted
         }.map(drilldownArtifactReference)
     }
 
@@ -532,16 +532,16 @@ extension RunReviewService {
         _ artifact: FlowRunReviewArtifact
     ) -> RunReviewInteractiveSignoffDrilldown.ArtifactSummary {
         RunReviewInteractiveSignoffDrilldown.ArtifactSummary(
-            refID: artifact.artifactID ?? artifact.path,
+            refID: artifact.reference.id.rawValue,
             source: "run-ledger",
-            role: artifact.role,
-            artifactID: artifact.artifactID,
+            role: artifact.purpose.rawValue,
+            artifactID: artifact.reference.id.rawValue,
             stageID: artifact.stageID,
-            path: artifact.path,
-            kind: artifact.kind.rawValue,
-            format: artifact.format.rawValue,
-            sha256: artifact.sha256,
-            byteCount: artifact.byteCount,
+            path: artifact.reference.locator.location.value,
+            kind: artifact.reference.locator.kind.rawValue,
+            format: artifact.reference.locator.format.rawValue,
+            sha256: artifact.reference.digest.hexadecimalValue,
+            byteCount: artifact.reference.byteCount,
             integrityStatus: artifact.integrity?.status.rawValue,
             integrityMessage: artifact.integrity?.message
         )

@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 import CircuitStudioCore
 import DesignFlowKernel
@@ -249,9 +250,14 @@ public struct RoundTripReviewService: Sendable {
             )
         }
 
-        let actualDigest: RoundTripArtifactDigest
+        let actualReference: ArtifactReference
         do {
-            actualDigest = try RoundTripArtifactDigest.compute(url: url)
+            actualReference = try ArtifactReference.circuitStudioReference(
+                id: artifact.reference.id.rawValue,
+                kind: artifact.kind,
+                relativePath: artifact.path,
+                fileURL: url
+            )
         } catch {
             diagnostics.append("Artifact is unreadable: \(artifact.kind) at \(path): \(error.localizedDescription)")
             return RoundTripReviewArtifactSummary(
@@ -268,7 +274,7 @@ public struct RoundTripReviewService: Sendable {
 
         let integrityStatus = integrityStatus(
             artifact: artifact,
-            actualDigest: actualDigest,
+            actualReference: actualReference,
             diagnostics: &diagnostics
         )
 
@@ -280,27 +286,27 @@ public struct RoundTripReviewService: Sendable {
             isCapturedCopy: artifact.sourcePath != nil,
             manifestSHA256: artifact.sha256,
             manifestByteCount: artifact.byteCount,
-            actualSHA256: actualDigest.sha256,
-            actualByteCount: actualDigest.byteCount,
+            actualSHA256: actualReference.digest.hexadecimalValue,
+            actualByteCount: Int64(actualReference.byteCount),
             integrityStatus: integrityStatus
         )
     }
 
     private func integrityStatus(
         artifact: HeadlessRoundTripService.Artifact,
-        actualDigest: RoundTripArtifactDigest,
+        actualReference: ArtifactReference,
         diagnostics: inout [String]
     ) -> RoundTripArtifactIntegrityStatus {
         var status = RoundTripArtifactIntegrityStatus.verified
-        if artifact.byteCount != actualDigest.byteCount {
+        if artifact.reference.byteCount != actualReference.byteCount {
             appendUnique([
-                "Artifact byte count mismatch: \(artifact.kind) at \(artifact.path) expected \(artifact.byteCount), got \(actualDigest.byteCount)",
+                "Artifact byte count mismatch: \(artifact.kind) at \(artifact.path) expected \(artifact.reference.byteCount), got \(actualReference.byteCount)",
             ], to: &diagnostics)
             status = .byteCountMismatch
         }
-        if artifact.sha256 != actualDigest.sha256 {
+        if artifact.reference.digest != actualReference.digest {
             appendUnique([
-                "Artifact SHA-256 mismatch: \(artifact.kind) at \(artifact.path) expected \(artifact.sha256), got \(actualDigest.sha256)",
+                "Artifact SHA-256 mismatch: \(artifact.kind) at \(artifact.path) expected \(artifact.reference.digest.hexadecimalValue), got \(actualReference.digest.hexadecimalValue)",
             ], to: &diagnostics)
             status = .sha256Mismatch
         }
@@ -507,7 +513,7 @@ public struct RoundTripReviewService: Sendable {
     }
 
     private func sha256(of url: URL) throws -> String {
-        try RoundTripArtifactDigest.compute(url: url).sha256
+        try SHA256ContentDigester().digest(fileAt: url, using: .sha256).hexadecimalValue
     }
 
     private func resolveVerifiedArtifactURL(

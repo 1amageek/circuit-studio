@@ -31,12 +31,12 @@ extension RunReviewService {
                 continue
             }
 
-            let linkedItems = itemsByArtifactPath[artifact.path, default: []]
+            let linkedItems = itemsByArtifactPath[artifact.reference.locator.location.value, default: []]
             appendState(
                 &states,
                 seenStateIDs: &seenStateIDs,
                 RunReviewFailureStateSummary.State(
-                    stateID: "\(kind.rawValue):\(artifact.path)",
+                    stateID: "\(kind.rawValue):\(artifact.reference.locator.location.value)",
                     kind: kind,
                     severity: severity(for: kind),
                     title: title(for: kind),
@@ -394,7 +394,7 @@ extension RunReviewService {
         role: String,
         bundle: FlowRunReviewBundle
     ) -> [RunReviewFailureStateSummary.ArtifactSummary] {
-        let refs = bundle.artifacts.filter { $0.path == path }
+        let refs = bundle.artifacts.filter { $0.reference.locator.location.value == path }
         if !refs.isEmpty {
             return refs.map(failureArtifactReference).sorted(by: artifactReferenceSortOrder)
         }
@@ -416,12 +416,12 @@ extension RunReviewService {
         _ artifact: FlowRunReviewArtifact
     ) -> RunReviewFailureStateSummary.ArtifactSummary {
         RunReviewFailureStateSummary.ArtifactSummary(
-            role: artifact.role,
-            artifactID: artifact.artifactID,
+            role: artifact.purpose.rawValue,
+            artifactID: artifact.reference.id.rawValue,
             stageID: artifact.stageID,
-            path: artifact.path,
-            kind: artifact.kind.rawValue,
-            format: artifact.format.rawValue,
+            path: artifact.reference.locator.location.value,
+            kind: artifact.reference.locator.kind.rawValue,
+            format: artifact.reference.locator.format.rawValue,
             integrityStatus: artifact.integrity?.status.rawValue,
             integrityMessage: artifact.integrity?.message
         )
@@ -467,10 +467,10 @@ extension RunReviewService {
         if left.stageID != right.stageID {
             return (left.stageID ?? "") < (right.stageID ?? "")
         }
-        if left.role != right.role {
-            return left.role < right.role
+        if left.purpose != right.purpose {
+            return left.purpose.rawValue < right.purpose.rawValue
         }
-        return left.path < right.path
+        return left.reference.locator.location.value < right.reference.locator.location.value
     }
 
     private func stageSortOrder(_ left: StageReview, _ right: StageReview) -> Bool {

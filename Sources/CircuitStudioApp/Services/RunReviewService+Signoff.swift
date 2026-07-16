@@ -12,7 +12,7 @@ extension RunReviewService {
         var cards: [RunReviewSignoffCard] = []
         var decodeIssues: [RunReviewArtifactDecodeIssue] = []
 
-        for artifact in bundle.artifacts where artifact.format == .json {
+        for artifact in bundle.artifacts where artifact.reference.locator.format == .json {
             switch signoffArtifactKind(for: artifact) {
             case .drc:
                 appendDecodedCard(
@@ -96,7 +96,7 @@ extension RunReviewService {
                 if left.domain != right.domain {
                     return signoffDomainRank(left.domain) < signoffDomainRank(right.domain)
                 }
-                return left.artifact.path < right.artifact.path
+                return left.artifact.reference.locator.location.value < right.artifact.reference.locator.location.value
             },
             repairCandidateCycles: try signoffRepairCandidateCycles(
                 from: actions,
@@ -117,7 +117,7 @@ extension RunReviewService {
             }) else {
                 continue
             }
-            let artifactURL = projectRoot.appending(path: artifact.path)
+            let artifactURL = projectRoot.appending(path: artifact.locator.location.value)
             cycles.append(
                 try JSONDecoder().decode(
                     RunReviewSignoffRepairCandidateCycleHistoryItem.self,
@@ -182,8 +182,8 @@ extension RunReviewService {
         } catch {
             decodeIssues.append(
                 RunReviewArtifactDecodeIssue(
-                    artifactRole: artifact.role,
-                    artifactPath: artifact.path,
+                    artifactRole: artifact.purpose.rawValue,
+                    artifactPath: artifact.reference.locator.location.value,
                     message: error.localizedDescription
                 )
             )
@@ -195,14 +195,14 @@ extension RunReviewService {
     ) throws {
         guard let integrity = artifact.integrity else {
             throw RunReviewServiceError.signoffArtifactIntegrityUnverified(
-                path: artifact.path,
+                path: artifact.reference.locator.location.value,
                 status: "missing",
                 message: "No recorded artifact integrity state is available."
             )
         }
         guard integrity.status == .verified else {
             throw RunReviewServiceError.signoffArtifactIntegrityUnverified(
-                path: artifact.path,
+                path: artifact.reference.locator.location.value,
                 status: integrity.status.rawValue,
                 message: integrity.message
             )
@@ -1036,8 +1036,8 @@ extension RunReviewService {
     }
 
     private func signoffArtifactKind(for artifact: FlowRunReviewArtifact) -> SignoffArtifactKind? {
-        let artifactID = artifact.artifactID ?? ""
-        let path = artifact.path.lowercased()
+        let artifactID = artifact.reference.id.rawValue
+        let path = artifact.reference.locator.location.value.lowercased()
         if artifactID == "drc-summary" || path.hasSuffix("drc-summary.json") {
             return .drc
         }
@@ -1061,13 +1061,13 @@ extension RunReviewService {
         if artifactID == "retained-signoff-report"
             || path.hasSuffix("retained-signoff-report.json")
             || path.contains("retained-signoff-report")
-            || path.hasSuffix("signoff-retained-report-v1.json") {
+            || path.hasSuffix("signoff-retained-report-v2.json") {
             return .retainedSignoffReport
         }
         if artifactID == "planning-simulation-summary" || path.hasSuffix("simulation-summary.json") {
             return .simulationMetric
         }
-        if artifact.kind == .measurement && path.hasSuffix("measurements.json") {
+        if artifact.reference.locator.kind == .measurement && path.hasSuffix("measurements.json") {
             return .simulationMeasurement
         }
         if artifactID == "post-layout-comparison" || path.hasSuffix("comparison-report.json") {
@@ -1084,15 +1084,15 @@ extension RunReviewService {
         var seenPaths = Set<String>()
         return allArtifacts
             .filter { candidate in
-                candidate.path != artifact.path
-                    && seenPaths.insert(candidate.path).inserted
+                candidate.reference.locator.location.value != artifact.reference.locator.location.value
+                    && seenPaths.insert(candidate.reference.locator.location.value).inserted
                     && isRelatedArtifact(candidate, to: artifact, artifactKind: artifactKind)
             }
             .sorted { left, right in
-                if left.role != right.role {
-                    return left.role < right.role
+                if left.purpose != right.purpose {
+                    return left.purpose.rawValue < right.purpose.rawValue
                 }
-                return left.path < right.path
+                return left.reference.locator.location.value < right.reference.locator.location.value
             }
     }
 
@@ -1102,7 +1102,7 @@ extension RunReviewService {
     ) -> [FlowRunReviewArtifact] {
         var seenPaths = Set<String>()
         return ([primary] + relatedArtifacts).filter { artifact in
-            seenPaths.insert(artifact.path).inserted
+            seenPaths.insert(artifact.reference.locator.location.value).inserted
         }
     }
 
@@ -1111,20 +1111,20 @@ extension RunReviewService {
         to artifact: FlowRunReviewArtifact,
         artifactKind: SignoffArtifactKind?
     ) -> Bool {
-        if candidate.stageID == artifact.stageID && candidate.role == "stage-result" {
+        if candidate.stageID == artifact.stageID && candidate.purpose == .stageResult {
             return true
         }
         guard let artifactKind else {
             return false
         }
         let searchable = [
-            candidate.artifactID,
-            candidate.role,
-            candidate.path,
-            candidate.kind.rawValue,
-            candidate.format.rawValue,
+            candidate.reference.id.rawValue,
+            candidate.purpose.rawValue,
+            candidate.reference.locator.location.value,
+            candidate.reference.locator.kind.rawValue,
+            candidate.reference.locator.format.rawValue,
         ]
-        .compactMap { $0?.lowercased() }
+        .map { $0.lowercased() }
         .joined(separator: " ")
 
         switch artifactKind {
@@ -1199,10 +1199,10 @@ extension RunReviewService {
     }
 
     private func artifactURL(for artifact: FlowRunReviewArtifact, projectRoot: URL) -> URL {
-        if artifact.path.hasPrefix("/") {
-            URL(filePath: artifact.path)
+        if artifact.reference.locator.location.value.hasPrefix("/") {
+            URL(filePath: artifact.reference.locator.location.value)
         } else {
-            projectRoot.appending(path: artifact.path)
+            projectRoot.appending(path: artifact.reference.locator.location.value)
         }
     }
 

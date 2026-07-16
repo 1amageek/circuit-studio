@@ -323,7 +323,7 @@ public struct RunReviewView: View {
                         runSignoffRepairCandidateCycle(runID: runID)
                     }
                 )
-                ForEach(signoff.cards, id: \.artifact.path) { card in
+                ForEach(signoff.cards, id: \.artifact.reference.locator.location.value) { card in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
                             Image(systemName: signoffIcon(card))
@@ -829,7 +829,7 @@ public struct RunReviewView: View {
                                 }
                             }
                         }
-                        Text(item.artifact.path)
+                        Text(item.artifact.reference.locator.location.value)
                             .font(.caption2.monospaced())
                             .foregroundStyle(integrityColor(item.artifact.integrity?.status))
                             .lineLimit(2)
@@ -879,16 +879,16 @@ public struct RunReviewView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Text(context.designSpecArtifact.path)
+                Text(context.designSpecArtifact.reference.locator.location.value)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(context.layoutDocumentArtifact.path)
+                Text(context.layoutDocumentArtifact.reference.locator.location.value)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if let designUnitArtifact = context.designUnitArtifact {
-                    Text(designUnitArtifact.path)
+                    Text(designUnitArtifact.reference.locator.location.value)
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

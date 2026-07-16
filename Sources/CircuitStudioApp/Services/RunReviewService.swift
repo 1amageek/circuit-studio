@@ -391,7 +391,7 @@ public struct RunReviewService: Sendable {
             decodeIssues.append(
                 PlanningArtifactDecodeIssue(
                     artifactRole: role,
-                    artifactPath: artifact.path,
+                    artifactPath: artifact.reference.locator.location.value,
                     message: error.localizedDescription
                 )
             )
@@ -402,14 +402,14 @@ public struct RunReviewService: Sendable {
     private func validatePlanningArtifactIntegrity(_ artifact: FlowRunReviewArtifact) throws {
         guard let integrity = artifact.integrity else {
             throw RunReviewServiceError.planningArtifactIntegrityUnverified(
-                path: artifact.path,
+                path: artifact.reference.locator.location.value,
                 status: "missing",
                 message: "Artifact integrity was not recorded."
             )
         }
         guard integrity.status == .verified else {
             throw RunReviewServiceError.planningArtifactIntegrityUnverified(
-                path: artifact.path,
+                path: artifact.reference.locator.location.value,
                 status: integrity.status.rawValue,
                 message: integrity.message
             )
@@ -502,14 +502,14 @@ public struct RunReviewService: Sendable {
         role: String,
         in artifacts: [FlowRunReviewArtifact]
     ) -> FlowRunReviewArtifact? {
-        artifacts.last { $0.role == role }
+        artifacts.last { $0.purpose.rawValue == role }
     }
 
     private func artifactURL(for artifact: FlowRunReviewArtifact, projectRoot: URL) -> URL {
-        if artifact.path.hasPrefix("/") {
-            URL(filePath: artifact.path)
+        if artifact.reference.locator.location.value.hasPrefix("/") {
+            URL(filePath: artifact.reference.locator.location.value)
         } else {
-            projectRoot.appending(path: artifact.path)
+            projectRoot.appending(path: artifact.reference.locator.location.value)
         }
     }
 }

@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 import DesignFlowKernel
 import Testing
@@ -205,12 +206,15 @@ enum DesignFlowServiceTestSupport {
         url: URL,
         path: String? = nil
     ) throws -> HeadlessRoundTripService.Artifact {
-        let digest = try RoundTripArtifactDigest.compute(url: url)
-        return HeadlessRoundTripService.Artifact(
+        let relativePath = path ?? url.lastPathComponent
+        let reference = try ArtifactReference.circuitStudioReference(
+            id: "\(kind)-\(relativePath)",
             kind: kind,
-            path: path ?? url.lastPathComponent,
-            sha256: digest.sha256,
-            byteCount: digest.byteCount
+            relativePath: relativePath,
+            fileURL: url
+        )
+        return HeadlessRoundTripService.Artifact(
+            reference: reference
         )
     }
     

@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 import CircuitPhysicalDesign
 import LayoutCore
@@ -45,7 +46,7 @@ struct ArtifactSchemaContractTests {
         let profileSelectionJSON = try topLevelJSON(fixtures.profileSelection)
         #expect(profileSelectionJSON["selectedAt"] is String)
 
-        let record = TimingArtifactRecord(
+        let record = try timingArtifactRecord(
             id: "timing-library",
             kind: .timingLibrary,
             path: "timing/timing-library.json",
@@ -54,7 +55,8 @@ struct ArtifactSchemaContractTests {
             byteCount: 1
         )
         let recordJSON = try topLevelJSON(record)
-        #expect(recordJSON["createdAt"] is String)
+        let publicationJSON = try #require(recordJSON["publication"] as? [String: Any])
+        #expect(publicationJSON["createdAt"] is String)
 
         _ = try JSONDecoder().decode(TimingArtifactManifest.self, from: JSONEncoder().encode(fixtures.manifest))
         _ = try JSONDecoder().decode(TimingArtifactRecord.self, from: JSONEncoder().encode(record))
@@ -62,7 +64,7 @@ struct ArtifactSchemaContractTests {
 
     @Test("Available timing artifact records require digest and byte count", .timeLimit(.minutes(1)))
     func availableTimingArtifactRecordsRequireDigestAndByteCount() throws {
-        let record = TimingArtifactRecord(
+        let record = try timingArtifactRecord(
             id: "timing-library",
             kind: .timingLibrary,
             path: "timing/timing-library.json",
@@ -71,31 +73,30 @@ struct ArtifactSchemaContractTests {
             byteCount: 1
         )
         let decoder = JSONDecoder()
-
+        let reference = try #require(record.reference)
         #expect(throws: DecodingError.self) {
             try decoder.decode(
-                TimingArtifactRecord.self,
-                from: removingTopLevelKeys(["sha256"], from: record)
+                ArtifactReference.self,
+                from: removingTopLevelKeys(["digest"], from: reference)
             )
         }
         #expect(throws: DecodingError.self) {
             try decoder.decode(
-                TimingArtifactRecord.self,
-                from: removingTopLevelKeys(["byteCount"], from: record)
+                ArtifactReference.self,
+                from: removingTopLevelKeys(["byteCount"], from: reference)
             )
         }
 
-        let negativeByteCount = try mutatedTopLevelJSON(record, key: "byteCount", value: -1)
+        let invalidDigest = try mutatedTopLevelJSON(
+            reference.digest,
+            key: "hexadecimalValue",
+            value: "not-a-sha256-digest"
+        )
         #expect(throws: DecodingError.self) {
-            try decoder.decode(TimingArtifactRecord.self, from: negativeByteCount)
+            try decoder.decode(ContentDigest.self, from: invalidDigest)
         }
 
-        let invalidDigest = try mutatedTopLevelJSON(record, key: "sha256", value: "not-a-sha256-digest")
-        #expect(throws: DecodingError.self) {
-            try decoder.decode(TimingArtifactRecord.self, from: invalidDigest)
-        }
-
-        let missingRecord = TimingArtifactRecord(
+        let missingRecord = try timingArtifactRecord(
             id: "optional",
             kind: .measurementLog,
             path: "timing/optional.json",
@@ -188,26 +189,21 @@ struct ArtifactSchemaContractTests {
         }
     }
 
-    @Test("Available artifact publication records require digest and byte count at construction", .timeLimit(.minutes(1)))
-    func availableArtifactPublicationRecordsRequireDigestAndByteCountAtConstruction() throws {
-        #expect(throws: ArtifactPublicationRecordValidationError.self) {
+    @Test("Available artifact publication records require a Foundation reference", .timeLimit(.minutes(1)))
+    func availableArtifactPublicationRecordsRequireAFoundationReference() throws {
+        let locator = try ArtifactReference.circuitStudioLocator(
+            kind: "layout-summary",
+            relativePath: "layout/summary.json"
+        )
+        #expect(throws: ArtifactPublicationRecordValidationError.unavailableStatusRequired) {
             _ = try ArtifactPublicationRecord(
-                id: "layout-summary",
-                kind: "layout-summary",
-                path: "layout/summary.json",
+                id: ArtifactID(rawValue: "layout-summary"),
+                locator: locator,
                 status: .available
             )
         }
-
-        #expect(throws: ArtifactPublicationRecordValidationError.self) {
-            _ = try ArtifactPublicationRecord(
-                id: "layout-summary",
-                kind: "layout-summary",
-                path: "layout/summary.json",
-                status: .available,
-                sha256: "invalid",
-                byteCount: 1
-            )
+        #expect(throws: ContentDigestError.self) {
+            _ = try ContentDigest(algorithm: .sha256, hexadecimalValue: "invalid")
         }
     }
 
@@ -481,6 +477,44 @@ struct ArtifactSchemaContractTests {
             throw FixtureError.invalidJSONObject
         }
         return object
+    }
+
+    private func timingArtifactRecord(
+        id: String,
+        kind: TimingArtifactKind,
+        path: String,
+        status: TimingArtifactStatus,
+        sha256: String? = nil,
+        byteCount: Int64? = nil
+    ) throws -> TimingArtifactRecord {
+        let locator = try ArtifactReference.circuitStudioLocator(
+            kind: kind.rawValue,
+            relativePath: path
+        )
+        switch status {
+        case .available:
+            let digest = try ContentDigest(
+                algorithm: .sha256,
+                hexadecimalValue: try #require(sha256)
+            )
+            let count = try #require(byteCount)
+            return TimingArtifactRecord(
+                reference: ArtifactReference(
+                    id: try ArtifactID(rawValue: id),
+                    locator: locator,
+                    digest: digest,
+                    byteCount: UInt64(count)
+                ),
+                kind: kind
+            )
+        case .omitted, .missing:
+            return try TimingArtifactRecord(
+                id: ArtifactID(rawValue: id),
+                locator: locator,
+                kind: kind,
+                status: status
+            )
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import DesignFlowKernel
+import CircuiteFoundation
 import Foundation
 import Testing
 @testable import CircuitStudioApp
@@ -59,10 +60,11 @@ struct RunReviewArtifactResourceTests {
         let outsideFile = outsideDirectory.appending(path: "outside.csv", directoryHint: .notDirectory)
         let outsideData = Data("outside".utf8)
         try outsideData.write(to: outsideFile)
-        let outsideDigest = RoundTripArtifactDigest.compute(data: outsideData)
-        let outsideArtifact = fixture.artifact(
+        let outsideDigest = try SHA256ContentDigester().digest(data: outsideData, using: .sha256)
+        let outsideArtifact = try fixture.artifact(
             path: outsideFile.path(percentEncoded: false),
-            digest: outsideDigest
+            digest: outsideDigest,
+            byteCount: UInt64(outsideData.count)
         )
         let service = fixture.service(artifact: outsideArtifact)
 
@@ -74,7 +76,7 @@ struct RunReviewArtifactResourceTests {
             )
             Issue.record("An artifact outside the project root was exposed to the renderer.")
         } catch let error as RunReviewServiceError {
-            #expect(error == .artifactResourceEscapesProject(path: outsideArtifact.path))
+            #expect(error == .artifactResourceEscapesProject(path: outsideArtifact.reference.path))
         } catch {
             Issue.record("Unexpected error type: \(error)")
         }
@@ -85,7 +87,7 @@ private struct RunReviewArtifactResourceFixture {
     let root: URL
     let file: URL
     let runID = "renderer-run"
-    let digest: RoundTripArtifactDigest
+    let digest: ContentDigest
     let artifact: FlowRunReviewArtifact
 
     init(contents: String) throws {
@@ -96,12 +98,16 @@ private struct RunReviewArtifactResourceFixture {
         let file = artifactDirectory.appending(path: "waveform.csv", directoryHint: .notDirectory)
         let data = Data(contents.utf8)
         try data.write(to: file)
-        let digest = RoundTripArtifactDigest.compute(data: data)
+        let digest = try SHA256ContentDigester().digest(data: data, using: .sha256)
 
         self.root = root
         self.file = file
         self.digest = digest
-        self.artifact = Self.makeArtifact(path: "artifacts/waveform.csv", digest: digest)
+        self.artifact = try Self.makeArtifact(
+            path: "artifacts/waveform.csv",
+            digest: digest,
+            byteCount: UInt64(data.count)
+        )
     }
 
     var service: RunReviewService {
@@ -122,8 +128,8 @@ private struct RunReviewArtifactResourceFixture {
         return RunReviewService(reviewBundler: RunReviewArtifactBundleStub(bundle: bundle))
     }
 
-    func artifact(path: String, digest: RoundTripArtifactDigest) -> FlowRunReviewArtifact {
-        Self.makeArtifact(path: path, digest: digest)
+    func artifact(path: String, digest: ContentDigest, byteCount: UInt64) throws -> FlowRunReviewArtifact {
+        try Self.makeArtifact(path: path, digest: digest, byteCount: byteCount)
     }
 
     func remove() {
@@ -136,22 +142,30 @@ private struct RunReviewArtifactResourceFixture {
 
     private static func makeArtifact(
         path: String,
-        digest: RoundTripArtifactDigest
-    ) -> FlowRunReviewArtifact {
-        let byteCount = UInt64(digest.byteCount)
+        digest: ContentDigest,
+        byteCount: UInt64
+    ) throws -> FlowRunReviewArtifact {
+        let reference = ArtifactReference(
+            id: try ArtifactID(rawValue: "waveform"),
+            locator: ArtifactLocator(
+                location: path.hasPrefix("/")
+                    ? try ArtifactLocation(fileURL: URL(filePath: path))
+                    : try ArtifactLocation(workspaceRelativePath: path),
+                role: .waveform,
+                kind: .waveform,
+                format: .csv
+            ),
+            digest: digest,
+            byteCount: byteCount
+        )
         return FlowRunReviewArtifact(
-            role: "waveform",
-            artifactID: "waveform",
+            reference: reference,
+            purpose: try FlowRunReviewArtifactPurpose(validatingRawValue: "waveform"),
             stageID: "simulation",
-            path: path,
-            kind: .waveform,
-            format: .csv,
-            sha256: digest.sha256,
-            byteCount: byteCount,
             integrity: FlowRunReviewArtifactIntegrity(
                 status: .verified,
-                expectedSHA256: digest.sha256,
-                actualSHA256: digest.sha256,
+                expectedSHA256: digest.hexadecimalValue,
+                actualSHA256: digest.hexadecimalValue,
                 expectedByteCount: byteCount,
                 actualByteCount: byteCount,
                 message: "Artifact integrity is verified."

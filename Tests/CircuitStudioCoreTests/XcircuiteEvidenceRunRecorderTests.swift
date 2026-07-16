@@ -54,7 +54,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                     statement: "layout is DRC clean",
                     passed: true,
                     measured: "0 violations",
-                    artifact: TapeoutEvidenceArtifact(
+                    artifact: try evidenceArtifact(
                         id: "drc-report",
                         kind: "report",
                         path: report.path,
@@ -144,7 +144,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                 .init(
                     axis: .drc, statement: "layout is DRC clean", passed: true,
                     measured: "0 violations",
-                    artifact: TapeoutEvidenceArtifact(
+                    artifact: try evidenceArtifact(
                         id: "drc-report",
                         kind: "report",
                         path: report.path,
@@ -186,7 +186,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                 .init(
                     axis: .drc, statement: "layout is DRC clean", passed: true,
                     measured: "0 violations",
-                    artifact: TapeoutEvidenceArtifact(
+                    artifact: try evidenceArtifact(
                         id: "drc-report",
                         kind: "report",
                         path: report.path,
@@ -230,7 +230,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                     statement: "layout is DRC clean",
                     passed: true,
                     measured: "0 violations",
-                    artifact: TapeoutEvidenceArtifact(
+                    artifact: try evidenceArtifact(
                         id: "../escape",
                         kind: "report",
                         path: report.path,
@@ -278,7 +278,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                     statement: "layout is DRC clean",
                     passed: true,
                     measured: "0 violations",
-                    artifact: TapeoutEvidenceArtifact(
+                    artifact: try evidenceArtifact(
                         id: "signoff-report",
                         kind: "report",
                         path: first.path,
@@ -293,7 +293,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                     statement: "layout matches schematic",
                     passed: true,
                     measured: "match",
-                    artifact: TapeoutEvidenceArtifact(
+                    artifact: try evidenceArtifact(
                         id: "signoff-report",
                         kind: "report",
                         path: second.path,
@@ -337,7 +337,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                     statement: "layout is DRC clean",
                     passed: true,
                     measured: "0 violations",
-                    artifact: TapeoutEvidenceArtifact(
+                    artifact: try evidenceArtifact(
                         id: "evidence-error",
                         kind: "report",
                         path: report.path,
@@ -385,7 +385,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                     statement: "layout is DRC clean",
                     passed: true,
                     measured: "0 violations",
-                    artifact: TapeoutEvidenceArtifact(
+                    artifact: try evidenceArtifact(
                         id: "drc-report",
                         kind: "report",
                         path: source.path,
@@ -441,7 +441,7 @@ struct XcircuiteEvidenceRunRecorderTests {
                     statement: "layout is DRC clean",
                     passed: true,
                     measured: "0 violations",
-                    artifact: TapeoutEvidenceArtifact(
+                    artifact: try evidenceArtifact(
                         id: "symlink-report",
                         kind: "report",
                         path: source.path,
@@ -473,4 +473,35 @@ struct XcircuiteEvidenceRunRecorderTests {
         #expect(manifest.status == .failed)
         #expect(manifest.artifacts.contains { $0.artifactID == "evidence-error" })
     }
+}
+
+private func evidenceArtifact(
+    id: String,
+    kind: String,
+    path: String,
+    status: ArtifactPublicationStatus,
+    sha256: String,
+    byteCount: Int64
+) throws -> TapeoutEvidenceArtifact {
+    guard status == .available else {
+        throw ArtifactPublicationRecordValidationError.unavailableStatusRequired
+    }
+    let url = URL(filePath: path)
+    let locator = ArtifactLocator(
+        location: try ArtifactLocation(fileURL: url),
+        role: .output,
+        kind: try ArtifactKind(rawValue: kind),
+        format: try ArtifactFormat(
+            rawValue: url.pathExtension.isEmpty ? ArtifactFormat.unknown.rawValue : url.pathExtension
+        )
+    )
+    let reference = ArtifactReference(
+        id: try ArtifactID(rawValue: id),
+        locator: locator,
+        digest: try ContentDigest(algorithm: .sha256, hexadecimalValue: sha256),
+        byteCount: UInt64(byteCount)
+    )
+    return TapeoutEvidenceArtifact(
+        publicationRecord: ArtifactPublicationRecord(reference: reference)
+    )
 }

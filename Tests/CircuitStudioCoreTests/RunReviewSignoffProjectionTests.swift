@@ -63,11 +63,11 @@ struct RunReviewSignoffProjectionTests {
         #expect(drc.issues.first?.label == "M1.WIDTH")
         #expect(drc.issues.first?.suggestedFixes == ["widen-metal"])
         let drcIssue = try #require(drc.issues.first)
-        #expect(drcIssue.evidenceArtifacts.map(\.path).contains(drcPath))
-        #expect(drcIssue.evidenceArtifacts.map(\.path).contains(drcLogPath))
-        #expect(drcIssue.evidenceArtifacts.map(\.path).contains(drcEnvelopePath))
-        #expect(drcIssue.evidenceArtifacts.map(\.path).contains(stageResultPath))
-        #expect(!drcIssue.evidenceArtifacts.map(\.path).contains(lvsPath))
+        #expect(drcIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(drcPath))
+        #expect(drcIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(drcLogPath))
+        #expect(drcIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(drcEnvelopePath))
+        #expect(drcIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(stageResultPath))
+        #expect(!drcIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(lvsPath))
         let drcEvaluation = try #require(drc.evaluationEvidence.first)
         #expect(drcEvaluation.artifactID == "drc-summary")
         #expect(drcEvaluation.evaluationStatus == "rejected")
@@ -113,11 +113,11 @@ struct RunReviewSignoffProjectionTests {
         let drcFeedbackRow = try #require(drcFeedbackPanel.rows.first { $0.label == "drc-route-width-feedback" })
         #expect(drcFeedbackRow.metrics.contains { $0.label == "Routing" && $0.value == "localSurface" })
         #expect(drcFeedbackRow.metrics.contains { $0.label == "Actions" && $0.value == "apply-drc-repair-hint" })
-        #expect(drc.relatedArtifacts.contains { $0.artifactID == "drc-raw-log" })
-        #expect(drc.relatedArtifacts.contains { $0.artifactID == "drc-repair-hints" })
-        #expect(drc.relatedArtifacts.contains { $0.path == drcEnvelopePath })
-        #expect(drc.relatedArtifacts.contains { $0.role == "stage-result" })
-        #expect(!drc.relatedArtifacts.contains { $0.artifactID == "lvs-summary" })
+        #expect(drc.relatedArtifacts.contains { $0.reference.id.rawValue == "drc-raw-log" })
+        #expect(drc.relatedArtifacts.contains { $0.reference.id.rawValue == "drc-repair-hints" })
+        #expect(drc.relatedArtifacts.contains { $0.reference.locator.location.value == drcEnvelopePath })
+        #expect(drc.relatedArtifacts.contains { $0.purpose.rawValue == "stage-result" })
+        #expect(!drc.relatedArtifacts.contains { $0.reference.id.rawValue == "lvs-summary" })
         let drcLogPreview = try await service.loadArtifactPreview(
             runID: runID,
             artifactPath: drcLogPath,
@@ -160,9 +160,9 @@ struct RunReviewSignoffProjectionTests {
         #expect(lvs.primaryMetrics.contains { $0.label == "Readiness" && $0.value == "ready" })
         #expect(lvs.issues.first?.label == "DEVICE_COUNT")
         let lvsIssue = try #require(lvs.issues.first)
-        #expect(lvsIssue.evidenceArtifacts.map(\.path).contains(lvsPath))
-        #expect(lvsIssue.evidenceArtifacts.map(\.path).contains(lvsLogPath))
-        #expect(!lvsIssue.evidenceArtifacts.map(\.path).contains(drcPath))
+        #expect(lvsIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(lvsPath))
+        #expect(lvsIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(lvsLogPath))
+        #expect(!lvsIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(drcPath))
         #expect(lvsIssue.repairActionHints.map(\.operationID) == [
             "layout.add-label",
             "layout.add-net",
@@ -189,8 +189,8 @@ struct RunReviewSignoffProjectionTests {
         #expect(lvsBucketRow.metrics.contains { $0.label == "Schematic count" && $0.value == "2" })
         #expect(lvsBucketRow.metrics.contains { $0.label == "Schematic ports" && $0.value == "D, G, S, B" })
         #expect(lvsBucketRow.metrics.contains { $0.label == "Fixes" && $0.value == "inspect-missing-device" })
-        #expect(lvs.relatedArtifacts.contains { $0.artifactID == "lvs-raw-log" })
-        #expect(lvs.relatedArtifacts.contains { $0.artifactID == "lvs-repair-hints" })
+        #expect(lvs.relatedArtifacts.contains { $0.reference.id.rawValue == "lvs-raw-log" })
+        #expect(lvs.relatedArtifacts.contains { $0.reference.id.rawValue == "lvs-repair-hints" })
 
         let repairPlanning = try await service.formulateSignoffRepairPlanningProblem(
             runID: runID,
@@ -244,7 +244,7 @@ struct RunReviewSignoffProjectionTests {
         #expect(pex.primaryMetrics.contains { $0.label == "Failed" && $0.value == "1" })
         #expect(pex.issues.contains { $0.label == "ss:PEX_CORNER_FAILED" })
         let pexIssue = try #require(pex.issues.first { $0.label == "ss:PEX_CORNER_FAILED" })
-        #expect(pexIssue.evidenceArtifacts.map(\.path).contains(pexPath))
+        #expect(pexIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(pexPath))
         let pexDiagnosticDetail = try #require(pexIssue.detailRows.first { $0.label == "Diagnostic" })
         #expect(pexDiagnosticDetail.metrics.contains { $0.label == "Corner" && $0.value == "ss" })
         #expect(pexDiagnosticDetail.metrics.contains { $0.label == "Code" && $0.value == "PEX_CORNER_FAILED" })
@@ -290,8 +290,8 @@ struct RunReviewSignoffProjectionTests {
         let corpusStagePanel = try #require(corpus.detailSections.first { $0.title == "Case Stage Results" })
         let lvsStageRow = try #require(corpusStagePanel.rows.first { $0.label == "standard-gds-lvs-fail:020-lvs" })
         #expect(lvsStageRow.metrics.contains { $0.label == "Matches" && $0.value == "false" })
-        #expect(corpus.relatedArtifacts.contains { $0.artifactID == "retained-signoff-report" })
-        #expect(corpus.relatedArtifacts.contains { $0.artifactID == "drc-external-oracle-report" })
+        #expect(corpus.relatedArtifacts.contains { $0.reference.id.rawValue == "retained-signoff-report" })
+        #expect(corpus.relatedArtifacts.contains { $0.reference.id.rawValue == "drc-external-oracle-report" })
 
         let retainedOracle = try #require(review.signoff.cards.first { $0.title == "Retained Signoff Oracle Dashboard" })
         #expect(retainedOracle.domain == "Oracle")
@@ -315,14 +315,14 @@ struct RunReviewSignoffProjectionTests {
         #expect(simulationMetric.passed == false)
         #expect(simulationMetric.issues.contains { $0.label == "tpd" })
         let timingIssue = try #require(simulationMetric.issues.first { $0.label == "tpd" })
-        #expect(timingIssue.evidenceArtifacts.map(\.path).contains(simulationSummaryPath))
-        #expect(timingIssue.evidenceArtifacts.map(\.path).contains(postLayoutWaveformPath))
+        #expect(timingIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(simulationSummaryPath))
+        #expect(timingIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(postLayoutWaveformPath))
         #expect(timingIssue.repairActionHints.first?.operationID == "simulation.metric-improvement-objective")
         let timingVerdictDetail = try #require(timingIssue.detailRows.first { $0.label == "Verdict" })
         #expect(timingVerdictDetail.metrics.contains { $0.label == "Metric" && $0.value == "tpd" })
         #expect(timingVerdictDetail.metrics.contains { $0.label == "Value" && $0.value == "1.4e-09" })
         #expect(timingVerdictDetail.metrics.contains { $0.label == "Target" && $0.value == "1e-09" })
-        #expect(simulationMetric.relatedArtifacts.contains { $0.artifactID == "post-layout-waveform" })
+        #expect(simulationMetric.relatedArtifacts.contains { $0.reference.id.rawValue == "post-layout-waveform" })
         let waveformPreview = try await service.loadArtifactPreview(
             runID: runID,
             artifactPath: postLayoutWaveformPath,
@@ -364,11 +364,11 @@ struct RunReviewSignoffProjectionTests {
         #expect(outputComparison.metrics.contains { $0.label == "Max rel" && $0.value == "0.5" })
         #expect(comparison.issues.contains { $0.message == "max relative delta exceeded" })
         let comparisonIssue = try #require(comparison.issues.first { $0.label == "gate" })
-        #expect(comparisonIssue.evidenceArtifacts.map(\.path).contains(comparisonPath))
-        #expect(comparisonIssue.evidenceArtifacts.map(\.path).contains(postLayoutWaveformPath))
+        #expect(comparisonIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(comparisonPath))
+        #expect(comparisonIssue.evidenceArtifacts.map(\.reference.locator.location.value).contains(postLayoutWaveformPath))
         #expect(comparisonIssue.repairActionHints.first?.operationID == "pex.metric-recovery-objective")
-        #expect(comparison.relatedArtifacts.contains { $0.artifactID == "pre-layout-waveform" })
-        #expect(comparison.relatedArtifacts.contains { $0.artifactID == "post-layout-waveform" })
+        #expect(comparison.relatedArtifacts.contains { $0.reference.id.rawValue == "pre-layout-waveform" })
+        #expect(comparison.relatedArtifacts.contains { $0.reference.id.rawValue == "post-layout-waveform" })
 
         let drilldown = service.interactiveSignoffDrilldown(from: review)
         #expect(drilldown.sections.map(\.domain) == [
@@ -839,7 +839,7 @@ struct RunReviewSignoffProjectionTests {
         defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
 
         var bundle = fixture.review.bundle
-        let drcIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcPath })
+        let drcIndex = try #require(bundle.artifacts.firstIndex { $0.reference.locator.location.value == fixture.drcPath })
         bundle.artifacts[drcIndex].integrity = FlowRunReviewArtifactIntegrity(
             status: .sha256Mismatch,
             expectedSHA256: String(repeating: "a", count: 64),
@@ -866,7 +866,7 @@ struct RunReviewSignoffProjectionTests {
         defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
 
         var bundle = fixture.review.bundle
-        let hintIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcRepairHintPath })
+        let hintIndex = try #require(bundle.artifacts.firstIndex { $0.reference.locator.location.value == fixture.drcRepairHintPath })
         bundle.artifacts[hintIndex].integrity = FlowRunReviewArtifactIntegrity(
             status: .sha256Mismatch,
             expectedSHA256: String(repeating: "a", count: 64),
@@ -897,7 +897,7 @@ struct RunReviewSignoffProjectionTests {
         defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
 
         var bundle = fixture.review.bundle
-        let drcIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcPath })
+        let drcIndex = try #require(bundle.artifacts.firstIndex { $0.reference.locator.location.value == fixture.drcPath })
         bundle.artifacts[drcIndex].integrity = FlowRunReviewArtifactIntegrity(
             status: .sha256Mismatch,
             expectedSHA256: String(repeating: "a", count: 64),
@@ -924,7 +924,7 @@ struct RunReviewSignoffProjectionTests {
         defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
 
         var bundle = fixture.review.bundle
-        let envelopeIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcEnvelopePath })
+        let envelopeIndex = try #require(bundle.artifacts.firstIndex { $0.reference.locator.location.value == fixture.drcEnvelopePath })
         bundle.artifacts[envelopeIndex].integrity = FlowRunReviewArtifactIntegrity(
             status: .sha256Mismatch,
             expectedSHA256: String(repeating: "a", count: 64),
@@ -953,7 +953,7 @@ struct RunReviewSignoffProjectionTests {
         defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
 
         var bundle = fixture.review.bundle
-        let logIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcLogPath })
+        let logIndex = try #require(bundle.artifacts.firstIndex { $0.reference.locator.location.value == fixture.drcLogPath })
         bundle.artifacts[logIndex].integrity = FlowRunReviewArtifactIntegrity(
             status: .sha256Mismatch,
             expectedSHA256: String(repeating: "a", count: 64),
@@ -1005,19 +1005,25 @@ struct RunReviewSignoffProjectionTests {
             ),
             changes: []
         )
+        let expectedSHA256 = String(repeating: "a", count: 64)
         let ledgerArtifact = FlowRunReviewArtifact(
-            role: "drc-summary",
-            artifactID: "shared-ledger-artifact",
+            reference: ArtifactReference(
+                id: try ArtifactID(rawValue: "shared-ledger-artifact"),
+                locator: ArtifactLocator(
+                    location: try ArtifactLocation(workspaceRelativePath: sharedPath),
+                    role: .output,
+                    kind: .report,
+                    format: .json
+                ),
+                digest: try ContentDigest(algorithm: .sha256, hexadecimalValue: expectedSHA256),
+                byteCount: 128
+            ),
+            purpose: .stageSummary,
             stageID: "007-drc",
-            path: sharedPath,
-            kind: .report,
-            format: .json,
-            sha256: "expected-sha",
-            byteCount: 128,
             integrity: FlowRunReviewArtifactIntegrity(
                 status: .sha256Mismatch,
-                expectedSHA256: "expected-sha",
-                actualSHA256: "actual-sha",
+                expectedSHA256: expectedSHA256,
+                actualSHA256: String(repeating: "b", count: 64),
                 expectedByteCount: 128,
                 actualByteCount: 128,
                 message: "Digest mismatch"
@@ -1088,7 +1094,7 @@ struct RunReviewSignoffProjectionTests {
         defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
 
         var bundle = fixture.review.bundle
-        let logIndex = try #require(bundle.artifacts.firstIndex { $0.path == fixture.drcLogPath })
+        let logIndex = try #require(bundle.artifacts.firstIndex { $0.reference.locator.location.value == fixture.drcLogPath })
         var duplicate = bundle.artifacts[logIndex]
         duplicate.role = "alias-log"
         duplicate.stageID = "alias-stage"
@@ -1116,7 +1122,7 @@ struct RunReviewSignoffProjectionTests {
             maxBytes: 12
         )
 
-        #expect(preview.artifact.artifactID == "drc-raw-log-alias")
+        #expect(preview.artifact.reference.id.rawValue == "drc-raw-log-alias")
         #expect(preview.text == "DRC_SUMMARY ")
         #expect(preview.truncated)
     }

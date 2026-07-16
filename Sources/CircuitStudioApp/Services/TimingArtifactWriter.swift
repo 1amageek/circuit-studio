@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 
 public enum TimingArtifactWriterError: Error, LocalizedError, Equatable {
@@ -33,6 +34,13 @@ public enum TimingArtifactWriterError: Error, LocalizedError, Equatable {
 }
 
 public struct TimingArtifactWriter: Sendable {
+    private struct PlannedRecord: Sendable, Hashable {
+        let id: String
+        let kind: TimingArtifactKind
+        let path: String
+        let status: TimingArtifactStatus
+    }
+
     public struct WriteResult: Sendable, Hashable {
         public let manifest: TimingArtifactManifest
         public let manifestURL: URL
@@ -81,7 +89,9 @@ public struct TimingArtifactWriter: Sendable {
             validationReports: validationReports
         )
         if combinationalReport != nil || sequentialReport != nil {
-            plannedRecords += omittedRawEvidenceRecords()
+            plannedRecords += try omittedRawEvidenceRecords().map {
+                PlannedRecord(id: $0.id, kind: $0.kind, path: $0.path, status: $0.status)
+            }
         }
 
         let plannedManifestRecord = try plannedRecord(
@@ -154,7 +164,7 @@ public struct TimingArtifactWriter: Sendable {
             ))
         }
         let omittedRecords = (combinationalReport != nil || sequentialReport != nil)
-            ? omittedRawEvidenceRecords()
+            ? try omittedRawEvidenceRecords()
             : []
         let publisher = ArtifactSetPublisher(runDirectory: runDirectory)
         let preparedArtifacts = try publisher.prepare(artifactItems)
@@ -192,8 +202,8 @@ public struct TimingArtifactWriter: Sendable {
         sequentialReport: SequentialTimingCharacterizationReport?,
         profileSelection: TimingModelProfileSelection?,
         validationReports: [(id: String, fileName: String, report: TimingValidationReport)]
-    ) throws -> [TimingArtifactRecord] {
-        var records: [TimingArtifactRecord] = []
+    ) throws -> [PlannedRecord] {
+        var records: [PlannedRecord] = []
         records.append(try plannedRecord(
             id: "timing-library",
             kind: .timingLibrary,
@@ -254,8 +264,8 @@ public struct TimingArtifactWriter: Sendable {
         kind: TimingArtifactKind,
         url: URL,
         runDirectory: URL
-    ) throws -> TimingArtifactRecord {
-        TimingArtifactRecord(
+    ) throws -> PlannedRecord {
+        PlannedRecord(
             id: id,
             kind: kind,
             path: try RoundTripArtifactResolver(runDirectory: runDirectory).relativePath(for: url),
@@ -291,7 +301,7 @@ public struct TimingArtifactWriter: Sendable {
 
     private func validateClaims(
         _ claims: [TimingArtifactManifest.Claim],
-        records: [TimingArtifactRecord]
+        records: [PlannedRecord]
     ) throws {
         let recordByID = try recordDictionary(records)
         for claim in claims {
@@ -315,7 +325,7 @@ public struct TimingArtifactWriter: Sendable {
 
     private func validateModelSources(
         _ sources: [TimingModelSource],
-        records: [TimingArtifactRecord],
+        records: [PlannedRecord],
         allowConstantFixtureModels: Bool
     ) throws {
         let recordByID = try recordDictionary(records)
@@ -341,11 +351,11 @@ public struct TimingArtifactWriter: Sendable {
         }
     }
 
-    private func validateUniqueArtifactIDs(_ records: [TimingArtifactRecord]) throws {
+    private func validateUniqueArtifactIDs(_ records: [PlannedRecord]) throws {
         _ = try recordDictionary(records)
     }
 
-    private func validateUniqueArtifactPaths(_ records: [TimingArtifactRecord]) throws {
+    private func validateUniqueArtifactPaths(_ records: [PlannedRecord]) throws {
         var artifactIDByPath: [String: String] = [:]
         for record in records {
             if let existing = artifactIDByPath[record.path] {
@@ -359,8 +369,8 @@ public struct TimingArtifactWriter: Sendable {
         }
     }
 
-    private func recordDictionary(_ records: [TimingArtifactRecord]) throws -> [String: TimingArtifactRecord] {
-        var result: [String: TimingArtifactRecord] = [:]
+    private func recordDictionary(_ records: [PlannedRecord]) throws -> [String: PlannedRecord] {
+        var result: [String: PlannedRecord] = [:]
         for record in records {
             guard result[record.id] == nil else {
                 throw TimingArtifactWriterError.duplicateArtifactID(record.id)
@@ -370,33 +380,27 @@ public struct TimingArtifactWriter: Sendable {
         return result
     }
 
-    private func omittedRawEvidenceRecords() -> [TimingArtifactRecord] {
+    private func omittedRawEvidenceRecords() throws -> [TimingArtifactRecord] {
         let provenance = TimingArtifactProvenance(
             generator: "TimingArtifactWriter",
             note: "Raw per-trial SPICE decks and waveform CSV emission is intentionally omitted; summary characterization reports contain the measured timing values."
         )
-        return [
-            TimingArtifactRecord(
-                id: "timing-measurement-log",
-                kind: .measurementLog,
-                path: "timing/characterization/measurements.jsonl",
-                status: .omitted,
-                provenance: provenance
-            ),
-            TimingArtifactRecord(
-                id: "timing-spice-decks",
-                kind: .spiceDeck,
-                path: "timing/characterization/decks/",
-                status: .omitted,
-                provenance: provenance
-            ),
-            TimingArtifactRecord(
-                id: "timing-waveform-csv",
-                kind: .waveformCSV,
-                path: "timing/characterization/waveforms/",
-                status: .omitted,
-                provenance: provenance
-            ),
+        let declarations: [(String, TimingArtifactKind, String)] = [
+            ("timing-measurement-log", .measurementLog, "timing/characterization/measurements.jsonl"),
+            ("timing-spice-decks", .spiceDeck, "timing/characterization/decks"),
+            ("timing-waveform-csv", .waveformCSV, "timing/characterization/waveforms"),
         ]
+        return try declarations.map { id, kind, path in
+            try TimingArtifactRecord(
+                id: ArtifactID(rawValue: id),
+                locator: ArtifactReference.circuitStudioLocator(
+                    kind: kind.rawValue,
+                    relativePath: path
+                ),
+                kind: kind,
+                status: .omitted,
+                provenance: provenance
+            )
+        }
     }
 }

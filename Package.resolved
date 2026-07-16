@@ -1,5 +1,5 @@
 {
-  "originHash" : "d2fe03774bd993a863fa81210a85b8314cbee93b052408fbe25c97f8041bec71",
+  "originHash" : "bc7c2661983bc38c7ada5d60c73f7ace40de3e09c62d1ce564f25bf1031a6515",
   "pins" : [
     {
       "identity" : "beautiful-mermaid-swift",
@@ -277,14 +277,6 @@
       "state" : {
         "revision" : "67787bb645a5e67d2edcdfbe48a216cc549222d5",
         "version" : "1.28.0"
-      }
-    },
-    {
-      "identity" : "swift-openvaf",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/1amageek/swift-openvaf.git",
-      "state" : {
-        "revision" : "3037901f3c59ecdd41f4d87b2cf3adb62d9395c1"
       }
     },
     {

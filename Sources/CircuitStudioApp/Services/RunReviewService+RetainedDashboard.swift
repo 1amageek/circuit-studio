@@ -12,10 +12,10 @@ extension RunReviewService {
         let retainedArtifacts = bundle.artifacts
             .filter(Self.isRetainedDashboardArtifact)
             .sorted { left, right in
-                if left.role != right.role {
-                    return left.role < right.role
+                if left.purpose != right.purpose {
+                    return left.purpose.rawValue < right.purpose.rawValue
                 }
-                return left.path < right.path
+                return left.reference.locator.location.value < right.reference.locator.location.value
             }
         let retainedItems = bundle.reviewItems
             .filter { $0.kind == .retainedHistory }
@@ -24,7 +24,7 @@ extension RunReviewService {
         let artifactStates = retainedArtifacts.map { artifact in
             Self.artifactState(
                 artifact,
-                diagnosticCodes: diagnosticsByPath[artifact.path, default: []]
+                diagnosticCodes: diagnosticsByPath[artifact.reference.locator.location.value, default: []]
             )
         }
         let blockers = retainedItems.map(RunReviewRetainedDashboardProjection.BlockerSummary.init)
@@ -88,7 +88,7 @@ extension RunReviewService {
     }
 
     private static func isRetainedDashboardArtifact(_ artifact: FlowRunReviewArtifact) -> Bool {
-        switch artifact.role {
+        switch artifact.purpose.rawValue {
         case "retained-history",
              "retained-history-dashboard",
              "retention-index",
@@ -120,12 +120,12 @@ extension RunReviewService {
         diagnosticCodes: [String]
     ) -> RunReviewRetainedDashboardProjection.ArtifactState {
         RunReviewRetainedDashboardProjection.ArtifactState(
-            role: artifact.role,
-            artifactID: artifact.artifactID,
-            path: artifact.path,
+            role: artifact.purpose.rawValue,
+            artifactID: artifact.reference.id.rawValue,
+            path: artifact.reference.locator.location.value,
             integrityStatus: artifact.integrity?.status,
-            sha256: artifact.sha256,
-            byteCount: artifact.byteCount,
+            sha256: artifact.reference.digest.hexadecimalValue,
+            byteCount: artifact.reference.byteCount,
             diagnosticCodes: diagnosticCodes,
             evidenceStatus: evidenceStatus(for: artifact, diagnosticCodes: diagnosticCodes)
         )

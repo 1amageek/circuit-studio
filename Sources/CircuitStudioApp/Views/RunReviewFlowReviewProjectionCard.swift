@@ -88,12 +88,12 @@ struct RunReviewFlowReviewProjectionCard: View {
         if !artifacts.isEmpty {
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: 5) {
-                    ForEach(artifacts, id: \.path) { artifact in
+                    ForEach(artifacts, id: \.reference.id) { artifact in
                         HStack(spacing: 6) {
-                            Text(artifact.role)
+                            Text(artifact.purpose.rawValue)
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
-                            Text(artifact.path)
+                            Text(artifact.reference.locator.location.value)
                                 .font(.caption2)
                                 .lineLimit(1)
                             Text(artifact.integrity?.status.rawValue ?? "untracked")

@@ -98,8 +98,8 @@ struct ActivityArtifactPreview: View {
             ArtifactCanvas(
                 url: resource.url,
                 type: typeResolver.artifactType(
-                    kind: resource.artifact.kind,
-                    format: resource.artifact.format
+                    kind: resource.artifact.reference.locator.kind,
+                    format: resource.artifact.reference.locator.format
                 ),
                 title: artifactTitle(resource.artifact)
             )
@@ -148,18 +148,19 @@ struct ActivityArtifactPreview: View {
     }
 
     private func matches(_ artifact: FlowRunReviewArtifact) -> Bool {
-        artifact.path == self.artifact.reference.path
-            && artifact.role == self.artifact.reference.locator.role.rawValue
-            && artifact.kind.rawValue == self.artifact.reference.kind.rawValue
-            && artifact.format.rawValue == self.artifact.reference.format.rawValue
-            && artifact.sha256 == self.artifact.reference.sha256
+        artifact.reference.locator.location.value == self.artifact.reference.path
+            && artifact.purpose.rawValue == self.artifact.reference.locator.role.rawValue
+            && artifact.reference.locator.kind.rawValue == self.artifact.reference.kind.rawValue
+            && artifact.reference.locator.format.rawValue == self.artifact.reference.format.rawValue
+            && artifact.reference.digest.hexadecimalValue == self.artifact.reference.sha256
     }
 
     private func artifactTitle(_ artifact: FlowRunReviewArtifact) -> String {
-        if let artifactID = artifact.artifactID, !artifactID.isEmpty {
+        let artifactID = artifact.reference.id.rawValue
+        if !artifactID.isEmpty {
             return artifactID
         }
-        return URL(filePath: artifact.path).lastPathComponent
+        return URL(filePath: artifact.reference.locator.location.value).lastPathComponent
     }
 }
 

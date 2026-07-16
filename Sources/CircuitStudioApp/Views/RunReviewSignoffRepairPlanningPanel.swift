@@ -224,29 +224,29 @@ struct RunReviewSignoffRepairPlanningPanel: View {
         var artifacts: [FlowRunReviewArtifact] = []
         for card in signoff.cards {
             for artifact in [card.artifact] + card.relatedArtifacts where isSignoffRepairHintArtifact(artifact) {
-                guard seenPaths.insert(artifact.path).inserted else {
+                guard seenPaths.insert(artifact.reference.locator.location.value).inserted else {
                     continue
                 }
                 artifacts.append(artifact)
             }
         }
         return artifacts.sorted { left, right in
-            if (left.artifactID ?? "") != (right.artifactID ?? "") {
-                return (left.artifactID ?? "") < (right.artifactID ?? "")
+            if left.reference.id != right.reference.id {
+                return left.reference.id.rawValue < right.reference.id.rawValue
             }
-            return left.path < right.path
+            return left.reference.locator.location.value < right.reference.locator.location.value
         }
     }
 
     private func isSignoffRepairHintArtifact(_ artifact: FlowRunReviewArtifact) -> Bool {
-        let artifactID = artifact.artifactID ?? ""
+        let artifactID = artifact.reference.id.rawValue
         if artifactID == "drc-repair-hints" || artifactID == "lvs-repair-hints" {
             return true
         }
         let searchable = [
             artifactID,
-            artifact.role,
-            artifact.path,
+            artifact.purpose.rawValue,
+            artifact.reference.locator.location.value,
         ]
         .map { $0.lowercased() }
         .joined(separator: " ")

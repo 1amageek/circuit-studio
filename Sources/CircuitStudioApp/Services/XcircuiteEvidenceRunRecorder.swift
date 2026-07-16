@@ -3,9 +3,8 @@ import CircuiteFoundation
 import DesignFlowKernel
 import Xcircuite
 
-/// Bridges the tapeout evidence bundle into the canonical `.xcircuite`
-/// run ledger, so the human cockpit and the agent loop review ONE
-/// record instead of per-flow ad-hoc files.
+/// Records tapeout evidence in the canonical `.xcircuite` run ledger so
+/// the human cockpit and agent loop review the same immutable artifacts.
 ///
 /// Claim artifacts are COPIED into the run directory — a run is an
 /// immutable capture, and evidence files frequently live in temporary
@@ -170,11 +169,24 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
 
         if let gdsPath = bundle.gdsPath, !gdsPath.isEmpty {
             try reserveArtifactID("gds", in: &artifactIDs)
+            let gdsURL = URL(filePath: gdsPath)
+            let gdsLocator = ArtifactLocator(
+                location: try ArtifactLocation(fileURL: gdsURL),
+                role: .input,
+                kind: .layout,
+                format: .gdsii
+            )
+            let gdsReference = try LocalArtifactReferencer().reference(gdsLocator)
             let gds = TapeoutEvidenceArtifact(
-                id: "gds",
-                kind: "layout",
-                path: gdsPath,
-                status: .available
+                publicationRecord: ArtifactPublicationRecord(
+                    reference: ArtifactReference(
+                        id: try ArtifactID(rawValue: "gds"),
+                        locator: gdsReference.locator,
+                        digest: gdsReference.digest,
+                        byteCount: gdsReference.byteCount,
+                        producer: gdsReference.producer
+                    )
+                )
             )
             let copied = try await copyArtifact(
                 gds,

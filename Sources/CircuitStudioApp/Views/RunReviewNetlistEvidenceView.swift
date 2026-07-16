@@ -7,16 +7,16 @@ struct RunReviewNetlistEvidenceView: View {
 
     init(netlists: [RunReviewDesignEvidence.NetlistEvidence]) {
         self.netlists = netlists
-        _selectedPath = State(initialValue: netlists.first?.artifact.path ?? "")
+        _selectedPath = State(initialValue: netlists.first?.artifact.reference.locator.location.value ?? "")
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if netlists.count > 1 {
                 Picker("Netlist source", selection: $selectedPath) {
-                    ForEach(netlists, id: \.artifact.path) { netlist in
+                    ForEach(netlists, id: \.artifact.reference.locator.location.value) { netlist in
                         Text(netlist.phase.rawValue)
-                            .tag(netlist.artifact.path)
+                            .tag(netlist.artifact.reference.locator.location.value)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -40,7 +40,7 @@ struct RunReviewNetlistEvidenceView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.shield.fill")
                         .foregroundStyle(.green)
-                    Text(selectedNetlist.artifact.path)
+                    Text(selectedNetlist.artifact.reference.locator.location.value)
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -48,7 +48,7 @@ struct RunReviewNetlistEvidenceView: View {
                 }
             }
         }
-        .onChange(of: netlists.map(\.artifact.path)) { _, paths in
+        .onChange(of: netlists.map(\.artifact.reference.locator.location.value)) { _, paths in
             if !paths.contains(selectedPath) {
                 selectedPath = paths.first ?? ""
             }
@@ -56,7 +56,7 @@ struct RunReviewNetlistEvidenceView: View {
     }
 
     private var selectedNetlist: RunReviewDesignEvidence.NetlistEvidence? {
-        netlists.first { $0.artifact.path == selectedPath } ?? netlists.first
+        netlists.first { $0.artifact.reference.locator.location.value == selectedPath } ?? netlists.first
     }
 
     private func numbered(_ text: String) -> String {
