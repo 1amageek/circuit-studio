@@ -188,40 +188,6 @@ struct ActivityStoreTests {
         #expect(artifact.direction == .output)
     }
 
-    @Test("Projector redacts separated secret argument values")
-    func projectorRedactsSecretArguments() throws {
-        var ledger = try makeLedger(runID: "run-secrets")
-        ledger.actions = [
-            FlowRunActionRecord(
-                actionID: "action-secrets",
-                runID: "run-secrets",
-                actor: FlowRunActor(kind: .agent, identifier: "test-agent"),
-                actionKind: "tool.execute",
-                status: .succeeded,
-                context: FlowRunActionContext(
-                    suggestedCommand: FlowRunActionContext.SuggestedCommand(
-                        nextActionID: "run-tool",
-                        nextActionKind: "tool.execute",
-                        commandID: "tool.execute.run",
-                        readiness: "ready",
-                        executable: "tool",
-                        arguments: ["--token", "secret-value", "--mode=fast"],
-                        reason: "Exercise command argument redaction."
-                    )
-                )
-            )
-        ]
-
-        let activities = FlowRunActivityProjector().project(
-            projectID: "project-1",
-            ledger: ledger
-        )
-        let action = try #require(activities.first(where: { $0.kind == "tool.execute" }))
-
-        #expect(action.command?.arguments == ["--token", "<redacted>", "--mode=fast"])
-        #expect(action.command?.redactedArgumentCount == 1)
-    }
-
     private func makeLedger(runID: String) throws -> FlowRunLedger {
         let date = Date(timeIntervalSince1970: 3_000)
         let manifest = try FlowRunManifest(

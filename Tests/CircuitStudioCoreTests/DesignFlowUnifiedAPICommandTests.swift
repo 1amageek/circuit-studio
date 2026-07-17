@@ -1,3 +1,4 @@
+import PEXEngine
 import Foundation
 import DesignFlowKernel
 import Testing
@@ -21,12 +22,12 @@ struct DesignFlowUnifiedAPICommandTests {
             title: "API round trip",
             testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
             postLayoutCommand: .op,
-            pexIR: PEXParasiticIR(
+            pexIR: ParasiticIR(
                 version: "1.0",
                 cornerID: "tt_25c_1v0",
                 elements: [
-                    PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
-                    PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
+                    ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
+                    ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
                 ]
             ),
             externalSignoffCommands: try DesignFlowServiceTestSupport.makeSignoffCommands(in: root),
@@ -153,12 +154,12 @@ struct DesignFlowUnifiedAPICommandTests {
         .op
         .end
         """
-        let parasitics = PEXParasiticIR(
+        let parasitics = ParasiticIR(
             version: "1.0",
             cornerID: "tt_25c_1v0",
             elements: [
-                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
-                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
+                ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
+                ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
             ]
         )
 
@@ -199,7 +200,7 @@ struct DesignFlowUnifiedAPICommandTests {
             cornerID: "ss_125c_0v9"
         )
 
-        #expect(input.ir.cornerID == "ss_125c_0v9")
+        #expect(input.ir.cornerID.value == "ss_125c_0v9")
         #expect(input.ir.elements.count == 3)
         #expect(input.artifactPaths.contains { $0.hasSuffix("manifest.json") })
         #expect(input.artifactPaths.contains { $0.hasSuffix("ss_125c_0v9.json") })

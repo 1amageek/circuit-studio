@@ -8,7 +8,7 @@ import CoreSpiceWaveform
 /// drives the pin with a ramped pulse (other pins held at their non-controlling value so
 /// the arc is sensitised), and measures the 50%→50% propagation delay and the 20%↔80%
 /// output transition. The cell-delay and output-slew LUTs it fills are exactly what the
-/// `StaticTimingAnalyzer` interpolates — produced from physics, not assumed.
+/// canonical STA engines interpolate — produced from physics, not assumed.
 public struct CellTimingCharacterizer: Sendable {
 
     public enum CharacterizeError: Error, LocalizedError, Equatable {

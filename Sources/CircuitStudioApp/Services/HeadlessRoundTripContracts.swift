@@ -5,6 +5,7 @@ import CircuitStudioCore
 import CoreSpiceWaveform
 import LayoutTech
 import DesignFlowKernel
+import PEXEngine
 
 extension HeadlessRoundTripService {
     public struct Configuration {
@@ -14,7 +15,7 @@ extension HeadlessRoundTripService {
         public let actor: FlowRunActor
         public let testbench: Testbench
         public let postLayoutCommand: AnalysisCommand
-        public let pexIR: PEXParasiticIR
+        public let pexIR: ParasiticIR
         public let designArtifactPaths: [String]
         public let pexArtifactPaths: [String]
         public let postLayoutComparisonLimits: PostLayoutComparisonLimits?
@@ -44,7 +45,7 @@ extension HeadlessRoundTripService {
             ),
             testbench: Testbench,
             postLayoutCommand: AnalysisCommand,
-            pexIR: PEXParasiticIR,
+            pexIR: ParasiticIR,
             designArtifactPaths: [String] = [],
             pexArtifactPaths: [String] = [],
             postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,

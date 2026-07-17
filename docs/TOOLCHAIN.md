@@ -1,13 +1,14 @@
 # Signoff Toolchain (Magic + Netgen + Sky130)
 
-circuit-studio's real signoff path (`LiveSignoffService` → `MagicDRCSignoff`,
-`NetgenLVSSignoff`, `MagicLayoutExtractor`) shells out to the open-source EDA
-tools below. The integration tests that exercise it are **gated**: they call
+circuit-studio composes the canonical engine implementations
+(`MagicDRCAdapter` from DRCEngine, `MagicLayoutNetlistExtractor` and
+`NetgenLVSAdapter` from LVSEngine) through `LiveSignoffService`. The engines
+shell out to the open-source EDA tools below. The integration tests that exercise them are **gated**: they call
 `*.locate()` and skip when the toolchain is absent, so the suite stays green on
 machines without it. Install the toolchain to run them for real.
 
 ```
-LiveSignoffServiceTests, MagicDRCSignoffTests, NetgenLVSSignoffTests,
+LiveSignoffServiceTests, MagicDRCAdapterIntegrationTests, NetgenLVSAdapterIntegrationTests,
 RealSignoffPEXEndToEndTests   ← skipped unless Magic + Netgen + Sky130 are present
 ```
 
@@ -18,11 +19,11 @@ exports `MAGIC_BIN` / `NETGEN_BIN` / `PDK_ROOT`:
 
 ```sh
 source scripts/install-toolchain.sh   # build/detect + set env in your shell
-swift test                            # the gated real-tool tests now run
+xcodebuild test -scheme CircuitStudioCore -destination 'platform=macOS'
 ```
 
 `.github/workflows/realtool.yml` runs it on `macos-15` (caching the built tools)
-and then `swift test`, so the gated real-tool tests execute on every push — not
+and then the package's Xcode test scheme, so the gated real-tool tests execute on every push — not
 just locally. The gated tests honor `MAGIC_BIN`/`NETGEN_BIN`/`PDK_ROOT`, so CI
 points them at the installed tools.
 
@@ -88,5 +89,6 @@ volare enable --pdk sky130 <build-hash>   # installs ~/.volare/volare/sky130/ver
 ```sh
 echo 'quit -noprompt' | ~/.local/magic/bin/magic -dnull -noconsole   # prints "Magic 8.3 ..."
 printf 'puts ok\nquit\n' | ~/.local/netgen/bin/netgen -batch          # prints "Netgen 1.5 ..."
-swift test --filter LiveSignoffServiceTests                            # now runs for real
+xcodebuild test -scheme CircuitStudioCore -destination 'platform=macOS' \
+  -only-testing:CircuitStudioCoreTests/LiveSignoffServiceTests
 ```

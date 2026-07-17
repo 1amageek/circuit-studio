@@ -62,7 +62,7 @@ struct DesignFlowScaffoldDesignSpecCommandTests {
         #expect(limits.validationDiagnostics().isEmpty)
         #expect(limits.variableLimits.isEmpty)
         let pexIR = try #require(spec.pexIR)
-        #expect(pexIR.cornerID == "tt_25c_1v0")
+        #expect(pexIR.cornerID.value == "tt_25c_1v0")
         #expect(pexIR.elements.count == 1)
         #expect(pexIR.elements[0].nodeB == nil)
 

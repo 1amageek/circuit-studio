@@ -1,3 +1,4 @@
+import PEXEngine
 import CircuitSignoff
 import CircuiteFoundation
 import Foundation
@@ -23,12 +24,12 @@ struct HeadlessRoundTripServiceTests {
                 .tran(TranSpec(stopTime: 100e-9, stepTime: 0.1e-9)),
             ]
         )
-        let pexIR = PEXParasiticIR(
+        let pexIR = ParasiticIR(
             version: "1.0",
             cornerID: "tt_25c_1v0",
             elements: [
-                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
-                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
+                ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
+                ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
             ]
         )
 
@@ -55,12 +56,12 @@ struct HeadlessRoundTripServiceTests {
         // Heavier output load so the post-layout edges are RC-smoothed and the raw
         // max|ΔV| cross-tool comparison is robust (sharp logic edges otherwise put a
         // large instantaneous ΔV at the transition for sub-ps cross-tool skew).
-        let pexIR = PEXParasiticIR(
+        let pexIR = ParasiticIR(
             version: "1.0",
             cornerID: "tt_25c_1v0",
             elements: [
-                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
-                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 50e-15),
+                ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
+                ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 50e-15),
             ]
         )
         let roundTrip = try await runRoundTrip(
@@ -89,12 +90,12 @@ struct HeadlessRoundTripServiceTests {
             name: "Operating Point",
             analysisCommands: [.op]
         )
-        let pexIR = PEXParasiticIR(
+        let pexIR = ParasiticIR(
             version: "1.0",
             cornerID: "tt_25c_1v0",
             elements: [
-                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
-                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
+                ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
+                ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
             ]
         )
         let schematic = SchematicPreview.voltageDividerViewModel().document
@@ -115,12 +116,12 @@ struct HeadlessRoundTripServiceTests {
     @Test(.timeLimit(.minutes(2)))
     @MainActor
     func resistorDividerCompletesHeadlessRoundTripWithArtifacts() async throws {
-        let pexIR = PEXParasiticIR(
+        let pexIR = ParasiticIR(
             version: "1.0",
             cornerID: "tt_25c_1v0",
             elements: [
-                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.75),
-                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1.5e-15),
+                ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.75),
+                ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1.5e-15),
             ]
         )
 
@@ -141,12 +142,12 @@ struct HeadlessRoundTripServiceTests {
     @MainActor
     func rcLowPassCompletesHeadlessRoundTripWithArtifacts() async throws {
         let command = AnalysisCommand.tran(TranSpec(stopTime: 20e-6, stepTime: 0.1e-6))
-        let pexIR = PEXParasiticIR(
+        let pexIR = ParasiticIR(
             version: "1.0",
             cornerID: "tt_25c_1v0",
             elements: [
-                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.25),
-                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
+                ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.25),
+                ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
             ]
         )
 
@@ -856,7 +857,7 @@ struct HeadlessRoundTripServiceTests {
             title: "Empty PEX failure manifest",
             testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
             postLayoutCommand: .op,
-            pexIR: PEXParasiticIR(version: "1.0", cornerID: "tt_25c_1v0", elements: []),
+            pexIR: ParasiticIR(version: "1.0", cornerID: "tt_25c_1v0", elements: []),
             externalSignoffCommands: try makeSignoffCommands(in: root)
         )
 
@@ -929,7 +930,7 @@ struct HeadlessRoundTripServiceTests {
         schematic: SchematicDocument,
         testbench: Testbench,
         postLayoutCommand: AnalysisCommand,
-        pexIR: PEXParasiticIR,
+        pexIR: ParasiticIR,
         oracleProbes: [String]? = nil
     ) async throws -> RoundTripOutput {
         let root = try makeTemporaryRoot(rootName)
@@ -1105,7 +1106,7 @@ struct HeadlessRoundTripServiceTests {
         title: String,
         testbench: Testbench,
         postLayoutCommand: AnalysisCommand,
-        pexIR: PEXParasiticIR,
+        pexIR: ParasiticIR,
         designArtifactPaths: [String] = [],
         pexArtifactPaths: [String] = [],
         postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
@@ -1132,13 +1133,13 @@ struct HeadlessRoundTripServiceTests {
         )
     }
 
-    private func smallPEXIR() -> PEXParasiticIR {
-        PEXParasiticIR(
+    private func smallPEXIR() -> ParasiticIR {
+        ParasiticIR(
             version: "1.0",
             cornerID: "tt_25c_1v0",
             elements: [
-                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
-                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
+                ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
+                ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
             ]
         )
     }

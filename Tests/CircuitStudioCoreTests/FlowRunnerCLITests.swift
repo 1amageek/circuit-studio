@@ -531,79 +531,104 @@ struct FlowRunnerCLITests {
         #expect(options.makeCommand().timingModelCornerID == "ss")
     }
 
-    @Test("select-failure-command arguments construct the failure command selection command", .timeLimit(.minutes(1)))
-    func selectFailureCommandArgumentsConstructCommand() throws {
+    @Test("approve-gate arguments construct a canonical stage approval command", .timeLimit(.minutes(1)))
+    func approveGateArgumentsConstructCanonicalStageApprovalCommand() throws {
         let options = try FlowRunnerCommandOptions(arguments: [
-            "--select-failure-command",
+            "--approve-gate",
+            "--output", "/tmp/flow-output",
+            "--run-id", "run-1",
+            "--approval-stage", "001-drc",
+            "--approval-verdict", "waived",
+            "--reviewer", "reviewer-1",
+            "--approval-note", "Reviewed waiver evidence.",
+        ])
+        let command = options.makeCommand()
+
+        #expect(options.mode == .approveGate)
+        #expect(command.kind == .approveGate)
+        #expect(command.projectRootPath == "/tmp/flow-output")
+        #expect(command.runID == "run-1")
+        #expect(command.approvalStageID == "001-drc")
+        #expect(command.approvalVerdict == .waived)
+        #expect(command.approvalReviewer == "reviewer-1")
+        #expect(command.approvalNote == "Reviewed waiver evidence.")
+    }
+
+    @Test("select-failure-action arguments construct the failure action selection command", .timeLimit(.minutes(1)))
+    func selectFailureActionArgumentsConstructCommand() throws {
+        let options = try FlowRunnerCommandOptions(arguments: [
+            "--select-failure-action",
             "--failure-envelope", "/tmp/flow-runner-failure.json",
-            "--command-id", "circuit-studio-flow-runner.review-round-trip",
+            "--action-id", "review-flow-runner-failure",
             "--reviewer", "agent-1",
             "--json",
         ])
         let command = options.makeCommand()
 
-        #expect(options.mode == .selectFailureSuggestedCommand)
+        #expect(options.mode == .selectFailureSuggestedAction)
         #expect(options.outputFormat == .json)
-        #expect(command.kind == .selectFailureSuggestedCommand)
+        #expect(command.kind == .selectFailureSuggestedAction)
         #expect(command.failureEnvelopePath == "/tmp/flow-runner-failure.json")
-        #expect(command.suggestedCommandID == "circuit-studio-flow-runner.review-round-trip")
+        #expect(command.suggestedActionID == "review-flow-runner-failure")
         #expect(command.approvalReviewer == "agent-1")
     }
 
-    @Test("run-selected-suggested-command arguments construct the selected command dispatcher", .timeLimit(.minutes(1)))
-    func runSelectedSuggestedCommandArgumentsConstructCommand() throws {
+    @Test("run-selected-suggested-action arguments construct the selected action dispatcher", .timeLimit(.minutes(1)))
+    func runSelectedSuggestedActionArgumentsConstructCommand() throws {
         let options = try FlowRunnerCommandOptions(arguments: [
-            "--run-selected-suggested-command",
+            "--run-selected-suggested-action",
             "--output", "/tmp/flow-output",
             "--run-id", "run-1",
-            "--command-id", "circuit-studio-flow-runner.review-round-trip",
+            "--action-id", "review-flow-runner-failure",
             "--json",
         ])
         let command = options.makeCommand()
 
-        #expect(options.mode == .runSelectedSuggestedCommand)
+        #expect(options.mode == .runSelectedSuggestedAction)
         #expect(options.outputFormat == .json)
-        #expect(command.kind == .runSelectedSuggestedCommand)
+        #expect(command.kind == .runSelectedSuggestedAction)
         #expect(command.projectRootPath == "/tmp/flow-output")
         #expect(command.runID == "run-1")
-        #expect(command.suggestedCommandID == "circuit-studio-flow-runner.review-round-trip")
+        #expect(command.suggestedActionID == "review-flow-runner-failure")
     }
 
-    @Test("select-failure-command output records action log and selected command", .timeLimit(.minutes(1)))
-    func selectFailureCommandOutputIncludesActionLedger() {
+    @Test("select-failure-action output records action log and selected action", .timeLimit(.minutes(1)))
+    func selectFailureActionOutputIncludesActionLedger() {
         let result = DesignFlowCommandResult(
-            kind: .selectFailureSuggestedCommand,
+            kind: .selectFailureSuggestedAction,
             runID: "run-1",
             projectRootPath: "/tmp/flow-output",
             manifestPath: "/tmp/flow-output/.xcircuite/runs/run-1/round-trip-manifest.json",
             actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            selectedSuggestedCommand: FlowSuggestedCommandSelection(
-                actionRecordID: "round-trip-suggested-command-selection-1",
+            selectedSuggestedAction: FlowRunSuggestedActionSelection(
+                actionRecordID: "round-trip-suggested-action-selection-1",
                 runID: "run-1",
                 actor: FlowRunActor(kind: .human, identifier: "agent-1"),
                 status: .succeeded,
                 selectedAt: Date(timeIntervalSince1970: 1_700_000_000),
                 nextActionID: "review-flow-runner-failure",
                 nextActionKind: "reviewFlowRunnerFailure",
-                commandID: "circuit-studio-flow-runner.review-round-trip",
-                readiness: "ready",
-                executable: "swift",
-                arguments: ["run", "--quiet", "circuit-studio-flow-runner", "--review-round-trip"],
-                reason: "Load the failed run review."
+                action: FlowRunSuggestedAction(
+                    id: "review-flow-runner-failure",
+                    readiness: .ready,
+                    operation: .reviewRun,
+                    runID: "run-1",
+                    reason: "Load the failed run review."
+                )
             ),
-            message: "round-trip-suggested-command-selection-1"
+            message: "round-trip-suggested-action-selection-1"
         )
         let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
         let keys = keyValueOutput(output)
 
-        #expect(keys["suggested_command_selection"] == "recorded")
+        #expect(keys["suggested_action_selection"] == "recorded")
         #expect(keys["run_id"] == "run-1")
         #expect(keys["manifest"] == "/tmp/flow-output/.xcircuite/runs/run-1/round-trip-manifest.json")
         #expect(keys["actions"] == "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl")
-        #expect(keys["action_id"] == "round-trip-suggested-command-selection-1")
-        #expect(keys["command_id"] == "circuit-studio-flow-runner.review-round-trip")
+        #expect(keys["action_id"] == "round-trip-suggested-action-selection-1")
+        #expect(keys["suggested_action_id"] == "review-flow-runner-failure")
         #expect(keys["readiness"] == "ready")
-        #expect(keys["executable"] == "swift")
+        #expect(keys["operation"] == "reviewRun")
     }
 
     @Test("apply-waiver-edit arguments construct the waiver edit command", .timeLimit(.minutes(1)))

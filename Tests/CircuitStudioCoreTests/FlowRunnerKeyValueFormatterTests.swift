@@ -1,4 +1,5 @@
 import CircuitSignoff
+import DesignFlowKernel
 import Foundation
 import Testing
 @testable import CircuitStudioApp
@@ -9,7 +10,9 @@ struct FlowRunnerKeyValueFormatterTests {
     private func reviewSummary(
         approvalKind: ExternalSignoffReview.ApprovalKind?,
         approvedBy: String?,
-        recommendations: [String] = []
+        recommendations: [String] = [],
+        toolchain: FlowRunToolchainSummary? = nil,
+        toolchainArtifacts: [FlowRunReviewArtifact] = []
     ) -> RoundTripReviewSummary {
         RoundTripReviewSummary(
             runID: "run-1",
@@ -32,10 +35,62 @@ struct FlowRunnerKeyValueFormatterTests {
                 reports: []
             ),
             postLayoutComparison: nil,
+            toolchain: toolchain,
+            toolchainArtifacts: toolchainArtifacts,
             bottleneckSummary: nil,
             diagnostics: [],
             recommendations: recommendations
         )
+    }
+
+    @Test("Round-trip review output exposes toolchain trust and artifact integrity")
+    func reviewOutputExposesToolchainTrust() throws {
+        let path = ".xcircuite/runs/run-1/toolchain.json"
+        let reference = try RunReviewTestSupport.artifactReference(
+            artifactID: "toolchain-manifest",
+            path: path
+        )
+        let artifact = FlowRunReviewArtifact(
+            reference: reference,
+            purpose: .toolchain,
+            integrity: FlowRunReviewArtifactIntegrity(
+                status: .verified,
+                message: "Artifact integrity is verified."
+            )
+        )
+        let result = DesignFlowCommandResult(
+            kind: .reviewRoundTrip,
+            roundTripReview: reviewSummary(
+                approvalKind: nil,
+                approvedBy: nil,
+                toolchain: FlowRunToolchainSummary(
+                    stageCount: 3,
+                    selectedToolIDs: ["drc-native", "lvs-native"],
+                    rejectedEvaluationCount: 2,
+                    missingSelectionStageIDs: ["pex"],
+                    profileID: "sky130-signoff",
+                    pdkID: "sky130",
+                    technologyCatalogID: "sky130-catalog",
+                    technologyCatalogPath: "pdk/catalog.json",
+                    profileArtifactPath: "toolchain-profile.json"
+                ),
+                toolchainArtifacts: [artifact]
+            )
+        )
+
+        let lines = FlowRunnerKeyValueFormatter.lines(for: result)
+
+        #expect(lines.contains("toolchain_stage_count=3"))
+        #expect(lines.contains("toolchain_selected_tools=drc-native,lvs-native"))
+        #expect(lines.contains("toolchain_rejected_evaluation_count=2"))
+        #expect(lines.contains("toolchain_missing_selection_stages=pex"))
+        #expect(lines.contains("toolchain_profile_id=sky130-signoff"))
+        #expect(lines.contains("toolchain_pdk_id=sky130"))
+        #expect(lines.contains("toolchain_catalog_id=sky130-catalog"))
+        #expect(lines.contains("toolchain_catalog_path=pdk/catalog.json"))
+        #expect(lines.contains("toolchain_profile_artifact_path=toolchain-profile.json"))
+        #expect(lines.contains("toolchain_artifact=\(path)"))
+        #expect(lines.contains("toolchain_artifact_integrity=verified"))
     }
 
     @Test("Round-trip review output carries the approval provenance")

@@ -111,7 +111,7 @@ struct PEXArtifactServiceTests {
         let service = PEXArtifactService()
         let ir = try service.loadIR(for: "tt", manifestURL: manifestURL)
 
-        #expect(ir.cornerID == "tt")
+        #expect(ir.cornerID.value == "tt")
         #expect(ir.elements.count == 3)
     }
 
@@ -193,7 +193,6 @@ struct PEXArtifactServiceTests {
                 .appending(path: "tt.spef"),
         ])
         #expect(ir.elements.count > 0)
-        #expect(ir.diagnostics.isEmpty)
         #expect(postLayoutNetlist.contains("* --- Extracted parasitics ---"))
         #expect(postLayoutNetlist.contains("RPEX_"))
         #expect(postLayoutNetlist.contains("CPEX_"))
@@ -237,20 +236,22 @@ struct PEXArtifactServiceTests {
         #expect(resolver.completenessReport().status == .complete)
         #expect(resolver.records(kind: .rawOutput, cornerID: PEXCornerID("tt_25c_1v0"), availability: .available).count == 1)
         #expect(resolver.records(kind: .log, cornerID: PEXCornerID("tt_25c_1v0"), availability: .available).first.map { resolver.url(for: $0).lastPathComponent } == "extraction.log")
-        #expect(ir.units == .canonical)
+        #expect(ir.units == ParasiticUnits(
+            resistance: .kiloOhm,
+            capacitance: .femtoFarad,
+            coordinate: .micrometer
+        ))
         #expect(ir.elements.count == 3)
-        #expect(ir.elements.contains(PEXParasiticElement(
-            id: "r_out_segment",
-            kind: .resistor,
-            nodeA: "out",
-            nodeB: "out_pex",
-            value: 1.5
-        )))
+        let resistor = try #require(ir.elements.first { $0.id == "r_out_segment" })
+        #expect(resistor.kind == .resistor)
+        #expect(resistor.nodeA.nodeName.value == "out")
+        #expect(resistor.nodeB?.nodeName.value == "out_pex")
+        #expect(resistor.value == 0.0015)
         let substrateCapacitor = try #require(ir.elements.first { $0.id == "c_out_to_substrate" })
         #expect(substrateCapacitor.kind == .capacitor)
-        #expect(substrateCapacitor.nodeA == "out_pex")
+        #expect(substrateCapacitor.nodeA.nodeName.value == "out_pex")
         #expect(substrateCapacitor.nodeB == nil)
-        #expect(abs(substrateCapacitor.value - 4.2e-15) < 1.0e-27)
+        #expect(substrateCapacitor.value == 4.2)
         #expect(postLayoutNetlist.contains("RPEX_r_out_segment out out_pex 1.5"))
         #expect(postLayoutNetlist.contains("CPEX_c_out_to_substrate out_pex 0 4.2e-15"))
         #expect(result.status == .completed)
@@ -289,7 +290,7 @@ struct PEXArtifactServiceTests {
                 postLayoutResult: postLayoutResult
             ).applyingLimits(limits)
 
-            observedCorners.append(ir.cornerID)
+            observedCorners.append(ir.cornerID.value)
             #expect(ir.elements.count == 3)
             #expect(postLayoutResult.status == .completed)
             #expect(report.status == "compared")

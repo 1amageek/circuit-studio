@@ -1,3 +1,4 @@
+import PEXEngine
 import Foundation
 import CircuitPhysicalDesign
 import Testing
@@ -57,14 +58,14 @@ struct CMOSInverterFlowTests {
         #expect(verification.lvs.missingLayoutInstances.isEmpty)
         #expect(verification.lvs.missingLayoutNets.isEmpty)
 
-        let pexIR = PEXParasiticIR(
+        let pexIR = ParasiticIR(
             version: "1.0",
             cornerID: "tt_25c_1v0",
             units: .canonical,
             elements: [
-                PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
-                PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
-                PEXParasiticElement(id: "cc_in_out", kind: .coupling, nodeA: "in", nodeB: "out_pex", value: 0.5e-15),
+                ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
+                ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
+                ParasiticElement(id: "cc_in_out", kind: .coupling, nodeA: "in", nodeB: "out_pex", value: 0.5e-15),
             ]
         )
         let postLayoutService = PostLayoutSimulationService()

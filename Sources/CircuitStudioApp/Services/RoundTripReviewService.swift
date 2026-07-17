@@ -18,16 +18,16 @@ public enum RoundTripReviewServiceError: Error, LocalizedError, Equatable {
 public struct RoundTripReviewService: Sendable {
     public init() {}
 
-    public func loadReview(forProjectAt projectRoot: URL, runID: String) throws -> RoundTripReviewSummary {
+    public func loadReview(forProjectAt projectRoot: URL, runID: String) async throws -> RoundTripReviewSummary {
         try Self.validateRunID(runID)
         let manifestURL = try RoundTripRunDirectory.manifestURL(
             projectRoot: projectRoot,
             runID: runID
         )
-        return try loadReview(manifestURL: manifestURL)
+        return try await loadReview(manifestURL: manifestURL)
     }
 
-    public func loadReview(manifestURL: URL) throws -> RoundTripReviewSummary {
+    public func loadReview(manifestURL: URL) async throws -> RoundTripReviewSummary {
         guard FileManager.default.fileExists(atPath: manifestURL.path(percentEncoded: false)) else {
             throw RoundTripReviewServiceError.missingManifest(manifestURL)
         }
@@ -61,14 +61,13 @@ public struct RoundTripReviewService: Sendable {
             diagnostics: &diagnostics,
             warnings: &warnings
         )
-        let approvals = loadApprovalRecords(
+        let flowReviewBundle = await loadFlowReviewBundle(
             manifest: manifest,
             manifestURL: manifestURL,
-            resolver: resolver,
-            diagnostics: &diagnostics,
-            warnings: &warnings
+            diagnostics: &diagnostics
         )
-        let suggestedCommandSelections = loadSuggestedCommandSelections(
+        let approvals = flowReviewBundle?.approvals ?? []
+        let suggestedActionSelections = await loadSuggestedActionSelections(
             manifestURL: manifestURL,
             diagnostics: &diagnostics
         )
@@ -104,7 +103,11 @@ public struct RoundTripReviewService: Sendable {
             externalSignoff: signoff,
             postLayoutComparison: comparison,
             approvals: approvals,
-            suggestedCommandSelections: suggestedCommandSelections,
+            suggestedActionSelections: suggestedActionSelections,
+            toolchain: flowReviewBundle?.summary.toolchain,
+            toolchainArtifacts: flowReviewBundle?.artifacts.filter {
+                $0.purpose == .toolchain || $0.purpose == .toolchainProfile
+            } ?? [],
             bottleneckSummary: manifest.bottleneckSummary,
             diagnostics: diagnostics,
             warnings: warnings,
@@ -118,12 +121,16 @@ public struct RoundTripReviewService: Sendable {
         )
     }
 
-    private func loadSuggestedCommandSelections(
+    private func loadSuggestedActionSelections(
         manifestURL: URL,
         diagnostics: inout [String]
-    ) -> [FlowSuggestedCommandSelection] {
+    ) async -> [FlowRunSuggestedActionSelection] {
+        let ledgerURL = manifestURL.deletingLastPathComponent().appending(path: "ledger.json")
+        guard FileManager.default.fileExists(atPath: ledgerURL.path(percentEncoded: false)) else {
+            return []
+        }
         do {
-            return try RoundTripActionLogService().loadSuggestedCommandSelections(
+            return try await RoundTripActionLogService().loadSuggestedActionSelections(
                 manifestURL: manifestURL
             )
         } catch {
@@ -132,83 +139,30 @@ public struct RoundTripReviewService: Sendable {
         }
     }
 
-    private func loadApprovalRecords(
+    private func loadFlowReviewBundle(
         manifest: HeadlessRoundTripService.Manifest,
         manifestURL: URL,
-        resolver: RoundTripArtifactResolver,
-        diagnostics: inout [String],
-        warnings: inout [String]
-    ) -> [GateApprovalRecord] {
+        diagnostics: inout [String]
+    ) async -> FlowRunReviewBundle? {
         guard let projectRoot = projectRoot(fromManifestURL: manifestURL) else {
-            return []
+            return nil
+        }
+        let flowManifestURL = projectRoot
+            .appending(path: ".xcircuite")
+            .appending(path: "runs")
+            .appending(path: manifest.runID)
+            .appending(path: "manifest.json")
+        guard FileManager.default.fileExists(atPath: flowManifestURL.path(percentEncoded: false)) else {
+            return nil
         }
         do {
-            let records = try FlowRunGovernanceService().approvalRecords(
-                forProjectAt: projectRoot,
-                runID: manifest.runID
+            return try await RunReviewService().loadReviewBundle(
+                runID: manifest.runID,
+                projectRoot: projectRoot
             )
-            validateApprovalRecords(
-                records,
-                resolver: resolver,
-                diagnostics: &diagnostics,
-                warnings: &warnings
-            )
-            return records
         } catch {
-            diagnostics.append("Failed to load gate approval records: \(error.localizedDescription)")
-            return []
-        }
-    }
-
-    private func validateApprovalRecords(
-        _ records: [GateApprovalRecord],
-        resolver: RoundTripArtifactResolver,
-        diagnostics: inout [String],
-        warnings: inout [String]
-    ) {
-        for record in records {
-            do {
-                let url = try approvalTargetURL(record: record, resolver: resolver, warnings: &warnings)
-                let path = url.path(percentEncoded: false)
-                guard FileManager.default.fileExists(atPath: path) else {
-                    appendUnique([
-                        "Gate approval target artifact is missing: \(record.gateID.rawValue) at \(path)",
-                    ], to: &diagnostics)
-                    continue
-                }
-                let actualHash = try sha256(of: url)
-                guard actualHash == record.targetArtifactSHA256 else {
-                    appendUnique([
-                        "Gate approval target artifact hash mismatch: \(record.gateID.rawValue) at \(path)",
-                    ], to: &diagnostics)
-                    continue
-                }
-            } catch {
-                appendUnique([
-                    "Gate approval target artifact is invalid: \(record.gateID.rawValue): \(error.localizedDescription)",
-                ], to: &diagnostics)
-            }
-        }
-    }
-
-    private func approvalTargetURL(
-        record: GateApprovalRecord,
-        resolver: RoundTripArtifactResolver,
-        warnings: inout [String]
-    ) throws -> URL {
-        switch record.targetArtifactPathBase {
-        case .runDirectory:
-            let resolution = try resolver.resolve(
-                path: record.targetArtifactPath,
-                kind: record.targetArtifactKind ?? record.gateID.rawValue
-            )
-            appendUnique(resolution.warnings, to: &warnings)
-            return resolution.url
-        case .absolute:
-            throw RoundTripArtifactResolverError.invalidRelativePath(
-                record.targetArtifactPath,
-                "Gate approval target artifacts must be run-directory relative."
-            )
+            diagnostics.append("Failed to load flow review bundle: \(error.localizedDescription)")
+            return nil
         }
     }
 

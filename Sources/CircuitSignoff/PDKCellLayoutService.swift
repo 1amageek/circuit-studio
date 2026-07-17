@@ -1,3 +1,4 @@
+import DRCAdapters
 import Foundation
 import SignoffToolSupport
 
@@ -37,14 +38,14 @@ public struct PDKCellLayoutService: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> PDKCellLayoutService? {
-        guard let drc = MagicDRCSignoff.locate(environment: environment, fileManager: fileManager),
+        guard let drc = MagicDRCAdapter.locate(environment: environment, fileManager: fileManager),
               let driver = bundledDriverScriptURL else {
             return nil
         }
         return PDKCellLayoutService(
-            magicExecutableURL: drc.magicExecutableURL,
-            rcFileURL: drc.rcFileURL,
-            pdkRoot: drc.pdkRoot,
+            magicExecutableURL: drc.toolchain.magicExecutableURL,
+            rcFileURL: drc.toolchain.rcFileURL,
+            pdkRoot: drc.toolchain.pdkRoot,
             driverScriptURL: driver
         )
     }

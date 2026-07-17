@@ -5,11 +5,36 @@ import DesignFlowKernel
 import Testing
 import LayoutCore
 import PEXEngine
+import Xcircuite
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 @testable import SchematicEditor
 
 enum DesignFlowServiceTestSupport {
+    static func createCanonicalRunLedger(
+        projectRoot: URL,
+        runID: String
+    ) async throws {
+        let store = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+        try await store.createWorkspace()
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let manifest = try FlowRunManifest(
+            runID: runID,
+            status: .failed,
+            actor: FlowRunActor(kind: .agent, identifier: "circuit-studio-tests"),
+            intent: "Failure action selection test",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            startedAt: timestamp,
+            finishedAt: timestamp
+        )
+        try await store.saveRunLedger(FlowRunLedger(
+            runID: runID,
+            runManifest: manifest,
+            stages: []
+        ))
+    }
+
     static func makeSignoffCommands(in root: URL) throws -> [ExternalSignoffCommand] {
         let drc = try Self.writeExecutable(
             named: "mock-drc",
@@ -374,18 +399,18 @@ enum DesignFlowServiceTestSupport {
                 DesignFlowDesignSpec.Analysis(kind: .op),
             ],
             postLayoutComparisonLimits: postLayoutComparisonLimits,
-            pexIR: PEXParasiticIR(
+            pexIR: ParasiticIR(
                 version: "1.0",
                 cornerID: "tt_25c_1v0",
                 elements: [
-                    PEXParasiticElement(
+                    ParasiticElement(
                         id: "r_out",
                         kind: .resistor,
                         nodeA: "out",
                         nodeB: "out_pex",
                         value: 0.5
                     ),
-                    PEXParasiticElement(
+                    ParasiticElement(
                         id: "c_out",
                         kind: .capacitor,
                         nodeA: "out_pex",
@@ -401,7 +426,14 @@ enum DesignFlowServiceTestSupport {
         pexUnits: String,
         pexElements: String
     ) -> String {
-        """
+        let resolvedUnits = pexUnits.isEmpty ? """
+            "units": {
+              "resistance": "ohm",
+              "capacitance": "F",
+              "coordinate": "um"
+            },
+            """ : pexUnits
+        return """
         {
           "schemaVersion": 1,
           "name": "agent_resistor_divider",
@@ -485,12 +517,32 @@ enum DesignFlowServiceTestSupport {
           ],
           "pexIR": {
             "version": "1.0",
-            "cornerID": "tt_25c_1v0",
-            \(pexUnits)
+            "cornerID": { "value": "tt_25c_1v0" },
+            \(resolvedUnits)
+            "nets": [
+              {
+                "name": { "value": "out" },
+                "nodes": [
+                  { "name": { "value": "out" }, "kind": "internal" }
+                ],
+                "totalGroundCapF": 0,
+                "totalCouplingCapF": 0,
+                "totalResistanceOhm": 0
+              },
+              {
+                "name": { "value": "out_pex" },
+                "nodes": [
+                  { "name": { "value": "out_pex" }, "kind": "internal" }
+                ],
+                "totalGroundCapF": 0,
+                "totalCouplingCapF": 0,
+                "totalResistanceOhm": 0
+              }
+            ],
             "elements": [
               \(pexElements)
             ],
-            "diagnostics": []
+            "metadata": {}
           }
         }
         """

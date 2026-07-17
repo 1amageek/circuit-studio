@@ -3,8 +3,8 @@ import DesignFlowKernel
 
 struct RunReviewNextActionList: View {
     let actions: [FlowRunNextAction]
-    let selections: [FlowSuggestedCommandSelection]
-    let recordSelection: (FlowRunNextAction, FlowRunSuggestedCommand) -> Void
+    let selections: [FlowRunSuggestedActionSelection]
+    let recordSelection: (FlowRunNextAction, FlowRunSuggestedAction) -> Void
 
     var body: some View {
         GroupBox("Next Actions") {
@@ -29,24 +29,24 @@ struct RunReviewNextActionList: View {
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
                         }
-                        if !action.suggestedCommands.isEmpty {
-                            ForEach(action.suggestedCommands, id: \.commandID) { command in
-                                let selection = selectedCommand(
+                        if !action.suggestedActions.isEmpty {
+                            ForEach(action.suggestedActions, id: \.id) { suggestedAction in
+                                let selection = selectedAction(
                                     action: action,
-                                    command: command
+                                    suggestedAction: suggestedAction
                                 )
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 6) {
-                                        Text(command.readiness.rawValue)
+                                        Text(suggestedAction.readiness.rawValue)
                                             .font(.caption2)
                                             .padding(.horizontal, 5)
                                             .padding(.vertical, 1)
                                             .background(
-                                                commandReadinessColor(command.readiness).opacity(0.16),
+                                                actionReadinessColor(suggestedAction.readiness).opacity(0.16),
                                                 in: Capsule()
                                             )
-                                            .foregroundStyle(commandReadinessColor(command.readiness))
-                                        Text(command.commandID)
+                                            .foregroundStyle(actionReadinessColor(suggestedAction.readiness))
+                                        Text(suggestedAction.id)
                                             .font(.caption2.monospaced())
                                             .foregroundStyle(.secondary)
                                         if let selection {
@@ -58,13 +58,13 @@ struct RunReviewNextActionList: View {
                                                 .foregroundStyle(Color.accentColor)
                                         }
                                         Button {
-                                            recordSelection(action, command)
+                                            recordSelection(action, suggestedAction)
                                         } label: {
                                             Label("Record", systemImage: "bookmark")
                                         }
                                         .buttonStyle(.bordered)
                                     }
-                                    Text(commandLine(command))
+                                    Text(String(describing: suggestedAction.operation))
                                         .font(.caption.monospaced())
                                         .foregroundStyle(.secondary)
                                         .lineLimit(4)
@@ -79,22 +79,18 @@ struct RunReviewNextActionList: View {
         }
     }
 
-    private func selectedCommand(
+    private func selectedAction(
         action: FlowRunNextAction,
-        command: FlowRunSuggestedCommand
-    ) -> FlowSuggestedCommandSelection? {
+        suggestedAction: FlowRunSuggestedAction
+    ) -> FlowRunSuggestedActionSelection? {
         selections.last {
             $0.status == .succeeded
                 && $0.nextActionID == action.actionID
-                && $0.commandID == command.commandID
+                && $0.action.id == suggestedAction.id
         }
     }
 
-    private func commandLine(_ command: FlowRunSuggestedCommand) -> String {
-        ([command.executable] + command.arguments).joined(separator: " ")
-    }
-
-    private func commandReadinessColor(_ readiness: FlowRunSuggestedCommandReadiness) -> Color {
+    private func actionReadinessColor(_ readiness: FlowRunSuggestedActionReadiness) -> Color {
         switch readiness {
         case .ready:
             return .green

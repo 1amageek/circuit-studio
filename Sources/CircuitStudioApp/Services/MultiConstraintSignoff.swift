@@ -1,4 +1,5 @@
 import Foundation
+import STAEngine
 
 /// One axis of signoff and its evidence. A verdict is only as trustworthy as the artifact
 /// that backs it, so every axis carries a machine-readable pointer to the measurement or
@@ -81,12 +82,19 @@ public struct MultiConstraintSignoff: Sendable {
                           evidence: evidence)
     }
 
-    public static func timing(_ report: TimingReport, evidence: String) -> ConstraintVerdict {
-        let fmaxMHz = report.fmaxHz / 1e6
+    public static func timing(_ result: STAExecutionResult, evidence: String) -> ConstraintVerdict {
+        let setupSlack = result.payload.worstSetupSlack ?? -.infinity
+        let holdSlack = result.payload.worstHoldSlack ?? -.infinity
+        let passed = result.status == .completed && setupSlack >= 0 && holdSlack >= 0
         return ConstraintVerdict(
-            axis: .timing, passed: report.met,
-            summary: String(format: "setup %@ (slack %.1f ps, fmax %.0f MHz)",
-                            report.met ? "met" : "VIOLATED", report.worstSetupSlack * 1e12, fmaxMHz),
+            axis: .timing,
+            passed: passed,
+            summary: String(
+                format: "setup %@ (setup slack %.1f ps, hold slack %.1f ps)",
+                passed ? "met" : "VIOLATED",
+                setupSlack * 1e12,
+                holdSlack * 1e12
+            ),
             evidence: evidence)
     }
 

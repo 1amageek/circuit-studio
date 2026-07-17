@@ -19,7 +19,7 @@ struct PEXExtractionServiceTests {
 
         #expect(result.runResult == nil)
         #expect(result.manifest.backendID == "golden-fixture")
-        #expect(result.ir.cornerID == "tt_25c_1v0")
+        #expect(result.ir.cornerID.value == "tt_25c_1v0")
         #expect(result.ir.elements.count == 3)
     }
 

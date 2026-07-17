@@ -1,4 +1,5 @@
 import CircuitSignoff
+import DRCAdapters
 import Foundation
 import Testing
 import LayoutCore
@@ -18,7 +19,7 @@ import LayoutVerify
 /// engines partition findings differently (Magic reports per-edge,
 /// the editor per-pair), but a design one calls dirty and the other
 /// calls clean would make the editor's "clean" badge a lie.
-private let magicToolchainAvailable = MagicDRCSignoff.locate() != nil
+private let magicToolchainAvailable = MagicDRCAdapter.locate() != nil
 
 @Suite(
     "Editor DRC vs Magic agreement",
@@ -133,18 +134,14 @@ struct EditorDRCMagicAgreementTests {
         document: LayoutDocument,
         tech: LayoutTechDatabase
     ) async throws -> ExternalSignoffToolReport {
-        let dir = FileManager.default.temporaryDirectory
+        let directory = FileManager.default.temporaryDirectory
             .appending(path: "editor-magic-agreement-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let gds = dir.appending(path: "\(cell).gds")
-        try MaskDataFormatConverter(tech: tech).exportDocument(document, to: gds, format: .gds)
-
-        let drc = try #require(MagicDRCSignoff.locate())
-        let result = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
-            command: drc.command(cell: cell, gds: gds, artifactDirectory: dir),
-            artifactDirectory: dir
+        let checker = try #require(MagicLayoutDRCChecker.locate(layoutTechnology: tech))
+        return try await checker.check(
+            document,
+            cell: cell,
+            in: directory
         )
-        return result.report
     }
 
     private static func rect(

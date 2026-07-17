@@ -4,16 +4,13 @@ import PEXEngine
 public struct PEXExtractionService: Sendable {
     private let engine: any PEXRunning
     private let configMapper: PEXConfigMapper
-    private let artifactService: PEXArtifactService
 
     public init(
         engine: any PEXRunning = DefaultPEXEngine.withDefaults(),
-        configMapper: PEXConfigMapper = PEXConfigMapper(),
-        artifactService: PEXArtifactService = PEXArtifactService()
+        configMapper: PEXConfigMapper = PEXConfigMapper()
     ) {
         self.engine = engine
         self.configMapper = configMapper
-        self.artifactService = artifactService
     }
 
     public func extract(_ request: PEXExtractionRequest) async throws -> PEXExtractionResult {
@@ -42,11 +39,10 @@ public struct PEXExtractionService: Sendable {
         }), let canonicalIR = corner.ir else {
             throw PEXExtractionError.missingCorner(request.cornerID)
         }
-        let ir = try artifactService.makeStudioIR(from: canonicalIR)
         return PEXExtractionResult(
             manifestURL: runResult.manifestURL,
             manifest: runResult.artifactManifest,
-            ir: ir,
+            ir: canonicalIR,
             runResult: runResult
         )
     }

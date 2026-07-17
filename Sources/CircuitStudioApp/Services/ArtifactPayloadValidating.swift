@@ -4,11 +4,6 @@ public protocol ArtifactPayloadValidating: Sendable {
     func validateForPersistence() throws
 }
 
-public protocol ArtifactEnvelopeValidating: Sendable {
-    static var currentSchemaVersion: Int { get }
-    static var artifactKind: String { get }
-}
-
 public protocol ArtifactPublishing: Sendable {
     func publishData(
         _ data: Data,

@@ -3,6 +3,7 @@ import CircuiteFoundation
 import DesignFlowKernel
 import Testing
 import LayoutCore
+import ToolQualification
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 @testable import SchematicEditor
@@ -625,175 +626,63 @@ struct DesignFlowServiceTests {
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
-    func commandAPIApprovesGateAndWritesAuditRecord() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval")
+    func commandAPIRecordsApprovalInCanonicalRunLedger() async throws {
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("stage-approval")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "approval-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
-        try writeGateApprovalComparisonReport(to: comparisonURL)
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+
+        let request = FlowOperationRequest(
+            workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
             runID: "approval-run",
-            title: "Approval run",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_100),
-            isRoundTripComplete: true,
-            isReadyForPEX: true,
+            intent: "Command API approval",
             stages: [
-                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
-            ],
-            artifacts: [
-                try DesignFlowServiceTestSupport.roundTripArtifact(
-                    kind: "post-layout-comparison",
-                    url: comparisonURL
+                FlowStageDefinition(
+                    stageID: "post-layout-comparison",
+                    displayName: "Post-layout comparison",
+                    requiresApproval: true
                 ),
             ]
-        ), to: manifestURL)
+        )
+        let blocked = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
+            request: request,
+            toolRegistry: ToolRegistry(),
+            healthResults: [:],
+            executors: [RunReviewPassingExecutor(stageID: "post-layout-comparison")]
+        )
+        #expect(blocked.status == .blocked)
 
         let result = try await DesignFlowService().execute(DesignFlowCommand(
             kind: .approveGate,
             projectRootPath: root.path(percentEncoded: false),
             runID: "approval-run",
-            roundTripManifestPath: manifestURL.path(percentEncoded: false),
-            approvalGateID: .postLayoutComparison,
+            approvalStageID: "post-layout-comparison",
             approvalReviewer: "layout-reviewer",
-            approvalPolicy: "strict-post-layout-comparison",
-            approvalNote: "Reviewed comparison artifact",
-            waiverIDs: ["W-007"]
+            approvalVerdict: .approved,
+            approvalNote: "Reviewed comparison evidence"
         ))
 
-        let recordPath = try #require(result.approvalRecordPath)
-        #expect(FileManager.default.fileExists(atPath: recordPath))
-        #expect(result.approvalRecord?.gateID == .postLayoutComparison)
-        #expect(result.approvalRecord?.decision == .approved)
+        #expect(result.approvalRecord?.stageID == "post-layout-comparison")
+        #expect(result.approvalRecord?.verdict == .approved)
         #expect(result.approvalRecord?.reviewer == "layout-reviewer")
-        #expect(result.approvalRecord?.waiverIDs == ["W-007"])
-        #expect(result.approvalRecord?.targetArtifactKind == "post-layout-comparison")
-        #expect(result.approvalRecord?.targetArtifactPathBase == .runDirectory)
-        #expect(result.approvalRecord?.targetArtifactPath == comparisonURL.lastPathComponent)
-        #expect(result.approvalRecord?.targetArtifactSHA256.count == 64)
-        #expect(result.approvalRecord?.manifestSHA256?.count == 64)
-        #expect(result.approvalRecord?.lineage?.parentRunID == "approval-run")
+        #expect(result.approvalRecord?.note == "Reviewed comparison evidence")
 
-        let review = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
-        #expect(review.approvals.count == 1)
-        #expect(review.approvals.first?.gateID == .postLayoutComparison)
+        let review = try await RunReviewService().loadRun(runID: "approval-run", projectRoot: root)
+        #expect(review.stages.first?.approval == result.approvalRecord)
     }
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
-    func commandAPIApprovesExplicitTargetAsRunRelativeRecord() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-explicit-target")
-        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "approval-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
-        try writeGateApprovalComparisonReport(to: comparisonURL)
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
-            runID: "approval-run",
-            title: "Explicit target approval run",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_125),
-            isRoundTripComplete: true,
-            isReadyForPEX: true,
-            stages: [
-                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
-            ],
-            artifacts: [
-                try DesignFlowServiceTestSupport.roundTripArtifact(
-                    kind: "post-layout-comparison",
-                    url: comparisonURL
-                ),
-            ]
-        ), to: manifestURL)
-
-        let result = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .approveGate,
-            projectRootPath: root.path(percentEncoded: false),
-            runID: "approval-run",
-            roundTripManifestPath: manifestURL.path(percentEncoded: false),
-            approvalGateID: .postLayoutComparison,
-            approvalTargetPath: comparisonURL.path(percentEncoded: false),
-            approvalReviewer: "layout-reviewer"
-        ))
-
-        #expect(result.approvalRecord?.targetArtifactPathBase == .runDirectory)
-        #expect(result.approvalRecord?.targetArtifactPath == "post-layout-comparison.json")
-        #expect(result.approvalRecord?.targetArtifactKind == nil)
-        let review = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
-        #expect(review.diagnostics.isEmpty)
-        #expect(review.approvals.count == 1)
-        #expect(review.approvals.first?.targetArtifactPathBase == .runDirectory)
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIRejectsExplicitGateApprovalTargetOutsideRunDirectory() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-explicit-target-escape")
-        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "approval-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
-        try writeGateApprovalComparisonReport(to: comparisonURL)
-        let outsideURL = root.appending(path: "outside-comparison.json")
-        try writeGateApprovalComparisonReport(to: outsideURL)
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
-            runID: "approval-run",
-            title: "Explicit target escape approval run",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_130),
-            isRoundTripComplete: true,
-            isReadyForPEX: true,
-            stages: [
-                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
-            ],
-            artifacts: [
-                try DesignFlowServiceTestSupport.roundTripArtifact(
-                    kind: "post-layout-comparison",
-                    url: comparisonURL
-                ),
-            ]
-        ), to: manifestURL)
-
-        do {
-            _ = try await DesignFlowService().execute(DesignFlowCommand(
-                kind: .approveGate,
-                projectRootPath: root.path(percentEncoded: false),
-                runID: "approval-run",
-                roundTripManifestPath: manifestURL.path(percentEncoded: false),
-                approvalGateID: .postLayoutComparison,
-                approvalTargetPath: outsideURL.path(percentEncoded: false),
-                approvalReviewer: "layout-reviewer"
-            ))
-            Issue.record("Expected explicit approval target outside the run directory to fail.")
-        } catch let error as FlowRunGovernanceError {
-            if case .invalidArtifactPath(let message) = error {
-                #expect(message.contains("outside"))
-            } else {
-                Issue.record("Expected invalid artifact path error, got \(error).")
-            }
-        }
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIRecordsFailureSuggestedCommandSelection() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("failure-command-selection")
+    func commandAPIRecordsFailureSuggestedActionSelection() async throws {
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("failure-action-selection")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "runs")
             .appending(path: "failure-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        try await DesignFlowServiceTestSupport.createCanonicalRunLedger(
+            projectRoot: root,
+            runID: "failure-run"
+        )
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
         try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "failure-run",
@@ -831,20 +720,12 @@ struct DesignFlowServiceTests {
                     severity: .error,
                     reason: "Inspect the failed stage and persisted artifacts.",
                     diagnosticCodes: ["runtime"],
-                    suggestedCommands: [
-                        FlowRunSuggestedCommand(
-                            commandID: "circuit-studio-flow-runner.review-round-trip",
+                    suggestedActions: [
+                        FlowRunSuggestedAction(
+                            id: "review-flow-runner-failure",
                             readiness: .ready,
-                            executable: "swift",
-                            arguments: [
-                                "run",
-                                "--quiet",
-                                "circuit-studio-flow-runner",
-                                "--review-round-trip",
-                                "--manifest",
-                                manifestURL.path(percentEncoded: false),
-                                "--json",
-                            ],
+                            operation: .reviewRun,
+                            runID: "failure-run",
                             reason: "Load the failed run review from its persisted manifest."
                         ),
                     ]
@@ -857,9 +738,9 @@ struct DesignFlowServiceTests {
         try encoder.encode(failureEnvelope).write(to: failureEnvelopeURL, options: .atomic)
 
         let result = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .selectFailureSuggestedCommand,
+            kind: .selectFailureSuggestedAction,
             failureEnvelopePath: failureEnvelopeURL.path(percentEncoded: false),
-            suggestedCommandID: "circuit-studio-flow-runner.review-round-trip",
+            suggestedActionID: "review-flow-runner-failure",
             approvalReviewer: "agent-1"
         ))
 
@@ -868,23 +749,27 @@ struct DesignFlowServiceTests {
         #expect(actionLogPath.hasSuffix(".xcircuite/runs/failure-run/actions.jsonl"))
         #expect(result.runID == "failure-run")
         #expect(result.manifestPath == manifestURL.path(percentEncoded: false))
-        #expect(result.selectedSuggestedCommand?.actor.identifier == "agent-1")
-        #expect(result.selectedSuggestedCommand?.nextActionID == "review-flow-runner-failure")
-        #expect(result.selectedSuggestedCommand?.commandID == "circuit-studio-flow-runner.review-round-trip")
-        #expect(result.roundTripReview?.suggestedCommandSelections.count == 1)
-        #expect(result.message?.hasPrefix("round-trip-suggested-command-selection-") == true)
+        #expect(result.selectedSuggestedAction?.actor.identifier == "agent-1")
+        #expect(result.selectedSuggestedAction?.nextActionID == "review-flow-runner-failure")
+        #expect(result.selectedSuggestedAction?.action.id == "review-flow-runner-failure")
+        #expect(result.roundTripReview?.suggestedActionSelections.count == 1)
+        #expect(result.message?.hasPrefix("round-trip-suggested-action-selection-") == true)
     }
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
-    func commandAPIDispatchesSelectedFailureSuggestedReviewCommand() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("failure-command-dispatch")
+    func commandAPIDispatchesSelectedFailureSuggestedReviewAction() async throws {
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("failure-action-dispatch")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "runs")
             .appending(path: "failure-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        try await DesignFlowServiceTestSupport.createCanonicalRunLedger(
+            projectRoot: root,
+            runID: "failure-run"
+        )
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
         try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "failure-run",
@@ -922,56 +807,52 @@ struct DesignFlowServiceTests {
                     severity: .error,
                     reason: "Inspect the failed stage and persisted artifacts.",
                     diagnosticCodes: ["runtime"],
-                    suggestedCommands: [
-                        FlowRunSuggestedCommand(
-                            commandID: "circuit-studio-flow-runner.review-round-trip",
+                    suggestedActions: [
+                        FlowRunSuggestedAction(
+                            id: "review-flow-runner-failure",
                             readiness: .ready,
-                            executable: "swift",
-                            arguments: [
-                                "run",
-                                "--quiet",
-                                "circuit-studio-flow-runner",
-                                "--review-round-trip",
-                                "--manifest",
-                                manifestURL.path(percentEncoded: false),
-                                "--json",
-                            ],
+                            operation: .reviewRun,
+                            runID: "failure-run",
                             reason: "Load the failed run review from its persisted manifest."
                         ),
                     ]
                 ),
             ]
         )
-        _ = try RoundTripActionLogService().recordSuggestedCommandSelection(
+        _ = try await RoundTripActionLogService().recordSuggestedActionSelection(
             from: failureEnvelope,
-            commandID: "circuit-studio-flow-runner.review-round-trip",
+            actionID: "review-flow-runner-failure",
             reviewer: "agent-1"
         )
 
         let result = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .runSelectedSuggestedCommand,
+            kind: .runSelectedSuggestedAction,
             projectRootPath: root.path(percentEncoded: false),
             runID: "failure-run",
-            suggestedCommandID: "circuit-studio-flow-runner.review-round-trip"
+            suggestedActionID: "review-flow-runner-failure"
         ))
 
         #expect(result.kind == .reviewRoundTrip)
         #expect(result.roundTripReview?.runID == "failure-run")
         #expect(result.roundTripReview?.status == .failed)
-        #expect(result.roundTripReview?.suggestedCommandSelections.count == 1)
-        #expect(result.roundTripReview?.suggestedCommandSelections.first?.commandID == "circuit-studio-flow-runner.review-round-trip")
+        #expect(result.roundTripReview?.suggestedActionSelections.count == 1)
+        #expect(result.roundTripReview?.suggestedActionSelections.first?.action.id == "review-flow-runner-failure")
     }
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
-    func commandAPIRejectsUnsupportedSelectedFailureSuggestedExecutable() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("failure-command-dispatch-reject")
+    func commandAPIRejectsUnsupportedSelectedFailureSuggestedOperation() async throws {
+        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("failure-action-dispatch-reject")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let runDirectory = root
             .appending(path: ".xcircuite")
             .appending(path: "runs")
             .appending(path: "failure-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        try await DesignFlowServiceTestSupport.createCanonicalRunLedger(
+            projectRoot: root,
+            runID: "failure-run"
+        )
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
         try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "failure-run",
@@ -1001,306 +882,32 @@ struct DesignFlowServiceTests {
                     stageID: "post-layout-comparison",
                     severity: .error,
                     reason: "This command must not be dispatched.",
-                    suggestedCommands: [
-                        FlowRunSuggestedCommand(
-                            commandID: "unsupported.shell",
+                    suggestedActions: [
+                        FlowRunSuggestedAction(
+                            id: "unsupported-operation",
                             readiness: .ready,
-                            executable: "bash",
-                            arguments: ["-lc", "echo unsafe"],
-                            reason: "Unsupported shell command."
+                            operation: .executeCandidatePlan,
+                            runID: "failure-run",
+                            reason: "Unsupported operation."
                         ),
                     ]
                 ),
             ]
         )
-        _ = try RoundTripActionLogService().recordSuggestedCommandSelection(
+        _ = try await RoundTripActionLogService().recordSuggestedActionSelection(
             from: failureEnvelope,
-            commandID: "unsupported.shell",
+            actionID: "unsupported-operation",
             reviewer: "agent-1"
         )
 
-        await #expect(throws: RoundTripSelectedSuggestedCommandResolutionError.self) {
+        await #expect(throws: RoundTripSelectedSuggestedActionResolutionError.self) {
             try await DesignFlowService().execute(DesignFlowCommand(
-                kind: .runSelectedSuggestedCommand,
+                kind: .runSelectedSuggestedAction,
                 projectRootPath: root.path(percentEncoded: false),
                 runID: "failure-run",
-                suggestedCommandID: "unsupported.shell"
+                suggestedActionID: "unsupported-operation"
             ))
         }
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIRejectsEscapingGateApprovalArtifactPath() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-escape")
-        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "approval-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-
-        let outsideURL = runDirectory
-            .deletingLastPathComponent()
-            .appending(path: "outside-comparison.json")
-        try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: outsideURL, options: .atomic)
-
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        let manifest = HeadlessRoundTripService.Manifest(
-            runID: "approval-run",
-            title: "Escaping approval run",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_150),
-            isRoundTripComplete: true,
-            isReadyForPEX: true,
-            stages: [
-                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
-            ],
-            artifacts: [
-                try DesignFlowServiceTestSupport.roundTripArtifact(
-                    kind: "post-layout-comparison",
-                    url: outsideURL
-                ),
-            ]
-        )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        var manifestJSON = try #require(
-            JSONSerialization.jsonObject(with: encoder.encode(manifest)) as? [String: Any]
-        )
-        var artifacts = try #require(manifestJSON["artifacts"] as? [[String: Any]])
-        var artifact = artifacts[0]
-        var reference = try #require(artifact["reference"] as? [String: Any])
-        var locator = try #require(reference["locator"] as? [String: Any])
-        var location = try #require(locator["location"] as? [String: Any])
-        location["value"] = "../outside-comparison.json"
-        locator["location"] = location
-        reference["locator"] = locator
-        artifact["reference"] = reference
-        artifacts[0] = artifact
-        manifestJSON["artifacts"] = artifacts
-        try JSONSerialization.data(withJSONObject: manifestJSON, options: [.sortedKeys])
-            .write(to: manifestURL, options: .atomic)
-
-        do {
-            _ = try await DesignFlowService().execute(DesignFlowCommand(
-                kind: .approveGate,
-                projectRootPath: root.path(percentEncoded: false),
-                runID: "approval-run",
-                roundTripManifestPath: manifestURL.path(percentEncoded: false),
-                approvalGateID: .postLayoutComparison,
-                approvalReviewer: "layout-reviewer"
-            ))
-            Issue.record("Expected escaping artifact path to fail gate approval.")
-        } catch let error as FlowRunGovernanceError {
-            if case .invalidArtifactPath(let message) = error {
-                #expect(message.contains("workspace-relative"))
-            } else {
-                Issue.record("Expected invalid artifact path error, got \(error).")
-            }
-        }
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIRejectsAbsoluteManifestArtifactPath() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-absolute-artifact")
-        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "approval-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
-        try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        let absoluteLocator = ArtifactLocator(
-            location: try ArtifactLocation(fileURL: comparisonURL),
-            role: .output,
-            kind: try ArtifactKind(rawValue: "post-layout-comparison"),
-            format: .json
-        )
-        let absoluteReference = try LocalArtifactReferencer().reference(absoluteLocator)
-        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
-            runID: "approval-run",
-            title: "Absolute artifact approval run",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_175),
-            isRoundTripComplete: true,
-            isReadyForPEX: true,
-            stages: [
-                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
-            ],
-            artifacts: [
-                HeadlessRoundTripService.Artifact(reference: absoluteReference),
-            ]
-        ), to: manifestURL)
-
-        do {
-            _ = try await DesignFlowService().execute(DesignFlowCommand(
-                kind: .approveGate,
-                projectRootPath: root.path(percentEncoded: false),
-                runID: "approval-run",
-                roundTripManifestPath: manifestURL.path(percentEncoded: false),
-                approvalGateID: .postLayoutComparison,
-                approvalReviewer: "layout-reviewer"
-            ))
-            Issue.record("Expected absolute manifest artifact path to fail gate approval.")
-        } catch let error as FlowRunGovernanceError {
-            if case .invalidArtifactPath(let message) = error {
-                #expect(message.contains("absolute"))
-            } else {
-                Issue.record("Expected invalid artifact path error, got \(error).")
-            }
-        }
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIRejectsGateApprovalForInvalidManifestRunID() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-invalid-run")
-        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "approval-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
-        try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
-            runID: "../escape",
-            title: "Invalid approval run",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_200),
-            isRoundTripComplete: true,
-            isReadyForPEX: true,
-            stages: [
-                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
-            ],
-            artifacts: [
-                try DesignFlowServiceTestSupport.roundTripArtifact(
-                    kind: "post-layout-comparison",
-                    url: comparisonURL
-                ),
-            ]
-        ), to: manifestURL)
-
-        do {
-            _ = try await DesignFlowService().execute(DesignFlowCommand(
-                kind: .approveGate,
-                projectRootPath: root.path(percentEncoded: false),
-                roundTripManifestPath: manifestURL.path(percentEncoded: false),
-                approvalGateID: .postLayoutComparison,
-                approvalReviewer: "layout-reviewer"
-            ))
-            Issue.record("Expected invalid manifest run ID to fail gate approval.")
-        } catch let error as FlowRunGovernanceError {
-            #expect(error == .invalidRunID("../escape"))
-        }
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIRejectsPrePEXApprovalWithoutVerificationArtifact() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-missing-pre-pex")
-        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "approval-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
-        try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
-            runID: "approval-run",
-            title: "Missing pre-PEX approval target",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_300),
-            isRoundTripComplete: true,
-            isReadyForPEX: true,
-            stages: [
-                HeadlessRoundTripService.Stage(name: "pre-pex-verification", status: .passed),
-                HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
-            ],
-            artifacts: [
-                try DesignFlowServiceTestSupport.roundTripArtifact(
-                    kind: "post-layout-comparison",
-                    url: comparisonURL
-                ),
-            ]
-        ), to: manifestURL)
-
-        do {
-            _ = try await DesignFlowService().execute(DesignFlowCommand(
-                kind: .approveGate,
-                projectRootPath: root.path(percentEncoded: false),
-                runID: "approval-run",
-                roundTripManifestPath: manifestURL.path(percentEncoded: false),
-                approvalGateID: .prePEXVerification,
-                approvalReviewer: "layout-reviewer"
-            ))
-            Issue.record("Expected missing pre-PEX verification artifact to fail gate approval.")
-        } catch let error as FlowRunGovernanceError {
-            #expect(error == .missingArtifactForGate(.prePEXVerification))
-        }
-    }
-
-    @Test(.timeLimit(.minutes(2)))
-    @MainActor
-    func commandAPIApprovesPhysicalVerificationReportGates() async throws {
-        let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("gate-approval-physical-verification")
-        defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "approval-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-        let verificationURL = runDirectory.appending(path: "physical-verification.json")
-        try Data(#"{"status":"passed","readyForPEX":true}"#.utf8).write(to: verificationURL, options: .atomic)
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
-            runID: "approval-run",
-            title: "Physical verification approval run",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_350),
-            isRoundTripComplete: true,
-            isReadyForPEX: true,
-            stages: [
-                HeadlessRoundTripService.Stage(name: "pre-pex-verification", status: .passed),
-            ],
-            artifacts: [
-                try DesignFlowServiceTestSupport.roundTripArtifact(
-                    kind: "physical-verification-report",
-                    url: verificationURL
-                ),
-            ]
-        ), to: manifestURL)
-
-        let prePEXResult = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .approveGate,
-            projectRootPath: root.path(percentEncoded: false),
-            runID: "approval-run",
-            roundTripManifestPath: manifestURL.path(percentEncoded: false),
-            approvalGateID: .prePEXVerification,
-            approvalReviewer: "layout-reviewer"
-        ))
-        let physicalResult = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .approveGate,
-            projectRootPath: root.path(percentEncoded: false),
-            runID: "approval-run",
-            roundTripManifestPath: manifestURL.path(percentEncoded: false),
-            approvalGateID: .physicalVerification,
-            approvalReviewer: "layout-reviewer"
-        ))
-
-        #expect(prePEXResult.approvalRecord?.targetArtifactPath == verificationURL.lastPathComponent)
-        #expect(prePEXResult.approvalRecord?.targetArtifactPathBase == .runDirectory)
-        #expect(prePEXResult.approvalRecord?.gateID == .prePEXVerification)
-        #expect(physicalResult.approvalRecord?.targetArtifactPath == verificationURL.lastPathComponent)
-        #expect(physicalResult.approvalRecord?.targetArtifactPathBase == .runDirectory)
-        #expect(physicalResult.approvalRecord?.gateID == .physicalVerification)
-        let review = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
-        #expect(review.approvals.map(\.gateID).sorted { $0.rawValue < $1.rawValue } == [
-            .physicalVerification,
-            .prePEXVerification,
-        ])
     }
 
     @MainActor
@@ -1317,45 +924,6 @@ struct DesignFlowServiceTests {
         root
             .appending(path: ".xcircuite")
             .appending(path: "escape")
-    }
-
-    private func writeGateApprovalComparisonReport(to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(gateApprovalComparisonReport())
-        try data.write(to: url, options: .atomic)
-    }
-
-    private func gateApprovalComparisonReport() -> PostLayoutComparisonReport {
-        PostLayoutComparisonReport(
-            status: "compared",
-            preLayoutPointCount: 1,
-            postLayoutPointCount: 1,
-            sweepVariable: nil,
-            comparedPointCount: 1,
-            maxAbsoluteDelta: 0.001,
-            maxRelativeDelta: 0.01,
-            comparedVariables: [
-                PostLayoutVariableComparison(
-                    variableName: "v(out)",
-                    signalDomain: .voltage,
-                    unit: "V",
-                    maxAbsoluteDelta: 0.001,
-                    maxRelativeDelta: 0.01,
-                    firstPreLayoutValue: 1.0,
-                    firstPostLayoutValue: 0.999,
-                    lastPreLayoutValue: 1.0,
-                    lastPostLayoutValue: 0.999
-                ),
-            ],
-            oscillationMetrics: [],
-            missingInPostLayout: [],
-            addedInPostLayout: [],
-            diagnostics: [],
-            comparisonLimits: PostLayoutComparisonLimits(maxAbsoluteDelta: 0.01),
-            gateStatus: "passed",
-            gateViolations: []
-        )
     }
 
     private func trustedLayoutDocument() -> LayoutDocument {

@@ -675,42 +675,31 @@ struct RunReviewPlanningProjectionTests {
             $0.kind == "verifyPlanningCorrectness"
                 && $0.actionID == "verify-candidate-plan:post-execution"
         })
-        let command = try #require(action.suggestedCommands.first)
-        #expect(command.readiness == .ready)
-        #expect(command.executable == "xcircuite-flow")
-        #expect(command.arguments == [
-            "verify-candidate-plan",
-            "--workspace-id",
-            workspaceID.rawValue,
-            "--run-id",
-            "run-planning",
-            "--mode",
-            "post-execution",
-            "--pretty",
-        ])
+        let suggestedAction = try #require(action.suggestedActions.first)
+        #expect(suggestedAction.readiness == .ready)
+        #expect(suggestedAction.id == "verify-candidate-plan.post-execution")
+        #expect(suggestedAction.operation == .verifyCandidatePlan(scope: .postExecution))
+        #expect(suggestedAction.runID == "run-planning")
 
-        let record = try await service.recordSuggestedCommandSelection(
+        let record = try await service.recordSuggestedActionSelection(
             runID: "run-planning",
             nextActionID: action.actionID,
-            commandID: command.commandID,
+            actionID: suggestedAction.id,
             reviewer: "reviewer-1",
             projectRoot: root
         )
-        #expect(record.actionKind == "review.selectSuggestedCommand")
+        #expect(record.actionKind == "review.selectSuggestedAction")
         #expect(record.actor.kind == .human)
-        let recordedCommand = try #require(record.context.suggestedCommand)
-        #expect(recordedCommand.nextActionID == "verify-candidate-plan:post-execution")
-        #expect(recordedCommand.commandID == "xcircuite-flow.verify-candidate-plan.post-execution")
-        #expect(recordedCommand.readiness == "ready")
-        #expect(recordedCommand.executable == "xcircuite-flow")
-        #expect(recordedCommand.arguments == command.arguments)
+        let recordedAction = try #require(record.context.suggestedAction)
+        #expect(recordedAction.nextActionID == "verify-candidate-plan:post-execution")
+        #expect(recordedAction.action == suggestedAction)
 
         let actions = try await store.loadRunActions(runID: "run-planning")
         #expect(actions.contains {
-            $0.actionKind == "review.selectSuggestedCommand"
-                && $0.context.suggestedCommand?.commandID == command.commandID
+            $0.actionKind == "review.selectSuggestedAction"
+                && $0.context.suggestedAction?.action.id == suggestedAction.id
         })
-        let selections = try await service.loadSuggestedCommandSelections(
+        let selections = try await service.loadSuggestedActionSelections(
             runID: "run-planning",
             projectRoot: root
         )
@@ -719,13 +708,11 @@ struct RunReviewPlanningProjectionTests {
         #expect(selection.actionRecordID == record.actionID)
         #expect(selection.actor.identifier == "reviewer-1")
         #expect(selection.nextActionID == action.actionID)
-        #expect(selection.commandID == command.commandID)
-        #expect(selection.executable == "xcircuite-flow")
-        #expect(selection.arguments == command.arguments)
+        #expect(selection.action == suggestedAction)
 
         let reloadedReview = try await service.loadRun(runID: "run-planning", projectRoot: root)
-        #expect(reloadedReview.suggestedCommandSelections == selections)
-        #expect(reloadedReview.planning.selectedCommands == selections)
+        #expect(reloadedReview.suggestedActionSelections == selections)
+        #expect(reloadedReview.planning.selectedActions == selections)
 
         let approvalResult = try await service.decidePlanningRiskApproval(
             runID: "run-planning",

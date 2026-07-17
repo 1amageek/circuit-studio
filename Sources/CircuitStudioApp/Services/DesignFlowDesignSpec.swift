@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import CircuitStudioCore
+import PEXEngine
 
 public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
     public static let currentSchemaVersion = 1
@@ -143,7 +144,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         public let testbench: Testbench
         public let postLayoutCommand: AnalysisCommand
         public let postLayoutComparisonLimits: PostLayoutComparisonLimits?
-        public let pexIR: PEXParasiticIR?
+        public let pexIR: ParasiticIR?
 
         public init(
             name: String,
@@ -152,7 +153,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
             testbench: Testbench,
             postLayoutCommand: AnalysisCommand,
             postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
-            pexIR: PEXParasiticIR?
+            pexIR: ParasiticIR?
         ) {
             self.name = name
             self.title = title
@@ -161,281 +162,6 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
             self.postLayoutCommand = postLayoutCommand
             self.postLayoutComparisonLimits = postLayoutComparisonLimits
             self.pexIR = pexIR
-        }
-    }
-
-    public struct ParasiticIR: Sendable, Hashable, Codable {
-        public struct Units: Sendable, Hashable, Codable {
-            public let resistance: String
-            public let capacitance: String
-            public let coordinate: String
-
-            private enum CodingKeys: String, CodingKey {
-                case resistance, capacitance, coordinate
-            }
-
-            public init(resistance: String = "ohm", capacitance: String = "F", coordinate: String = "um") {
-                self.resistance = resistance
-                self.capacitance = capacitance
-                self.coordinate = coordinate
-            }
-
-            public init(_ units: PEXParasiticUnits) {
-                self.resistance = units.resistance
-                self.capacitance = units.capacitance
-                self.coordinate = units.coordinate
-            }
-
-            public init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.resistance = try container.decodeIfPresent(String.self, forKey: .resistance) ?? "ohm"
-                self.capacitance = try container.decodeIfPresent(String.self, forKey: .capacitance) ?? "F"
-                self.coordinate = try container.decodeIfPresent(String.self, forKey: .coordinate) ?? "um"
-            }
-
-            fileprivate var core: PEXParasiticUnits {
-                PEXParasiticUnits(
-                    resistance: resistance,
-                    capacitance: capacitance,
-                    coordinate: coordinate
-                )
-            }
-
-            public var normalizedScales: (resistance: Double, capacitance: Double) {
-                get throws {
-                    let units = core
-                    guard let resistanceScale = units.resistanceScaleToOhm else {
-                        throw DesignFlowDesignSpecError.unsupportedPEXResistanceUnit(resistance)
-                    }
-                    guard let capacitanceScale = units.capacitanceScaleToFarad else {
-                        throw DesignFlowDesignSpecError.unsupportedPEXCapacitanceUnit(capacitance)
-                    }
-                    guard coordinate == PEXParasiticUnits.canonical.coordinate else {
-                        throw DesignFlowDesignSpecError.unsupportedPEXCoordinateUnit(coordinate)
-                    }
-                    return (resistanceScale, capacitanceScale)
-                }
-            }
-        }
-
-        public struct Element: Sendable, Hashable, Codable {
-            public let id: String
-            public let kind: PEXParasiticElement.Kind
-            public let nodeA: String
-            public let nodeB: String?
-            public let value: Double
-
-            private enum CodingKeys: String, CodingKey {
-                case id, kind, nodeA, nodeB, value
-            }
-
-            public init(
-                id: String,
-                kind: PEXParasiticElement.Kind,
-                nodeA: String,
-                nodeB: String?,
-                value: Double
-            ) {
-                self.id = id
-                self.kind = kind
-                self.nodeA = nodeA
-                self.nodeB = nodeB
-                self.value = value
-            }
-
-            public init(_ element: PEXParasiticElement) {
-                self.id = element.id
-                self.kind = element.kind
-                self.nodeA = element.nodeA
-                self.nodeB = element.nodeB
-                self.value = element.value
-            }
-
-            public init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.id = try container.decode(String.self, forKey: .id)
-                let kindValue = try container.decode(String.self, forKey: .kind)
-                guard let kind = PEXParasiticElement.Kind(rawValue: kindValue) else {
-                    throw DesignFlowDesignSpecError.unsupportedPEXElementKind(kindValue)
-                }
-                self.kind = kind
-                self.nodeA = try container.decode(String.self, forKey: .nodeA)
-                self.nodeB = try container.decodeIfPresent(String.self, forKey: .nodeB)
-                self.value = try container.decode(Double.self, forKey: .value)
-            }
-
-            public func encode(to encoder: Encoder) throws {
-                var container = encoder.container(keyedBy: CodingKeys.self)
-                try container.encode(id, forKey: .id)
-                try container.encode(kind.rawValue, forKey: .kind)
-                try container.encode(nodeA, forKey: .nodeA)
-                try container.encodeIfPresent(nodeB, forKey: .nodeB)
-                try container.encode(value, forKey: .value)
-            }
-
-            fileprivate var core: PEXParasiticElement {
-                PEXParasiticElement(
-                    id: id,
-                    kind: kind,
-                    nodeA: nodeA,
-                    nodeB: nodeB,
-                    value: value
-                )
-            }
-
-            public func normalizedCore(
-                resistanceScale: Double,
-                capacitanceScale: Double
-            ) throws -> PEXParasiticElement {
-                try validateSPICEToken(id, error: .invalidPEXElementID(id))
-                try validateSPICEToken(nodeA, error: .invalidPEXNodeName(nodeA))
-                if let nodeB {
-                    try validateSPICEToken(nodeB, error: .invalidPEXNodeName(nodeB))
-                }
-                guard value.isFinite, value > 0 else {
-                    throw DesignFlowDesignSpecError.invalidPEXElementValue(id)
-                }
-
-                let scale: Double
-                switch kind {
-                case .resistor:
-                    guard nodeB != nil else {
-                        throw DesignFlowDesignSpecError.missingPEXElementNodeB(id, kind.rawValue)
-                    }
-                    scale = resistanceScale
-                case .capacitor:
-                    scale = capacitanceScale
-                case .coupling:
-                    guard nodeB != nil else {
-                        throw DesignFlowDesignSpecError.missingPEXElementNodeB(id, kind.rawValue)
-                    }
-                    scale = capacitanceScale
-                case .inductor:
-                    guard nodeB != nil else {
-                        throw DesignFlowDesignSpecError.missingPEXElementNodeB(id, kind.rawValue)
-                    }
-                    scale = 1.0
-                }
-
-                return PEXParasiticElement(
-                    id: id,
-                    kind: kind,
-                    nodeA: nodeA,
-                    nodeB: nodeB,
-                    value: value * scale
-                )
-            }
-        }
-
-        public struct Diagnostic: Sendable, Hashable, Codable {
-            public let severity: PEXArtifactDiagnostic.Severity
-            public let message: String
-            public let elementID: String?
-
-            private enum CodingKeys: String, CodingKey {
-                case severity, message, elementID
-            }
-
-            public init(severity: PEXArtifactDiagnostic.Severity, message: String, elementID: String? = nil) {
-                self.severity = severity
-                self.message = message
-                self.elementID = elementID
-            }
-
-            public init(_ diagnostic: PEXArtifactDiagnostic) {
-                self.severity = diagnostic.severity
-                self.message = diagnostic.message
-                self.elementID = diagnostic.elementID
-            }
-
-            public init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                let severityValue = try container.decode(String.self, forKey: .severity)
-                guard let severity = PEXArtifactDiagnostic.Severity(rawValue: severityValue) else {
-                    throw DesignFlowDesignSpecError.unsupportedPEXDiagnosticSeverity(severityValue)
-                }
-                self.severity = severity
-                self.message = try container.decode(String.self, forKey: .message)
-                self.elementID = try container.decodeIfPresent(String.self, forKey: .elementID)
-            }
-
-            public func encode(to encoder: Encoder) throws {
-                var container = encoder.container(keyedBy: CodingKeys.self)
-                try container.encode(severity.rawValue, forKey: .severity)
-                try container.encode(message, forKey: .message)
-                try container.encodeIfPresent(elementID, forKey: .elementID)
-            }
-
-            fileprivate var core: PEXArtifactDiagnostic {
-                PEXArtifactDiagnostic(
-                    severity: severity,
-                    message: message,
-                    elementID: elementID
-                )
-            }
-        }
-
-        public let version: String
-        public let cornerID: String
-        public let units: Units
-        public let elements: [Element]
-        public let diagnostics: [Diagnostic]
-
-        private enum CodingKeys: String, CodingKey {
-            case version, cornerID, units, elements, diagnostics
-        }
-
-        public init(
-            version: String,
-            cornerID: String,
-            units: Units = Units(),
-            elements: [Element],
-            diagnostics: [Diagnostic] = []
-        ) {
-            self.version = version
-            self.cornerID = cornerID
-            self.units = units
-            self.elements = elements
-            self.diagnostics = diagnostics
-        }
-
-        public init(_ ir: PEXParasiticIR) {
-            self.version = ir.version
-            self.cornerID = ir.cornerID
-            self.units = Units(ir.units)
-            self.elements = ir.elements.map(Element.init)
-            self.diagnostics = ir.diagnostics.map(Diagnostic.init)
-        }
-
-        public init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.version = try container.decode(String.self, forKey: .version)
-            self.cornerID = try container.decode(String.self, forKey: .cornerID)
-            self.units = try container.decodeIfPresent(Units.self, forKey: .units) ?? Units()
-            self.elements = try container.decode([Element].self, forKey: .elements)
-            self.diagnostics = try container.decodeIfPresent([Diagnostic].self, forKey: .diagnostics) ?? []
-        }
-
-        public func normalizedCore() throws -> PEXParasiticIR {
-            try validateSPICEToken(cornerID, error: .invalidPEXCornerID(cornerID))
-            let scales = try units.normalizedScales
-            var elementIDs = Set<String>()
-            let normalizedElements = try elements.map { element in
-                guard elementIDs.insert(element.id).inserted else {
-                    throw DesignFlowDesignSpecError.duplicatePEXElementID(element.id)
-                }
-                return try element.normalizedCore(
-                    resistanceScale: scales.resistance,
-                    capacitanceScale: scales.capacitance
-                )
-            }
-            return PEXParasiticIR(
-                version: version,
-                cornerID: cornerID,
-                units: .canonical,
-                elements: normalizedElements,
-                diagnostics: diagnostics.map(\.core)
-            )
         }
     }
 
@@ -461,7 +187,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         analyses: [Analysis],
         postLayoutAnalysis: Analysis? = nil,
         postLayoutComparisonLimits: PostLayoutComparisonLimits? = nil,
-        pexIR: PEXParasiticIR? = nil
+        pexIR: ParasiticIR? = nil
     ) {
         self.name = name
         self.schemaVersion = Self.currentSchemaVersion
@@ -471,7 +197,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         self.analyses = analyses
         self.postLayoutAnalysis = postLayoutAnalysis
         self.postLayoutComparisonLimits = postLayoutComparisonLimits
-        self.pexIR = pexIR.map(ParasiticIR.init)
+        self.pexIR = pexIR
     }
 
     public init(
@@ -621,6 +347,14 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
         let commands = try analyses.map { try $0.command() }
         let postLayoutCommand = try (postLayoutAnalysis?.command() ?? commands[0])
         let designTitle = title ?? name
+        if let pexIR {
+            let validation = ParasiticIRValidator().validate(pexIR)
+            guard validation.isValid else {
+                throw DesignFlowDesignSpecError.invalidCanonicalPEXIR(
+                    validation.errors.map(String.init(describing:)).joined(separator: "; ")
+                )
+            }
+        }
         return BuiltDesign(
             name: name,
             title: designTitle,
@@ -635,7 +369,7 @@ public struct DesignFlowDesignSpec: Sendable, Hashable, Codable {
             ),
             postLayoutCommand: postLayoutCommand,
             postLayoutComparisonLimits: postLayoutComparisonLimits,
-            pexIR: try pexIR?.normalizedCore()
+            pexIR: pexIR
         )
     }
 
@@ -836,17 +570,7 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
     case invalidAnalysisValue(String)
     case invalidAnalysisSource(String)
     case invalidDCSweepRange
-    case unsupportedPEXResistanceUnit(String)
-    case unsupportedPEXCapacitanceUnit(String)
-    case unsupportedPEXCoordinateUnit(String)
-    case unsupportedPEXElementKind(String)
-    case unsupportedPEXDiagnosticSeverity(String)
-    case invalidPEXCornerID(String)
-    case invalidPEXElementID(String)
-    case duplicatePEXElementID(String)
-    case invalidPEXNodeName(String)
-    case invalidPEXElementValue(String)
-    case missingPEXElementNodeB(String, String)
+    case invalidCanonicalPEXIR(String)
     case missingPEXInput
 
     public var errorDescription: String? {
@@ -907,28 +631,8 @@ public enum DesignFlowDesignSpecError: Error, LocalizedError, Equatable {
             return "Design spec analysis contains an invalid sweep source: \(source)."
         case .invalidDCSweepRange:
             return "Design spec DC sweep range must move from startValue to stopValue using a non-zero stepValue."
-        case .unsupportedPEXResistanceUnit(let unit):
-            return "Design spec PEX resistance unit is not supported: \(unit)."
-        case .unsupportedPEXCapacitanceUnit(let unit):
-            return "Design spec PEX capacitance unit is not supported: \(unit)."
-        case .unsupportedPEXCoordinateUnit(let unit):
-            return "Design spec PEX coordinate unit is not supported: \(unit)."
-        case .unsupportedPEXElementKind(let kind):
-            return "Design spec PEX element kind is not supported: \(kind)."
-        case .unsupportedPEXDiagnosticSeverity(let severity):
-            return "Design spec PEX diagnostic severity is not supported: \(severity)."
-        case .invalidPEXCornerID(let cornerID):
-            return "Design spec contains an invalid PEX corner ID: \(cornerID)."
-        case .invalidPEXElementID(let id):
-            return "Design spec contains an invalid PEX element ID: \(id)."
-        case .duplicatePEXElementID(let id):
-            return "Design spec contains a duplicate PEX element ID: \(id)."
-        case .invalidPEXNodeName(let node):
-            return "Design spec contains an invalid PEX node name: \(node)."
-        case .invalidPEXElementValue(let id):
-            return "Design spec contains a non-positive or non-finite PEX element value: \(id)."
-        case .missingPEXElementNodeB(let id, let kind):
-            return "Design spec PEX element \(id) of kind \(kind) requires nodeB."
+        case .invalidCanonicalPEXIR(let reason):
+            return "Design spec contains invalid canonical PEX IR: \(reason)."
         case .missingPEXInput:
             return "Design round trip requires PEX input in the design spec or --pex-manifest."
         }

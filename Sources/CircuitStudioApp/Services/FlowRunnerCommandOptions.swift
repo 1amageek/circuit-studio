@@ -26,8 +26,8 @@ public struct FlowRunnerCommandOptions: Sendable {
         case runVerification
         case approveGate
         case reviewRoundTrip
-        case selectFailureSuggestedCommand
-        case runSelectedSuggestedCommand
+        case selectFailureSuggestedAction
+        case runSelectedSuggestedAction
         case applyWaiverEditProposal
         case runPostWaiverEditVerification
         case applyWaiverEditProposalAndRunPostVerification
@@ -72,10 +72,10 @@ public struct FlowRunnerCommandOptions: Sendable {
                 return .approveGate
             case .reviewRoundTrip:
                 return .reviewRoundTrip
-            case .selectFailureSuggestedCommand:
-                return .selectFailureSuggestedCommand
-            case .runSelectedSuggestedCommand:
-                return .runSelectedSuggestedCommand
+            case .selectFailureSuggestedAction:
+                return .selectFailureSuggestedAction
+            case .runSelectedSuggestedAction:
+                return .runSelectedSuggestedAction
             case .applyWaiverEditProposal:
                 return .applyWaiverEditProposal
             case .runPostWaiverEditVerification:
@@ -101,8 +101,8 @@ public struct FlowRunnerCommandOptions: Sendable {
         case invalidDomainLimit(String)
         case invalidVariableLimit(String)
         case invalidOscillationLimit(String)
-        case invalidGateID(String)
-        case invalidApprovalDecision(String)
+        case invalidApprovalStageID(String)
+        case invalidApprovalVerdict(String)
         case invalidActorKind(String)
         case conflictingModes
 
@@ -120,10 +120,10 @@ public struct FlowRunnerCommandOptions: Sendable {
                 return "Invalid variable comparison limit: \(value)"
             case .invalidOscillationLimit(let value):
                 return "Invalid oscillation metric limit: \(value)"
-            case .invalidGateID(let value):
-                return "Invalid approval gate ID: \(value)"
-            case .invalidApprovalDecision(let value):
-                return "Invalid approval decision: \(value)"
+            case .invalidApprovalStageID(let value):
+                return "Invalid approval stage ID: \(value)"
+            case .invalidApprovalVerdict(let value):
+                return "Invalid approval verdict: \(value)"
             case .invalidActorKind(let value):
                 return "Invalid actor kind: \(value)"
             case .conflictingModes:
@@ -151,14 +151,11 @@ public struct FlowRunnerCommandOptions: Sendable {
     public var designUnitURL: URL?
     public var reviewManifestURL: URL?
     public var failureEnvelopeURL: URL?
-    public var suggestedCommandID: String?
-    public var approvalGateID: FlowGateID?
-    public var approvalTargetURL: URL?
+    public var suggestedActionID: String?
+    public var approvalStageID: String?
     public var approvalReviewer: String?
-    public var approvalDecision: GateApprovalDecision?
-    public var approvalPolicy: String?
+    public var approvalVerdict: FlowApprovalRecord.Verdict?
     public var approvalNote: String?
-    public var waiverIDs: [String] = []
     public var waiverReviewID: String?
     public var waiverProposalID: String?
     public var actionActorKind: FlowRunActor.Kind?
@@ -234,10 +231,10 @@ public struct FlowRunnerCommandOptions: Sendable {
                 try selectMode(.approveGate)
             case "--review-round-trip":
                 try selectMode(.reviewRoundTrip)
-            case "--select-failure-command":
-                try selectMode(.selectFailureSuggestedCommand)
-            case "--run-selected-suggested-command":
-                try selectMode(.runSelectedSuggestedCommand)
+            case "--select-failure-action":
+                try selectMode(.selectFailureSuggestedAction)
+            case "--run-selected-suggested-action":
+                try selectMode(.runSelectedSuggestedAction)
             case "--apply-waiver-edit":
                 try selectMode(.applyWaiverEditProposal)
             case "--apply-waiver-edit-and-verify":
@@ -296,22 +293,16 @@ public struct FlowRunnerCommandOptions: Sendable {
                 reviewManifestURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
             case "--failure-envelope":
                 failureEnvelopeURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
-            case "--command-id":
-                suggestedCommandID = try Self.value(after: argument, in: arguments, index: &index)
-            case "--approval-gate":
-                approvalGateID = try Self.gateID(after: argument, in: arguments, index: &index)
-            case "--approval-target":
-                approvalTargetURL = URL(filePath: try Self.value(after: argument, in: arguments, index: &index))
+            case "--action-id":
+                suggestedActionID = try Self.value(after: argument, in: arguments, index: &index)
+            case "--approval-stage":
+                approvalStageID = try Self.approvalStageID(after: argument, in: arguments, index: &index)
             case "--reviewer":
                 approvalReviewer = try Self.value(after: argument, in: arguments, index: &index)
-            case "--approval-decision":
-                approvalDecision = try Self.approvalDecision(after: argument, in: arguments, index: &index)
-            case "--approval-policy":
-                approvalPolicy = try Self.value(after: argument, in: arguments, index: &index)
+            case "--approval-verdict":
+                approvalVerdict = try Self.approvalVerdict(after: argument, in: arguments, index: &index)
             case "--approval-note":
                 approvalNote = try Self.value(after: argument, in: arguments, index: &index)
-            case "--waiver":
-                waiverIDs.append(try Self.value(after: argument, in: arguments, index: &index))
             case "--waiver-review":
                 waiverReviewID = try Self.value(after: argument, in: arguments, index: &index)
             case "--waiver-proposal":
@@ -444,8 +435,8 @@ public struct FlowRunnerCommandOptions: Sendable {
         case .buildTimingLibrary:
             return (outputURL ?? defaultTimingOutputURL).path(percentEncoded: false)
         case .applyDesignEdit, .applyLayoutEdit, .runLayoutTrust, .runVerification, .approveGate, .reviewRoundTrip,
-             .selectFailureSuggestedCommand, .applyWaiverEditProposal, .runPostWaiverEditVerification,
-             .applyWaiverEditProposalAndRunPostVerification, .runSelectedSuggestedCommand,
+             .selectFailureSuggestedAction, .applyWaiverEditProposal, .runPostWaiverEditVerification,
+             .applyWaiverEditProposalAndRunPostVerification, .runSelectedSuggestedAction,
              .formulateSignoffRepairPlanningProblem, .runSignoffRepairCandidateCycle, .runGoalLayoutAgent:
             return outputURL?.path(percentEncoded: false)
         case .runRoundTrip, .summarizeBottlenecks, .summarizeSignoffRepairCandidateCycles,
@@ -486,14 +477,11 @@ public struct FlowRunnerCommandOptions: Sendable {
             designUnitPath: designUnitURL?.path(percentEncoded: false),
             roundTripManifestPath: reviewManifestURL?.path(percentEncoded: false),
             failureEnvelopePath: failureEnvelopeURL?.path(percentEncoded: false),
-            suggestedCommandID: suggestedCommandID,
-            approvalGateID: approvalGateID,
-            approvalTargetPath: approvalTargetURL?.path(percentEncoded: false),
+            suggestedActionID: suggestedActionID,
+            approvalStageID: approvalStageID,
             approvalReviewer: approvalReviewer,
-            approvalDecision: approvalDecision,
-            approvalPolicy: approvalPolicy,
+            approvalVerdict: approvalVerdict,
             approvalNote: approvalNote,
-            waiverIDs: waiverIDs,
             waiverReviewID: waiverReviewID,
             waiverProposalID: waiverProposalID,
             actionActorKind: actionActorKind,
@@ -588,22 +576,27 @@ public struct FlowRunnerCommandOptions: Sendable {
         return value
     }
 
-    private static func gateID(after option: String, in arguments: [String], index: inout Int) throws -> FlowGateID {
-        let rawValue = try value(after: option, in: arguments, index: &index)
-        guard let gateID = FlowGateID(rawValue: rawValue) else {
-            throw ParseError.invalidGateID(rawValue)
-        }
-        return gateID
-    }
-
-    private static func approvalDecision(
+    private static func approvalStageID(
         after option: String,
         in arguments: [String],
         index: inout Int
-    ) throws -> GateApprovalDecision {
+    ) throws -> String {
         let rawValue = try value(after: option, in: arguments, index: &index)
-        guard let decision = GateApprovalDecision(rawValue: rawValue) else {
-            throw ParseError.invalidApprovalDecision(rawValue)
+        let stageID = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stageID.isEmpty else {
+            throw ParseError.invalidApprovalStageID(rawValue)
+        }
+        return stageID
+    }
+
+    private static func approvalVerdict(
+        after option: String,
+        in arguments: [String],
+        index: inout Int
+    ) throws -> FlowApprovalRecord.Verdict {
+        let rawValue = try value(after: option, in: arguments, index: &index)
+        guard let decision = FlowApprovalRecord.Verdict(rawValue: rawValue) else {
+            throw ParseError.invalidApprovalVerdict(rawValue)
         }
         return decision
     }

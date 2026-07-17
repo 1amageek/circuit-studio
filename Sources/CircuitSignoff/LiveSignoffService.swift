@@ -1,18 +1,25 @@
+import DRCAdapters
+import DRCCore
 import Foundation
+import LVSAdapters
+import LVSCore
+import LVSExtractionAdapters
 
-/// Produces an `ExternalSignoffReview` by running the REAL signoff tools (Magic
-/// DRC + Magic LVS-extraction + Netgen LVS) on a layout, instead of replaying
-/// golden logs. This is how the design flow gets a signoff review from live tools.
+/// Projects canonical DRCEngine and LVSEngine results into the application review model.
 ///
 /// `locate()` returns nil when the toolchain is unavailable; callers that require
 /// live signoff must treat nil as a hard error (no silent fallback to mock/replay).
 public struct LiveSignoffService: Sendable {
 
-    private let drc: MagicDRCSignoff
-    private let lvs: NetgenLVSSignoff
-    private let extractor: MagicLayoutExtractor
+    private let drc: any DRCBackend
+    private let lvs: any LVSBackend
+    private let extractor: any LVSLayoutNetlistExtracting
 
-    public init(drc: MagicDRCSignoff, lvs: NetgenLVSSignoff, extractor: MagicLayoutExtractor) {
+    public init(
+        drc: any DRCBackend,
+        lvs: any LVSBackend,
+        extractor: any LVSLayoutNetlistExtracting
+    ) {
         self.drc = drc
         self.lvs = lvs
         self.extractor = extractor
@@ -24,18 +31,14 @@ public struct LiveSignoffService: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> LiveSignoffService? {
-        guard let drc = MagicDRCSignoff.locate(environment: environment, fileManager: fileManager),
-              let lvs = NetgenLVSSignoff.locate(environment: environment, fileManager: fileManager),
-              let driver = MagicLayoutExtractor.bundledDriverScriptURL else {
+        guard let drc = MagicDRCAdapter.locate(environment: environment, fileManager: fileManager),
+              let lvs = NetgenLVSAdapter.locate(environment: environment, fileManager: fileManager),
+              let extractor = MagicLayoutNetlistExtractor.locate(
+                  environment: environment,
+                  fileManager: fileManager
+              ) else {
             return nil
         }
-        // The LVS-netlist extractor reuses the DRC signoff's resolved Magic + PDK.
-        let extractor = MagicLayoutExtractor(
-            magicExecutableURL: drc.magicExecutableURL,
-            rcFileURL: drc.rcFileURL,
-            pdkRoot: drc.pdkRoot,
-            driverScriptURL: driver
-        )
         return LiveSignoffService(drc: drc, lvs: lvs, extractor: extractor)
     }
 
@@ -50,25 +53,38 @@ public struct LiveSignoffService: Sendable {
     ) async throws -> ExternalSignoffReview {
         try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
 
-        let drcResult = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
-            command: drc.command(cell: topCell, gds: layoutGDS, artifactDirectory: artifactDirectory),
-            artifactDirectory: artifactDirectory
+        let drcExecution = try await drc.run(
+            DRCRequest(
+                layoutURL: layoutGDS,
+                topCell: topCell,
+                layoutFormat: .gds,
+                workingDirectory: artifactDirectory,
+                backendSelection: DRCBackendSelection(backendID: drc.backendID)
+            )
         )
 
         let layoutNetlist = try await extractor.extractLayoutNetlist(
-            gds: layoutGDS, cell: topCell, into: artifactDirectory
+            gds: layoutGDS,
+            topCell: topCell,
+            into: artifactDirectory,
+            timeoutSeconds: 300
         )
 
-        let lvsResult = try await ExternalSignoffCommandService(parser: NetgenLVSSignoff.reportParser).run(
-            command: lvs.command(
-                layoutNetlist: layoutNetlist,
-                schematicNetlist: schematicNetlist,
+        let lvsExecution = try await lvs.run(
+            LVSRequest(
+                layoutNetlistURL: layoutNetlist,
+                schematicNetlistURL: schematicNetlist,
                 topCell: topCell,
-                artifactDirectory: artifactDirectory
-            ),
-            artifactDirectory: artifactDirectory
+                workingDirectory: artifactDirectory,
+                backendSelection: LVSBackendSelection(backendID: lvs.backendID)
+            )
         )
 
-        return ExternalSignoffReview(reports: [drcResult.report, lvsResult.report])
+        return ExternalSignoffReview(
+            reports: [
+                ExternalSignoffToolReport(drcResult: drcExecution.result),
+                ExternalSignoffToolReport(lvsResult: lvsExecution.result),
+            ]
+        )
     }
 }

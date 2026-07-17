@@ -1,5 +1,7 @@
 import CircuitSignoff
 import Foundation
+import LVSCore
+import LVSExtractionAdapters
 import Testing
 @testable import CircuitStudioApp
 
@@ -108,22 +110,16 @@ struct LiveSignoffServiceTests {
         .timeLimit(.minutes(2))
     )
     func extractorFailsLoudOnMissingCell() async throws {
-        let drc = try #require(MagicDRCSignoff.locate())
-        let driver = try #require(MagicLayoutExtractor.bundledDriverScriptURL)
-        let extractor = MagicLayoutExtractor(
-            magicExecutableURL: drc.magicExecutableURL,
-            rcFileURL: drc.rcFileURL,
-            pdkRoot: drc.pdkRoot,
-            driverScriptURL: driver
-        )
+        let extractor = try #require(MagicLayoutNetlistExtractor.locate())
         let artifacts = try makeArtifactDirectory("extract-fail")
         defer { removeCoreTestTemporaryDirectory(artifacts) }
 
-        await #expect(throws: MagicLayoutExtractor.ExtractionError.self) {
+        await #expect(throws: LVSError.self) {
             _ = try await extractor.extractLayoutNetlist(
                 gds: try fixture("inv1", "gds"),
-                cell: "no_such_cell_xyz",
-                into: artifacts
+                topCell: "no_such_cell_xyz",
+                into: artifacts,
+                timeoutSeconds: 300
             )
         }
     }

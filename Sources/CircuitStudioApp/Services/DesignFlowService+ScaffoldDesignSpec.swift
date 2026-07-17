@@ -1,5 +1,6 @@
 import Foundation
 import CircuitStudioCore
+import PEXEngine
 
 extension DesignFlowService {
 
@@ -91,11 +92,11 @@ extension DesignFlowService {
             analyses: [tran],
             postLayoutAnalysis: tran,
             postLayoutComparisonLimits: PostLayoutComparisonLimits(),
-            parasiticIR: DesignFlowDesignSpec.ParasiticIR(
+            parasiticIR: ParasiticIR(
                 version: "1.0",
                 cornerID: "tt_25c_1v0",
                 elements: [
-                    DesignFlowDesignSpec.ParasiticIR.Element(
+                    ParasiticElement(
                         id: "c_vdd_sub",
                         kind: .capacitor,
                         nodeA: "vdd",

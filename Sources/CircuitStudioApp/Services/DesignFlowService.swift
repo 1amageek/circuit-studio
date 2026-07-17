@@ -155,7 +155,7 @@ public struct DesignFlowService: Sendable {
 
     public func buildPostLayoutNetlist(
         baseNetlist: String,
-        parasitics: PEXParasiticIR
+        parasitics: ParasiticIR
     ) -> String {
         PostLayoutSimulationService().buildPostLayoutNetlist(
             baseNetlist: baseNetlist,
@@ -181,7 +181,7 @@ public struct DesignFlowService: Sendable {
         cornerID: String,
         topCell: String? = nil
     ) throws -> String {
-        let canonicalIR = try PEXArtifactService().loadCanonicalIR(
+        let canonicalIR = try PEXArtifactService().loadIR(
             for: cornerID,
             manifestURL: manifestURL
         )
@@ -229,7 +229,7 @@ public struct DesignFlowService: Sendable {
         command: AnalysisCommand,
         processConfiguration: ProcessConfiguration? = nil
     ) async throws -> SimulationResult {
-        let canonicalIR = try PEXArtifactService().loadCanonicalIR(
+        let canonicalIR = try PEXArtifactService().loadIR(
             for: cornerID,
             manifestURL: manifestURL
         )
@@ -603,13 +603,13 @@ public struct DesignFlowService: Sendable {
         case .runVerification:
             return try await runVerification(command)
         case .approveGate:
-            return try approveGate(command)
+            return try await approveGate(command)
         case .reviewRoundTrip:
-            return try reviewRoundTrip(command)
-        case .selectFailureSuggestedCommand:
-            return try selectFailureSuggestedCommand(command)
-        case .runSelectedSuggestedCommand:
-            return try await runSelectedSuggestedCommand(command)
+            return try await reviewRoundTrip(command)
+        case .selectFailureSuggestedAction:
+            return try await selectFailureSuggestedAction(command)
+        case .runSelectedSuggestedAction:
+            return try await runSelectedSuggestedAction(command)
         case .applyWaiverEditProposal:
             return try await applyWaiverEditProposal(command)
         case .runPostWaiverEditVerification:
@@ -629,32 +629,33 @@ public struct DesignFlowService: Sendable {
 
 
 
-    private func approveGate(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
-        guard let gateID = command.approvalGateID else {
-            throw DesignFlowCommandError.missingApprovalGateID
+    private func approveGate(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
+        guard let stageID = command.approvalStageID else {
+            throw DesignFlowCommandError.missingApprovalStageID
         }
         guard let reviewer = command.approvalReviewer else {
             throw DesignFlowCommandError.missingApprovalReviewer
         }
-        let result = try FlowRunGovernanceService().approve(GateApprovalRequest(
-            gateID: gateID,
-            decision: command.approvalDecision ?? .approved,
+        guard let projectRootPath = command.projectRootPath else {
+            throw DesignFlowCommandError.missingProjectRoot
+        }
+        guard let runID = command.runID else {
+            throw DesignFlowCommandError.missingRunID
+        }
+        let result = try await RunReviewService().decide(
+            runID: runID,
+            stageID: stageID,
+            verdict: command.approvalVerdict ?? .approved,
             reviewer: reviewer,
-            projectRoot: command.projectRootPath.map { URL(filePath: $0) },
-            runID: command.runID,
-            manifestURL: command.roundTripManifestPath.map { URL(filePath: $0) },
-            targetArtifactURL: command.approvalTargetPath.map { URL(filePath: $0) },
-            policy: command.approvalPolicy,
-            waiverIDs: command.waiverIDs,
-            note: command.approvalNote
-        ))
+            note: command.approvalNote ?? "",
+            projectRoot: URL(filePath: projectRootPath)
+        )
         return DesignFlowCommandResult(
             kind: command.kind,
-            runID: result.record.runID,
+            runID: result.runID,
             projectRootPath: command.projectRootPath,
-            approvalRecordPath: result.recordPath,
-            approvalRecord: result.record,
-            message: result.record.decision.rawValue
+            approvalRecord: result,
+            message: result.verdict.rawValue
         )
     }
 
@@ -751,14 +752,14 @@ public struct DesignFlowService: Sendable {
         )
     }
 
-    private func reviewRoundTrip(_ command: DesignFlowCommand) throws -> DesignFlowCommandResult {
+    private func reviewRoundTrip(_ command: DesignFlowCommand) async throws -> DesignFlowCommandResult {
         let service = RoundTripReviewService()
         let summary: RoundTripReviewSummary
         if let path = command.roundTripManifestPath {
-            summary = try service.loadReview(manifestURL: URL(filePath: path))
+            summary = try await service.loadReview(manifestURL: URL(filePath: path))
         } else if let projectRootPath = command.projectRootPath,
                   let runID = command.runID {
-            summary = try service.loadReview(forProjectAt: URL(filePath: projectRootPath), runID: runID)
+            summary = try await service.loadReview(forProjectAt: URL(filePath: projectRootPath), runID: runID)
         } else {
             throw DesignFlowCommandError.missingRoundTripManifestPath
         }
@@ -773,14 +774,14 @@ public struct DesignFlowService: Sendable {
         )
     }
 
-    private func selectFailureSuggestedCommand(
+    private func selectFailureSuggestedAction(
         _ command: DesignFlowCommand
-    ) throws -> DesignFlowCommandResult {
+    ) async throws -> DesignFlowCommandResult {
         guard let failureEnvelopePath = command.failureEnvelopePath else {
             throw DesignFlowCommandError.missingFailureEnvelopePath
         }
-        guard let commandID = command.suggestedCommandID else {
-            throw DesignFlowCommandError.missingSuggestedCommandID
+        guard let actionID = command.suggestedActionID else {
+            throw DesignFlowCommandError.missingSuggestedActionID
         }
         guard let reviewer = command.approvalReviewer else {
             throw DesignFlowCommandError.missingApprovalReviewer
@@ -789,9 +790,9 @@ public struct DesignFlowService: Sendable {
         let failureEnvelopeURL = URL(filePath: failureEnvelopePath)
         let failure = try loadFlowRunnerFailureEnvelope(failureEnvelopeURL)
         let actionLogService = RoundTripActionLogService()
-        let record = try actionLogService.recordSuggestedCommandSelection(
+        let record = try await actionLogService.recordSuggestedActionSelection(
             from: failure,
-            commandID: commandID,
+            actionID: actionID,
             reviewer: reviewer
         )
         let manifestURL: URL?
@@ -800,11 +801,19 @@ public struct DesignFlowService: Sendable {
         } else {
             manifestURL = nil
         }
-        let review = try manifestURL.map {
-            try RoundTripReviewService().loadReview(manifestURL: $0)
+        let review: RoundTripReviewSummary?
+        if let manifestURL {
+            review = try await RoundTripReviewService().loadReview(manifestURL: manifestURL)
+        } else {
+            review = nil
         }
-        let selection = try manifestURL.flatMap {
-            try actionLogService.loadSuggestedCommandSelections(manifestURL: $0).last
+        let selection: FlowRunSuggestedActionSelection?
+        if let manifestURL {
+            selection = try await actionLogService.loadSuggestedActionSelections(
+                manifestURL: manifestURL
+            ).last
+        } else {
+            selection = nil
         }
 
         return DesignFlowCommandResult(
@@ -814,13 +823,13 @@ public struct DesignFlowService: Sendable {
             manifestPath: failure.manifest,
             actionLogPath: manifestURL.map(actionLogService.actionLogPath(manifestURL:)),
             roundTripReview: review,
-            selectedSuggestedCommand: selection,
+            selectedSuggestedAction: selection,
             actionRecordIDs: [record.actionID],
             message: record.actionID
         )
     }
 
-    private func runSelectedSuggestedCommand(
+    private func runSelectedSuggestedAction(
         _ command: DesignFlowCommand
     ) async throws -> DesignFlowCommandResult {
         guard let projectRootPath = command.projectRootPath else {
@@ -830,10 +839,10 @@ public struct DesignFlowService: Sendable {
             throw DesignFlowCommandError.missingRunID
         }
 
-        let resolved = try RoundTripSelectedSuggestedCommandResolver().resolve(
-            request: RoundTripSelectedSuggestedCommandResolutionRequest(
+        let resolved = try await RoundTripSelectedSuggestedActionResolver().resolve(
+            request: RoundTripSelectedSuggestedActionResolutionRequest(
                 runID: runID,
-                commandID: command.suggestedCommandID
+                actionID: command.suggestedActionID
             ),
             projectRoot: URL(filePath: projectRootPath)
         )
@@ -920,7 +929,7 @@ public struct DesignFlowService: Sendable {
         ))
         return DesignFlowCommandResult(
             kind: command.kind,
-            pexCornerID: result.ir.cornerID,
+            pexCornerID: result.ir.cornerID.value,
             pexElementCount: result.ir.elements.count,
             pexManifestPath: result.manifestURL.path(percentEncoded: false),
             message: result.manifest.backendID
@@ -993,7 +1002,7 @@ public struct DesignFlowService: Sendable {
             projectRootPath: projectRoot.path(percentEncoded: false),
             manifestPath: result.manifestURL.path(percentEncoded: false),
             readyForPEX: result.manifest.isReadyForPEX,
-            pexCornerID: pexInput.ir.cornerID,
+            pexCornerID: pexInput.ir.cornerID.value,
             pexElementCount: pexInput.ir.elements.count,
             comparisonLimitsConfigured: limits != nil,
             bottleneckSummary: result.manifest.bottleneckSummary,
@@ -1062,7 +1071,7 @@ public struct DesignFlowService: Sendable {
             projectRootPath: projectRoot.path(percentEncoded: false),
             manifestPath: result.manifestURL.path(percentEncoded: false),
             readyForPEX: result.manifest.isReadyForPEX,
-            pexCornerID: pexInput.ir.cornerID,
+            pexCornerID: pexInput.ir.cornerID.value,
             pexElementCount: pexInput.ir.elements.count,
             comparisonLimitsConfigured: limits != nil,
             bottleneckSummary: result.manifest.bottleneckSummary,

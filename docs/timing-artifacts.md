@@ -28,11 +28,11 @@ flowchart LR
   Raw --> Measure["Waveform measurer"]
   Measure --> Char["Characterization reports"]
   Char --> Library["timing-library.json"]
-  Library --> STA["StaticTimingAnalyzer"]
+  Library --> STA["TimingEngine STA"]
   STA --> STAReport["sta-report.json"]
   STAReport --> Validator["Timing validators"]
   Validator --> Validation["timing-validation.json"]
-  Validation --> Evidence["evidence bundle claim"]
+  Validation --> Evidence["ReleaseEngine evidence input"]
 ```
 
 | Producer | Artifact responsibility | Must not do |
@@ -129,7 +129,7 @@ The build command writes `.xcircuite/runs/<run-id>/timing/manifest.json` and pri
 
 Inspect key-value output includes `timing_model_profile_catalog_status`, `timing_model_profile_catalog_id`, `timing_model_profile_selected_id`, `timing_model_corner_id`, `timing_model_profile_default_id`, `timing_model_profile_count`, `timing_model_profile_passed_count`, `timing_model_profile_failed_count`, and `timing_model_profile_ids`.
 
-For Agent/API callers, `--json` emits the full `DesignFlowCommandResult` on success and a `flow-runner-failure` envelope on usage or runtime failure. Use `swift run --quiet` or the built executable directly when a caller needs the process stdout/stderr payload to be parseable JSON with no SwiftPM build log prefix. Failure envelopes include `nextActions[].suggestedCommands[]` using the same continuation shape as run review summaries. Runtime failures include run ID, project root, manifest path, failed stage, and recommendation when a round-trip manifest exists. `DesignFlowCommand.selectFailureSuggestedCommand` and `circuit-studio-flow-runner --select-failure-command --failure-envelope <path> --command-id <id> --reviewer <id>` record a selected failure-envelope command as a `review.selectSuggestedCommand` action in `.xcircuite/runs/<run-id>/actions.jsonl`, and `RoundTripReviewService` projects those selections back into `RoundTripReviewSummary.suggestedCommandSelections`. `DesignFlowCommand.runSelectedSuggestedCommand` and `circuit-studio-flow-runner --run-selected-suggested-command --output <project-root> --run-id <run-id> [--command-id <id>]` dispatch a previously selected ready command by resolving the ledger entry back into an allowlisted `DesignFlowCommand` instead of executing an arbitrary process. The initial allowlist accepts only persisted `circuit-studio-flow-runner` review and bottleneck-summary continuations whose manifest or project root matches the requested run. For profile inspection this includes every catalog entry with source kind, declared and loaded corner IDs, profile resource/path, profile SHA-256, device model hash, status, and structured diagnostics instead of only the key-value readiness summary.
+For Agent/API callers, `--json` emits the full `DesignFlowCommandResult` on success and a `flow-runner-failure` envelope on usage or runtime failure. Use `swift run --quiet` or the built executable directly when a caller needs the process stdout/stderr payload to be parseable JSON with no SwiftPM build log prefix. Failure envelopes include `nextActions[].suggestedActions[]` using the same continuation shape as run review summaries. Runtime failures include run ID, project root, manifest path, failed stage, and recommendation when a round-trip manifest exists. `DesignFlowCommand.selectFailureSuggestedAction` and `circuit-studio-flow-runner --select-failure-action --failure-envelope <path> --action-id <id> --reviewer <id>` record a selected failure-envelope semantic action as a `review.selectSuggestedAction` action in `.xcircuite/runs/<run-id>/actions.jsonl`, and `RoundTripReviewService` projects those selections back into `RoundTripReviewSummary.suggestedActionSelections`. `DesignFlowCommand.runSelectedSuggestedAction` and `circuit-studio-flow-runner --run-selected-suggested-action --output <project-root> --run-id <run-id> [--action-id <id>]` dispatch a previously selected semantic action by projecting its operation into a typed `DesignFlowCommand`. The current projection accepts review, run inspection, and run-loop summary operations whose run identity matches the requested run. For profile inspection this includes every catalog entry with source kind, declared and loaded corner IDs, profile resource/path, profile SHA-256, device model hash, status, and structured diagnostics instead of only the key-value readiness summary.
 
 ## Shared JSON Rules
 
@@ -163,7 +163,7 @@ Timing readers reject an `available` artifact record that omits `sha256` or `byt
 | `createdAt` | Yes | Manifest creation time. |
 | `technology` | Yes | Technology and model reference used by timing artifacts. |
 | `artifacts` | Yes | Artifact records indexed by ID. |
-| `claims` | No | Timing-local claims that can be folded into `TapeoutEvidenceBundle`. |
+| `claims` | No | Timing-local claims that release policy can evaluate alongside the referenced artifacts. |
 | `warnings` | No | Non-fatal limitations or omitted evidence. |
 
 `artifacts[]` fields:
@@ -177,7 +177,7 @@ Timing readers reject an `available` artifact record that omits `sha256` or `byt
 | `sha256` | Required when `available` | 64-character hexadecimal SHA-256 hash of the file content. |
 | `byteCount` | Required when `available` | File size in bytes. |
 | `createdAt` | Yes | Artifact creation time. |
-| `provenance` | No | Original source path, generator, or note. |
+| `publication.sourcePath` | No | Original source path when the published artifact was imported. Execution provenance belongs to canonical engine evidence rather than a timing-local record. |
 
 Supported artifact kinds for timing:
 
@@ -195,7 +195,10 @@ Supported artifact kinds for timing:
 
 ## Timing Library Artifact
 
-`timing/timing-library.json` is the only timing model artifact that `StaticTimingAnalyzer` should consume directly.
+`timing/timing-library.json` records circuit-studio characterization evidence. Production
+STA execution is performed through `STAExecuting` with a canonical `STARequest`; its
+library references point to TimingEngine-supported standard timing artifacts such as
+Liberty files. The app does not translate this JSON into a private STA analyzer model.
 
 | Field | Required | Meaning |
 |---|---:|---|
@@ -389,24 +392,23 @@ Waveform artifacts are CSV with one sweep column followed by one column per prob
 
 ## STA Report
 
-`timing/sta-report.json` wraps the in-memory `TimingReport` model. Persisted STA
-artifacts must use this wrapper so schema version, artifact kind, provenance, and
-status stay attached to the report payload.
+`timing/sta-report.json` is the canonical `STAExecutionResult` emitted by TimingEngine.
+The app persists that result directly so engine status, diagnostics, artifacts,
+evidence, and execution provenance stay attached to the timing payload.
 
 | Field | Required | Meaning |
 |---|---:|---|
-| `schemaVersion` | Yes | Schema version. |
-| `kind` | Yes | Must be `sta-report`. |
-| `runID` | No | Producing run ID. |
-| `createdAt` | Yes | Creation time. |
-| `designName` | Yes | Design name. |
-| `timingLibraryArtifactID` | Yes | Artifact ID for `timing-library.json`. |
-| `report` | Yes | Codable `TimingReport` payload. |
-| `status` | Yes | `passed` or `failed`. |
+| `schemaVersion` | Yes | CircuiteFoundation schema version. |
+| `runID` | Yes | Producing run ID. |
+| `status` | Yes | Canonical timing execution status. |
+| `payload` | Yes | `STAPayload` with setup/hold slacks, paths, violations, repair candidates, and timing provenance. |
+| `artifacts` | Yes | Canonical produced artifact references. |
+| `diagnostics` | Yes | Structured `DesignDiagnostic` values. |
+| `evidence` | Yes | `EvidenceManifest` containing execution provenance and artifact references. |
 
-Bare `TimingReport` JSON is not a valid persisted artifact. Readers must reject
-payloads without the wrapper instead of inferring provenance or silently
-upgrading an older shape.
+App-local STA wrappers and bare timing report DTOs are not valid persisted artifacts.
+Readers decode `STAExecutionResult` directly and reject any payload that does not satisfy
+its canonical schema instead of inferring provenance.
 
 ## Timing Validation Report
 
@@ -447,9 +449,9 @@ Recommended validation scopes:
 | `sequential-cell` | FF `clk->q`, Q transition, setup, and hold measurement consistency | `flip-flop timing is SPICE-characterized` |
 | `clocked-path` | Launch FF, combinational path, and capture FF setup in one SPICE experiment | `clocked path timing agrees with SPICE` |
 
-## Evidence Bundle Claims
+## Release Evidence Consumption
 
-`TapeoutEvidenceBundle` currently has a single `timing` axis. Multiple timing claims may share that axis, but each claim must point to the artifact that backs its exact statement.
+Timing artifacts are raw evidence, not release authorization. `ReleaseEngine` evaluates them together with independent trust, human approval, and other signoff evidence. Each timing claim must point to the artifact that backs its exact statement.
 
 | Claim | Backing artifact |
 |---|---|
@@ -467,10 +469,10 @@ Timing evidence must avoid broad statements such as `STA vs SPICE within toleran
 | `passed` | The artifact producer completed and all required checks passed. |
 | `failed` | The producer completed with a structured failure. The artifact should still be written when possible. |
 | `available` | The file exists and its hash/size were recorded. |
-| `omitted` | The file was intentionally not emitted. The reason must be recorded in provenance or warnings. |
+| `omitted` | The file was intentionally not emitted. The reason must be recorded in manifest warnings. |
 | `missing` | The file was expected but not found. This makes the timing manifest incomplete. |
 
-A production timing library is invalid if any timing value consumed by STA has no `modelSources` entry. A production evidence bundle is invalid if a claim references an omitted or missing backing artifact.
+A production timing library is invalid if any timing value consumed by STA has no `modelSources` entry. A release input is invalid if a claim references an omitted or missing backing artifact.
 
 ## Schema Change Rules
 
@@ -483,9 +485,9 @@ A production timing library is invalid if any timing value consumed by STA has n
 
 This project is still in active development, so persisted artifact readers should
 prefer a strict current-schema contract over compatibility layers. Domain
-types such as `TimingLibrary`, `TimingReport`, `CellTiming`, and
-`SequentialTiming` remain in-memory models; wrappers provide the persisted
-schema, provenance, and artifact links.
+Characterization types such as `TimingLibrary`, `CellTiming`, and `SequentialTiming`
+remain circuit-studio models. STA requests, paths, payloads, results, diagnostics,
+provenance, and artifact links are owned by TimingEngine and CircuiteFoundation.
 
 ## Implementation Checklist
 
@@ -493,9 +495,9 @@ schema, provenance, and artifact links.
 |---|---:|
 | `SequentialTimingCharacterizationReport` type exists | Yes |
 | `TimingLibraryArtifact` wrapper exists | Yes |
-| `STAReportArtifact` wrapper exists | Yes |
+| Canonical `STAExecutionResult` is persisted directly | Yes |
 | Timing manifest records run-relative paths and hashes | Yes |
-| `SpecToSiliconFlow` writes timing artifacts through one writer/service | Yes |
+| Timing artifacts are written through one writer/service and consumed by `ReleaseEngine` | Yes |
 | Evidence timing claim names validation scope precisely | Yes |
 | Tests reject production `constant-fixture` FF timing | Yes |
-| Bare `TimingReport` artifacts are rejected | Yes |
+| App-local STA report DTOs are absent | Yes |

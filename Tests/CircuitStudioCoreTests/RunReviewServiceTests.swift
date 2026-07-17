@@ -14,6 +14,91 @@ import Xcircuite
 @Suite("Run review service", .timeLimit(.minutes(2)))
 struct RunReviewServiceTests {
 
+    @Test func toolchainProjectionExposesTrustAndArtifactIntegrity() throws {
+        let toolchainPath = ".xcircuite/runs/run-toolchain/toolchain.json"
+        let profilePath = ".xcircuite/runs/run-toolchain/toolchain-profile.json"
+        let toolchainArtifact = FlowRunReviewArtifact(
+            reference: try RunReviewTestSupport.artifactReference(
+                artifactID: "toolchain-manifest",
+                path: toolchainPath
+            ),
+            purpose: .toolchain,
+            integrity: FlowRunReviewArtifactIntegrity(
+                status: .verified,
+                message: "Artifact integrity is verified."
+            )
+        )
+        let profileArtifact = FlowRunReviewArtifact(
+            reference: try RunReviewTestSupport.artifactReference(
+                artifactID: "flow-toolchain-profile",
+                path: profilePath
+            ),
+            purpose: .toolchainProfile,
+            integrity: FlowRunReviewArtifactIntegrity(
+                status: .sha256Mismatch,
+                message: "Artifact digest does not match."
+            )
+        )
+        let bundle = FlowRunReviewBundle(
+            runID: "run-toolchain",
+            status: .blocked,
+            summary: FlowRunLedgerSummary(
+                runID: "run-toolchain",
+                status: .blocked,
+                toolchain: FlowRunToolchainSummary(
+                    stageCount: 4,
+                    selectedToolIDs: ["drc-native", "lvs-native"],
+                    rejectedEvaluationCount: 3,
+                    missingSelectionStageIDs: ["pex"],
+                    profileID: "sky130-signoff",
+                    pdkID: "sky130",
+                    technologyCatalogID: "sky130-catalog",
+                    technologyCatalogPath: "pdk/catalog.json",
+                    profileArtifactPath: "toolchain-profile.json"
+                )
+            ),
+            artifacts: [toolchainArtifact, profileArtifact]
+        )
+
+        let projection = RunReviewToolchainProjection(bundle: bundle)
+
+        #expect(projection.hasContent)
+        #expect(projection.selectedToolIDs == ["drc-native", "lvs-native"])
+        #expect(projection.rejectedEvaluationCount == 3)
+        #expect(projection.missingSelectionStageIDs == ["pex"])
+        #expect(projection.summary?.profileID == "sky130-signoff")
+        #expect(projection.summary?.pdkID == "sky130")
+        #expect(projection.summary?.technologyCatalogID == "sky130-catalog")
+        #expect(projection.artifacts.map(\.reference.locator.location.value) == [toolchainPath, profilePath])
+        #expect(projection.hasUnverifiedArtifacts)
+    }
+
+    @Test func toolchainTrustCardPresentsEveryReviewField() throws {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let sourceURL = testFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Sources/CircuitStudioApp/Views/RunReviewToolchainCard.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        for label in [
+            "Selected tools",
+            "Rejected",
+            "Missing selections",
+            "Profile",
+            "PDK",
+            "Technology catalog",
+            "Catalog path",
+            "Profile artifact",
+            "Selected tool IDs",
+            "Missing stage selections",
+        ] {
+            #expect(source.contains("\"\(label)\""))
+        }
+        #expect(source.contains("artifact.integrity?.status.rawValue"))
+    }
+
     @Test func reviewLoopBlocksDecidesAndResumes() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("run-review-\(UUID().uuidString)")
@@ -529,12 +614,12 @@ struct RunReviewServiceTests {
                         kind: "repair",
                         severity: .warning,
                         reason: "An unsupported repair command was proposed.",
-                        suggestedCommands: [
-                            FlowRunSuggestedCommand(
-                                commandID: "unsupported-command",
+                        suggestedActions: [
+                            FlowRunSuggestedAction(
+                                id: "unsupported-action",
                                 readiness: .requiresInput,
-                                executable: "unsupported-tool",
-                                arguments: [],
+                                operation: .executeCandidatePlan,
+                                runID: "unsupported-action",
                                 reason: "Unsupported by the local toolchain."
                             ),
                         ]
@@ -551,7 +636,7 @@ struct RunReviewServiceTests {
         )
         let unsupported = try #require(unsupportedSummary.states(of: .unsupportedAction).first)
         #expect(unsupported.nextActionID == "unsupported-repair")
-        #expect(unsupported.suggestedActions == ["unsupported-command"])
+        #expect(unsupported.suggestedActions == ["unsupported-action"])
     }
 
     @Test func waiverEditVerificationContextReportsMissingInputs() async throws {

@@ -21,8 +21,10 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
     public let artifacts: [RoundTripReviewArtifactSummary]
     public let externalSignoff: RoundTripReviewSignoffSummary?
     public let postLayoutComparison: RoundTripReviewComparisonSummary?
-    public let approvals: [GateApprovalRecord]
-    public let suggestedCommandSelections: [FlowSuggestedCommandSelection]
+    public let approvals: [FlowApprovalRecord]
+    public let suggestedActionSelections: [FlowRunSuggestedActionSelection]
+    public let toolchain: FlowRunToolchainSummary?
+    public let toolchainArtifacts: [FlowRunReviewArtifact]
     public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
     public let diagnostics: [String]
     public let warnings: [String]
@@ -40,8 +42,10 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
         artifacts: [RoundTripReviewArtifactSummary],
         externalSignoff: RoundTripReviewSignoffSummary?,
         postLayoutComparison: RoundTripReviewComparisonSummary?,
-        approvals: [GateApprovalRecord] = [],
-        suggestedCommandSelections: [FlowSuggestedCommandSelection] = [],
+        approvals: [FlowApprovalRecord] = [],
+        suggestedActionSelections: [FlowRunSuggestedActionSelection] = [],
+        toolchain: FlowRunToolchainSummary? = nil,
+        toolchainArtifacts: [FlowRunReviewArtifact] = [],
         bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?,
         diagnostics: [String],
         warnings: [String] = [],
@@ -59,7 +63,9 @@ public struct RoundTripReviewSummary: Sendable, Hashable, Codable {
         self.externalSignoff = externalSignoff
         self.postLayoutComparison = postLayoutComparison
         self.approvals = approvals
-        self.suggestedCommandSelections = suggestedCommandSelections
+        self.suggestedActionSelections = suggestedActionSelections
+        self.toolchain = toolchain
+        self.toolchainArtifacts = toolchainArtifacts
         self.bottleneckSummary = bottleneckSummary
         self.diagnostics = diagnostics
         self.warnings = warnings
@@ -81,7 +87,9 @@ extension RoundTripReviewSummary {
         case externalSignoff
         case postLayoutComparison
         case approvals
-        case suggestedCommandSelections
+        case suggestedActionSelections
+        case toolchain
+        case toolchainArtifacts
         case bottleneckSummary
         case diagnostics
         case warnings
@@ -108,10 +116,18 @@ extension RoundTripReviewSummary {
                 RoundTripReviewComparisonSummary.self,
                 forKey: .postLayoutComparison
             ),
-            approvals: try container.decodeIfPresent([GateApprovalRecord].self, forKey: .approvals) ?? [],
-            suggestedCommandSelections: try container.decodeIfPresent(
-                [FlowSuggestedCommandSelection].self,
-                forKey: .suggestedCommandSelections
+            approvals: try container.decodeIfPresent([FlowApprovalRecord].self, forKey: .approvals) ?? [],
+            suggestedActionSelections: try container.decodeIfPresent(
+                [FlowRunSuggestedActionSelection].self,
+                forKey: .suggestedActionSelections
+            ) ?? [],
+            toolchain: try container.decodeIfPresent(
+                FlowRunToolchainSummary.self,
+                forKey: .toolchain
+            ),
+            toolchainArtifacts: try container.decodeIfPresent(
+                [FlowRunReviewArtifact].self,
+                forKey: .toolchainArtifacts
             ) ?? [],
             bottleneckSummary: try container.decodeIfPresent(
                 HeadlessRoundTripService.BottleneckSummary.self,

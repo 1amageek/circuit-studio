@@ -53,24 +53,4 @@ struct CellTimingCharacterizerTests {
         }
     }
 
-    @Test("A characterized library drives STA on the ACC-4 core to a finite, physical fmax", .timeLimit(.minutes(7)))
-    func characterizedLibraryDrivesSTA() async throws {
-        var lib = TimingLibrary()
-        lib.add(try await characterize(.inverter(name: "inv")))
-        lib.add(try await characterize(.nand(name: "nand2", inputs: ["A", "B"])))
-        lib.add(try await characterize(.nor(name: "nor2", inputs: ["A", "B"])))
-        // A hand flip-flop model (SPICE-characterized in BC1.2b); plausible for this smoke.
-        lib.flipFlop = SequentialTiming(
-            clkToQRise: .constant(120e-12), clkToQFall: .constant(120e-12),
-            qTransitionRise: .constant(40e-12), qTransitionFall: .constant(40e-12),
-            setupTime: 30e-12, holdTime: 10e-12, dataCapacitance: 1e-15, clockCapacitance: 2e-15)
-
-        let seq = try ACC4CPUGenerator().sequentialNetlist()
-        let report = try StaticTimingAnalyzer(library: lib).analyze(seq, clockPeriod: 10e-9, defaultInputSlew: 50e-12)
-        #expect(report.fmaxHz.isFinite && report.fmaxHz > 0, "fmax = \(report.fmaxHz)")
-        #expect(report.criticalPath.endpoint.hasPrefix("acc_d"))
-        #expect(report.criticalPath.stages.allSatisfy { $0.stageDelay > 0 })
-        // The critical path runs through the carry chain: several gate stages deep.
-        #expect(report.criticalPath.stages.count >= 6, "stages = \(report.criticalPath.stages.count)")
-    }
 }

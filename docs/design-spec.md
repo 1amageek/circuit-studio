@@ -103,15 +103,17 @@ Analysis values must be finite. `tran.stopTime` must be positive. Transient opti
 
 ## Inline PEX IR
 
-`pexIR` mirrors the subset needed by `PostLayoutSimulationService`.
+`pexIR` is the canonical `PEXEngine.ParasiticIR` payload. The design spec does not
+define a second parasitic schema or normalize it into an app-owned IR.
 
 | Field | Required | Meaning |
 |---|---:|---|
 | `version` | Yes | IR version string. |
-| `cornerID` | Yes | Process corner ID. |
-| `units` | No | Unit declarations. Missing values default to canonical units. |
-| `elements` | Yes | R/C/coupling parasitic elements. |
-| `diagnostics` | No | Optional imported diagnostics. |
+| `cornerID` | Yes | Canonical `PEXCornerID`. |
+| `units` | Yes | Resistance, capacitance, and coordinate units. |
+| `nets` | Yes | Canonical nets, nodes, and aggregate parasitic metrics. |
+| `elements` | Yes | Canonical parasitic elements. |
+| `metadata` | Yes | String metadata supplied by the producer. |
 
 Supported units:
 
@@ -119,9 +121,11 @@ Supported units:
 |---|---|---|
 | resistance | `ohm`, `kohm` | `ohm` |
 | capacitance | `F`, `pF`, `fF` | `F` |
-| coordinate | `um` | `um` |
+| coordinate | `um`, `nm` | `um` |
 
-Inline PEX values are normalized to canonical units before post-layout simulation. Saved PEX manifests loaded with `--pex-manifest` use the same canonical `PEXParasiticIR` contract.
+Values remain in the units declared by the canonical IR. Post-layout SPICE serialization
+performs the final conversion to SI units. Saved PEX manifests loaded with
+`--pex-manifest` use the same `PEXEngine.ParasiticIR` contract.
 
 Supported element kinds:
 
@@ -130,8 +134,13 @@ Supported element kinds:
 | `resistor` | `nodeA` and `nodeB` |
 | `capacitor` | `nodeA`; `nodeB` may be omitted for ground-referenced capacitance |
 | `coupling` | `nodeA` and `nodeB` |
+| `inductor` | `nodeA` and `nodeB` |
 
-Element IDs must be unique. Element values must be finite and positive.
+Each element also declares its `source`. Every `NodeRef` contains both a net name and
+node name, and must resolve to a node declared by the corresponding canonical net.
+Element IDs must be unique. Element and aggregate values must be finite and non-negative.
+`ParasiticIRValidator` rejects invalid canonical membership or endpoint contracts before
+the design flow creates artifacts.
 
 ## CLI Use
 

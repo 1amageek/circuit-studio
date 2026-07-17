@@ -46,31 +46,43 @@ let package = Package(
     dependencies: [
         workspaceDependency(
             named: "Xcircuite",
-            revision: "8ea276d9fb71382b1252d72dbdbd34ec02a47110"
+            revision: "62bf4ea335e0c63d26b1b25fd185f1469e17aebd"
         ),
         workspaceDependency(
             named: "CircuiteFoundation",
-            revision: "2ec6ee13a89ac6885be3c26b41a9ee0ef89948ac"
+            revision: "7abcac83517935c9b9f7553d7016d62cffde259d"
         ),
         workspaceDependency(
             named: "DesignFlowKernel",
-            revision: "68e247274e34e56b1337df125b74480196209901"
+            revision: "6bbe1a24bc7e0a983da747844d8b2db1c80fefd4"
         ),
         workspaceDependency(
             named: "SignoffToolSupport",
-            revision: "2c8ce00a8f873934e74e3f219e0cbd122a862fe9"
+            revision: "6bf675eecb27e3bd3440c5ce8a85c85c510fc3cb"
         ),
         workspaceDependency(
             named: "CoreSpice",
-            revision: "a1dff52b12f40bca8696aee914d7d65d55e6fed5"
+            revision: "dec08bf9dc955b0845800765be0b6172d64b1609"
         ),
         workspaceDependency(
             named: "semiconductor-layout",
-            revision: "61cc2be603f57d12f3c582a2fc0fd148c1e62ad9"
+            revision: "692a056d21b6e292c29215f76c3ae225215d03c2"
         ),
         workspaceDependency(
             named: "PEXEngine",
-            revision: "f3078e12af274a714e27ec523f19c5c29abd42dd"
+            revision: "ba10c1fe0b847d5816faef4eae67c64a19d61e1e"
+        ),
+        workspaceDependency(
+            named: "DRCEngine",
+            revision: "e6a0fa2c5b64de1b4ef81e651bd1bb77ecc77299"
+        ),
+        workspaceDependency(
+            named: "LVSEngine",
+            revision: "f79b52da83146c108e0a122f4581fe93fae59527"
+        ),
+        workspaceDependency(
+            named: "TimingEngine",
+            revision: "2b8f0df3e359fca274edc8ede176457de40e1648"
         ),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
@@ -78,7 +90,7 @@ let package = Package(
         ),
         workspaceDependency(
             named: "swift-openvaf",
-            revision: "5e93bccf00aeb7165cb12c899361e7040f1da4c3"
+            revision: "9d2cb7607b825d36b1be92565d4dc6caedea0999"
         ),
         .package(
             url: "https://github.com/1amageek/mac-component.git",
@@ -148,13 +160,15 @@ let package = Package(
             name: "CircuitSignoff",
             dependencies: [
                 "CircuitStudioCore",
+                .product(name: "DRCAdapters", package: "DRCEngine"),
+                .product(name: "DRCCore", package: "DRCEngine"),
+                .product(name: "LVSAdapters", package: "LVSEngine"),
+                .product(name: "LVSCore", package: "LVSEngine"),
+                .product(name: "LVSExtractionAdapters", package: "LVSEngine"),
                 .product(name: "PEXEngine", package: "PEXEngine"),
                 .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
             ],
             resources: [
-                .copy("Resources/drc.tcl"),
-                .copy("Resources/lvs.tcl"),
-                .copy("Resources/extract_lvs.tcl"),
                 .copy("Resources/materialize_cell.tcl"),
             ]
         ),
@@ -166,6 +180,13 @@ let package = Package(
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
+                .product(name: "DRCAdapters", package: "DRCEngine"),
+                .product(name: "DRCCore", package: "DRCEngine"),
+                .product(name: "LVSAdapters", package: "LVSEngine"),
+                .product(name: "LVSCore", package: "LVSEngine"),
+                .product(name: "STAEngine", package: "TimingEngine"),
+                .product(name: "TimingEngine", package: "TimingEngine"),
+                .product(name: "TimingCore", package: "TimingEngine"),
                 .product(name: "PEXEngine", package: "PEXEngine"),
                 .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
                 "CircuitStudioCore",
@@ -212,6 +233,9 @@ let package = Package(
             name: "SignoffCLICore",
             dependencies: [
                 "CircuitSignoff",
+                .product(name: "DRCAdapters", package: "DRCEngine"),
+                .product(name: "LVSAdapters", package: "LVSEngine"),
+                .product(name: "LVSCore", package: "LVSEngine"),
                 .product(name: "PEXEngine", package: "PEXEngine"),
             ],
             path: "Sources/SignoffRunner"
@@ -231,6 +255,14 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "CircuitSignoffTests",
+            dependencies: [
+                "CircuitSignoff",
+                .product(name: "DRCCore", package: "DRCEngine"),
+                .product(name: "LVSCore", package: "LVSEngine"),
+            ]
+        ),
+        .testTarget(
             name: "CircuitStudioCoreTests",
             dependencies: [
                 "CircuitStudioCore",
@@ -244,6 +276,14 @@ let package = Package(
                 .product(name: "LayoutEngine", package: "semiconductor-layout"),
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
+                .product(name: "DRCAdapters", package: "DRCEngine"),
+                .product(name: "DRCCore", package: "DRCEngine"),
+                .product(name: "LVSAdapters", package: "LVSEngine"),
+                .product(name: "LVSCore", package: "LVSEngine"),
+                .product(name: "LVSExtractionAdapters", package: "LVSEngine"),
+                .product(name: "STAEngine", package: "TimingEngine"),
+                .product(name: "TimingEngine", package: "TimingEngine"),
+                .product(name: "TimingCore", package: "TimingEngine"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
                 .product(name: "OpenVAFSupport", package: "swift-openvaf"),
                 .product(name: "VerilogACompiler", package: "swift-openvaf"),

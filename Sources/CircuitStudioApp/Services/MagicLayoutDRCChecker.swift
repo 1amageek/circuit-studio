@@ -1,14 +1,16 @@
 import CircuitSignoff
+import DRCAdapters
+import DRCCore
 import Foundation
 import LayoutCore
 import LayoutIO
 import LayoutTech
 
 public struct MagicLayoutDRCChecker: LayoutDRCChecking {
-    private let drc: MagicDRCSignoff
+    private let drc: MagicDRCAdapter
     private let layoutTechnology: LayoutTechDatabase
 
-    public init(drc: MagicDRCSignoff, layoutTechnology: LayoutTechDatabase) {
+    public init(drc: MagicDRCAdapter, layoutTechnology: LayoutTechDatabase) {
         self.drc = drc
         self.layoutTechnology = layoutTechnology
     }
@@ -18,7 +20,7 @@ public struct MagicLayoutDRCChecker: LayoutDRCChecking {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> MagicLayoutDRCChecker? {
-        guard let drc = MagicDRCSignoff.locate(environment: environment, fileManager: fileManager) else {
+        guard let drc = MagicDRCAdapter.locate(environment: environment, fileManager: fileManager) else {
             return nil
         }
         do {
@@ -43,10 +45,15 @@ public struct MagicLayoutDRCChecker: LayoutDRCChecking {
         let gds = directory.appending(path: "\(cell).gds")
         try MaskDataFormatConverter(tech: layoutTechnology).exportDocument(document, to: gds, format: .gds)
 
-        let result = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
-            command: drc.command(cell: cell, gds: gds, artifactDirectory: directory),
-            artifactDirectory: directory
+        let execution = try await drc.run(
+            DRCRequest(
+                layoutURL: gds,
+                topCell: cell,
+                layoutFormat: .gds,
+                workingDirectory: directory,
+                backendSelection: DRCBackendSelection(backendID: drc.backendID)
+            )
         )
-        return result.report
+        return ExternalSignoffToolReport(drcResult: execution.result)
     }
 }

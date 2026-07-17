@@ -193,33 +193,29 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("signoff_approval_kind=\(result.verificationReport?.externalSignoff?.approvalKind?.rawValue ?? "")")
             lines.append("signoff_approved_by=\(result.verificationReport?.externalSignoff?.approvedBy ?? "")")
         case .approveGate:
-            lines.append("gate_approval=\(result.approvalRecord?.decision.rawValue ?? "")")
-            lines.append("gate=\(result.approvalRecord?.gateID.rawValue ?? "")")
+            lines.append("stage_approval=\(result.approvalRecord?.verdict.rawValue ?? "")")
+            lines.append("stage=\(result.approvalRecord?.stageID ?? "")")
             lines.append("reviewer=\(result.approvalRecord?.reviewer ?? "")")
             lines.append("run_id=\(result.approvalRecord?.runID ?? "")")
-            lines.append("approval_record=\(result.approvalRecordPath ?? "")")
-            lines.append("target_sha256=\(result.approvalRecord?.targetArtifactSHA256 ?? "")")
-            lines.append("approval_warning_count=\(result.approvalRecord?.artifactResolutionWarnings.count ?? 0)")
-            for warning in result.approvalRecord?.artifactResolutionWarnings ?? [] {
-                lines.append("approval_warning=\(warning)")
-            }
+            lines.append("plan_artifact=\(result.approvalRecord?.evidence.plan.id.rawValue ?? "")")
+            lines.append("stage_result_artifact=\(result.approvalRecord?.evidence.stageResult.id.rawValue ?? "")")
         case .reviewRoundTrip:
             appendRoundTripReview(result: result, to: &lines)
-        case .selectFailureSuggestedCommand:
-            lines.append("suggested_command_selection=recorded")
+        case .selectFailureSuggestedAction:
+            lines.append("suggested_action_selection=recorded")
             lines.append("run_id=\(result.runID ?? "")")
             lines.append("project_root=\(result.projectRootPath ?? "")")
             lines.append("manifest=\(result.manifestPath ?? "")")
             lines.append("actions=\(result.actionLogPath ?? "")")
             lines.append("action_id=\(firstActionRecordID(from: result) ?? result.message ?? "")")
-            lines.append("command_id=\(result.selectedSuggestedCommand?.commandID ?? "")")
-            lines.append("readiness=\(result.selectedSuggestedCommand?.readiness ?? "")")
-            lines.append("executable=\(result.selectedSuggestedCommand?.executable ?? "")")
-        case .runSelectedSuggestedCommand:
-            lines.append("selected_suggested_command=dispatched")
+            lines.append("suggested_action_id=\(result.selectedSuggestedAction?.action.id ?? "")")
+            lines.append("readiness=\(result.selectedSuggestedAction?.action.readiness.rawValue ?? "")")
+            lines.append("operation=\(result.selectedSuggestedAction.map { String(describing: $0.action.operation) } ?? "")")
+        case .runSelectedSuggestedAction:
+            lines.append("selected_suggested_action=dispatched")
             lines.append("run_id=\(result.runID ?? "")")
             lines.append("project_root=\(result.projectRootPath ?? "")")
-            lines.append("command_id=\(result.selectedSuggestedCommand?.commandID ?? "")")
+            lines.append("suggested_action_id=\(result.selectedSuggestedAction?.action.id ?? "")")
         case .applyWaiverEditProposal:
             lines.append("waiver_edit=applied")
             lines.append("run_id=\(result.runID ?? "")")
@@ -648,13 +644,28 @@ public enum FlowRunnerKeyValueFormatter {
         }
         lines.append("approval_count=\(review?.approvals.count ?? 0)")
         for approval in review?.approvals ?? [] {
-            lines.append("approval_gate=\(approval.gateID.rawValue)")
-            lines.append("approval_decision=\(approval.decision.rawValue)")
+            lines.append("approval_stage=\(approval.stageID)")
+            lines.append("approval_verdict=\(approval.verdict.rawValue)")
         }
-        lines.append("suggested_command_selection_count=\(review?.suggestedCommandSelections.count ?? 0)")
-        for selection in review?.suggestedCommandSelections ?? [] {
-            lines.append("selected_command=\(selection.commandID)")
-            lines.append("selected_command_action=\(selection.actionRecordID)")
+        lines.append("suggested_action_selection_count=\(review?.suggestedActionSelections.count ?? 0)")
+        for selection in review?.suggestedActionSelections ?? [] {
+            lines.append("selected_suggested_action=\(selection.action.id)")
+            lines.append("selected_action_record=\(selection.actionRecordID)")
+        }
+        lines.append("toolchain_stage_count=\(review?.toolchain?.stageCount ?? 0)")
+        lines.append("toolchain_selected_tools=\(review?.toolchain?.selectedToolIDs.joined(separator: ",") ?? "")")
+        lines.append("toolchain_rejected_evaluation_count=\(review?.toolchain?.rejectedEvaluationCount ?? 0)")
+        lines.append(
+            "toolchain_missing_selection_stages=\(review?.toolchain?.missingSelectionStageIDs.joined(separator: ",") ?? "")"
+        )
+        lines.append("toolchain_profile_id=\(review?.toolchain?.profileID ?? "")")
+        lines.append("toolchain_pdk_id=\(review?.toolchain?.pdkID ?? "")")
+        lines.append("toolchain_catalog_id=\(review?.toolchain?.technologyCatalogID ?? "")")
+        lines.append("toolchain_catalog_path=\(review?.toolchain?.technologyCatalogPath ?? "")")
+        lines.append("toolchain_profile_artifact_path=\(review?.toolchain?.profileArtifactPath ?? "")")
+        for artifact in review?.toolchainArtifacts ?? [] {
+            lines.append("toolchain_artifact=\(artifact.reference.locator.location.value)")
+            lines.append("toolchain_artifact_integrity=\(artifact.integrity?.status.rawValue ?? "untracked")")
         }
         for recommendation in review?.recommendations ?? [] {
             lines.append("recommendation=\(recommendation)")

@@ -25,11 +25,12 @@ public struct RunReviewService: Sendable {
         public let artifacts: [ArtifactReference]
         public let stages: [StageReview]
         public let approvals: [FlowApprovalRecord]
-        public let suggestedCommandSelections: [FlowSuggestedCommandSelection]
+        public let suggestedActionSelections: [FlowRunSuggestedActionSelection]
         public let planning: PlanningReview
         public let signoff: RunReviewSignoffSummary
         public let waivers: RunReviewWaiverSummary
         public let failureStates: RunReviewFailureStateSummary
+        public let toolchain: RunReviewToolchainProjection
         public let flowReview: RunReviewFlowReviewProjection
         public let retainedDashboard: RunReviewRetainedDashboardProjection
         public let bundle: FlowRunReviewBundle
@@ -43,7 +44,7 @@ public struct RunReviewService: Sendable {
         public let designDiff: DesignDiff?
         public let designDiffSummary: RunReviewDesignDiffSummary?
         public let correctnessItems: [FlowRunReviewItem]
-        public let selectedCommands: [FlowSuggestedCommandSelection]
+        public let selectedActions: [FlowRunSuggestedActionSelection]
         public let decodeIssues: [PlanningArtifactDecodeIssue]
 
         public var hasContent: Bool {
@@ -54,7 +55,7 @@ public struct RunReviewService: Sendable {
                 || designDiff != nil
                 || designDiffSummary != nil
                 || !correctnessItems.isEmpty
-                || !selectedCommands.isEmpty
+                || !selectedActions.isEmpty
                 || !decodeIssues.isEmpty
         }
     }
@@ -143,7 +144,7 @@ public struct RunReviewService: Sendable {
             workspaceID: try await workspaceID(store: store)
         )
         let approvals = bundle.approvals
-        let suggestedCommandSelections = try suggestedCommandSelections(from: ledger.actions)
+        let suggestedActionSelections = try suggestedActionSelections(from: ledger.actions)
         let approvalsByStage = Dictionary(
             approvals.map { ($0.stageID, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -160,7 +161,7 @@ public struct RunReviewService: Sendable {
             projectRoot: projectRoot,
             approvals: approvals,
             designDiff: ledger.designDiff,
-            suggestedCommandSelections: suggestedCommandSelections
+            suggestedActionSelections: suggestedActionSelections
         )
         let signoff = try signoffReview(
             bundle: bundle,
@@ -179,6 +180,7 @@ public struct RunReviewService: Sendable {
             signoffDecodeIssues: signoff.decodeIssues,
             waiverDecodeIssues: waivers.decodeIssues
         )
+        let toolchain = RunReviewToolchainProjection(bundle: bundle)
         let flowReview = RunReviewFlowReviewProjection(bundle: bundle)
         let retainedDashboard = retainedDashboardProjection(bundle: bundle)
 
@@ -194,11 +196,12 @@ public struct RunReviewService: Sendable {
             artifacts: ledger.runManifest.artifacts,
             stages: stages,
             approvals: approvals,
-            suggestedCommandSelections: suggestedCommandSelections,
+            suggestedActionSelections: suggestedActionSelections,
             planning: planning,
             signoff: signoff,
             waivers: waivers,
             failureStates: failureStates,
+            toolchain: toolchain,
             flowReview: flowReview,
             retainedDashboard: retainedDashboard,
             bundle: bundle
@@ -215,32 +218,32 @@ public struct RunReviewService: Sendable {
             )
     }
 
-    public func loadSuggestedCommandSelections(
+    public func loadSuggestedActionSelections(
         runID: String,
         projectRoot: URL
-    ) async throws -> [FlowSuggestedCommandSelection] {
+    ) async throws -> [FlowRunSuggestedActionSelection] {
         let store = try workspaceStore(projectRoot: projectRoot)
         let ledger = try await configuredReviewLedgerLoader(store: store)
             .loadRunLedgerForReview(runID: runID)
-        return try suggestedCommandSelections(from: ledger.actions)
+        return try suggestedActionSelections(from: ledger.actions)
     }
 
-    private func suggestedCommandSelections(
+    private func suggestedActionSelections(
         from actions: [FlowRunActionRecord]
-    ) throws -> [FlowSuggestedCommandSelection] {
-        var selections: [FlowSuggestedCommandSelection] = []
+    ) throws -> [FlowRunSuggestedActionSelection] {
+        var selections: [FlowRunSuggestedActionSelection] = []
         for action in actions {
-            if let selection = try FlowSuggestedCommandSelection(record: action) {
+            if let selection = try FlowRunSuggestedActionSelection(record: action) {
                 selections.append(selection)
             }
         }
         return selections
     }
 
-    public func recordSuggestedCommandSelection(
+    public func recordSuggestedActionSelection(
         runID: String,
         nextActionID: String,
-        commandID: String,
+        actionID: String,
         reviewer: String,
         projectRoot: URL
     ) async throws -> FlowRunActionRecord {
@@ -254,28 +257,24 @@ public struct RunReviewService: Sendable {
         guard let nextAction = bundle.summary.nextActions.first(where: { $0.actionID == nextActionID }) else {
             throw RunReviewServiceError.nextActionNotFound(actionID: nextActionID)
         }
-        guard let command = nextAction.suggestedCommands.first(where: { $0.commandID == commandID }) else {
-            throw RunReviewServiceError.suggestedCommandNotFound(
+        guard let action = nextAction.suggestedActions.first(where: { $0.id == actionID }) else {
+            throw RunReviewServiceError.suggestedActionNotFound(
                 actionID: nextActionID,
-                commandID: commandID
+                suggestedActionID: actionID
             )
         }
 
         let record = FlowRunActionRecord(
-            actionID: "suggested-command-selection-\(UUID().uuidString)",
+            actionID: "suggested-action-selection-\(UUID().uuidString)",
             runID: runID,
             actor: FlowRunActor(kind: .human, identifier: reviewer),
-            actionKind: FlowSuggestedCommandSelection.actionKind,
+            actionKind: FlowRunSuggestedActionSelection.actionKind,
             status: .succeeded,
             context: FlowRunActionContext(
-                suggestedCommand: FlowRunActionContext.SuggestedCommand(
+                suggestedAction: FlowRunActionContext.SuggestedAction(
                     nextActionID: nextAction.actionID,
                     nextActionKind: nextAction.kind,
-                    commandID: command.commandID,
-                    readiness: command.readiness.rawValue,
-                    executable: command.executable,
-                    arguments: command.arguments,
-                    reason: command.reason
+                    action: action
                 )
             )
         )
@@ -368,7 +367,7 @@ public struct RunReviewService: Sendable {
         projectRoot: URL,
         approvals: [FlowApprovalRecord],
         designDiff: DesignDiff?,
-        suggestedCommandSelections: [FlowSuggestedCommandSelection]
+        suggestedActionSelections: [FlowRunSuggestedActionSelection]
     ) -> PlanningReview {
         let candidatePlanArtifact = latestArtifact(
             role: "planning-candidate-plan",
@@ -405,7 +404,7 @@ public struct RunReviewService: Sendable {
             designDiff: designDiff,
             designDiffSummary: designDiff.map(designDiffSummary),
             correctnessItems: bundle.reviewItems.filter { $0.kind == .planningCorrectness },
-            selectedCommands: suggestedCommandSelections,
+            selectedActions: suggestedActionSelections,
             decodeIssues: decodeIssues
         )
     }

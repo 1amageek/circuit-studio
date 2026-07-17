@@ -1,5 +1,6 @@
 import CircuitStudioCore
 import Foundation
+import STAEngine
 @testable import CircuitStudioApp
 
 struct CachedStandardTimingLibraryBuilder: TimingLibraryBuilding {
@@ -10,13 +11,15 @@ struct CachedStandardTimingLibraryBuilder: TimingLibraryBuilding {
 
 struct CachedTimingPathValidator: TimingPathValidating {
     func validate(
-        path: TimingPath,
+        path: STAPath,
         in netlist: SequentialNetlist,
+        launchSlew: Double,
         toleranceFraction: Double
     ) async throws -> STAvsSPICEValidator.Result {
         try await TimingCharacterizationTestCache.shared.validatePath(
             path,
             in: netlist,
+            launchSlew: launchSlew,
             toleranceFraction: toleranceFraction
         )
     }
@@ -54,8 +57,9 @@ actor TimingCharacterizationTestCache {
     }
 
     private struct ValidationKey: Hashable {
-        let path: TimingPath
+        let path: STAPath
         let netlist: SequentialNetlist
+        let launchSlew: Double
         let toleranceFraction: Double
     }
 
@@ -222,11 +226,17 @@ actor TimingCharacterizationTestCache {
     }
 
     func validatePath(
-        _ path: TimingPath,
+        _ path: STAPath,
         in netlist: SequentialNetlist,
+        launchSlew: Double,
         toleranceFraction: Double
     ) async throws -> STAvsSPICEValidator.Result {
-        let key = ValidationKey(path: path, netlist: netlist, toleranceFraction: toleranceFraction)
+        let key = ValidationKey(
+            path: path,
+            netlist: netlist,
+            launchSlew: launchSlew,
+            toleranceFraction: toleranceFraction
+        )
         if let cached = validations[key] { return cached }
         if let pending = pendingValidations[key] {
             return try await pending.value
@@ -237,6 +247,7 @@ actor TimingCharacterizationTestCache {
                 try await STAvsSPICEValidator().validate(
                     path: path,
                     in: netlist,
+                    launchSlew: launchSlew,
                     toleranceFraction: toleranceFraction
                 )
             }

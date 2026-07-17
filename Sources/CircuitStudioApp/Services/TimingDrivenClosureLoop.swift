@@ -1,21 +1,22 @@
 import Foundation
+import STAEngine
+import TimingEngine
 
-/// Closes timing by failure-driven gate sizing: each iteration runs STA at the target clock
-/// period and, while setup fails, upsizes the slowest cell on the critical path to the next
-/// drive strength (stronger drive → less delay into its load) and re-analyses. The next edit
-/// is COMPUTED from the measured failure (the reported critical path), not guessed — the
-/// Decide stage of the loop on the timing axis. The library it reads is SPICE-characterized
-/// and SPICE-validated (BC1.2/BC1.3), so the loop optimizes against trustworthy physics.
+/// Runs failure-driven cell sizing against TimingEngine's canonical STA contract.
 public struct TimingDrivenClosureLoop: Sendable {
-
     public enum ClosureError: Error, LocalizedError, Equatable {
         case nonPositiveBudget
-        case variantMissingFromLibrary(String)
+        case analysisDidNotComplete(status: String, diagnostics: [String])
+        case missingCriticalPath
 
         public var errorDescription: String? {
             switch self {
-            case .nonPositiveBudget: return "Timing closure requires maxIterations >= 1."
-            case .variantMissingFromLibrary(let n): return "Sized variant '\(n)' is not in the timing library."
+            case .nonPositiveBudget:
+                return "Timing closure requires maxIterations >= 1."
+            case .analysisDidNotComplete(let status, let diagnostics):
+                return "Timing analysis ended with status \(status): \(diagnostics.joined(separator: "; "))"
+            case .missingCriticalPath:
+                return "Timing analysis reported a setup violation without a critical path."
             }
         }
     }
@@ -23,83 +24,147 @@ public struct TimingDrivenClosureLoop: Sendable {
     public struct Iteration: Sendable, Hashable {
         public let index: Int
         public let worstSetupSlack: Double
-        public let minPeriod: Double
         public let met: Bool
-        public let upsizedInstance: String?   // the cell upsized to reach the NEXT iteration
+        public let upsizedInstance: String?
         public let upsizedTo: String?
     }
 
     public struct Outcome: Sendable {
         public let converged: Bool
         public let iterations: [Iteration]
-        public let netlist: SequentialNetlist   // the (possibly resized) closed netlist
-        public let report: TimingReport
+        public let netlist: SequentialNetlist
+        public let result: STAExecutionResult
     }
 
-    private let library: TimingLibrary
-    private let defaultInputSlew: Double
+    private let engine: any STAExecuting
+    private let requestBuilder: any STARequestBuilding
 
-    public init(library: TimingLibrary, defaultInputSlew: Double = 50e-12) {
-        self.library = library
-        self.defaultInputSlew = defaultInputSlew
+    public init(
+        engine: any STAExecuting = TimingEngineAPI.makeSTAEngine(),
+        requestBuilder: any STARequestBuilding
+    ) {
+        self.engine = engine
+        self.requestBuilder = requestBuilder
     }
 
     public func close(
-        _ netlist: SequentialNetlist, targetPeriod: Double, maxIterations: Int
-    ) throws -> Outcome {
+        _ netlist: SequentialNetlist,
+        maxIterations: Int
+    ) async throws -> Outcome {
         guard maxIterations >= 1 else { throw ClosureError.nonPositiveBudget }
-        let analyzer = StaticTimingAnalyzer(library: library)
         var current = netlist
         var iterations: [Iteration] = []
 
         for index in 0..<maxIterations {
-            let report = try analyzer.analyze(current, clockPeriod: targetPeriod, defaultInputSlew: defaultInputSlew)
-            if report.setupMet {
-                iterations.append(Iteration(index: index, worstSetupSlack: report.worstSetupSlack,
-                                            minPeriod: report.minPeriod, met: true,
-                                            upsizedInstance: nil, upsizedTo: nil))
-                return Outcome(converged: true, iterations: iterations, netlist: current, report: report)
+            let request = try await requestBuilder.makeRequest(for: current, iteration: index)
+            let result = try await engine.execute(request)
+            try requireCompleted(result)
+            let slack = result.payload.worstSetupSlack ?? -.infinity
+            if slack >= 0 {
+                iterations.append(Iteration(
+                    index: index,
+                    worstSetupSlack: slack,
+                    met: true,
+                    upsizedInstance: nil,
+                    upsizedTo: nil
+                ))
+                return Outcome(
+                    converged: true,
+                    iterations: iterations,
+                    netlist: current,
+                    result: result
+                )
             }
 
-            // Decide: upsize the slowest critical-path cell that still has a larger rung.
-            let candidate = report.criticalPath.stages
-                .compactMap { stage -> (stage: TimingStage, next: (name: String, relativeFactor: Double))? in
+            guard let path = result.payload.criticalPaths.min(by: { $0.slack < $1.slack }) else {
+                throw ClosureError.missingCriticalPath
+            }
+            let candidate = path.stages
+                .compactMap { stage -> (stage: STAPathStage, next: (name: String, relativeFactor: Double))? in
                     CellSizing.nextLarger(of: stage.cell).map { (stage, $0) }
                 }
-                .max(by: { $0.stage.stageDelay < $1.stage.stageDelay })
+                .max(by: { $0.stage.delay < $1.stage.delay })
 
-            guard let pick = candidate else {
-                // Nothing left to upsize: report the unconverged result honestly.
-                iterations.append(Iteration(index: index, worstSetupSlack: report.worstSetupSlack,
-                                            minPeriod: report.minPeriod, met: false,
-                                            upsizedInstance: nil, upsizedTo: nil))
-                return Outcome(converged: false, iterations: iterations, netlist: current, report: report)
+            guard let candidate else {
+                iterations.append(Iteration(
+                    index: index,
+                    worstSetupSlack: slack,
+                    met: false,
+                    upsizedInstance: nil,
+                    upsizedTo: nil
+                ))
+                return Outcome(
+                    converged: false,
+                    iterations: iterations,
+                    netlist: current,
+                    result: result
+                )
             }
-            guard library.cells[pick.next.name] != nil else {
-                throw ClosureError.variantMissingFromLibrary(pick.next.name)
-            }
-            iterations.append(Iteration(index: index, worstSetupSlack: report.worstSetupSlack,
-                                        minPeriod: report.minPeriod, met: false,
-                                        upsizedInstance: pick.stage.instance, upsizedTo: pick.next.name))
-            current = upsize(current, instance: pick.stage.instance,
-                             relativeFactor: pick.next.relativeFactor, newName: pick.next.name)
+            iterations.append(Iteration(
+                index: index,
+                worstSetupSlack: slack,
+                met: false,
+                upsizedInstance: candidate.stage.instance,
+                upsizedTo: candidate.next.name
+            ))
+            current = upsize(
+                current,
+                instance: candidate.stage.instance,
+                relativeFactor: candidate.next.relativeFactor,
+                newName: candidate.next.name
+            )
         }
 
-        let report = try analyzer.analyze(current, clockPeriod: targetPeriod, defaultInputSlew: defaultInputSlew)
-        return Outcome(converged: report.setupMet, iterations: iterations, netlist: current, report: report)
+        let finalRequest = try await requestBuilder.makeRequest(
+            for: current,
+            iteration: maxIterations
+        )
+        let finalResult = try await engine.execute(finalRequest)
+        try requireCompleted(finalResult)
+        return Outcome(
+            converged: (finalResult.payload.worstSetupSlack ?? -.infinity) >= 0,
+            iterations: iterations,
+            netlist: current,
+            result: finalResult
+        )
     }
 
-    /// Replace one instance's cell with a stronger-drive variant (same topology, wider FETs).
-    private func upsize(
-        _ netlist: SequentialNetlist, instance: String, relativeFactor: Double, newName: String
-    ) -> SequentialNetlist {
-        let resized = netlist.combinational.map { inst -> GateLevelNetlist.Instance in
-            guard inst.name == instance else { return inst }
-            let bigger = inst.cell.scaled(widthFactor: relativeFactor, name: newName)
-            return GateLevelNetlist.Instance(name: inst.name, cell: bigger, netMap: inst.netMap)
+    private func requireCompleted(_ result: STAExecutionResult) throws {
+        guard result.status == .completed else {
+            throw ClosureError.analysisDidNotComplete(
+                status: result.status.rawValue,
+                diagnostics: result.diagnostics.map(\.summary)
+            )
         }
-        return SequentialNetlist(name: netlist.name, combinational: resized, dffs: netlist.dffs,
-                                 inputs: netlist.inputs, outputs: netlist.outputs,
-                                 clock: netlist.clock, vpwr: netlist.vpwr, vgnd: netlist.vgnd)
+    }
+
+    private func upsize(
+        _ netlist: SequentialNetlist,
+        instance: String,
+        relativeFactor: Double,
+        newName: String
+    ) -> SequentialNetlist {
+        let resized = netlist.combinational.map { instanceRecord -> GateLevelNetlist.Instance in
+            guard instanceRecord.name == instance else { return instanceRecord }
+            let largerCell = instanceRecord.cell.scaled(
+                widthFactor: relativeFactor,
+                name: newName
+            )
+            return GateLevelNetlist.Instance(
+                name: instanceRecord.name,
+                cell: largerCell,
+                netMap: instanceRecord.netMap
+            )
+        }
+        return SequentialNetlist(
+            name: netlist.name,
+            combinational: resized,
+            dffs: netlist.dffs,
+            inputs: netlist.inputs,
+            outputs: netlist.outputs,
+            clock: netlist.clock,
+            vpwr: netlist.vpwr,
+            vgnd: netlist.vgnd
+        )
     }
 }

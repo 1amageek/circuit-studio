@@ -98,7 +98,7 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--timing-model-profile PATH | --timing-model-profile-catalog PATH --timing-model-profile-id ID | --timing-model-profile-catalog PATH --timing-model-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--relative-delta-floor VALUE] [--domain-limit SPEC] [--variable-limit SPEC] [--oscillation-limit SPEC] [--edit-script PATH --output-design-spec PATH] [--waiver-review ID --waiver-proposal ID] [--drc-repair-hints PATH --lvs-repair-hints PATH] [--history-qualification-profile PATH] [--min-history-runs COUNT] [--min-history-cycles COUNT] [--min-history-accepted COUNT] [--min-history-feedback-rank-changes COUNT] [--min-history-feedback-score-deltas COUNT] [--failure-envelope PATH --command-id ID --reviewer ID] [--json]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--timing-model-profile PATH | --timing-model-profile-catalog PATH --timing-model-profile-id ID | --timing-model-profile-catalog PATH --timing-model-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--relative-delta-floor VALUE] [--domain-limit SPEC] [--variable-limit SPEC] [--oscillation-limit SPEC] [--edit-script PATH --output-design-spec PATH] [--waiver-review ID --waiver-proposal ID] [--drc-repair-hints PATH --lvs-repair-hints PATH] [--history-qualification-profile PATH] [--min-history-runs COUNT] [--min-history-cycles COUNT] [--min-history-accepted COUNT] [--min-history-feedback-rank-changes COUNT] [--min-history-feedback-score-deltas COUNT] [--failure-envelope PATH --action-id ID --reviewer ID] [--json]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
@@ -123,10 +123,10 @@ struct CircuitStudioFlowRunner {
           --run-verification       Run DRC/LVS/pre-PEX verification without a full round trip
           --approve-gate           Write a typed gate approval record for human-in-the-loop review
           --review-round-trip      Load a round-trip review summary from manifest artifacts
-          --select-failure-command
-                                  Record a selected command from a flow-runner failure envelope into the round-trip action log
-          --run-selected-suggested-command
-                                  Dispatch a ready selected round-trip suggested command through the typed command API
+          --select-failure-action
+                                  Record a selected semantic action from a flow-runner failure envelope into the round-trip action log
+          --run-selected-suggested-action
+                                  Dispatch a ready selected semantic action through the typed command API
           --apply-waiver-edit      Apply a selected waiver edit proposal through RunReviewService
           --apply-waiver-edit-and-verify
                                   Apply a selected waiver edit proposal, then run linked DRC/LVS/pre-PEX verification
@@ -163,21 +163,16 @@ struct CircuitStudioFlowRunner {
                            Optional DesignUnit JSON path for --run-verification, --apply-waiver-edit-and-verify, or --run-post-waiver-edit-verification
           --manifest PATH Round-trip manifest path for --review-round-trip
           --failure-envelope PATH
-                           flow-runner-failure JSON envelope for --select-failure-command
-          --command-id ID  Suggested command ID selected from --failure-envelope
-                           or selected from the round-trip action log for --run-selected-suggested-command
-          --approval-gate ID
-                           Gate ID for --approve-gate. Values: external-signoff, pre-pex-verification, post-layout-comparison, physical-verification
-          --approval-target PATH
-                           Explicit target artifact path for --approve-gate
+                           flow-runner-failure JSON envelope for --select-failure-action
+          --action-id ID   Suggested semantic action ID selected from --failure-envelope
+                           or selected from the round-trip action log for --run-selected-suggested-action
+          --approval-stage ID
+                           Flow stage ID for --approve-gate
           --reviewer NAME Reviewer identity for --approve-gate
-          --approval-decision VALUE
-                           Approval decision. Values: approved, rejected. Default: approved
-          --approval-policy TEXT
-                           Policy text or policy ID recorded in the approval artifact
+          --approval-verdict VALUE
+                           Approval verdict. Values: approved, waived, rejected. Default: approved
           --approval-note TEXT
                            Free-form note recorded in the approval artifact
-          --waiver ID      Waiver ID recorded in the approval artifact. Can be repeated
           --waiver-review ID
                            Waiver review ID for --apply-waiver-edit, --apply-waiver-edit-and-verify, or --run-post-waiver-edit-verification
           --waiver-proposal ID

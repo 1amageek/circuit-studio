@@ -1,6 +1,7 @@
 import Foundation
 import CircuitStudioCore
 import SchematicEditor
+import PEXEngine
 
 public struct DesignFlowFixture {
     public let name: String
@@ -8,7 +9,7 @@ public struct DesignFlowFixture {
     public let schematic: SchematicDocument
     public let testbench: Testbench
     public let postLayoutCommand: AnalysisCommand
-    public let pexIR: PEXParasiticIR
+    public let pexIR: ParasiticIR
 
     public init(
         name: String,
@@ -16,7 +17,7 @@ public struct DesignFlowFixture {
         schematic: SchematicDocument,
         testbench: Testbench,
         postLayoutCommand: AnalysisCommand,
-        pexIR: PEXParasiticIR
+        pexIR: ParasiticIR
     ) {
         self.name = name
         self.title = title
@@ -58,12 +59,12 @@ public enum DesignFlowFixtureLibrary {
                 schematic: SchematicPreview.cmosInverterViewModel().document,
                 testbench: Testbench(name: "Transient", analysisCommands: [command]),
                 postLayoutCommand: command,
-                pexIR: PEXParasiticIR(
+                pexIR: ParasiticIR(
                     version: "1.0",
                     cornerID: "tt_25c_1v0",
                     elements: [
-                        PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
-                        PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
+                        ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
+                        ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
                     ]
                 )
             )
@@ -75,12 +76,12 @@ public enum DesignFlowFixtureLibrary {
                 schematic: SchematicPreview.rcLowPassViewModel().document,
                 testbench: Testbench(name: "Transient", analysisCommands: [command]),
                 postLayoutCommand: command,
-                pexIR: PEXParasiticIR(
+                pexIR: ParasiticIR(
                     version: "1.0",
                     cornerID: "tt_25c_1v0",
                     elements: [
-                        PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.25),
-                        PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
+                        ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.25),
+                        ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 2e-15),
                     ]
                 )
             )
@@ -91,12 +92,12 @@ public enum DesignFlowFixtureLibrary {
                 schematic: SchematicPreview.voltageDividerViewModel().document,
                 testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
                 postLayoutCommand: .op,
-                pexIR: PEXParasiticIR(
+                pexIR: ParasiticIR(
                     version: "1.0",
                     cornerID: "tt_25c_1v0",
                     elements: [
-                        PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
-                        PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
+                        ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.5),
+                        ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
                     ]
                 )
             )
@@ -107,12 +108,12 @@ public enum DesignFlowFixtureLibrary {
                 schematic: SchematicPreview.voltageDividerViewModel().document,
                 testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
                 postLayoutCommand: .op,
-                pexIR: PEXParasiticIR(
+                pexIR: ParasiticIR(
                     version: "1.0",
                     cornerID: "tt_25c_1v0",
                     elements: [
-                        PEXParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.75),
-                        PEXParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1.5e-15),
+                        ParasiticElement(id: "r_out", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 0.75),
+                        ParasiticElement(id: "c_out", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1.5e-15),
                     ]
                 )
             )

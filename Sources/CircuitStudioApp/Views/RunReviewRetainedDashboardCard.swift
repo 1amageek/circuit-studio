@@ -166,8 +166,8 @@ struct RunReviewRetainedDashboardCard: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
-                            if !action.readyCommandIDs.isEmpty {
-                                wrappedLabels(action.readyCommandIDs)
+                            if !action.readyActionIDs.isEmpty {
+                                wrappedLabels(action.readyActionIDs)
                             }
                         }
                     }

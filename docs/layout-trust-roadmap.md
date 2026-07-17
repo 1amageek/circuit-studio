@@ -305,7 +305,7 @@ Implemented baseline for generated Sky130 gate-level rows:
 | `GateLevelAntennaProtectionPlanner` | Derives per-instance/per-gate protection sites from gate-load topology and route budget data. |
 | `AntennaProtectionRuleSet` | Encodes whether local gate contacts, unanchored gate nets, and span-budget violations need protection. |
 | `Sky130AntennaTieGenerator` | Emits DRC/LVS-clean local diffusion ties on the same met1 riser stage as the protected gate contact, tagging each shape with the materialized protection site ID. |
-| `SpecToSiliconFlow` | Writes `*.antenna-protection.json` as supporting antenna evidence, then exports GDS and runs the physical deck. Magic antennacheck remains the antenna signoff claim. |
+| `AntennaProtectionArtifactWriter` | Writes `*.antenna-protection.json` as supporting evidence. Release authorization and tapeout packaging remain owned by `ReleaseEngine`. |
 
 `AntennaProtectionPlan` and `LayoutTrustReport` are strict JSON artifacts. Both carry `schemaVersion` and `kind`; readers reject unsupported envelopes. Protection plans also validate site identity, topology fields, finite geometry, duplicate IDs, and rule-set values before decode/write/use. Layout trust reports validate that stored top-cell identity, status, and shape counts are derivable from `ownershipMap` and `netAwareReport`.
 

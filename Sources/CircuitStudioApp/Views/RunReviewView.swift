@@ -202,6 +202,9 @@ public struct RunReviewView: View {
 
     @ViewBuilder
     private func verificationReviewContent(_ review: RunReviewService.RunReview) -> some View {
+        if review.toolchain.hasContent {
+            RunReviewToolchainCard(projection: review.toolchain)
+        }
         if !review.bundle.reviewItems.isEmpty {
             RunReviewItemList(items: review.bundle.reviewItems)
         }
@@ -217,11 +220,11 @@ public struct RunReviewView: View {
         if !review.bundle.summary.nextActions.isEmpty {
             RunReviewNextActionList(
                 actions: review.bundle.summary.nextActions,
-                selections: review.suggestedCommandSelections,
-                recordSelection: { action, command in
-                    recordSuggestedCommandSelection(
+                selections: review.suggestedActionSelections,
+                recordSelection: { action, suggestedAction in
+                    recordSuggestedActionSelection(
                         action,
-                        command: command,
+                        suggestedAction: suggestedAction,
                         runID: review.runID
                     )
                 }
@@ -1026,17 +1029,17 @@ public struct RunReviewView: View {
 
 
 
-    private func recordSuggestedCommandSelection(
+    private func recordSuggestedActionSelection(
         _ action: FlowRunNextAction,
-        command: FlowRunSuggestedCommand,
+        suggestedAction: FlowRunSuggestedAction,
         runID: String
     ) {
         Task {
             do {
-                _ = try await service.recordSuggestedCommandSelection(
+                _ = try await service.recordSuggestedActionSelection(
                     runID: runID,
                     nextActionID: action.actionID,
-                    commandID: command.commandID,
+                    actionID: suggestedAction.id,
                     reviewer: reviewer,
                     projectRoot: projectRoot
                 )

@@ -157,7 +157,7 @@ flowchart LR
 
 | Feature | Done when |
 |---|---|
-| Timing artifacts | Timing manifest, timing library, STA report, characterization reports, and validation reports are all loaded through `ArtifactIntegrityChecking`; invalid or tampered backing files never reach `StaticTimingAnalyzer`. |
+| Timing artifacts | Timing manifest, timing library, canonical `STAExecutionResult`, characterization reports, and validation reports are all loaded through `ArtifactIntegrityChecking`; invalid or tampered backing files never become inputs to a `STAExecuting` engine. |
 | Antenna protection artifacts | The plan is validated before route use and before persistence; writer uses staged publication; reader verifies digest before decode; materialized layout shapes reference only verified plan site IDs. |
 | Layout trust artifacts | Canonical layout, ownership map, net-aware report, and layout trust report are published as one artifact set; readers verify all records before projecting `layout_trust_passed`. |
 | Round-trip review | Review summary loads every referenced report through the verified reader and reports incomplete/tampered artifacts as review diagnostics. |

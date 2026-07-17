@@ -88,8 +88,8 @@ public struct RunReviewRetainedDashboardProjection: Sendable, Hashable, Codable 
         public let severity: FlowDiagnosticSeverity
         public let reason: String
         public let diagnosticCodes: [String]
-        public let readyCommandIDs: [String]
-        public let inputRequiredCommandIDs: [String]
+        public let readyActionIDs: [String]
+        public let inputRequiredActionIDs: [String]
 
         public init(action: FlowRunNextAction) {
             self.id = action.actionID
@@ -97,13 +97,13 @@ public struct RunReviewRetainedDashboardProjection: Sendable, Hashable, Codable 
             self.severity = action.severity
             self.reason = action.reason
             self.diagnosticCodes = action.diagnosticCodes
-            self.readyCommandIDs = action.suggestedCommands
+            self.readyActionIDs = action.suggestedActions
                 .filter { $0.readiness == .ready }
-                .map(\.commandID)
+                .map(\.id)
                 .sorted()
-            self.inputRequiredCommandIDs = action.suggestedCommands
+            self.inputRequiredActionIDs = action.suggestedActions
                 .filter { $0.readiness == .requiresInput }
-                .map(\.commandID)
+                .map(\.id)
                 .sorted()
         }
     }

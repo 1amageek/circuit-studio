@@ -2,7 +2,7 @@ import Foundation
 
 public enum RunReviewServiceError: Error, LocalizedError, Equatable {
     case nextActionNotFound(actionID: String)
-    case suggestedCommandNotFound(actionID: String, commandID: String)
+    case suggestedActionNotFound(actionID: String, suggestedActionID: String)
     case waiverReviewNotFound(waiverReviewID: String)
     case waiverEditProposalNotFound(waiverReviewID: String, proposalID: String)
     case unsafeWaiverEditTargetPath(path: String)
@@ -40,8 +40,8 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
         switch self {
         case .nextActionNotFound(let actionID):
             "Next action was not found in the shared review bundle: \(actionID)"
-        case .suggestedCommandNotFound(let actionID, let commandID):
-            "Suggested command was not found for next action \(actionID): \(commandID)"
+        case .suggestedActionNotFound(let actionID, let suggestedActionID):
+            "Suggested action was not found for next action \(actionID): \(suggestedActionID)"
         case .waiverReviewNotFound(let waiverReviewID):
             "Waiver review item was not found in the shared review bundle: \(waiverReviewID)"
         case .waiverEditProposalNotFound(let waiverReviewID, let proposalID):

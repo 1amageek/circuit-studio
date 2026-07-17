@@ -217,7 +217,7 @@ extension RunReviewView {
         return values.joined(separator: ", ")
     }
 
-    func commandReadinessColor(_ readiness: FlowRunSuggestedCommandReadiness) -> Color {
+    func actionReadinessColor(_ readiness: FlowRunSuggestedActionReadiness) -> Color {
         switch readiness {
         case .ready:
             return .green
@@ -226,20 +226,16 @@ extension RunReviewView {
         }
     }
 
-    func selectedCommand(
+    func selectedAction(
         action: FlowRunNextAction,
-        command: FlowRunSuggestedCommand,
-        selections: [FlowSuggestedCommandSelection]
-    ) -> FlowSuggestedCommandSelection? {
+        suggestedAction: FlowRunSuggestedAction,
+        selections: [FlowRunSuggestedActionSelection]
+    ) -> FlowRunSuggestedActionSelection? {
         selections.last {
             $0.status == .succeeded
                 && $0.nextActionID == action.actionID
-                && $0.commandID == command.commandID
+                && $0.action.id == suggestedAction.id
         }
-    }
-
-    func commandLine(_ command: FlowRunSuggestedCommand) -> String {
-        ([command.executable] + command.arguments).joined(separator: " ")
     }
 
     func integrityColor(_ status: FlowRunReviewArtifactIntegrityStatus?) -> Color {

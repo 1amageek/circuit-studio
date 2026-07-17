@@ -1,4 +1,6 @@
 import CircuitSignoff
+import DRCAdapters
+import DRCCore
 import Foundation
 import Testing
 import PEXEngine
@@ -16,7 +18,7 @@ import PEXEngine
 @Suite("Multi-cell block: DRC + PEX (gated)")
 struct MultiCellBlockTests {
 
-    static let available = MagicDRCSignoff.locate() != nil && MagicToolchain.locate() != nil
+    static let available = MagicDRCAdapter.locate() != nil && MagicToolchain.locate() != nil
     private let topCell = "inv_pair"
 
     private func blockGDS() throws -> URL {
@@ -50,16 +52,18 @@ struct MultiCellBlockTests {
         .timeLimit(.minutes(3))
     )
     func blockDRCClean() async throws {
-        let drc = try #require(MagicDRCSignoff.locate())
+        let drc = try #require(MagicDRCAdapter.locate())
         let work = try makeDir("drc")
         defer { removeCoreTestTemporaryDirectory(work) }
 
-        let result = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
-            command: drc.command(cell: topCell, gds: try blockGDS(), artifactDirectory: work),
-            artifactDirectory: work
-        )
-        #expect(result.report.passed, "the composed block must be DRC-clean")
-        #expect(!result.report.diagnostics.contains { $0.severity == .error })
+        let execution = try await drc.run(DRCRequest(
+            layoutURL: try blockGDS(),
+            topCell: topCell,
+            layoutFormat: .gds,
+            workingDirectory: work
+        ))
+        #expect(execution.result.passed, "the composed block must be DRC-clean")
+        #expect(!execution.result.diagnostics.contains { $0.severity == .error })
     }
 
     @Test(

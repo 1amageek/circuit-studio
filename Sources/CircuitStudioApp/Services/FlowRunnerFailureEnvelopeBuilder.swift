@@ -16,15 +16,7 @@ public enum FlowRunnerFailureEnvelopeBuilder {
                     severity: .error,
                     reason: "Inspect the command reference before rerunning.",
                     diagnosticCodes: ["usage"],
-                    suggestedCommands: [
-                        FlowRunSuggestedCommand(
-                            commandID: "circuit-studio-flow-runner.help",
-                            readiness: .ready,
-                            executable: "swift",
-                            arguments: ["run", "--quiet", "circuit-studio-flow-runner", "--help"],
-                            reason: "Show flow runner usage and supported modes."
-                        ),
-                    ]
+                    suggestedActions: []
                 ),
             ]
         )
@@ -47,6 +39,7 @@ public enum FlowRunnerFailureEnvelopeBuilder {
             recommendation: recommendation(for: error, manifestURL: manifestURL, manifestInspection: manifestInspection),
             nextActions: runtimeNextActions(
                 error: error,
+                runID: options.runID,
                 projectRoot: projectRoot,
                 manifestPath: manifestPath,
                 failedStage: manifestInspection.failedStage,
@@ -129,6 +122,7 @@ public enum FlowRunnerFailureEnvelopeBuilder {
 
     private static func runtimeNextActions(
         error: Error,
+        runID: String?,
         projectRoot: String?,
         manifestPath: String?,
         failedStage: String?,
@@ -136,37 +130,21 @@ public enum FlowRunnerFailureEnvelopeBuilder {
     ) -> [FlowRunNextAction] {
         if let manifestPath {
             let diagnosticCodes = manifestInspectionError == nil ? ["runtime"] : ["runtime", "manifest_unreadable"]
-            var suggestedCommands = [
-                FlowRunSuggestedCommand(
-                    commandID: "circuit-studio-flow-runner.review-round-trip",
+            var suggestedActions = [
+                FlowRunSuggestedAction(
+                    id: "review-flow-runner-failure",
                     readiness: .ready,
-                    executable: "swift",
-                    arguments: [
-                        "run",
-                        "--quiet",
-                        "circuit-studio-flow-runner",
-                        "--review-round-trip",
-                        "--manifest",
-                        manifestPath,
-                        "--json",
-                    ],
+                    operation: .reviewRun,
+                    runID: runID,
                     reason: "Load the failed run review from its persisted manifest."
                 ),
             ]
-            if let projectRoot {
-                suggestedCommands.append(FlowRunSuggestedCommand(
-                    commandID: "circuit-studio-flow-runner.summarize-bottlenecks",
+            if projectRoot != nil {
+                suggestedActions.append(FlowRunSuggestedAction(
+                    id: "summarize-run-loop",
                     readiness: .ready,
-                    executable: "swift",
-                    arguments: [
-                        "run",
-                        "--quiet",
-                        "circuit-studio-flow-runner",
-                        "--summarize-bottlenecks",
-                        "--output",
-                        projectRoot,
-                        "--json",
-                    ],
+                    operation: .summarizeRunLoop,
+                    runID: runID,
                     reason: "Summarize failed and expensive stages across saved flow manifests."
                 ))
             }
@@ -178,7 +156,7 @@ public enum FlowRunnerFailureEnvelopeBuilder {
                     severity: .error,
                     reason: "Inspect the failed stage and persisted artifacts before planning a repair.",
                     diagnosticCodes: diagnosticCodes,
-                    suggestedCommands: suggestedCommands
+                    suggestedActions: suggestedActions
                 ),
             ]
         }
@@ -191,15 +169,7 @@ public enum FlowRunnerFailureEnvelopeBuilder {
                     severity: .error,
                     reason: "The command is missing required inputs or has inconsistent options.",
                     diagnosticCodes: ["command_validation"],
-                    suggestedCommands: [
-                        FlowRunSuggestedCommand(
-                            commandID: "circuit-studio-flow-runner.help",
-                            readiness: .ready,
-                            executable: "swift",
-                            arguments: ["run", "--quiet", "circuit-studio-flow-runner", "--help"],
-                            reason: "Show flow runner usage and required options."
-                        ),
-                    ]
+                    suggestedActions: []
                 ),
             ]
         }
@@ -211,7 +181,7 @@ public enum FlowRunnerFailureEnvelopeBuilder {
                 severity: .warning,
                 reason: "Rerun with explicit output and run ID so failure artifacts can be inspected.",
                 diagnosticCodes: ["missing_manifest"],
-                suggestedCommands: []
+                suggestedActions: []
             ),
         ]
     }

@@ -4,13 +4,13 @@ import PEXEngine
 public struct PEXExtractionResult: Sendable, Hashable {
     public let manifestURL: URL
     public let manifest: PEXArtifactManifest
-    public let ir: PEXParasiticIR
+    public let ir: ParasiticIR
     public let runResult: PEXRunResult?
 
     public init(
         manifestURL: URL,
         manifest: PEXArtifactManifest,
-        ir: PEXParasiticIR,
+        ir: ParasiticIR,
         runResult: PEXRunResult? = nil
     ) {
         self.manifestURL = manifestURL

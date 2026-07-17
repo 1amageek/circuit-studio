@@ -1,4 +1,6 @@
+import CircuiteFoundation
 import Foundation
+import STAEngine
 import Testing
 @testable import CircuitStudioApp
 
@@ -8,27 +10,22 @@ import Testing
 @Suite("Multi-constraint signoff")
 struct MultiConstraintSignoffTests {
 
-    private func constantLibrary() -> TimingLibrary {
-        func arc(_ d: Double) -> TimingArc {
-            TimingArc(inputPin: "A", sense: .negativeUnate, delayRise: .constant(d), delayFall: .constant(d),
-                      transitionRise: .constant(1e-11), transitionFall: .constant(1e-11))
-        }
-        let inv = CellTiming(cellName: "inv", inputCapacitance: ["A": 1e-15], arcs: [arc(50e-12)])
-        let ff = SequentialTiming(clkToQRise: .constant(100e-12), clkToQFall: .constant(100e-12),
-                                  qTransitionRise: .constant(1e-11), qTransitionFall: .constant(1e-11),
-                                  setupTime: 20e-12, holdTime: 5e-12, dataCapacitance: 1e-15, clockCapacitance: 1e-15)
-        return TimingLibrary(cells: ["inv": inv], flipFlop: ff)
-    }
-
-    private func report(clockPeriod: Double) throws -> TimingReport {
-        // A self-contained toggle (q -> inv -> d, same flip-flop): no primary-input capture,
-        // so the only constraint is the real FF→FF path.
-        let seq = SequentialNetlist(
-            name: "c",
-            combinational: [.init(name: "g0", cell: try .inverter(name: "inv"), netMap: ["A": "q", "Y": "d"])],
-            dffs: [.init(name: "ff", d: "d", clk: "clk", q: "q")],
-            inputs: [], outputs: ["q"], clock: "clk")
-        return try StaticTimingAnalyzer(library: constantLibrary()).analyze(seq, clockPeriod: clockPeriod, defaultInputSlew: 1e-11)
+    private func result(setupSlack: Double, holdSlack: Double = 5e-12) throws -> STAExecutionResult {
+        let timestamp = Date(timeIntervalSince1970: 1)
+        return STAExecutionResult(
+            runID: "unit",
+            status: .completed,
+            payload: STAPayload(
+                worstSetupSlack: setupSlack,
+                worstHoldSlack: holdSlack,
+                analyzedCorners: ["tt"]
+            ),
+            provenance: try ExecutionProvenance(
+                producer: ProducerIdentity(kind: .engine, identifier: "timing.sta", version: "1"),
+                startedAt: timestamp,
+                completedAt: timestamp
+            )
+        )
     }
 
     @Test("Functional + timing fold into a single passing verdict")
@@ -39,7 +36,7 @@ struct MultiConstraintSignoffTests {
         let actual = try ACC4Machine().run(program, cycles: 16)
         let fn = MultiConstraintSignoff.functional(passed: actual == golden, cycles: 16, evidence: "ACC4Machine==ACC4Reference")
 
-        let timing = MultiConstraintSignoff.timing(try report(clockPeriod: 5e-9), evidence: "STA@5ns")
+        let timing = MultiConstraintSignoff.timing(try result(setupSlack: 1e-9), evidence: "STA")
         let verdict = try MultiConstraintSignoff().combine([fn, timing])
 
         #expect(verdict.passed)
@@ -51,7 +48,7 @@ struct MultiConstraintSignoffTests {
     @Test("A timing violation fails the whole signoff even when function is correct")
     func timingViolationFailsAll() throws {
         let fn = MultiConstraintSignoff.functional(passed: true, cycles: 16, evidence: "ok")
-        let timing = MultiConstraintSignoff.timing(try report(clockPeriod: 150e-12), evidence: "STA@150ps")  // < min period
+        let timing = MultiConstraintSignoff.timing(try result(setupSlack: -1e-12), evidence: "STA")
         let verdict = try MultiConstraintSignoff().combine([fn, timing])
 
         #expect(!verdict.passed)

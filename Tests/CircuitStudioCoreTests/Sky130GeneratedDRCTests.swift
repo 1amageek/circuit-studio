@@ -1,9 +1,12 @@
 import CircuitSignoff
+import DRCAdapters
 import Foundation
 import Testing
 import LayoutCore
 import LayoutTech
 import LayoutIO
+import LVSCore
+import LVSExtractionAdapters
 @testable import CircuitStudioApp
 
 /// Proves the generate → export → REAL Magic Sky130 DRC chain on GENERATED geometry
@@ -12,20 +15,15 @@ import LayoutIO
 @Suite("Sky130 generated-geometry DRC (gated)")
 struct Sky130GeneratedDRCTests {
 
-    static let available = MagicDRCSignoff.locate() != nil
+    static let available = MagicDRCAdapter.locate() != nil
 
     private func runDRC(cell: String, document: LayoutDocument) async throws -> ExternalSignoffToolReport {
-        let dir = FileManager.default.temporaryDirectory.appending(path: "sky130-gen-drc-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let gds = dir.appending(path: "\(cell).gds")
-        try MaskDataFormatConverter(tech: try Sky130LayoutTech.tech()).exportDocument(document, to: gds, format: .gds)
-
-        let drc = try #require(MagicDRCSignoff.locate())
-        let result = try await ExternalSignoffCommandService(parser: MagicDRCSignoff.reportParser).run(
-            command: drc.command(cell: cell, gds: gds, artifactDirectory: dir),
-            artifactDirectory: dir
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "sky130-gen-drc-\(UUID().uuidString)")
+        let checker = try #require(
+            MagicLayoutDRCChecker.locate(layoutTechnology: try Sky130LayoutTech.tech())
         )
-        return result.report
+        return try await checker.check(document, cell: cell, in: directory)
     }
 
     private func circuitSynthesizer() throws -> StandardCircuitSynthesizer {
@@ -1380,12 +1378,13 @@ struct Sky130GeneratedDRCTests {
         try MaskDataFormatConverter(tech: try Sky130LayoutTech.tech())
             .exportDocument(labeledInverter(cell: "gen_inverter"), to: gds, format: .gds)
 
-        let drc = try #require(MagicDRCSignoff.locate())
-        let extractor = MagicLayoutExtractor(
-            magicExecutableURL: drc.magicExecutableURL, rcFileURL: drc.rcFileURL,
-            pdkRoot: drc.pdkRoot, driverScriptURL: try #require(MagicLayoutExtractor.bundledDriverScriptURL)
+        let extractor = try #require(MagicLayoutNetlistExtractor.locate())
+        let netlistURL = try await extractor.extractLayoutNetlist(
+            gds: gds,
+            topCell: "gen_inverter",
+            into: dir,
+            timeoutSeconds: 300
         )
-        let netlistURL = try await extractor.extractLayoutNetlist(gds: gds, cell: "gen_inverter", into: dir)
         let netlist = try String(contentsOf: netlistURL, encoding: .utf8)
 
         let devices = netlist.split(whereSeparator: \.isNewline).filter { $0.first == "X" || $0.first == "M" }

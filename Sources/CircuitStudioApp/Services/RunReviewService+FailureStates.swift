@@ -256,19 +256,18 @@ extension RunReviewService {
                             artifactReferences(path: $0, role: "review-item", bundle: bundle)
                         },
                         diagnosticCodes: item.diagnosticCodes,
-                        suggestedActions: ["choose-supported-command", "request-human-decision"]
+                        suggestedActions: ["choose-supported-action", "request-human-decision"]
                     )
                 )
             }
         }
 
         for action in bundle.summary.nextActions {
-            let unsupportedCommands = action.suggestedCommands.filter { command in
-                containsUnsupportedActionSignal(command.commandID)
-                    || containsUnsupportedActionSignal(command.reason)
-                    || containsUnsupportedActionSignal(command.executable)
+            let unsupportedActions = action.suggestedActions.filter { suggestedAction in
+                containsUnsupportedActionSignal(suggestedAction.id)
+                    || containsUnsupportedActionSignal(suggestedAction.reason)
             }
-            guard !unsupportedCommands.isEmpty else {
+            guard !unsupportedActions.isEmpty else {
                 continue
             }
             appendState(
@@ -283,7 +282,7 @@ extension RunReviewService {
                     stageID: action.stageID,
                     nextActionID: action.actionID,
                     diagnosticCodes: action.diagnosticCodes,
-                    suggestedActions: unsupportedCommands.map(\.commandID)
+                    suggestedActions: unsupportedActions.map(\.id)
                 )
             )
         }

@@ -2,6 +2,7 @@ import CircuiteFoundation
 import Foundation
 import CircuitPhysicalDesign
 import LayoutCore
+import STAEngine
 import Testing
 @testable import CircuitStudioApp
 
@@ -23,7 +24,6 @@ struct ArtifactSchemaContractTests {
         let fixtures = try ArtifactFixture()
 
         try expectStrictSchemaEnvelope(TimingLibraryArtifact.self, fixtures.libraryArtifact)
-        try expectStrictSchemaEnvelope(STAReportArtifact.self, fixtures.staReportArtifact)
         try expectStrictSchemaEnvelope(TimingModelProfileSelection.self, fixtures.profileSelection)
         try expectStrictSchemaEnvelope(TimingArtifactManifest.self, fixtures.manifest)
         try expectStrictSchemaEnvelope(TimingValidationReport.self, fixtures.validationReport)
@@ -36,6 +36,9 @@ struct ArtifactSchemaContractTests {
             fixtures.sequentialReport
         )
         try expectStrictSchemaEnvelope(LayoutTrustReport.self, fixtures.layoutTrustReport)
+
+        let staData = try JSONEncoder().encode(fixtures.staExecutionResult)
+        #expect(try JSONDecoder().decode(STAExecutionResult.self, from: staData) == fixtures.staExecutionResult)
     }
 
     @Test("Timing artifacts encode dates as ISO-8601 strings", .timeLimit(.minutes(1)))
@@ -299,15 +302,17 @@ struct ArtifactSchemaContractTests {
             technology: fixtures.technology,
             library: fixtures.libraryArtifact,
             profileSelection: fixtures.profileSelection,
-            staReport: fixtures.staReportArtifact,
+            staReport: fixtures.staExecutionResult,
             combinationalReport: fixtures.combinationalReport,
             sequentialReport: fixtures.sequentialReport,
             validationReports: [
                 (id: "clocked-validation", fileName: "clocked-validation.json", report: fixtures.validationReport),
             ]
         )
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
 
-        _ = try JSONDecoder().decode(
+        _ = try decoder.decode(
             TimingArtifactManifest.self,
             from: Data(contentsOf: result.manifestURL)
         )
@@ -316,19 +321,19 @@ struct ArtifactSchemaContractTests {
             let data = try Data(contentsOf: url)
             switch record.id {
             case "timing-manifest":
-                _ = try JSONDecoder().decode(TimingArtifactManifest.self, from: data)
+                _ = try decoder.decode(TimingArtifactManifest.self, from: data)
             case "timing-library":
-                _ = try JSONDecoder().decode(TimingLibraryArtifact.self, from: data)
+                _ = try decoder.decode(TimingLibraryArtifact.self, from: data)
             case "timing-model-profile-selection":
-                _ = try JSONDecoder().decode(TimingModelProfileSelection.self, from: data)
+                _ = try decoder.decode(TimingModelProfileSelection.self, from: data)
             case "sta-report":
-                _ = try JSONDecoder().decode(STAReportArtifact.self, from: data)
+                _ = try decoder.decode(STAExecutionResult.self, from: data)
             case "combinational-characterization":
-                _ = try JSONDecoder().decode(CombinationalTimingCharacterizationReport.self, from: data)
+                _ = try decoder.decode(CombinationalTimingCharacterizationReport.self, from: data)
             case "sequential-dff-characterization":
-                _ = try JSONDecoder().decode(SequentialTimingCharacterizationReport.self, from: data)
+                _ = try decoder.decode(SequentialTimingCharacterizationReport.self, from: data)
             case "clocked-validation":
-                _ = try JSONDecoder().decode(TimingValidationReport.self, from: data)
+                _ = try decoder.decode(TimingValidationReport.self, from: data)
             default:
                 Issue.record("Unexpected available timing artifact record \(record.id)")
             }
@@ -377,7 +382,7 @@ struct ArtifactSchemaContractTests {
                 runDirectory: runDirectory,
                 technology: fixtures.technology,
                 library: fixtures.libraryArtifact,
-                staReport: fixtures.staReportArtifact,
+                staReport: fixtures.staExecutionResult,
                 combinationalReport: fixtures.combinationalReport,
                 sequentialReport: fixtures.sequentialReport,
                 validationReports: []
@@ -555,7 +560,7 @@ private struct ArtifactFixture {
     let sequentialTiming: SequentialTiming
     let libraryArtifact: TimingLibraryArtifact
     let profileSelection: TimingModelProfileSelection
-    let staReportArtifact: STAReportArtifact
+    let staExecutionResult: STAExecutionResult
     let manifest: TimingArtifactManifest
     let validationReport: TimingValidationReport
     let combinationalReport: CombinationalTimingCharacterizationReport
@@ -608,29 +613,37 @@ private struct ArtifactFixture {
             technology: context
         )
 
-        let timingPath = TimingPath(
+        let timingPath = STAPath(
+            modeID: "functional",
+            cornerID: "tt",
             startpoint: "ff0/Q",
             endpoint: "ff1/D",
-            launchDelay: 10e-12,
-            launchSlew: 20e-12,
-            startEdge: .rise,
+            arrival: 10e-12,
+            required: 910e-12,
+            slack: 900e-12,
             stages: [],
-            arrival: 10e-12
         )
-        let timingReport = TimingReport(
-            clockPeriod: 1e-9,
+        let timingPayload = STAPayload(
             worstSetupSlack: 900e-12,
             worstHoldSlack: 5e-12,
-            minPeriod: 100e-12,
-            criticalPath: timingPath,
-            endpoints: []
+            analyzedCorners: ["tt"],
+            analyzedModes: ["functional"],
+            criticalPaths: [timingPath]
         )
-        staReportArtifact = STAReportArtifact(
+        let timestamp = Date(timeIntervalSince1970: 1)
+        staExecutionResult = STAExecutionResult(
             runID: "unit",
-            designName: "unit",
-            timingLibraryArtifactID: "timing-library",
-            report: timingReport,
-            status: .passed
+            status: .completed,
+            payload: timingPayload,
+            provenance: try ExecutionProvenance(
+                producer: ProducerIdentity(
+                    kind: .engine,
+                    identifier: "timing.sta",
+                    version: "1"
+                ),
+                startedAt: timestamp,
+                completedAt: timestamp
+            )
         )
         manifest = TimingArtifactManifest(
             runID: "unit",

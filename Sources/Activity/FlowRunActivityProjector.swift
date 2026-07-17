@@ -133,7 +133,7 @@ public struct FlowRunActivityProjector: Sendable {
                 status: activityStatus(action.status),
                 title: bounded(action.actionKind, maximumBytes: Self.maximumTitleBytes),
                 summary: bounded(actionSummary(action)),
-                command: command(from: action.context.suggestedCommand),
+                command: nil,
                 artifacts: artifactResult.references,
                 omittedArtifactCount: artifactResult.omittedCount,
                 diagnostics: diagnosticResult.diagnostics,
@@ -421,41 +421,6 @@ public struct FlowRunActivityProjector: Sendable {
         return (
             boundedDiagnostics,
             max(0, diagnostics.count - boundedDiagnostics.count)
-        )
-    }
-
-    private func command(
-        from suggestedCommand: FlowRunActionContext.SuggestedCommand?
-    ) -> Activity.Command? {
-        guard let suggestedCommand,
-              !suggestedCommand.executable.isEmpty else {
-            return nil
-        }
-
-        var arguments: [String] = []
-        var redactedArgumentCount = 0
-        var expectsSensitiveValue = false
-        for argument in suggestedCommand.arguments {
-            if expectsSensitiveValue {
-                arguments.append("<redacted>")
-                redactedArgumentCount += 1
-                expectsSensitiveValue = false
-                continue
-            }
-
-            let sanitized = sanitizedArgument(argument)
-            if sanitized == "<redacted>" {
-                redactedArgumentCount += 1
-            }
-            arguments.append(sanitized)
-            expectsSensitiveValue = isSensitiveArgumentName(argument)
-        }
-        let omittedArgumentCount = max(0, arguments.count - 32)
-        return Activity.Command(
-            executable: bounded(suggestedCommand.executable, maximumBytes: 512),
-            arguments: Array(arguments.prefix(32)),
-            redactedArgumentCount: redactedArgumentCount,
-            omittedArgumentCount: omittedArgumentCount
         )
     }
 

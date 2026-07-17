@@ -2,18 +2,20 @@ import Foundation
 import CircuitStudioCore
 import CoreSpiceEvent
 import CoreSpiceWaveform
+import STAEngine
 
 public protocol TimingPathValidating: Sendable {
     func validate(
-        path: TimingPath,
+        path: STAPath,
         in netlist: SequentialNetlist,
+        launchSlew: Double,
         toleranceFraction: Double
     ) async throws -> STAvsSPICEValidator.Result
 }
 
 /// The trust anchor for the timing axis: it re-simulates the STA critical path's actual
 /// gate chain in CoreSpice and compares the measured end-to-end delay against the sum of
-/// arc delays the `StaticTimingAnalyzer` predicted. Each stage is driven by the previous,
+/// arc delays the canonical STA result predicted. Each stage is driven by the previous,
 /// its side inputs held at their non-controlling value (so the same arcs are exercised),
 /// and each net loaded with the exact capacitance STA assumed — so the comparison isolates
 /// the STA abstraction (NLDM interpolation + slew/load propagation), not the model. CoreSpice
@@ -69,7 +71,10 @@ public struct STAvsSPICEValidator: TimingPathValidating {
     private let maxStagesPerSegment = 2
 
     public func validate(
-        path: TimingPath, in netlist: SequentialNetlist, toleranceFraction: Double = 0.15
+        path: STAPath,
+        in netlist: SequentialNetlist,
+        launchSlew: Double,
+        toleranceFraction: Double = 0.15
     ) async throws -> Result {
         guard !path.stages.isEmpty else { throw ValidatorError.emptyPath }
         let byName = Dictionary(uniqueKeysWithValues: netlist.combinational.map { ($0.name, $0) })
@@ -80,12 +85,12 @@ public struct STAvsSPICEValidator: TimingPathValidating {
             let end = min(start + maxStagesPerSegment, path.stages.count)
             let segment = Array(path.stages[start..<end])
             // Input slew entering this segment is the slew STA propagated to its first net.
-            let launchSlew = start == 0 ? path.launchSlew : path.stages[start - 1].outputSlew
-            spiceTotal += try await simulateSegment(segment, launchSlew: launchSlew, byName: byName)
+            let segmentInputSlew = start == 0 ? launchSlew : path.stages[start - 1].outputSlew
+            spiceTotal += try await simulateSegment(segment, launchSlew: segmentInputSlew, byName: byName)
             start = end
         }
 
-        let sta = path.combinationalDelay
+        let sta = path.stages.reduce(0) { $0 + $1.delay }
         let denom = abs(spiceTotal) > 1e-15 ? abs(spiceTotal) : 1e-15
         return Result(staDelay: sta, spiceDelay: spiceTotal,
                       relativeError: abs(spiceTotal - sta) / denom, tolerance: toleranceFraction)
@@ -94,14 +99,14 @@ public struct STAvsSPICEValidator: TimingPathValidating {
     /// Simulate one short chain segment and return its measured 50%→50% delay (the input
     /// edge of the first stage to the output edge of the last).
     private func simulateSegment(
-        _ stages: [TimingStage], launchSlew rawSlew: Double, byName: [String: GateLevelNetlist.Instance]
+        _ stages: [STAPathStage], launchSlew rawSlew: Double, byName: [String: GateLevelNetlist.Instance]
     ) async throws -> Double {
         let vdd = model.supplyVoltage
         let mid = vdd / 2
         let launchSlew = max(rawSlew, 5e-12)
         let edgeTime = launchSlew / 0.6
         let delay = 1e-9
-        let segmentDelay = stages.reduce(0) { $0 + $1.stageDelay }
+        let segmentDelay = stages.reduce(0) { $0 + $1.delay }
         let settle = max(2e-9, 25 * abs(segmentDelay) + 20 * launchSlew)
         let period = 2 * (delay + edgeTime + settle)
         let stop = delay + edgeTime + settle + 1e-9

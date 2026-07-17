@@ -6,6 +6,7 @@ import WaveformViewer
 import SchematicEditor
 import LayoutEditor
 import LayoutIO
+import PEXEngine
 import UniformTypeIdentifiers
 
 public struct CircuitStudioApp: App {
@@ -959,9 +960,6 @@ public struct CircuitStudioApp: App {
             for warning in extraction.runResult?.warnings ?? [] {
                 appState.log(warning.message, kind: .warning)
             }
-            for diagnostic in extraction.ir.diagnostics {
-                appState.log(diagnostic.message, kind: .warning)
-            }
 
             let postNetlistURL = try writePostPEXNetlist(
                 projectRoot: projectRoot,
@@ -992,7 +990,7 @@ public struct CircuitStudioApp: App {
     private func writePostPEXNetlist(
         projectRoot: URL,
         baseNetlist: String,
-        parasitics: PEXParasiticIR
+        parasitics: ParasiticIR
     ) throws -> URL {
         let outputURL = projectRoot
             .appending(path: ".xcircuite")

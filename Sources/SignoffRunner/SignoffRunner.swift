@@ -1,5 +1,8 @@
+import DRCAdapters
 import Foundation
 import CircuitSignoff
+import LVSAdapters
+import LVSCore
 import PEXEngine
 
 /// `signoff` — a small, consistent CLI harness for real physical verification.
@@ -49,7 +52,7 @@ public enum SignoffCommand {
             // problem, not a design that failed its checks — exit 2, never 3.
             output.writeStandardErrorLine("error: \(error.localizedDescription)")
             return 2
-        } catch let error as MagicLayoutExtractor.ExtractionError {
+        } catch let error as LVSError {
             // The LVS-netlist extraction failed: again a tooling/setup problem, not
             // a DRC/LVS verdict — exit 2.
             output.writeStandardErrorLine("error: \(error.localizedDescription)")
@@ -66,8 +69,8 @@ public enum SignoffCommand {
         _ options: SignoffCommandOptions,
         output: SignoffCommandOutput
     ) throws -> Int32 {
-        let drc = MagicDRCSignoff.locate()
-        let lvs = NetgenLVSSignoff.locate()
+        let drc = MagicDRCAdapter.locate()
+        let lvs = NetgenLVSAdapter.locate()
         let pex = MagicToolchain.locate()
         // `check --cell` also needs the PDK standard-cell SPICE deck to derive a
         // reference schematic; verify it here so Ready is not an over-promise.
@@ -84,7 +87,7 @@ public enum SignoffCommand {
             output.writeStandardOutputLine("  Netgen LVS     : \(lvs != nil ? "found" : "MISSING")")
             output.writeStandardOutputLine("  Magic PEX      : \(pex != nil ? "found" : "MISSING")")
             output.writeStandardOutputLine("  PDK schematics : \(schematics ? "found" : "MISSING")")
-            if let drc { output.writeStandardOutputLine("  PDK_ROOT       : \(drc.pdkRoot)") }
+            if let drc { output.writeStandardOutputLine("  PDK_ROOT       : \(drc.toolchain.pdkRoot)") }
             output.writeStandardOutputLine(ok ? "Ready." : "Toolchain incomplete (see docs/TOOLCHAIN.md).")
         }
         return ok ? 0 : 2

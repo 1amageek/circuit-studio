@@ -2,6 +2,7 @@ import Foundation
 import DesignFlowKernel
 import Testing
 import LayoutCore
+import PEXEngine
 @testable import CircuitStudioApp
 @testable import CircuitStudioCore
 @testable import SchematicEditor
@@ -23,7 +24,7 @@ struct DesignFlowSpecValidationCommandTests {
             components: base.components,
             nets: base.nets,
             analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
+            pexIR: base.pexIR
         ), to: unsafeNameURL)
 
         await #expect(throws: DesignFlowDesignSpecError.invalidDesignName("../escaped")) {
@@ -47,7 +48,7 @@ struct DesignFlowSpecValidationCommandTests {
                 ),
             ],
             analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
+            pexIR: base.pexIR
         ), to: duplicateTerminalURL)
 
         await #expect(throws: DesignFlowDesignSpecError.duplicateTerminal(
@@ -128,7 +129,7 @@ struct DesignFlowSpecValidationCommandTests {
                 ),
             ],
             analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
+            pexIR: base.pexIR
         ), to: wrongPrefixURL)
 
         await #expect(throws: DesignFlowDesignSpecError.invalidComponentPrefix(
@@ -155,7 +156,7 @@ struct DesignFlowSpecValidationCommandTests {
             ],
             nets: [],
             analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
+            pexIR: base.pexIR
         ), to: unknownParameterURL)
 
         await #expect(throws: DesignFlowDesignSpecError.unknownParameter(
@@ -182,7 +183,7 @@ struct DesignFlowSpecValidationCommandTests {
             ],
             nets: [],
             analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
+            pexIR: base.pexIR
         ), to: unknownPresetURL)
 
         await #expect(throws: DesignFlowDesignSpecError.unknownModelPresetID("missing_preset")) {
@@ -204,7 +205,7 @@ struct DesignFlowSpecValidationCommandTests {
             ],
             nets: [],
             analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
+            pexIR: base.pexIR
         ), to: missingRequiredParameterURL)
 
         await #expect(throws: DesignFlowDesignSpecError.missingRequiredParameter(
@@ -230,7 +231,7 @@ struct DesignFlowSpecValidationCommandTests {
             ],
             nets: [],
             analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
+            pexIR: base.pexIR
         ), to: outOfRangeParameterURL)
 
         await #expect(throws: DesignFlowDesignSpecError.parameterOutOfRange(
@@ -257,7 +258,7 @@ struct DesignFlowSpecValidationCommandTests {
             ],
             nets: [],
             analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
+            pexIR: base.pexIR
         ), to: unsupportedModelURL)
 
         await #expect(throws: DesignFlowDesignSpecError.unsupportedComponentModel(
@@ -284,7 +285,7 @@ struct DesignFlowSpecValidationCommandTests {
             ],
             nets: [],
             analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
+            pexIR: base.pexIR
         ), to: incompatiblePresetURL)
 
         await #expect(throws: DesignFlowDesignSpecError.incompatibleModelPresetID(
@@ -314,7 +315,7 @@ struct DesignFlowSpecValidationCommandTests {
             ],
             nets: [],
             analyses: base.analyses,
-            pexIR: try base.pexIR?.normalizedCore()
+            pexIR: base.pexIR
         ), to: ambiguousModelURL)
 
         await #expect(throws: DesignFlowDesignSpecError.ambiguousComponentModel(component: "M1")) {
@@ -327,7 +328,7 @@ struct DesignFlowSpecValidationCommandTests {
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
-    func designSpecNormalizesInlinePEXUnitsAndRejectsInvalidPEX() async throws {
+    func designSpecPreservesCanonicalPEXUnitsAndRejectsInvalidIR() async throws {
         let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("inline-pex-spec")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
         let service = DesignFlowService()
@@ -346,24 +347,36 @@ struct DesignFlowSpecValidationCommandTests {
                 {
                   "id": "r_out",
                   "kind": "resistor",
-                  "nodeA": "out",
-                  "nodeB": "out_pex",
-                  "value": 0.001
+                  "nodeA": {
+                    "netName": { "value": "out" },
+                    "nodeName": { "value": "out" }
+                  },
+                  "nodeB": {
+                    "netName": { "value": "out_pex" },
+                    "nodeName": { "value": "out_pex" }
+                  },
+                  "value": 0.001,
+                  "source": "userDefined"
                 },
                 {
                   "id": "c_out",
                   "kind": "capacitor",
-                  "nodeA": "out_pex",
-                  "value": 2.0
+                  "nodeA": {
+                    "netName": { "value": "out_pex" },
+                    "nodeName": { "value": "out_pex" }
+                  },
+                  "value": 2.0,
+                  "source": "userDefined"
                 }
                 """
             ),
             to: scaledPEXURL
         )
         let scaledDesign = try service.loadDesignSpec(scaledPEXURL).build()
-        #expect(scaledDesign.pexIR?.units == .canonical)
-        #expect(scaledDesign.pexIR?.elements.first { $0.id == "r_out" }?.value == 1.0)
-        #expect(scaledDesign.pexIR?.elements.first { $0.id == "c_out" }?.value == 2.0e-15)
+        #expect(scaledDesign.pexIR?.units.resistance == .kiloOhm)
+        #expect(scaledDesign.pexIR?.units.capacitance == .femtoFarad)
+        #expect(scaledDesign.pexIR?.elements.first { $0.id == "r_out" }?.value == 0.001)
+        #expect(scaledDesign.pexIR?.elements.first { $0.id == "c_out" }?.value == 2.0)
 
         let inductorElementURL = root.appending(path: "inductor-pex-element.json")
         try DesignFlowServiceTestSupport.writeDesignSpecJSON(
@@ -373,9 +386,16 @@ struct DesignFlowSpecValidationCommandTests {
                 {
                   "id": "l_out",
                   "kind": "inductor",
-                  "nodeA": "out",
-                  "nodeB": "out_pex",
-                  "value": 0.5
+                  "nodeA": {
+                    "netName": { "value": "out" },
+                    "nodeName": { "value": "out" }
+                  },
+                  "nodeB": {
+                    "netName": { "value": "out_pex" },
+                    "nodeName": { "value": "out_pex" }
+                  },
+                  "value": 0.5,
+                  "source": "userDefined"
                 }
                 """
             ),
@@ -384,32 +404,53 @@ struct DesignFlowSpecValidationCommandTests {
         let inductorDesign = try service.loadDesignSpec(inductorElementURL).build()
         let inductor = try #require(inductorDesign.pexIR?.elements.first { $0.id == "l_out" })
         #expect(inductor.kind == .inductor)
-        #expect(inductor.nodeA == "out")
-        #expect(inductor.nodeB == "out_pex")
+        #expect(inductor.nodeA.nodeName.value == "out")
+        #expect(inductor.nodeB?.nodeName.value == "out_pex")
         #expect(inductor.value == 0.5)
 
-        let unsupportedDiagnosticSeverityURL = root.appending(path: "unsupported-pex-diagnostic-severity.json")
-        let unsupportedDiagnosticSeverityJSON = DesignFlowServiceTestSupport.agentResistorDividerSpecJSON(
+        let duplicateElementURL = root.appending(path: "duplicate-pex-element.json")
+        let duplicateElementJSON = DesignFlowServiceTestSupport.agentResistorDividerSpecJSON(
             pexUnits: "",
             pexElements: """
             {
               "id": "r_out",
               "kind": "resistor",
-              "nodeA": "out",
-              "nodeB": "out_pex",
-              "value": 0.5
+              "nodeA": {
+                "netName": { "value": "out" },
+                "nodeName": { "value": "out" }
+              },
+              "nodeB": {
+                "netName": { "value": "out_pex" },
+                "nodeName": { "value": "out_pex" }
+              },
+              "value": 0.5,
+              "source": "userDefined"
+            },
+            {
+              "id": "r_out",
+              "kind": "resistor",
+              "nodeA": {
+                "netName": { "value": "out" },
+                "nodeName": { "value": "out" }
+              },
+              "nodeB": {
+                "netName": { "value": "out_pex" },
+                "nodeName": { "value": "out_pex" }
+              },
+              "value": 0.75,
+              "source": "userDefined"
             }
             """
-        ).replacingOccurrences(
-            of: "\"diagnostics\": []",
-            with: "\"diagnostics\": [{\"severity\":\"fatal\",\"message\":\"unsupported severity\"}]"
         )
         try DesignFlowServiceTestSupport.writeDesignSpecJSON(
-            unsupportedDiagnosticSeverityJSON,
-            to: unsupportedDiagnosticSeverityURL
+            duplicateElementJSON,
+            to: duplicateElementURL
         )
-        #expect(throws: DesignFlowDesignSpecError.unsupportedPEXDiagnosticSeverity("fatal")) {
-            _ = try service.loadDesignSpec(unsupportedDiagnosticSeverityURL)
+        do {
+            _ = try service.loadDesignSpec(duplicateElementURL).build()
+            Issue.record("Expected duplicate PEX element validation to fail.")
+        } catch DesignFlowDesignSpecError.invalidCanonicalPEXIR(let detail) {
+            #expect(detail.contains("duplicateElementID"))
         }
 
         let missingNodeURL = root.appending(path: "missing-node.json")
@@ -420,18 +461,22 @@ struct DesignFlowSpecValidationCommandTests {
                 {
                   "id": "r_out",
                   "kind": "resistor",
-                  "nodeA": "out",
-                  "value": 0.5
+                  "nodeA": {
+                    "netName": { "value": "out" },
+                    "nodeName": { "value": "out" }
+                  },
+                  "value": 0.5,
+                  "source": "userDefined"
                 }
                 """
             ),
             to: missingNodeURL
         )
-        await #expect(throws: DesignFlowDesignSpecError.missingPEXElementNodeB("r_out", "resistor")) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: missingNodeURL.path(percentEncoded: false)
-            ))
+        do {
+            _ = try service.loadDesignSpec(missingNodeURL).build()
+            Issue.record("Expected missing PEX endpoint validation to fail.")
+        } catch DesignFlowDesignSpecError.invalidCanonicalPEXIR(let detail) {
+            #expect(detail.contains("missingEndpoint"))
         }
 
         let unsupportedUnitURL = root.appending(path: "unsupported-unit.json")
@@ -448,19 +493,23 @@ struct DesignFlowSpecValidationCommandTests {
                 {
                   "id": "r_out",
                   "kind": "resistor",
-                  "nodeA": "out",
-                  "nodeB": "out_pex",
-                  "value": 0.5
+                  "nodeA": {
+                    "netName": { "value": "out" },
+                    "nodeName": { "value": "out" }
+                  },
+                  "nodeB": {
+                    "netName": { "value": "out_pex" },
+                    "nodeName": { "value": "out_pex" }
+                  },
+                  "value": 0.5,
+                  "source": "userDefined"
                 }
                 """
             ),
             to: unsupportedUnitURL
         )
-        await #expect(throws: DesignFlowDesignSpecError.unsupportedPEXResistanceUnit("mohm")) {
-            try await service.execute(DesignFlowCommand(
-                kind: .generateDesignNetlist,
-                designSpecPath: unsupportedUnitURL.path(percentEncoded: false)
-            ))
+        #expect(throws: StudioError.self) {
+            _ = try service.loadDesignSpec(unsupportedUnitURL)
         }
     }
 

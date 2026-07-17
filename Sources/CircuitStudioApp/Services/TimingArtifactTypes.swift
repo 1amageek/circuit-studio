@@ -82,36 +82,22 @@ public struct TimingTechnologyContext: Sendable, Hashable, Codable {
     }
 }
 
-public struct TimingArtifactProvenance: Sendable, Hashable, Codable {
-    public let sourcePath: String?
-    public let generator: String?
-    public let note: String?
-
-    public init(sourcePath: String? = nil, generator: String? = nil, note: String? = nil) {
-        self.sourcePath = sourcePath
-        self.generator = generator
-        self.note = note
-    }
-}
-
 public struct TimingArtifactRecord: Sendable, Hashable, Codable {
     public let publication: ArtifactPublicationRecord
     public let kind: TimingArtifactKind
-    public let provenance: TimingArtifactProvenance?
 
     public init(
         reference: ArtifactReference,
         kind: TimingArtifactKind,
         createdAt: Date = Date(),
-        provenance: TimingArtifactProvenance? = nil
+        sourcePath: String? = nil
     ) {
         publication = ArtifactPublicationRecord(
             reference: reference,
             createdAt: createdAt,
-            sourcePath: provenance?.sourcePath
+            sourcePath: sourcePath
         )
         self.kind = kind
-        self.provenance = provenance
     }
 
     public init(
@@ -120,25 +106,21 @@ public struct TimingArtifactRecord: Sendable, Hashable, Codable {
         kind: TimingArtifactKind,
         status: TimingArtifactStatus,
         createdAt: Date = Date(),
-        provenance: TimingArtifactProvenance? = nil
+        sourcePath: String? = nil
     ) throws {
         publication = try ArtifactPublicationRecord(
             id: id,
             locator: locator,
             status: ArtifactPublicationStatus(timingStatus: status),
             createdAt: createdAt,
-            sourcePath: provenance?.sourcePath
+            sourcePath: sourcePath
         )
         self.kind = kind
-        self.provenance = provenance
     }
 
     public init(publicationRecord: ArtifactPublicationRecord, kind: TimingArtifactKind) {
         publication = publicationRecord
         self.kind = kind
-        provenance = publicationRecord.sourcePath.map {
-            TimingArtifactProvenance(sourcePath: $0)
-        }
     }
 
     public var id: String { publication.id }

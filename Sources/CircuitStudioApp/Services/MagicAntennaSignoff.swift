@@ -77,7 +77,7 @@ public struct MagicAntennaSignoff: Sendable {
     ///
     /// Returning `nil` — rather than substituting a mock — leaves the decision to
     /// the caller; there is no silent fallback to a fake result. Mirrors
-    /// `MagicDRCSignoff.locate`.
+    /// `MagicDRCAdapter.locate`.
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default

@@ -14,6 +14,24 @@ key for a different semantic gate.
 `--run-layout-trust` does not emit `ready_for_pex`. Layout trust is one input to
 pre-PEX confidence, but it is not the PEX readiness gate.
 
+## Toolchain Trust Review
+
+`--review-round-trip` projects the canonical `toolchain.json` summary rather
+than rediscovering tools in the CLI. JSON output carries the typed toolchain
+summary and its reviewed artifacts. Line-oriented output emits:
+
+| Key | Meaning |
+|---|---|
+| `toolchain_stage_count` | Number of stages represented by the toolchain manifest. |
+| `toolchain_selected_tools` | Comma-separated selected tool IDs. |
+| `toolchain_rejected_evaluation_count` | Candidate evaluations rejected by trust qualification. |
+| `toolchain_missing_selection_stages` | Required stages without a selected tool. |
+| `toolchain_profile_id` / `toolchain_pdk_id` | Selected profile and PDK provenance. |
+| `toolchain_catalog_id` / `toolchain_catalog_path` | Technology catalog provenance. |
+| `toolchain_profile_artifact_path` | Profile artifact recorded by the flow. |
+| `toolchain_artifact` | Reviewed toolchain artifact path. Repeated per artifact. |
+| `toolchain_artifact_integrity` | Integrity verdict paired with the preceding artifact. |
+
 ```mermaid
 flowchart LR
   LayoutTrust["--run-layout-trust"] --> LayoutTrustPassed["layout_trust_passed"]
@@ -23,28 +41,28 @@ flowchart LR
   Review["--review-round-trip"] --> ReadyForPEX
 ```
 
-## Suggested Command Continuation
+## Suggested Action Continuation
 
 Failure JSON is a continuation contract, not a process execution contract. A
 caller first records an explicit selection, then dispatches that selection
-through the shared typed command API:
+through the shared typed API:
 
 ```mermaid
 flowchart LR
-  Failure["flow-runner-failure JSON"] --> Select["--select-failure-command"]
-  Select --> Ledger["actions.jsonl\nreview.selectSuggestedCommand"]
-  Ledger --> Resolve["RoundTripSelectedSuggestedCommandResolver"]
-  Resolve --> Dispatch["--run-selected-suggested-command"]
+  Failure["flow-runner-failure JSON"] --> Select["--select-failure-action"]
+  Select --> Ledger["actions.jsonl\nreview.selectSuggestedAction"]
+  Ledger --> Resolve["RoundTripSelectedSuggestedActionResolver"]
+  Resolve --> Dispatch["--run-selected-suggested-action"]
   Dispatch --> Review["DesignFlowCommand.reviewRoundTrip"]
   Dispatch --> Summary["DesignFlowCommand.summarizeBottlenecks"]
 ```
 
-`--run-selected-suggested-command --output <project-root> --run-id <run-id>
-[--command-id <id>]` resolves the selected ready command from
-`.xcircuite/runs/<run-id>/actions.jsonl`, validates the runner prefix,
-run ID, project root, and manifest path, then dispatches only allowlisted review
-or bottleneck-summary `DesignFlowCommand` values. It does not spawn the selected
-command as a shell process.
+`--run-selected-suggested-action --output <project-root> --run-id <run-id>
+[--action-id <id>]` resolves the selected ready semantic action from
+`.xcircuite/runs/<run-id>/actions.jsonl`, validates action readiness and run
+identity, then projects supported operations into typed review or
+bottleneck-summary `DesignFlowCommand` values. No executable or argument list is
+stored in the selection record.
 
 ## `--run-layout-trust`
 

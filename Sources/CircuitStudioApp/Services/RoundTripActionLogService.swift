@@ -1,21 +1,19 @@
 import Foundation
 import DesignFlowKernel
+import Xcircuite
 
 public enum RoundTripActionLogServiceError: Error, LocalizedError, Equatable {
     case missingRunID
     case missingManifestPath
     case missingReviewer
-    case missingCommandID
+    case missingSuggestedActionID
     case missingManifest(URL)
-    case missingRunDirectory(URL)
+    case missingProjectRoot
     case manifestRunMismatch(expected: String, actual: String)
     case manifestPathMismatch(expected: String, actual: String)
     case nextActionNotFound(actionID: String)
-    case suggestedCommandNotFound(commandID: String)
-    case writeFailed(String)
-    case readFailed(String)
+    case suggestedActionNotFound(actionID: String)
     case decodeFailed(String)
-    case encodeFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -25,28 +23,22 @@ public enum RoundTripActionLogServiceError: Error, LocalizedError, Equatable {
             return "Round-trip action log selection requires a manifest path."
         case .missingReviewer:
             return "Round-trip action log selection requires a reviewer."
-        case .missingCommandID:
-            return "Round-trip action log selection requires a command ID."
+        case .missingSuggestedActionID:
+            return "Round-trip action log selection requires a suggested action ID."
         case .missingManifest(let url):
             return "Round-trip manifest does not exist: \(url.path(percentEncoded: false))"
-        case .missingRunDirectory(let url):
-            return "Round-trip run directory does not exist: \(url.path(percentEncoded: false))"
+        case .missingProjectRoot:
+            return "Round-trip action selection requires a project root."
         case .manifestRunMismatch(let expected, let actual):
             return "Round-trip manifest run ID '\(actual)' does not match expected run ID '\(expected)'."
         case .manifestPathMismatch(let expected, let actual):
             return "Round-trip manifest path '\(actual)' does not match expected path '\(expected)'."
         case .nextActionNotFound(let actionID):
             return "Round-trip failure envelope does not contain next action '\(actionID)'."
-        case .suggestedCommandNotFound(let commandID):
-            return "Round-trip failure envelope does not contain suggested command '\(commandID)'."
-        case .writeFailed(let message):
-            return "Failed to write round-trip action log: \(message)"
-        case .readFailed(let message):
-            return "Failed to read round-trip action log: \(message)"
+        case .suggestedActionNotFound(let actionID):
+            return "Round-trip failure envelope does not contain suggested action '\(actionID)'."
         case .decodeFailed(let message):
             return "Failed to decode round-trip action log: \(message)"
-        case .encodeFailed(let message):
-            return "Failed to encode round-trip action log: \(message)"
         }
     }
 }
@@ -54,57 +46,39 @@ public enum RoundTripActionLogServiceError: Error, LocalizedError, Equatable {
 public struct RoundTripActionLogService: Sendable {
     public init() {}
 
-    public func loadSuggestedCommandSelections(
+    public func loadSuggestedActionSelections(
         manifestURL: URL
-    ) throws -> [FlowSuggestedCommandSelection] {
-        let actionsURL = actionLogURL(forManifestAt: manifestURL)
-        guard fileExists(actionsURL) else {
-            return []
-        }
-
-        let text: String
-        do {
-            text = try String(contentsOf: actionsURL, encoding: .utf8)
-        } catch {
-            throw RoundTripActionLogServiceError.readFailed(
-                "\(actionsURL.lastPathComponent): \(error.localizedDescription)"
-            )
-        }
-
-        let decoder = JSONDecoder()
-        var selections: [FlowSuggestedCommandSelection] = []
-        for line in text.split(separator: "\n") {
-            do {
-                let record = try decoder.decode(FlowRunActionRecord.self, from: Data(line.utf8))
-                if let selection = try FlowSuggestedCommandSelection(record: record) {
-                    selections.append(selection)
-                }
-            } catch {
-                throw RoundTripActionLogServiceError.decodeFailed(
-                    "\(actionsURL.lastPathComponent): \(error.localizedDescription)"
-                )
-            }
-        }
-        return selections
+    ) async throws -> [FlowRunSuggestedActionSelection] {
+        let manifest = try loadManifest(manifestURL)
+        let projectRoot = manifestURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let store = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+        return try await store.loadSuggestedActionSelections(runID: manifest.runID)
     }
 
     @discardableResult
-    public func recordSuggestedCommandSelection(
+    public func recordSuggestedActionSelection(
         from failure: FlowRunnerFailureEnvelope,
-        commandID: String,
+        actionID: String,
         reviewer: String
-    ) throws -> FlowRunActionRecord {
+    ) async throws -> FlowRunActionRecord {
         guard let runID = failure.runID else {
             throw RoundTripActionLogServiceError.missingRunID
         }
         guard let manifestPath = failure.manifest else {
             throw RoundTripActionLogServiceError.missingManifestPath
         }
+        guard let projectRootPath = failure.projectRoot else {
+            throw RoundTripActionLogServiceError.missingProjectRoot
+        }
         guard !reviewer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw RoundTripActionLogServiceError.missingReviewer
         }
-        guard !commandID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw RoundTripActionLogServiceError.missingCommandID
+        guard !actionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw RoundTripActionLogServiceError.missingSuggestedActionID
         }
 
         let manifestURL = URL(filePath: manifestPath)
@@ -115,35 +89,30 @@ public struct RoundTripActionLogService: Sendable {
                 actual: manifest.runID
             )
         }
-        if let projectRoot = failure.projectRoot {
-            try validateManifestURL(manifestURL, projectRootPath: projectRoot, runID: runID)
-        }
+        try validateManifestURL(manifestURL, projectRootPath: projectRootPath, runID: runID)
 
-        let nextAction = try nextAction(containingCommandID: commandID, in: failure)
-        guard let command = nextAction.suggestedCommands.first(where: { $0.commandID == commandID }) else {
-            throw RoundTripActionLogServiceError.suggestedCommandNotFound(commandID: commandID)
+        let nextAction = try nextAction(containingSuggestedActionID: actionID, in: failure)
+        guard let action = nextAction.suggestedActions.first(where: { $0.id == actionID }) else {
+            throw RoundTripActionLogServiceError.suggestedActionNotFound(actionID: actionID)
         }
 
         let record = FlowRunActionRecord(
-            actionID: "round-trip-suggested-command-selection-\(UUID().uuidString)",
+            actionID: "round-trip-suggested-action-selection-\(UUID().uuidString)",
             runID: runID,
             stageID: nextAction.stageID,
             actor: FlowRunActor(kind: .human, identifier: reviewer),
-            actionKind: FlowSuggestedCommandSelection.actionKind,
+            actionKind: FlowRunSuggestedActionSelection.actionKind,
             status: .succeeded,
             context: FlowRunActionContext(
-                suggestedCommand: FlowRunActionContext.SuggestedCommand(
+                suggestedAction: FlowRunActionContext.SuggestedAction(
                     nextActionID: nextAction.actionID,
                     nextActionKind: nextAction.kind,
-                    commandID: command.commandID,
-                    readiness: command.readiness.rawValue,
-                    executable: command.executable,
-                    arguments: command.arguments,
-                    reason: command.reason
+                    action: action
                 )
             )
         )
-        try append(record, manifestURL: manifestURL)
+        let store = try XcircuiteWorkspaceStore(projectRoot: URL(filePath: projectRootPath))
+        try await store.appendRunAction(record)
         return record
     }
 
@@ -152,47 +121,15 @@ public struct RoundTripActionLogService: Sendable {
     }
 
     private func nextAction(
-        containingCommandID commandID: String,
+        containingSuggestedActionID actionID: String,
         in failure: FlowRunnerFailureEnvelope
     ) throws -> FlowRunNextAction {
         guard let nextAction = failure.nextActions.first(where: { action in
-            action.suggestedCommands.contains { $0.commandID == commandID }
+            action.suggestedActions.contains { $0.id == actionID }
         }) else {
-            throw RoundTripActionLogServiceError.suggestedCommandNotFound(commandID: commandID)
+            throw RoundTripActionLogServiceError.suggestedActionNotFound(actionID: actionID)
         }
         return nextAction
-    }
-
-    private func append(_ record: FlowRunActionRecord, manifestURL: URL) throws {
-        let runDirectory = manifestURL.deletingLastPathComponent()
-        guard directoryExists(runDirectory) else {
-            throw RoundTripActionLogServiceError.missingRunDirectory(runDirectory)
-        }
-
-        let actionsURL = actionLogURL(forManifestAt: manifestURL)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let data: Data
-        do {
-            data = try encoder.encode(record)
-        } catch {
-            throw RoundTripActionLogServiceError.encodeFailed(error.localizedDescription)
-        }
-
-        var line = data
-        line.append(0x0A)
-        do {
-            if fileExists(actionsURL) {
-                let handle = try FileHandle(forWritingTo: actionsURL)
-                try handle.seekToEnd()
-                try handle.write(contentsOf: line)
-                try handle.close()
-            } else {
-                try line.write(to: actionsURL, options: .atomic)
-            }
-        } catch {
-            throw RoundTripActionLogServiceError.writeFailed(error.localizedDescription)
-        }
     }
 
     private func validateManifestURL(
@@ -241,15 +178,6 @@ public struct RoundTripActionLogService: Sendable {
             isDirectory: &isDirectory
         )
         return exists && !isDirectory.boolValue
-    }
-
-    private func directoryExists(_ url: URL) -> Bool {
-        var isDirectory: ObjCBool = false
-        let exists = FileManager.default.fileExists(
-            atPath: url.path(percentEncoded: false),
-            isDirectory: &isDirectory
-        )
-        return exists && isDirectory.boolValue
     }
 
     private func normalizedPath(_ url: URL) -> String {

@@ -74,21 +74,21 @@ struct RunReviewPlanningReviewCard: View {
                         }
                     }
                 }
-                if !planning.selectedCommands.isEmpty {
+                if !planning.selectedActions.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Selected Commands")
+                        Text("Selected Actions")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        ForEach(planning.selectedCommands, id: \.actionRecordID) { selection in
+                        ForEach(planning.selectedActions, id: \.actionRecordID) { selection in
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
-                                    Text(selection.readiness)
+                                    Text(selection.action.readiness.rawValue)
                                         .font(.caption2)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 1)
                                         .background(Color.accentColor.opacity(0.12), in: Capsule())
                                         .foregroundStyle(Color.accentColor)
-                                    Text(selection.commandID)
+                                    Text(selection.action.id)
                                         .font(.caption2.monospaced())
                                         .foregroundStyle(.secondary)
                                     Spacer()
@@ -96,7 +96,7 @@ struct RunReviewPlanningReviewCard: View {
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
                                 }
-                                Text(([selection.executable] + selection.arguments).joined(separator: " "))
+                                Text(String(describing: selection.action.operation))
                                     .font(.caption.monospaced())
                                     .foregroundStyle(.secondary)
                                     .lineLimit(3)

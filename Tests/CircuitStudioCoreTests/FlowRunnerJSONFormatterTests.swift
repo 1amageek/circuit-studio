@@ -219,15 +219,13 @@ struct FlowRunnerJSONFormatterTests {
         let nextAction = try #require(failure.nextActions.first)
         #expect(nextAction.kind == "reviewFlowRunnerFailure")
         #expect(nextAction.stageID == "post-layout-comparison")
-        #expect(nextAction.suggestedCommands.map(\.commandID).contains("circuit-studio-flow-runner.review-round-trip"))
-        #expect(nextAction.suggestedCommands.map(\.commandID).contains("circuit-studio-flow-runner.summarize-bottlenecks"))
-        let reviewCommand = try #require(nextAction.suggestedCommands.first {
-            $0.commandID == "circuit-studio-flow-runner.review-round-trip"
+        #expect(nextAction.suggestedActions.map(\.id).contains("review-flow-runner-failure"))
+        #expect(nextAction.suggestedActions.map(\.id).contains("summarize-run-loop"))
+        let reviewAction = try #require(nextAction.suggestedActions.first {
+            $0.id == "review-flow-runner-failure"
         })
-        #expect(reviewCommand.readiness == .ready)
-        #expect(reviewCommand.executable == "swift")
-        #expect(reviewCommand.arguments.contains("--review-round-trip"))
-        #expect(reviewCommand.arguments.contains(manifestURL.path(percentEncoded: false)))
+        #expect(reviewAction.readiness == .ready)
+        #expect(reviewAction.operation == .reviewRun)
     }
 
     @Test("Runtime failure envelope records unreadable manifest inspection failures", .timeLimit(.minutes(1)))
@@ -272,17 +270,14 @@ struct FlowRunnerJSONFormatterTests {
         #expect(nextAction.diagnosticCodes.contains("manifest_unreadable"))
     }
 
-    @Test("Usage failure envelope suggests help command", .timeLimit(.minutes(1)))
-    func usageFailureEnvelopeSuggestsHelpCommand() throws {
+    @Test("Usage failure envelope has no executable suggestion", .timeLimit(.minutes(1)))
+    func usageFailureEnvelopeHasNoExecutableSuggestion() throws {
         let failure = FlowRunnerFailureEnvelopeBuilder.usage(error: FlowRunnerCommandOptions.ParseError.invalidArgument("--bad"))
         let nextAction = try #require(failure.nextActions.first)
-        let command = try #require(nextAction.suggestedCommands.first)
 
         #expect(failure.errorKind == "usage")
         #expect(nextAction.kind == "showFlowRunnerHelp")
-        #expect(command.commandID == "circuit-studio-flow-runner.help")
-        #expect(command.readiness == .ready)
-        #expect(command.arguments == ["run", "--quiet", "circuit-studio-flow-runner", "--help"])
+        #expect(nextAction.suggestedActions.isEmpty)
     }
 
     private struct RuntimeTestError: LocalizedError {

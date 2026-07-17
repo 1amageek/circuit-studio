@@ -1,5 +1,6 @@
 import CircuiteFoundation
 import Foundation
+import STAEngine
 
 public enum TimingArtifactWriterError: Error, LocalizedError, Equatable {
     case claimReferencesMissingArtifact(statement: String, artifactID: String)
@@ -34,6 +35,8 @@ public enum TimingArtifactWriterError: Error, LocalizedError, Equatable {
 }
 
 public struct TimingArtifactWriter: Sendable {
+    private static let omittedRawEvidenceWarning = "Raw per-trial SPICE decks, waveform CSV files, and measurement JSONL are intentionally omitted; summary characterization reports contain the measured timing values."
+
     private struct PlannedRecord: Sendable, Hashable {
         let id: String
         let kind: TimingArtifactKind
@@ -65,7 +68,7 @@ public struct TimingArtifactWriter: Sendable {
         technology: TimingTechnologyContext,
         library: TimingLibraryArtifact,
         profileSelection: TimingModelProfileSelection? = nil,
-        staReport: STAReportArtifact?,
+        staReport: STAExecutionResult?,
         combinationalReport: CombinationalTimingCharacterizationReport?,
         sequentialReport: SequentialTimingCharacterizationReport?,
         validationReports: [(id: String, fileName: String, report: TimingValidationReport)],
@@ -175,7 +178,7 @@ public struct TimingArtifactWriter: Sendable {
             technology: technology,
             artifacts: (artifactRecords + omittedRecords).sorted { $0.id < $1.id },
             claims: claims,
-            warnings: warnings
+            warnings: warnings + (omittedRecords.isEmpty ? [] : [Self.omittedRawEvidenceWarning])
         )
         let manifestURL = timingDirectory.appending(path: "manifest.json")
         let manifestItem = try artifactItem(
@@ -197,7 +200,7 @@ public struct TimingArtifactWriter: Sendable {
         timingDirectory: URL,
         characterizationDirectory: URL,
         validationDirectory: URL,
-        staReport: STAReportArtifact?,
+        staReport: STAExecutionResult?,
         combinationalReport: CombinationalTimingCharacterizationReport?,
         sequentialReport: SequentialTimingCharacterizationReport?,
         profileSelection: TimingModelProfileSelection?,
@@ -381,10 +384,6 @@ public struct TimingArtifactWriter: Sendable {
     }
 
     private func omittedRawEvidenceRecords() throws -> [TimingArtifactRecord] {
-        let provenance = TimingArtifactProvenance(
-            generator: "TimingArtifactWriter",
-            note: "Raw per-trial SPICE decks and waveform CSV emission is intentionally omitted; summary characterization reports contain the measured timing values."
-        )
         let declarations: [(String, TimingArtifactKind, String)] = [
             ("timing-measurement-log", .measurementLog, "timing/characterization/measurements.jsonl"),
             ("timing-spice-decks", .spiceDeck, "timing/characterization/decks"),
@@ -398,8 +397,7 @@ public struct TimingArtifactWriter: Sendable {
                     relativePath: path
                 ),
                 kind: kind,
-                status: .omitted,
-                provenance: provenance
+                status: .omitted
             )
         }
     }

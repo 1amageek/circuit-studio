@@ -1,46 +1,194 @@
+import CircuiteFoundation
 import Foundation
+import STAEngine
 import Testing
+import TimingCore
 @testable import CircuitStudioApp
 
-/// BC1.4 — failure-driven timing closure. Starting from a clock the design CANNOT meet, the
-/// loop upsizes critical-path cells until setup closes — the fail→pass trajectory the goal
-/// requires, computed from the measured critical path against a SPICE-characterized library.
 @Suite("Timing-driven closure")
 struct TimingDrivenClosureLoopTests {
+    @Test("Canonical STA feedback drives cell sizing")
+    func canonicalSTAFeedbackDrivesSizing() async throws {
+        let engine = StubSTAEngine(results: [
+            try result(slack: -20e-12, stageCell: "inv"),
+            try result(slack: 5e-12, stageCell: "inv_x2"),
+        ])
+        let loop = TimingDrivenClosureLoop(
+            engine: engine,
+            requestBuilder: FixedSTARequestBuilder(request: try request())
+        )
+        let netlist = SequentialNetlist(
+            name: "unit",
+            combinational: [
+                .init(
+                    name: "g0",
+                    cell: try .inverter(name: "inv"),
+                    netMap: ["A": "a", "Y": "y"]
+                ),
+            ],
+            dffs: [],
+            inputs: ["a"],
+            outputs: ["y"]
+        )
 
-    /// A library with sized variants (x1/x2/x4) of each cell, characterized in CoreSpice.
-    private func sizedLibrary() async throws -> TimingLibrary {
-        try await TimingCharacterizationTestCache.shared.sizedClosureLibrary()
+        let outcome = try await loop.close(netlist, maxIterations: 2)
+
+        #expect(outcome.converged)
+        #expect(outcome.iterations.map(\.met) == [false, true])
+        #expect(outcome.iterations.first?.upsizedInstance == "g0")
+        #expect(outcome.netlist.combinational.first?.cell.name == "inv_x2")
+        #expect(outcome.result.payload.worstSetupSlack == 5e-12)
     }
 
-    @Test("Upsizing a critical-path cell reduces delay (the sizing knob works)", .timeLimit(.minutes(7)))
-    func sizingReducesDelay() async throws {
-        let lib = try await sizedLibrary()
-        let x1 = try #require(lib.cells["inv"]?.arc(fromInput: "A"))
-        let x2 = try #require(lib.cells["inv_x2"]?.arc(fromInput: "A"))
-        // At a fixed (heavy) load, the stronger driver is faster.
-        let d1 = x1.delayFall.lookup(inputSlew: 40e-12, outputLoad: 12e-15)
-        let d2 = x2.delayFall.lookup(inputSlew: 40e-12, outputLoad: 12e-15)
-        #expect(d2 < d1, "x2 (\(d2)) should be faster than x1 (\(d1)) at heavy load")
-        // And the stronger cell presents more input capacitance (the cost).
-        #expect((lib.cells["inv_x2"]?.inputCapacitance["A"] ?? 0) > (lib.cells["inv"]?.inputCapacitance["A"] ?? 0))
+    @Test("A non-completed STA result is rejected")
+    func incompleteResultIsRejected() async throws {
+        let failed = try result(slack: nil, stageCell: nil, status: .failed)
+        let loop = TimingDrivenClosureLoop(
+            engine: StubSTAEngine(results: [failed]),
+            requestBuilder: FixedSTARequestBuilder(request: try request())
+        )
+        let netlist = SequentialNetlist(
+            name: "unit",
+            combinational: [],
+            dffs: [],
+            inputs: [],
+            outputs: []
+        )
+
+        await #expect(throws: TimingDrivenClosureLoop.ClosureError.self) {
+            _ = try await loop.close(netlist, maxIterations: 1)
+        }
     }
 
-    @Test("The loop closes the ACC-4 core at a clock it initially fails", .timeLimit(.minutes(7)))
-    func closesACC4AtTighterClock() async throws {
-        let lib = try await sizedLibrary()
-        let seq = try ACC4CPUGenerator().sequentialNetlist()
-        let base = try StaticTimingAnalyzer(library: lib).analyze(seq, clockPeriod: 10e-9, defaultInputSlew: 50e-12)
+    @Test("The final resized netlist is analyzed after the edit budget is consumed")
+    func finalResizedNetlistIsAnalyzed() async throws {
+        let engine = StubSTAEngine(results: [
+            try result(slack: -20e-12, stageCell: "inv"),
+            try result(slack: 5e-12, stageCell: "inv_x2"),
+        ])
+        let loop = TimingDrivenClosureLoop(
+            engine: engine,
+            requestBuilder: FixedSTARequestBuilder(request: try request())
+        )
+        let netlist = SequentialNetlist(
+            name: "unit",
+            combinational: [
+                .init(
+                    name: "g0",
+                    cell: try .inverter(name: "inv"),
+                    netMap: ["A": "a", "Y": "y"]
+                ),
+            ],
+            dffs: [],
+            inputs: ["a"],
+            outputs: ["y"]
+        )
 
-        // Target a clock period below what the base design achieves — it must fail first.
-        let target = base.minPeriod * 0.9
-        let outcome = try TimingDrivenClosureLoop(library: lib, defaultInputSlew: 50e-12)
-            .close(seq, targetPeriod: target, maxIterations: 40)
+        let outcome = try await loop.close(netlist, maxIterations: 1)
 
-        #expect(outcome.iterations.first?.met == false, "must start failing at the tight clock")
-        #expect(outcome.converged, "loop must close timing; slack \(outcome.report.worstSetupSlack)")
-        #expect(outcome.report.worstSetupSlack >= 0)
-        #expect(outcome.iterations.contains { $0.upsizedInstance != nil }, "closure must resize cells")
-        #expect(outcome.report.minPeriod < base.minPeriod, "fmax must improve: \(outcome.report.minPeriod) vs \(base.minPeriod)")
+        #expect(outcome.converged)
+        #expect(outcome.iterations.count == 1)
+        #expect(outcome.netlist.combinational.first?.cell.name == "inv_x2")
+        #expect(outcome.result.payload.worstSetupSlack == 5e-12)
+    }
+
+    private func request() throws -> STARequest {
+        let data = Data("{}".utf8)
+        let reference = ArtifactReference(
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: "fixture.json"),
+                role: .input,
+                kind: .netlist,
+                format: .json
+            ),
+            digest: try SHA256ContentDigester().digest(data: data, using: .sha256),
+            byteCount: UInt64(data.count)
+        )
+        return STARequest(
+            runID: "unit",
+            design: reference,
+            topDesignName: "unit",
+            libraries: [],
+            constraints: reference,
+            pdkManifest: reference,
+            processID: "test",
+            pdkVersion: "1"
+        )
+    }
+
+    private func result(
+        slack: Double?,
+        stageCell: String?,
+        status: TimingExecutionStatus = .completed
+    ) throws -> STAExecutionResult {
+        let paths: [STAPath]
+        if let slack, let stageCell {
+            paths = [
+                STAPath(
+                    modeID: "functional",
+                    cornerID: "tt",
+                    startpoint: "a",
+                    endpoint: "y",
+                    arrival: 100e-12,
+                    required: 100e-12 + slack,
+                    slack: slack,
+                    stages: [
+                        STAPathStage(
+                            instance: "g0",
+                            cell: stageCell,
+                            inputPin: "A",
+                            inputNet: "a",
+                            outputNet: "y",
+                            inputEdge: .rise,
+                            outputEdge: .fall,
+                            delay: 100e-12,
+                            outputSlew: 40e-12,
+                            load: 1e-15
+                        ),
+                    ]
+                ),
+            ]
+        } else {
+            paths = []
+        }
+        let timestamp = Date(timeIntervalSince1970: 1)
+        return STAExecutionResult(
+            runID: "unit",
+            status: status,
+            payload: STAPayload(
+                worstSetupSlack: slack,
+                worstHoldSlack: slack,
+                analyzedCorners: ["tt"],
+                criticalPaths: paths
+            ),
+            provenance: try ExecutionProvenance(
+                producer: ProducerIdentity(kind: .engine, identifier: "timing.sta", version: "1"),
+                startedAt: timestamp,
+                completedAt: timestamp
+            )
+        )
+    }
+}
+
+private struct FixedSTARequestBuilder: STARequestBuilding {
+    let request: STARequest
+
+    func makeRequest(for netlist: SequentialNetlist, iteration: Int) async throws -> STARequest {
+        request
+    }
+}
+
+private actor StubSTAEngine: STAExecuting {
+    private let results: [STAExecutionResult]
+    private var index = 0
+
+    init(results: [STAExecutionResult]) {
+        self.results = results
+    }
+
+    func execute(_ request: STARequest) async throws -> STAExecutionResult {
+        let result = results[min(index, results.count - 1)]
+        index += 1
+        return result
     }
 }

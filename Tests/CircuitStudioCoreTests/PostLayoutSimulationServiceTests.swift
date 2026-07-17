@@ -14,14 +14,14 @@ struct PostLayoutSimulationServiceTests {
         .op
         .end
         """
-        let ir = PEXParasiticIR(
+        let ir = ParasiticIR(
             version: "1.0",
             cornerID: "tt",
             elements: [
-                PEXParasiticElement(id: "r/out/1", kind: .resistor, nodeA: "out_1", nodeB: "out", value: 2.5),
-                PEXParasiticElement(id: "c.out", kind: .capacitor, nodeA: "out_1", nodeB: nil, value: 1e-15),
-                PEXParasiticElement(id: "cc", kind: .coupling, nodeA: "in", nodeB: "out_1", value: 2e-15),
-                PEXParasiticElement(id: "l.out", kind: .inductor, nodeA: "out_1", nodeB: "out", value: 3e-9),
+                ParasiticElement(id: "r/out/1", kind: .resistor, nodeA: "out_1", nodeB: "out", value: 2.5),
+                ParasiticElement(id: "c.out", kind: .capacitor, nodeA: "out_1", nodeB: nil, value: 1e-15),
+                ParasiticElement(id: "cc", kind: .coupling, nodeA: "in", nodeB: "out_1", value: 2e-15),
+                ParasiticElement(id: "l.out", kind: .inductor, nodeA: "out_1", nodeB: "out", value: 3e-9),
             ]
         )
 
@@ -46,12 +46,12 @@ struct PostLayoutSimulationServiceTests {
         .op
         .end
         """
-        let ir = PEXParasiticIR(
+        let ir = ParasiticIR(
             version: "1.0",
             cornerID: "tt",
             elements: [
-                PEXParasiticElement(id: "rpex", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
-                PEXParasiticElement(id: "cpex", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
+                ParasiticElement(id: "rpex", kind: .resistor, nodeA: "out", nodeB: "out_pex", value: 1.0),
+                ParasiticElement(id: "cpex", kind: .capacitor, nodeA: "out_pex", nodeB: nil, value: 1e-15),
             ]
         )
 

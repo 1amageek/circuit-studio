@@ -62,7 +62,7 @@ struct GenericExternalSignoffReportParserTests {
 
 /// Pure parser tests for the `.magicDRC` style — they need no Magic installation,
 /// so they cover the normalization contract in CI even when the gated
-/// `MagicDRCSignoffTests` integration tests are skipped.
+/// `MagicDRCAdapterIntegrationTests` are skipped.
 @Suite("ExternalSignoffReportParser .magicDRC")
 struct ExternalSignoffReportParserTests {
     @Test func reportArtifactRejectsMissingCompletionEvidence() throws {

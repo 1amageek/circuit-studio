@@ -20,7 +20,6 @@ struct RoundTripReviewServiceTests {
             .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
         try writeJSON(makeComparisonReport(), to: comparisonURL)
 
@@ -54,7 +53,7 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func loadReviewByRunIDRejectsNoncanonicalRunDirectory() throws {
+    func loadReviewByRunIDRejectsNoncanonicalRunDirectory() async throws {
         let root = try makeTemporaryRoot("review-noncanonical-runs")
         defer { removeTemporaryRoot(root) }
 
@@ -81,8 +80,8 @@ struct RoundTripReviewServiceTests {
             .appending(path: "runs")
             .appending(path: "review-run")
             .appending(path: "round-trip-manifest.json")
-        #expect(throws: RoundTripReviewServiceError.missingManifest(canonicalManifestURL)) {
-            try RoundTripReviewService().loadReview(
+        await #expect(throws: RoundTripReviewServiceError.missingManifest(canonicalManifestURL)) {
+            try await RoundTripReviewService().loadReview(
                 forProjectAt: root,
                 runID: "review-run"
             )
@@ -90,7 +89,7 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func missingReviewArtifactIsDiagnosticNotLoadFailure() throws {
+    func missingReviewArtifactIsDiagnosticNotLoadFailure() async throws {
         let root = try makeTemporaryRoot("review-missing-artifact")
         defer { removeTemporaryRoot(root) }
 
@@ -112,7 +111,7 @@ struct RoundTripReviewServiceTests {
         ), to: manifestURL)
         try FileManager.default.removeItem(at: missingComparisonURL)
 
-        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+        let summary = try await RoundTripReviewService().loadReview(manifestURL: manifestURL)
 
         #expect(summary.status == .incomplete)
         #expect(summary.postLayoutComparison == nil)
@@ -122,7 +121,7 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func verifiedFailedSignoffArtifactFailsReviewStatus() throws {
+    func verifiedFailedSignoffArtifactFailsReviewStatus() async throws {
         let root = try makeTemporaryRoot("review-failed-signoff-artifact")
         defer { removeTemporaryRoot(root) }
 
@@ -144,7 +143,7 @@ struct RoundTripReviewServiceTests {
             signoffURL: signoffURL
         ), to: manifestURL)
 
-        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+        let summary = try await RoundTripReviewService().loadReview(manifestURL: manifestURL)
 
         #expect(summary.externalSignoff?.passed == false)
         #expect(summary.externalSignoff?.readyForPEX == false)
@@ -155,8 +154,8 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func failureSuggestedCommandSelectionIsProjectedIntoReview() throws {
-        let root = try makeTemporaryRoot("review-selected-command")
+    func failureSuggestedActionSelectionIsProjectedIntoReview() async throws {
+        let root = try makeTemporaryRoot("review-selected-action")
         defer { removeTemporaryRoot(root) }
 
         let runDirectory = root
@@ -164,6 +163,10 @@ struct RoundTripReviewServiceTests {
             .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        try await DesignFlowServiceTestSupport.createCanonicalRunLedger(
+            projectRoot: root,
+            runID: "review-run"
+        )
 
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
         try writeJSON(makeComparisonReport(), to: comparisonURL)
@@ -190,20 +193,12 @@ struct RoundTripReviewServiceTests {
                     severity: .error,
                     reason: "Inspect failed artifacts.",
                     diagnosticCodes: ["runtime"],
-                    suggestedCommands: [
-                        FlowRunSuggestedCommand(
-                            commandID: "circuit-studio-flow-runner.review-round-trip",
+                    suggestedActions: [
+                        FlowRunSuggestedAction(
+                            id: "review-flow-runner-failure",
                             readiness: .ready,
-                            executable: "swift",
-                            arguments: [
-                                "run",
-                                "--quiet",
-                                "circuit-studio-flow-runner",
-                                "--review-round-trip",
-                                "--manifest",
-                                manifestURL.path(percentEncoded: false),
-                                "--json",
-                            ],
+                            operation: .reviewRun,
+                            runID: "review-run",
                             reason: "Load the failed run review from its persisted manifest."
                         ),
                     ]
@@ -211,31 +206,31 @@ struct RoundTripReviewServiceTests {
             ]
         )
 
-        let record = try RoundTripActionLogService().recordSuggestedCommandSelection(
+        let record = try await RoundTripActionLogService().recordSuggestedActionSelection(
             from: failure,
-            commandID: "circuit-studio-flow-runner.review-round-trip",
+            actionID: "review-flow-runner-failure",
             reviewer: "agent-1"
         )
-        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
-        let selection = try #require(summary.suggestedCommandSelections.first)
+        let summary = try await RoundTripReviewService().loadReview(manifestURL: manifestURL)
+        let selection = try #require(summary.suggestedActionSelections.first)
 
-        #expect(record.actionKind == "review.selectSuggestedCommand")
+        #expect(record.actionKind == "review.selectSuggestedAction")
         #expect(record.stageID == "post-layout-comparison")
         #expect(selection.actionRecordID == record.actionID)
         #expect(selection.runID == "review-run")
         #expect(selection.actor.identifier == "agent-1")
         #expect(selection.nextActionID == "review-flow-runner-failure")
         #expect(selection.nextActionKind == "reviewFlowRunnerFailure")
-        #expect(selection.commandID == "circuit-studio-flow-runner.review-round-trip")
-        #expect(selection.readiness == "ready")
-        #expect(selection.arguments.contains("--review-round-trip"))
+        #expect(selection.action.id == "review-flow-runner-failure")
+        #expect(selection.action.readiness == .ready)
+        #expect(selection.action.operation == .reviewRun)
         #expect(summary.diagnostics.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func failureSuggestedCommandSelectionRejectsManifestOutsideDeclaredProjectRoot() throws {
-        let root = try makeTemporaryRoot("review-selected-command-mismatch")
-        let otherRoot = try makeTemporaryRoot("review-selected-command-other-root")
+    func failureSuggestedActionSelectionRejectsManifestOutsideDeclaredProjectRoot() async throws {
+        let root = try makeTemporaryRoot("review-selected-action-mismatch")
+        let otherRoot = try makeTemporaryRoot("review-selected-action-other-root")
         defer {
             removeTemporaryRoot(root)
             removeTemporaryRoot(otherRoot)
@@ -246,6 +241,10 @@ struct RoundTripReviewServiceTests {
             .appending(path: "runs")
             .appending(path: "review-run")
         try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        try await DesignFlowServiceTestSupport.createCanonicalRunLedger(
+            projectRoot: root,
+            runID: "review-run"
+        )
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
         try writeJSON(makeComparisonReport(), to: comparisonURL)
         let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
@@ -269,12 +268,12 @@ struct RoundTripReviewServiceTests {
                     stageID: "post-layout-comparison",
                     severity: .error,
                     reason: "Inspect failed artifacts.",
-                    suggestedCommands: [
-                        FlowRunSuggestedCommand(
-                            commandID: "circuit-studio-flow-runner.review-round-trip",
+                    suggestedActions: [
+                        FlowRunSuggestedAction(
+                            id: "review-flow-runner-failure",
                             readiness: .ready,
-                            executable: "swift",
-                            arguments: ["run", "--quiet", "circuit-studio-flow-runner"],
+                            operation: .reviewRun,
+                            runID: "review-run",
                             reason: "Load the failed run review."
                         ),
                     ]
@@ -282,10 +281,10 @@ struct RoundTripReviewServiceTests {
             ]
         )
 
-        #expect(throws: RoundTripActionLogServiceError.self) {
-            try RoundTripActionLogService().recordSuggestedCommandSelection(
+        await #expect(throws: RoundTripActionLogServiceError.self) {
+            try await RoundTripActionLogService().recordSuggestedActionSelection(
                 from: failure,
-                commandID: "circuit-studio-flow-runner.review-round-trip",
+                actionID: "review-flow-runner-failure",
                 reviewer: "agent-1"
             )
         }
@@ -330,7 +329,7 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func symlinkEscapingRunDirectoryIsDiagnosticAndIsNotRead() throws {
+    func symlinkEscapingRunDirectoryIsDiagnosticAndIsNotRead() async throws {
         let root = try makeTemporaryRoot("review-symlink-escape")
         defer { removeTemporaryRoot(root) }
 
@@ -387,7 +386,7 @@ struct RoundTripReviewServiceTests {
         )
         try writeJSON(manifest, to: manifestURL)
 
-        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+        let summary = try await RoundTripReviewService().loadReview(manifestURL: manifestURL)
 
         #expect(summary.status == .incomplete)
         #expect(summary.postLayoutComparison == nil)
@@ -395,7 +394,7 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func absoluteArtifactPathIsDiagnosticAndIsNotRead() throws {
+    func absoluteArtifactPathIsDiagnosticAndIsNotRead() async throws {
         let root = try makeTemporaryRoot("review-absolute-artifact")
         defer { removeTemporaryRoot(root) }
 
@@ -435,7 +434,7 @@ struct RoundTripReviewServiceTests {
         )
         try writeJSON(manifest, to: manifestURL)
 
-        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+        let summary = try await RoundTripReviewService().loadReview(manifestURL: manifestURL)
 
         #expect(summary.status == .incomplete)
         #expect(summary.postLayoutComparison == nil)
@@ -444,7 +443,7 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func manifestMissingDigestIsRejectedAtLoad() throws {
+    func manifestMissingDigestIsRejectedAtLoad() async throws {
         let root = try makeTemporaryRoot("review-missing-digest")
         defer { removeTemporaryRoot(root) }
 
@@ -482,7 +481,7 @@ struct RoundTripReviewServiceTests {
         try manifestJSON.write(to: manifestURL, atomically: true, encoding: .utf8)
 
         do {
-            _ = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+            _ = try await RoundTripReviewService().loadReview(manifestURL: manifestURL)
             Issue.record("Expected manifest without artifact digests to fail decoding.")
         } catch {
             #expect(error.localizedDescription.contains("round-trip manifest"))
@@ -490,7 +489,7 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func relativeArtifactManifestRemainsPortableAfterRunDirectoryMove() throws {
+    func relativeArtifactManifestRemainsPortableAfterRunDirectoryMove() async throws {
         let originalRoot = try makeTemporaryRoot("review-portable-original")
         let movedRoot = try makeTemporaryRoot("review-portable-moved")
         defer { removeTemporaryRoot(originalRoot) }
@@ -524,7 +523,7 @@ struct RoundTripReviewServiceTests {
         )
         try FileManager.default.copyItem(at: originalRunDirectory, to: movedRunDirectory)
 
-        let summary = try RoundTripReviewService().loadReview(
+        let summary = try await RoundTripReviewService().loadReview(
             manifestURL: movedRunDirectory.appending(path: "round-trip-manifest.json")
         )
 
@@ -536,7 +535,7 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func tamperedArtifactFailsReviewIntegrityCheck() throws {
+    func tamperedArtifactFailsReviewIntegrityCheck() async throws {
         let root = try makeTemporaryRoot("review-tampered-artifact")
         defer { removeTemporaryRoot(root) }
 
@@ -560,7 +559,7 @@ struct RoundTripReviewServiceTests {
 
         try "tampered\n".write(to: comparisonURL, atomically: true, encoding: .utf8)
 
-        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
+        let summary = try await RoundTripReviewService().loadReview(manifestURL: manifestURL)
 
         #expect(summary.status == .incomplete)
         #expect(summary.postLayoutComparison == nil)
@@ -569,121 +568,6 @@ struct RoundTripReviewServiceTests {
         })
         #expect(summary.diagnostics.contains { $0.contains("SHA-256 mismatch") })
         #expect(summary.diagnostics.contains { $0.contains("byte count mismatch") })
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func manifestBackedApprovalRemainsPortableAfterProjectMove() throws {
-        let originalRoot = try makeTemporaryRoot("review-approval-portable-original")
-        let movedParent = try makeTemporaryRoot("review-approval-portable-moved")
-        defer {
-            if FileManager.default.fileExists(atPath: originalRoot.path(percentEncoded: false)) {
-                removeTemporaryRoot(originalRoot)
-            }
-        }
-        defer { removeTemporaryRoot(movedParent) }
-
-        let runDirectory = originalRoot
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "review-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-
-        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
-        try writeJSON(makeComparisonReport(), to: comparisonURL)
-
-        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
-        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
-
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(try makeManifest(
-            comparisonURL: comparisonURL,
-            signoffURL: signoffURL
-        ), to: manifestURL)
-
-        let approval = try FlowRunGovernanceService().approve(GateApprovalRequest(
-            gateID: .postLayoutComparison,
-            reviewer: "reviewer",
-            projectRoot: originalRoot,
-            runID: "review-run",
-            manifestURL: manifestURL
-        ))
-        #expect(approval.record.targetArtifactKind == "post-layout-comparison")
-        #expect(approval.record.targetArtifactPathBase == .runDirectory)
-        #expect(approval.record.targetArtifactPath == "post-layout-comparison.json")
-
-        let movedRoot = movedParent.appending(path: "moved-project")
-        try FileManager.default.copyItem(at: originalRoot, to: movedRoot)
-        try FileManager.default.removeItem(at: originalRoot)
-
-        let summary = try RoundTripReviewService().loadReview(
-            manifestURL: movedRoot
-                .appending(path: ".xcircuite")
-                .appending(path: "runs")
-                .appending(path: "review-run")
-                .appending(path: "round-trip-manifest.json")
-        )
-
-        #expect(summary.status == .passed)
-        #expect(summary.diagnostics.isEmpty)
-        #expect(summary.warnings.isEmpty)
-        #expect(summary.approvals.count == 1)
-        #expect(summary.approvals.first?.targetArtifactPathBase == .runDirectory)
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func absoluteApprovalTargetRecordIsInvalid() throws {
-        let root = try makeTemporaryRoot("review-absolute-approval-target")
-        defer { removeTemporaryRoot(root) }
-
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "review-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-
-        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
-        try writeJSON(makeComparisonReport(), to: comparisonURL)
-
-        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
-        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
-
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(try makeManifest(
-            comparisonURL: comparisonURL,
-            signoffURL: signoffURL
-        ), to: manifestURL)
-
-        let approvalsDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "approvals")
-            .appending(path: "review-run")
-        try FileManager.default.createDirectory(at: approvalsDirectory, withIntermediateDirectories: true)
-        let staleAbsolutePath = FileManager.default.temporaryDirectory
-            .appending(path: "missing-approval-target-\(UUID().uuidString).json")
-            .path(percentEncoded: false)
-        try writeJSON(GateApprovalRecord(
-            gateID: .postLayoutComparison,
-            decision: .approved,
-            reviewer: "reviewer",
-            decidedAt: Date(timeIntervalSince1970: 1_700_000_010),
-            runID: "review-run",
-            manifestPath: manifestURL.path(percentEncoded: false),
-            manifestSHA256: nil,
-            targetArtifactPath: staleAbsolutePath,
-            targetArtifactSHA256: String(repeating: "0", count: 64),
-            policy: nil,
-            waiverIDs: [],
-            note: nil,
-            lineage: nil
-        ), to: approvalsDirectory.appending(path: "absolute-approval.json"))
-
-        let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
-
-        #expect(summary.status == .incomplete)
-        #expect(summary.approvals.count == 1)
-        #expect(summary.warnings.isEmpty)
-        #expect(summary.diagnostics.contains { $0.contains("Gate approval target artifact is invalid") })
-        #expect(summary.diagnostics.contains { $0.contains("run-directory relative") })
     }
 
     private func makeManifest(

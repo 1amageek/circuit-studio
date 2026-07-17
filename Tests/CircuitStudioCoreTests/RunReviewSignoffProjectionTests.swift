@@ -1051,7 +1051,7 @@ struct RunReviewSignoffProjectionTests {
             designDiff: fixture.review.planning.designDiff,
             designDiffSummary: designDiffSummary,
             correctnessItems: fixture.review.planning.correctnessItems,
-            selectedCommands: fixture.review.planning.selectedCommands,
+            selectedActions: fixture.review.planning.selectedActions,
             decodeIssues: fixture.review.planning.decodeIssues
         )
         let review = RunReviewService.RunReview(
@@ -1066,11 +1066,12 @@ struct RunReviewSignoffProjectionTests {
             artifacts: fixture.review.artifacts,
             stages: fixture.review.stages,
             approvals: fixture.review.approvals,
-            suggestedCommandSelections: fixture.review.suggestedCommandSelections,
+            suggestedActionSelections: fixture.review.suggestedActionSelections,
             planning: planning,
             signoff: conflictingSignoff,
             waivers: fixture.review.waivers,
             failureStates: fixture.review.failureStates,
+            toolchain: fixture.review.toolchain,
             flowReview: fixture.review.flowReview,
             retainedDashboard: fixture.review.retainedDashboard,
             bundle: fixture.review.bundle

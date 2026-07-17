@@ -6,6 +6,7 @@ import CircuitPhysicalDesign
 import CoreSpiceWaveform
 import LayoutCore
 import LayoutTech
+import PEXEngine
 import LayoutEngine
 import Xcircuite
 import DesignFlowKernel
@@ -138,13 +139,13 @@ public struct DesignFlowPrePEXVerificationRequest: Sendable {
 
 public struct DesignFlowPostLayoutSimulationRequest: Sendable {
     public let baseNetlist: String
-    public let parasitics: PEXParasiticIR
+    public let parasitics: ParasiticIR
     public let command: AnalysisCommand
     public let processConfiguration: ProcessConfiguration?
 
     public init(
         baseNetlist: String,
-        parasitics: PEXParasiticIR,
+        parasitics: ParasiticIR,
         command: AnalysisCommand,
         processConfiguration: ProcessConfiguration? = nil
     ) {
@@ -169,10 +170,10 @@ public struct DesignFlowRoundTripRequest {
 }
 
 public struct DesignFlowPEXInput: Sendable, Hashable {
-    public let ir: PEXParasiticIR
+    public let ir: ParasiticIR
     public let artifactPaths: [String]
 
-    public init(ir: PEXParasiticIR, artifactPaths: [String]) {
+    public init(ir: ParasiticIR, artifactPaths: [String]) {
         self.ir = ir
         self.artifactPaths = artifactPaths
     }
@@ -228,8 +229,8 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case runVerification
         case approveGate
         case reviewRoundTrip
-        case selectFailureSuggestedCommand
-        case runSelectedSuggestedCommand
+        case selectFailureSuggestedAction
+        case runSelectedSuggestedAction
         case applyWaiverEditProposal
         case runPostWaiverEditVerification
         case applyWaiverEditProposalAndRunPostVerification
@@ -269,14 +270,11 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let designUnitPath: String?
     public let roundTripManifestPath: String?
     public let failureEnvelopePath: String?
-    public let suggestedCommandID: String?
-    public let approvalGateID: FlowGateID?
-    public let approvalTargetPath: String?
+    public let suggestedActionID: String?
+    public let approvalStageID: String?
     public let approvalReviewer: String?
-    public let approvalDecision: GateApprovalDecision?
-    public let approvalPolicy: String?
+    public let approvalVerdict: FlowApprovalRecord.Verdict?
     public let approvalNote: String?
-    public let waiverIDs: [String]
     public let waiverReviewID: String?
     public let waiverProposalID: String?
     public let actionActorKind: FlowRunActor.Kind?
@@ -334,14 +332,11 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         designUnitPath: String? = nil,
         roundTripManifestPath: String? = nil,
         failureEnvelopePath: String? = nil,
-        suggestedCommandID: String? = nil,
-        approvalGateID: FlowGateID? = nil,
-        approvalTargetPath: String? = nil,
+        suggestedActionID: String? = nil,
+        approvalStageID: String? = nil,
         approvalReviewer: String? = nil,
-        approvalDecision: GateApprovalDecision? = nil,
-        approvalPolicy: String? = nil,
+        approvalVerdict: FlowApprovalRecord.Verdict? = nil,
         approvalNote: String? = nil,
-        waiverIDs: [String] = [],
         waiverReviewID: String? = nil,
         waiverProposalID: String? = nil,
         actionActorKind: FlowRunActor.Kind? = nil,
@@ -395,14 +390,11 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.designUnitPath = designUnitPath
         self.roundTripManifestPath = roundTripManifestPath
         self.failureEnvelopePath = failureEnvelopePath
-        self.suggestedCommandID = suggestedCommandID
-        self.approvalGateID = approvalGateID
-        self.approvalTargetPath = approvalTargetPath
+        self.suggestedActionID = suggestedActionID
+        self.approvalStageID = approvalStageID
         self.approvalReviewer = approvalReviewer
-        self.approvalDecision = approvalDecision
-        self.approvalPolicy = approvalPolicy
+        self.approvalVerdict = approvalVerdict
         self.approvalNote = approvalNote
-        self.waiverIDs = waiverIDs
         self.waiverReviewID = waiverReviewID
         self.waiverProposalID = waiverProposalID
         self.actionActorKind = actionActorKind
@@ -479,10 +471,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let layoutTrustReport: LayoutTrustReport?
     public let verificationReportPath: String?
     public let verificationReport: DesignFlowVerificationReport?
-    public let approvalRecordPath: String?
-    public let approvalRecord: GateApprovalRecord?
+    public let approvalRecord: FlowApprovalRecord?
     public let roundTripReview: RoundTripReviewSummary?
-    public let selectedSuggestedCommand: FlowSuggestedCommandSelection?
+    public let selectedSuggestedAction: FlowRunSuggestedActionSelection?
     public let signoffRepairPlanningResult: RunReviewSignoffRepairPlanningResult?
     public let signoffRepairCandidateCycleResult: RunReviewSignoffRepairCandidateCycleResult?
     public let signoffRepairCandidateCycleHistorySummary: RunReviewSignoffRepairCandidateCycleHistorySummary?
@@ -549,10 +540,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         layoutTrustReport: LayoutTrustReport? = nil,
         verificationReportPath: String? = nil,
         verificationReport: DesignFlowVerificationReport? = nil,
-        approvalRecordPath: String? = nil,
-        approvalRecord: GateApprovalRecord? = nil,
+        approvalRecord: FlowApprovalRecord? = nil,
         roundTripReview: RoundTripReviewSummary? = nil,
-        selectedSuggestedCommand: FlowSuggestedCommandSelection? = nil,
+        selectedSuggestedAction: FlowRunSuggestedActionSelection? = nil,
         signoffRepairPlanningResult: RunReviewSignoffRepairPlanningResult? = nil,
         signoffRepairCandidateCycleResult: RunReviewSignoffRepairCandidateCycleResult? = nil,
         signoffRepairCandidateCycleHistorySummary: RunReviewSignoffRepairCandidateCycleHistorySummary? = nil,
@@ -615,10 +605,9 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.layoutTrustReport = layoutTrustReport
         self.verificationReportPath = verificationReportPath
         self.verificationReport = verificationReport
-        self.approvalRecordPath = approvalRecordPath
         self.approvalRecord = approvalRecord
         self.roundTripReview = roundTripReview
-        self.selectedSuggestedCommand = selectedSuggestedCommand
+        self.selectedSuggestedAction = selectedSuggestedAction
         self.signoffRepairPlanningResult = signoffRepairPlanningResult
         self.signoffRepairCandidateCycleResult = signoffRepairCandidateCycleResult
         self.signoffRepairCandidateCycleHistorySummary = signoffRepairCandidateCycleHistorySummary
@@ -655,8 +644,8 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
     case missingVerificationReport
     case missingRoundTripManifestPath
     case missingFailureEnvelopePath
-    case missingSuggestedCommandID
-    case missingApprovalGateID
+    case missingSuggestedActionID
+    case missingApprovalStageID
     case missingApprovalReviewer
     case missingRunID
     case missingWaiverReviewID
@@ -700,10 +689,10 @@ public enum DesignFlowCommandError: Error, LocalizedError, Equatable {
             return "Design flow command requires a round-trip manifest path, or a project root path with a run ID."
         case .missingFailureEnvelopePath:
             return "Design flow command requires a failure envelope path."
-        case .missingSuggestedCommandID:
-            return "Design flow command requires a suggested command ID."
-        case .missingApprovalGateID:
-            return "Design flow command requires an approval gate ID."
+        case .missingSuggestedActionID:
+            return "Design flow command requires a suggested action ID."
+        case .missingApprovalStageID:
+            return "Design flow command requires an approval stage ID."
         case .missingApprovalReviewer:
             return "Design flow command requires an approval reviewer."
         case .missingRunID:
