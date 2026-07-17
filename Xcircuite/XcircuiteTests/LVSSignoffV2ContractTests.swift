@@ -1,13 +1,10 @@
 import Testing
 @testable import CircuitStudioApp
 
-@Suite("LVS signoff v2 host contract", .timeLimit(.minutes(1)))
-struct LVSSignoffV2ContractTests {
+@Suite("LVS signoff host contract", .timeLimit(.minutes(1)))
+struct LVSSignoffContractTests {
     @Test func completedMatchAndReadyAuthorizesSignoff() {
         let projection = LVSSignoffProjection(document: document(
-            schemaVersion: 2,
-            passed: true,
-            completed: true,
             executionStatus: "completed",
             verdict: "match",
             readiness: "ready",
@@ -25,9 +22,6 @@ struct LVSSignoffV2ContractTests {
             evidenceReferences: ["lvs-device-policy-application-report"]
         )
         let projection = LVSSignoffProjection(document: document(
-            schemaVersion: 2,
-            passed: false,
-            completed: true,
             executionStatus: "completed",
             verdict: "blocked",
             readiness: "blocked",
@@ -39,37 +33,17 @@ struct LVSSignoffV2ContractTests {
         #expect(projection.blockingReasons == [reason])
     }
 
-    @Test func legacyPassedFieldCannotAuthorizeFlowSignoff() {
-        let projection = LVSSignoffProjection(document: document(
-            schemaVersion: 1,
-            passed: true,
-            completed: true,
-            executionStatus: nil,
-            verdict: nil,
-            readiness: nil,
-            blockingReasons: nil
-        ))
-
-        #expect(projection.status == "blocked")
-        #expect(!projection.passed)
-        #expect(projection.blockingReasons.contains { $0.code == "lvs_v2_contract_missing" })
-    }
-
     private func document(
-        schemaVersion: Int,
-        passed: Bool,
-        completed: Bool,
-        executionStatus: String?,
-        verdict: String?,
-        readiness: String?,
-        blockingReasons: [LVSReviewBlockingReason]?
+        executionStatus: String,
+        verdict: String,
+        readiness: String,
+        blockingReasons: [LVSReviewBlockingReason]
     ) -> LVSReviewDocument {
         LVSReviewDocument(
-            schemaVersion: schemaVersion,
+            schemaVersion: LVSReviewDocument.currentSchemaVersion,
             reportURL: nil,
             manifestURL: nil,
             summary: LVSReviewSummary(
-                status: passed ? "passed" : "failed",
                 executionStatus: executionStatus,
                 verdict: verdict,
                 readiness: readiness,
@@ -77,8 +51,6 @@ struct LVSSignoffV2ContractTests {
                 toolName: "NativeLVS",
                 topCell: "TOP",
                 layoutInputKind: "layout-netlist",
-                passed: passed,
-                completed: completed,
                 activeMismatchCount: verdict == "mismatch" ? 1 : 0,
                 waivedMismatchCount: 0,
                 mismatchBuckets: [],

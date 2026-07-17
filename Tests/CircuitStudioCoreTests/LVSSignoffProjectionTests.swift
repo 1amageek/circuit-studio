@@ -3,7 +3,7 @@ import Testing
 
 @Suite("LVS signoff projection", .timeLimit(.minutes(1)))
 struct LVSSignoffProjectionTests {
-    @Test func v2MatchUsesExecutionVerdictAndReadiness() {
+    @Test func matchUsesExecutionVerdictAndReadiness() {
         let projection = LVSSignoffProjection(document: document(
             executionStatus: "completed",
             verdict: "match",
@@ -15,7 +15,7 @@ struct LVSSignoffProjectionTests {
         #expect(projection.blockingReasons.isEmpty)
     }
 
-    @Test func blockedV2ResultRemainsBlockedAndExplainsWhy() {
+    @Test func blockedResultRemainsBlockedAndExplainsWhy() {
         let reason = LVSReviewBlockingReason(
             code: "device_policy_partial",
             message: "The selected device policy was only partially applied.",
@@ -33,28 +33,14 @@ struct LVSSignoffProjectionTests {
         #expect(projection.blockingReasons == [reason])
     }
 
-    @Test func schemaV1CannotAuthorizeSignoff() {
-        let projection = LVSSignoffProjection(document: document(
-            schemaVersion: 1,
-            executionStatus: "completed",
-            verdict: "match",
-            readiness: "ready"
-        ))
-
-        #expect(projection.status == "blocked")
-        #expect(!projection.passed)
-        #expect(projection.blockingReasons.contains { $0.code == "lvs_v2_contract_missing" })
-    }
-
     private func document(
-        schemaVersion: Int = 2,
         executionStatus: String,
         verdict: String,
         readiness: String,
         blockingReasons: [LVSReviewBlockingReason] = []
     ) -> LVSReviewDocument {
         LVSReviewDocument(
-            schemaVersion: schemaVersion,
+            schemaVersion: LVSReviewDocument.currentSchemaVersion,
             reportURL: nil,
             manifestURL: nil,
             summary: LVSReviewSummary(

@@ -15,16 +15,16 @@ struct LVSSignoffProjection: Sendable, Hashable {
         readiness = summary.readiness
 
         var reasons = summary.blockingReasons
-        let hasV2Contract = document.schemaVersion == 2
+        let hasCurrentSchema = document.schemaVersion == LVSReviewDocument.currentSchemaVersion
         let valuesAreKnown = Self.executionStatuses.contains(executionStatus)
             && Self.verdicts.contains(verdict)
             && Self.readinessValues.contains(readiness)
-        guard hasV2Contract, valuesAreKnown else {
+        guard hasCurrentSchema, valuesAreKnown else {
             status = "blocked"
             passed = false
             reasons.append(Self.contractReason(
-                code: "lvs_v2_contract_missing",
-                message: "The LVS summary does not contain the complete v2 execution, verdict, and readiness contract."
+                code: "lvs_contract_missing",
+                message: "The LVS summary does not contain the current execution, verdict, and readiness contract."
             ))
             blockingReasons = reasons
             return
@@ -48,7 +48,7 @@ struct LVSSignoffProjection: Sendable, Hashable {
             status = "blocked"
             passed = false
             reasons.append(Self.contractReason(
-                code: "lvs_v2_contract_inconsistent",
+                code: "lvs_contract_inconsistent",
                 message: "The LVS summary contains contradictory execution, verdict, readiness, or blocking-reason fields."
             ))
             blockingReasons = reasons

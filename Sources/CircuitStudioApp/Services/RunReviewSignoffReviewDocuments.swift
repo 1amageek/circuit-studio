@@ -49,6 +49,8 @@ struct DRCReviewRegion: Decodable {
 }
 
 struct LVSReviewDocument: Decodable {
+    static let currentSchemaVersion = 2
+
     let schemaVersion: Int
     let reportURL: URL?
     let manifestURL: URL?
