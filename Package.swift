@@ -46,7 +46,7 @@ let package = Package(
     dependencies: [
         workspaceDependency(
             named: "Xcircuite",
-            revision: "b4b663867a3812c47b62b7dd226b8808ac2af7cc"
+            revision: "f2e867eeae6369e8b1578ff729b421fdfc73b8d0"
         ),
         workspaceDependency(
             named: "CircuiteFoundation",
@@ -54,23 +54,23 @@ let package = Package(
         ),
         workspaceDependency(
             named: "DesignFlowKernel",
-            revision: "8bad03bbccddfb32f3767c8df00e816ee10cd4f3"
+            revision: "4d137eed01e01065fbf028b61cb58200fe138481"
         ),
         workspaceDependency(
             named: "SignoffToolSupport",
-            revision: "7bfd1864edd147c59a1dc79e58f297120d165323"
+            revision: "2c8ce00a8f873934e74e3f219e0cbd122a862fe9"
         ),
         workspaceDependency(
             named: "CoreSpice",
-            revision: "e38a574d64c8702c60db617393da86cccbe7e987"
+            revision: "a1dff52b12f40bca8696aee914d7d65d55e6fed5"
         ),
         workspaceDependency(
             named: "semiconductor-layout",
-            revision: "fa8f27852bc251fb340dfcfa261f2b3a0a408d1a"
+            revision: "61cc2be603f57d12f3c582a2fc0fd148c1e62ad9"
         ),
         workspaceDependency(
             named: "PEXEngine",
-            revision: "f53859d6d87c4504bad4c59e29a9ef1befcd2ab8"
+            revision: "f3078e12af274a714e27ec523f19c5c29abd42dd"
         ),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
@@ -78,7 +78,7 @@ let package = Package(
         ),
         workspaceDependency(
             named: "swift-openvaf",
-            revision: "dc2f95057c648cf032c888b969c02ba3787f52f9"
+            revision: "5e93bccf00aeb7165cb12c899361e7040f1da4c3"
         ),
         .package(
             url: "https://github.com/1amageek/mac-component.git",
