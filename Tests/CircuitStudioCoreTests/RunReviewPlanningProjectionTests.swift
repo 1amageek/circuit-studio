@@ -22,9 +22,10 @@ struct RunReviewPlanningProjectionTests {
             executors: [RunReviewPassingExecutor(stageID: "001-planning")],
             workspaceStore: store
         )
+        let workspaceID = try await RunReviewTestSupport.workspaceID(projectRoot: root)
         _ = try await runtime.run(
             request: FlowOperationRequest(
-                workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
+                workspaceID: workspaceID,
                 runID: "run-planning",
                 intent: "Review planning correctness",
                 stages: [
@@ -679,8 +680,8 @@ struct RunReviewPlanningProjectionTests {
         #expect(command.executable == "xcircuite-flow")
         #expect(command.arguments == [
             "verify-candidate-plan",
-            "--project-root",
-            root.path(percentEncoded: false),
+            "--workspace-id",
+            workspaceID.rawValue,
             "--run-id",
             "run-planning",
             "--mode",
@@ -841,6 +842,7 @@ struct RunReviewPlanningProjectionTests {
         try await store.saveRunLedger(ledger)
         let service = RunReviewService(
             ledgerLoader: PlanningStaticLedgerLoader(ledger: ledger),
+            reviewLedgerLoader: PlanningStaticLedgerLoader(ledger: ledger),
             reviewBundler: PlanningStaticRunReviewBundler(bundle: bundle)
         )
 
@@ -856,10 +858,14 @@ struct RunReviewPlanningProjectionTests {
     }
 }
 
-private struct PlanningStaticLedgerLoader: FlowRunLedgerLoading {
+private struct PlanningStaticLedgerLoader: FlowRunLedgerLoading, FlowRunReviewLedgerLoading {
     let ledger: FlowRunLedger
 
     func loadRunLedger(runID: String) async throws -> FlowRunLedger {
+        ledger
+    }
+
+    func loadRunLedgerForReview(runID: String) async throws -> FlowRunLedger {
         ledger
     }
 }

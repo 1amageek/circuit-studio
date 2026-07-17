@@ -2,12 +2,15 @@ import DesignFlowKernel
 import CircuiteFoundation
 import Foundation
 import Testing
+import Xcircuite
 @testable import CircuitStudioApp
 
 @Suite("Run review artifact resource")
 struct RunReviewArtifactResourceTests {
     @Test func returnsAURLOnlyAfterRevalidatingTheRecordedDigest() async throws {
-        let fixture = try RunReviewArtifactResourceFixture(contents: "time,v(out)\n0,0\n1,1\n")
+        let fixture = try await RunReviewArtifactResourceFixture.make(
+            contents: "time,v(out)\n0,0\n1,1\n"
+        )
         defer { fixture.remove() }
 
         let resource = try await RunReviewArtifactResourceLoader(service: fixture.service).load(
@@ -22,7 +25,7 @@ struct RunReviewArtifactResourceTests {
     }
 
     @Test func rejectsContentChangedAfterLedgerVerification() async throws {
-        let fixture = try RunReviewArtifactResourceFixture(contents: "original")
+        let fixture = try await RunReviewArtifactResourceFixture.make(contents: "original")
         defer { fixture.remove() }
         try Data("modified".utf8).write(to: fixture.file)
 
@@ -45,7 +48,7 @@ struct RunReviewArtifactResourceTests {
     }
 
     @Test func rejectsAnArtifactOutsideTheProjectRoot() async throws {
-        let fixture = try RunReviewArtifactResourceFixture(contents: "inside")
+        let fixture = try await RunReviewArtifactResourceFixture.make(contents: "inside")
         defer { fixture.remove() }
         let outsideDirectory = FileManager.default.temporaryDirectory
             .appending(path: "RunReviewOutside-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -90,7 +93,7 @@ private struct RunReviewArtifactResourceFixture {
     let digest: ContentDigest
     let artifact: FlowRunReviewArtifact
 
-    init(contents: String) throws {
+    private init(contents: String) throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "RunReviewArtifactResourceTests-\(UUID().uuidString)", directoryHint: .isDirectory)
         let artifactDirectory = root.appending(path: "artifacts", directoryHint: .isDirectory)
@@ -108,6 +111,12 @@ private struct RunReviewArtifactResourceFixture {
             digest: digest,
             byteCount: UInt64(data.count)
         )
+    }
+
+    static func make(contents: String) async throws -> Self {
+        let fixture = try Self(contents: contents)
+        try await XcircuiteWorkspaceStore(projectRoot: fixture.root).createWorkspace()
+        return fixture
     }
 
     var service: RunReviewService {

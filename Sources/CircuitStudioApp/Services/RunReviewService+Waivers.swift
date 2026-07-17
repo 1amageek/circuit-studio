@@ -14,7 +14,8 @@ extension RunReviewService {
     ) async throws -> FlowRunActionRecord {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
-        let bundler = configuredReviewBundler(store: store, loader: loader)
+        let reviewLoader = configuredReviewLedgerLoader(store: store)
+        let bundler = configuredReviewBundler(store: store, loader: reviewLoader)
         let ledger = try await loader.loadRunLedger(runID: runID)
         let bundle = try await bundler.makeReviewBundle(
             runID: runID,
@@ -61,7 +62,8 @@ extension RunReviewService {
     ) async throws -> FlowRunActionRecord {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
-        let bundler = configuredReviewBundler(store: store, loader: loader)
+        let reviewLoader = configuredReviewLedgerLoader(store: store)
+        let bundler = configuredReviewBundler(store: store, loader: reviewLoader)
         let ledger = try await loader.loadRunLedger(runID: runID)
         let bundle = try await bundler.makeReviewBundle(
             runID: runID,
@@ -114,7 +116,8 @@ extension RunReviewService {
     ) async throws -> FlowRunActionRecord {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
-        let bundler = configuredReviewBundler(store: store, loader: loader)
+        let reviewLoader = configuredReviewLedgerLoader(store: store)
+        let bundler = configuredReviewBundler(store: store, loader: reviewLoader)
         let ledger = try await loader.loadRunLedger(runID: runID)
         let bundle = try await bundler.makeReviewBundle(
             runID: runID,
@@ -175,7 +178,8 @@ extension RunReviewService {
     ) async throws -> FlowRunActionRecord {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
-        let bundler = configuredReviewBundler(store: store, loader: loader)
+        let reviewLoader = configuredReviewLedgerLoader(store: store)
+        let bundler = configuredReviewBundler(store: store, loader: reviewLoader)
         let ledger = try await loader.loadRunLedger(runID: runID)
         let bundle = try await bundler.makeReviewBundle(
             runID: runID,

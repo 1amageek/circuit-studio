@@ -77,13 +77,16 @@ public struct RunReviewService: Sendable {
     }
 
     let ledgerLoader: (any FlowRunLedgerLoading)?
+    let reviewLedgerLoader: (any FlowRunReviewLedgerLoading)?
     let reviewBundler: (any FlowRunReviewBundling)?
 
     public init(
         ledgerLoader: (any FlowRunLedgerLoading)? = nil,
+        reviewLedgerLoader: (any FlowRunReviewLedgerLoading)? = nil,
         reviewBundler: (any FlowRunReviewBundling)? = nil
     ) {
         self.ledgerLoader = ledgerLoader
+        self.reviewLedgerLoader = reviewLedgerLoader
         self.reviewBundler = reviewBundler
     }
 
@@ -99,9 +102,15 @@ public struct RunReviewService: Sendable {
 
     func configuredReviewBundler(
         store: XcircuiteWorkspaceStore,
-        loader: any FlowRunLedgerLoading
+        loader: any FlowRunReviewLedgerLoading
     ) -> any FlowRunReviewBundling {
         reviewBundler ?? DefaultFlowRunReviewBundler(loader: loader, persistence: store)
+    }
+
+    func configuredReviewLedgerLoader(
+        store: XcircuiteWorkspaceStore
+    ) -> any FlowRunReviewLedgerLoading {
+        reviewLedgerLoader ?? store
     }
 
     func workspaceID(store: XcircuiteWorkspaceStore) async throws -> FlowWorkspaceID {
@@ -126,15 +135,15 @@ public struct RunReviewService: Sendable {
     /// The full review picture of one run, straight from the ledger.
     public func loadRun(runID: String, projectRoot: URL) async throws -> RunReview {
         let store = try workspaceStore(projectRoot: projectRoot)
-        let loader = configuredLedgerLoader(store: store)
+        let loader = configuredReviewLedgerLoader(store: store)
         let bundler = configuredReviewBundler(store: store, loader: loader)
-        let ledger = try await loader.loadRunLedger(runID: runID)
+        let ledger = try await loader.loadRunLedgerForReview(runID: runID)
         let bundle = try await bundler.makeReviewBundle(
             runID: runID,
             workspaceID: try await workspaceID(store: store)
         )
         let approvals = bundle.approvals
-        let suggestedCommandSelections = try await store.loadSuggestedCommandSelections(runID: runID)
+        let suggestedCommandSelections = try suggestedCommandSelections(from: ledger.actions)
         let approvalsByStage = Dictionary(
             approvals.map { ($0.stageID, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -198,7 +207,7 @@ public struct RunReviewService: Sendable {
 
     public func loadReviewBundle(runID: String, projectRoot: URL) async throws -> FlowRunReviewBundle {
         let store = try workspaceStore(projectRoot: projectRoot)
-        let loader = configuredLedgerLoader(store: store)
+        let loader = configuredReviewLedgerLoader(store: store)
         return try await configuredReviewBundler(store: store, loader: loader)
             .makeReviewBundle(
                 runID: runID,
@@ -210,8 +219,22 @@ public struct RunReviewService: Sendable {
         runID: String,
         projectRoot: URL
     ) async throws -> [FlowSuggestedCommandSelection] {
-        try await workspaceStore(projectRoot: projectRoot)
-            .loadSuggestedCommandSelections(runID: runID)
+        let store = try workspaceStore(projectRoot: projectRoot)
+        let ledger = try await configuredReviewLedgerLoader(store: store)
+            .loadRunLedgerForReview(runID: runID)
+        return try suggestedCommandSelections(from: ledger.actions)
+    }
+
+    private func suggestedCommandSelections(
+        from actions: [FlowRunActionRecord]
+    ) throws -> [FlowSuggestedCommandSelection] {
+        var selections: [FlowSuggestedCommandSelection] = []
+        for action in actions {
+            if let selection = try FlowSuggestedCommandSelection(record: action) {
+                selections.append(selection)
+            }
+        }
+        return selections
     }
 
     public func recordSuggestedCommandSelection(
@@ -222,7 +245,7 @@ public struct RunReviewService: Sendable {
         projectRoot: URL
     ) async throws -> FlowRunActionRecord {
         let store = try workspaceStore(projectRoot: projectRoot)
-        let loader = configuredLedgerLoader(store: store)
+        let loader = configuredReviewLedgerLoader(store: store)
         let bundle = try await configuredReviewBundler(store: store, loader: loader)
             .makeReviewBundle(
                 runID: runID,
@@ -298,7 +321,8 @@ public struct RunReviewService: Sendable {
     ) async throws -> FlowApprovalRecord {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
-        let bundler = configuredReviewBundler(store: store, loader: loader)
+        let reviewLoader = configuredReviewLedgerLoader(store: store)
+        let bundler = configuredReviewBundler(store: store, loader: reviewLoader)
         let recorder = DefaultFlowGateApprovalRecorder(
             loader: loader,
             inspector: DefaultFlowRunLedgerInspector(reviewBundler: bundler),

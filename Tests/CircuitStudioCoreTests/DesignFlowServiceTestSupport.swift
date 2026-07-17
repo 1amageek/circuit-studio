@@ -75,60 +75,92 @@ enum DesignFlowServiceTestSupport {
         try spefData.write(to: rawDirectory.appending(path: "top.spef"), options: .atomic)
         try logData.write(to: rawDirectory.appending(path: "extraction.log"), options: .atomic)
         try irData.write(to: irDirectory.appending(path: "tt_25c_1v0.json"), options: .atomic)
-        try """
-        {
-          "version": 2,
-          "runID": { "value": "00000000-0000-0000-0000-000000000300" },
-          "requestHash": { "value": "fixture" },
-          "backendID": "mock-pexengine",
-          "status": "success",
-          "startedAt": "2026-05-07T00:00:00Z",
-          "finishedAt": "2026-05-07T00:00:01Z",
-          "corners": [
-            {
-              "cornerID": { "value": "tt_25c_1v0" },
-              "status": "success",
-              "artifactIDs": ["raw-tt", "ir-tt", "log-tt"]
-            }
-          ],
-          "artifacts": [
-            {
-              "id": "raw-tt",
-              "kind": "rawOutput",
-              "stage": "backendExecution",
-              "cornerID": { "value": "tt_25c_1v0" },
-              "relativePath": { "value": "raw/tt_25c_1v0/top.spef" },
-              "sha256": "\(PEXRequestHash.compute(from: spefData).value)",
-              "byteCount": \(spefData.count),
-              "createdAt": "2026-05-07T00:00:00Z",
-              "status": "available"
-            },
-            {
-              "id": "ir-tt",
-              "kind": "parasiticIR",
-              "stage": "persistence",
-              "cornerID": { "value": "tt_25c_1v0" },
-              "relativePath": { "value": "ir/tt_25c_1v0.json" },
-              "sha256": "\(PEXRequestHash.compute(from: irData).value)",
-              "byteCount": \(irData.count),
-              "createdAt": "2026-05-07T00:00:00Z",
-              "status": "available"
-            },
-            {
-              "id": "log-tt",
-              "kind": "log",
-              "stage": "backendExecution",
-              "cornerID": { "value": "tt_25c_1v0" },
-              "relativePath": { "value": "raw/tt_25c_1v0/extraction.log" },
-              "sha256": "\(PEXRequestHash.compute(from: logData).value)",
-              "byteCount": \(logData.count),
-              "createdAt": "2026-05-07T00:00:00Z",
-              "status": "available"
-            }
-          ],
-          "warnings": []
+        let cornerID = PEXCornerID("tt_25c_1v0")
+        let createdAt = Date(timeIntervalSince1970: 1_778_112_000)
+        func artifactRecord(
+            id: String,
+            kind: PEXArtifactKind,
+            stage: PEXStage,
+            relativePath: String,
+            format: ArtifactFormat,
+            data: Data
+        ) throws -> PEXArtifactRecord {
+            let locator = ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: relativePath),
+                role: .output,
+                kind: try ArtifactKind(rawValue: kind.foundationRawValue),
+                format: format
+            )
+            let reference = ArtifactReference(
+                id: try ArtifactID(rawValue: id),
+                locator: locator,
+                digest: try ContentDigest(
+                    algorithm: .sha256,
+                    hexadecimalValue: PEXRequestHash.compute(from: data).value
+                ),
+                byteCount: UInt64(data.count)
+            )
+            return PEXArtifactRecord(
+                payload: .available(reference),
+                stage: stage,
+                cornerID: cornerID,
+                createdAt: createdAt
+            )
         }
-        """.write(to: runDirectory.appending(path: "manifest.json"), atomically: true, encoding: .utf8)
+
+        let artifacts = try [
+            artifactRecord(
+                id: "raw-tt",
+                kind: .rawOutput,
+                stage: .backendExecution,
+                relativePath: "raw/tt_25c_1v0/top.spef",
+                format: .spef,
+                data: spefData
+            ),
+            artifactRecord(
+                id: "ir-tt",
+                kind: .parasiticIR,
+                stage: .persistence,
+                relativePath: "ir/tt_25c_1v0.json",
+                format: .json,
+                data: irData
+            ),
+            artifactRecord(
+                id: "log-tt",
+                kind: .log,
+                stage: .backendExecution,
+                relativePath: "raw/tt_25c_1v0/extraction.log",
+                format: .text,
+                data: logData
+            ),
+        ]
+        guard let runUUID = UUID(uuidString: "00000000-0000-0000-0000-000000000300") else {
+            throw StudioError.projectLoadFailed("Invalid PEX fixture run ID")
+        }
+        let manifest = PEXArtifactManifest(
+            runID: PEXRunID(runUUID),
+            requestHash: PEXRequestHash("fixture"),
+            backendID: "mock-pexengine",
+            status: .success,
+            startedAt: createdAt,
+            finishedAt: createdAt.addingTimeInterval(1),
+            corners: [
+                PEXArtifactCorner(
+                    cornerID: cornerID,
+                    status: .success,
+                    artifactIDs: artifacts.map(\.id)
+                )
+            ],
+            artifacts: artifacts,
+            warnings: []
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(manifest).write(
+            to: runDirectory.appending(path: "manifest.json"),
+            options: .atomic
+        )
     }
 
     static func makePEXRunResult(runDirectory: URL) throws -> PEXRunResult {

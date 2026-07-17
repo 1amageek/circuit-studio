@@ -155,6 +155,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
             let copied = try await copyArtifact(
                 artifact,
                 store: store,
+                projectRoot: projectRoot,
                 runID: runID
             )
             try await recordArtifact(try await artifactReference(
@@ -191,6 +192,7 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
             let copied = try await copyArtifact(
                 gds,
                 store: store,
+                projectRoot: projectRoot,
                 runID: runID
             )
             try await recordArtifact(try await artifactReference(
@@ -244,17 +246,24 @@ public struct XcircuiteEvidenceRunRecorder: Sendable {
     private func copyArtifact(
         _ artifact: TapeoutEvidenceArtifact,
         store: XcircuiteWorkspaceStore,
+        projectRoot: URL,
         runID: String
     ) async throws -> URL {
         try FlowIdentifierValidator().validate(artifact.id, kind: .artifactID)
-        let source = URL(filePath: artifact.path)
+        let source = try artifact.locator.location.resolvedFileURL(relativeTo: projectRoot)
         guard FileManager.default.fileExists(atPath: source.path(percentEncoded: false)) else {
-            throw RecorderError.artifactFileMissing(id: artifact.id, path: artifact.path)
+            throw RecorderError.artifactFileMissing(
+                id: artifact.id,
+                path: source.path(percentEncoded: false)
+            )
         }
         let resolvedSource = source.resolvingSymlinksInPath()
         let sourceValues = try resolvedSource.resourceValues(forKeys: [.isRegularFileKey])
         guard sourceValues.isRegularFile == true else {
-            throw RecorderError.artifactNotRegularFile(id: artifact.id, path: artifact.path)
+            throw RecorderError.artifactNotRegularFile(
+                id: artifact.id,
+                path: source.path(percentEncoded: false)
+            )
         }
         let relativeDestination = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/artifacts/\(artifact.id)-\(source.lastPathComponent)"
         let destination = try await store.url(for: relativeDestination)

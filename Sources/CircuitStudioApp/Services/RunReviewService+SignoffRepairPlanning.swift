@@ -18,7 +18,7 @@ extension RunReviewService {
         projectRoot: URL
     ) async throws -> RunReviewSignoffRepairPlanningResult {
         let store = try workspaceStore(projectRoot: projectRoot)
-        let loader = configuredLedgerLoader(store: store)
+        let loader = configuredReviewLedgerLoader(store: store)
         let bundle = try await configuredReviewBundler(store: store, loader: loader)
             .makeReviewBundle(
                 runID: runID,

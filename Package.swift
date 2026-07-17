@@ -39,7 +39,7 @@ let package = Package(
     dependencies: [
         workspaceDependency(
             named: "Xcircuite",
-            revision: "4d5c6758969e89d7151f699895f9958fbbf15469"
+            revision: "69e7a993bf0b4e60d8cbb8c3c79a2cd64f1e6f9f"
         ),
         workspaceDependency(
             named: "CircuiteFoundation",
@@ -47,7 +47,7 @@ let package = Package(
         ),
         workspaceDependency(
             named: "DesignFlowKernel",
-            revision: "5159da1cb7b7c91a6b7bf92a8ec68daf49820a2b"
+            revision: "8bad03bbccddfb32f3767c8df00e816ee10cd4f3"
         ),
         workspaceDependency(
             named: "SignoffToolSupport",

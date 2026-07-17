@@ -85,7 +85,7 @@ public struct ArtifactPublicationRecord: Sendable, Hashable, Codable {
     }
 
     public var kind: String { locator.kind.rawValue }
-    public var path: String { locator.location.value }
+    public var path: String { locator.path }
     public var sha256: String? { reference?.digest.hexadecimalValue }
     public var byteCount: Int64? { reference.map { Int64($0.byteCount) } }
 

@@ -458,7 +458,11 @@ public struct FlowRunGovernanceService: Sendable {
     }
 
     private func loadManifest(_ url: URL) throws -> HeadlessRoundTripService.Manifest {
-        try readJSON(HeadlessRoundTripService.Manifest.self, from: url)
+        do {
+            return try readJSON(HeadlessRoundTripService.Manifest.self, from: url)
+        } catch let error as ArtifactLocationError {
+            throw FlowRunGovernanceError.invalidArtifactPath(error.localizedDescription)
+        }
     }
 
     private func readJSON<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {

@@ -355,10 +355,37 @@ struct RoundTripReviewServiceTests {
         try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try writeJSON(try makeManifest(
-            comparisonURL: linkedComparisonURL,
+        let baseManifest = try makeManifest(
+            comparisonURL: externalComparisonURL,
             signoffURL: signoffURL
-        ), to: manifestURL)
+        )
+        let comparisonData = try Data(contentsOf: externalComparisonURL)
+        let maliciousLocator = ArtifactLocator(
+            location: try ArtifactLocation(workspaceRelativePath: linkedComparisonURL.lastPathComponent),
+            role: .output,
+            kind: try ArtifactKind(rawValue: "post-layout-comparison"),
+            format: .json
+        )
+        let maliciousReference = ArtifactReference(
+            id: try ArtifactID(rawValue: "post-layout-comparison-linked"),
+            locator: maliciousLocator,
+            digest: try SHA256ContentDigester().digest(data: comparisonData, using: .sha256),
+            byteCount: UInt64(comparisonData.count)
+        )
+        let manifest = HeadlessRoundTripService.Manifest(
+            runID: baseManifest.runID,
+            title: baseManifest.title,
+            createdAt: baseManifest.createdAt,
+            isRoundTripComplete: baseManifest.isRoundTripComplete,
+            isReadyForPEX: baseManifest.isReadyForPEX,
+            stages: baseManifest.stages,
+            artifacts: [
+                baseManifest.artifacts[0],
+                HeadlessRoundTripService.Artifact(reference: maliciousReference),
+            ],
+            bottleneckSummary: baseManifest.bottleneckSummary
+        )
+        try writeJSON(manifest, to: manifestURL)
 
         let summary = try RoundTripReviewService().loadReview(manifestURL: manifestURL)
 

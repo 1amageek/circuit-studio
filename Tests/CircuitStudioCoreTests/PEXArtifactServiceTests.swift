@@ -165,7 +165,10 @@ struct PEXArtifactServiceTests {
             options: .default,
             workingDirectory: root
         )
-        let result = try await DefaultPEXEngine.withDefaults().run(request)
+        let result = try await DefaultPEXEngine(
+            adapterRegistry: PEXAdapterRegistry(adapters: [FixturePEXExtractor()]),
+            parserRegistry: PEXDefaultParsers.makeRegistry()
+        ).run(request)
 
         #expect(result.status == .success)
         #expect(result.manifestURL.path(percentEncoded: false).hasPrefix(root.path(percentEncoded: false)))
@@ -494,4 +497,71 @@ struct PEXArtifactServiceTests {
             backendHints: [:]
         )
     }
+}
+
+private struct FixturePEXExtractor: PEXExtracting {
+    let backendID = "mock"
+    let capabilities = PEXBackendCapabilities(
+        supportsCouplingCaps: true,
+        supportsCornerSweep: false,
+        supportsIncremental: false,
+        supportsRCReduction: false,
+        nativeOutputFormats: [.spef]
+    )
+
+    func prepare(_ context: PEXExecutionContext) async throws {
+        try FileManager.default.createDirectory(
+            at: context.rawOutputDirectory,
+            withIntermediateDirectories: true
+        )
+    }
+
+    func execute(_ context: PEXExecutionContext) async throws -> PEXAdapterExecutionResult {
+        let outputURL = context.rawOutputDirectory.appending(path: "\(context.corner.id.value).spef")
+        let spef = """
+        *SPEF "IEEE 1481-1998"
+        *DESIGN "\(context.topCell)"
+        *DATE "2026-07-17"
+        *VENDOR "CircuitStudioTests"
+        *PROGRAM "FixturePEXExtractor"
+        *VERSION "1.0"
+        *DESIGN_FLOW "EXTERNAL"
+        *DIVIDER /
+        *DELIMITER :
+        *BUS_DELIMITER [ ]
+        *T_UNIT 1 NS
+        *C_UNIT 1 PF
+        *R_UNIT 1 OHM
+        *L_UNIT 1 HENRY
+        *PORTS
+        data_out_1 O
+        *D_NET data_out_1 0.05
+        *CONN
+        *P data_out_1 O
+        *CAP
+        1 data_out_1:1 0.05
+        *RES
+        1 data_out_1:1 data_out_1:2 10.0
+        *END
+        """
+        try Data(spef.utf8).write(to: outputURL, options: .atomic)
+        return PEXAdapterExecutionResult(
+            rawOutput: PEXRawOutput(
+                format: .spef,
+                fileURLs: [outputURL],
+                logURL: nil,
+                metadata: ["source": "fixture"]
+            ),
+            generatedArtifacts: [
+                PEXGeneratedArtifact(
+                    kind: .rawOutput,
+                    stage: .backendExecution,
+                    cornerID: context.corner.id,
+                    url: outputURL
+                )
+            ]
+        )
+    }
+
+    func cleanup(_ context: PEXExecutionContext) async {}
 }

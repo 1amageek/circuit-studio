@@ -26,7 +26,13 @@ public struct RoundTripArtifactResolver: Sendable {
     }
 
     public func resolve(_ artifact: HeadlessRoundTripService.Artifact) throws -> RoundTripArtifactResolution {
-        try resolve(path: artifact.path, kind: artifact.kind)
+        guard artifact.reference.locator.location.storage == .workspaceRelative else {
+            throw RoundTripArtifactResolverError.invalidRelativePath(
+                artifact.path,
+                "round-trip artifacts must use a run-directory relative location"
+            )
+        }
+        return try resolve(path: artifact.path, kind: artifact.kind)
     }
 
     public func resolve(path rawPath: String, kind: String) throws -> RoundTripArtifactResolution {

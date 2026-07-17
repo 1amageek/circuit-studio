@@ -628,8 +628,10 @@ struct RunReviewServiceTests {
             finishedAt: manifest.finishedAt,
             artifacts: manifest.artifacts + [missingLayoutArtifact]
         )
+        let missingArtifactLoader = RunReviewStaticLedgerLoader(ledger: ledger)
         let missingArtifactService = RunReviewService(
-            ledgerLoader: RunReviewStaticLedgerLoader(ledger: ledger)
+            ledgerLoader: missingArtifactLoader,
+            reviewLedgerLoader: missingArtifactLoader
         )
 
         let missingFileReview = try await missingArtifactService.loadRun(runID: runID, projectRoot: root)
@@ -704,10 +706,14 @@ private struct RetainedDashboardStaticReviewBundler: FlowRunReviewBundling {
     }
 }
 
-private struct RunReviewStaticLedgerLoader: FlowRunLedgerLoading {
+private struct RunReviewStaticLedgerLoader: FlowRunLedgerLoading, FlowRunReviewLedgerLoading {
     let ledger: FlowRunLedger
 
     func loadRunLedger(runID: String) async throws -> FlowRunLedger {
+        ledger
+    }
+
+    func loadRunLedgerForReview(runID: String) async throws -> FlowRunLedger {
         ledger
     }
 }

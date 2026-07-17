@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 import DesignFlowKernel
 import Testing
 import LayoutCore
@@ -1045,7 +1046,7 @@ struct DesignFlowServiceTests {
         try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: outsideURL, options: .atomic)
 
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
+        let manifest = HeadlessRoundTripService.Manifest(
             runID: "approval-run",
             title: "Escaping approval run",
             createdAt: Date(timeIntervalSince1970: 1_700_000_150),
@@ -1057,11 +1058,28 @@ struct DesignFlowServiceTests {
             artifacts: [
                 try DesignFlowServiceTestSupport.roundTripArtifact(
                     kind: "post-layout-comparison",
-                    url: outsideURL,
-                    path: "../outside-comparison.json"
+                    url: outsideURL
                 ),
             ]
-        ), to: manifestURL)
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var manifestJSON = try #require(
+            JSONSerialization.jsonObject(with: encoder.encode(manifest)) as? [String: Any]
+        )
+        var artifacts = try #require(manifestJSON["artifacts"] as? [[String: Any]])
+        var artifact = artifacts[0]
+        var reference = try #require(artifact["reference"] as? [String: Any])
+        var locator = try #require(reference["locator"] as? [String: Any])
+        var location = try #require(locator["location"] as? [String: Any])
+        location["value"] = "../outside-comparison.json"
+        locator["location"] = location
+        reference["locator"] = locator
+        artifact["reference"] = reference
+        artifacts[0] = artifact
+        manifestJSON["artifacts"] = artifacts
+        try JSONSerialization.data(withJSONObject: manifestJSON, options: [.sortedKeys])
+            .write(to: manifestURL, options: .atomic)
 
         do {
             _ = try await DesignFlowService().execute(DesignFlowCommand(
@@ -1075,7 +1093,7 @@ struct DesignFlowServiceTests {
             Issue.record("Expected escaping artifact path to fail gate approval.")
         } catch let error as FlowRunGovernanceError {
             if case .invalidArtifactPath(let message) = error {
-                #expect(message.contains("escapes"))
+                #expect(message.contains("workspace-relative"))
             } else {
                 Issue.record("Expected invalid artifact path error, got \(error).")
             }
@@ -1095,6 +1113,13 @@ struct DesignFlowServiceTests {
         let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
         try Data(#"{"status":"compared","gateStatus":"passed"}"#.utf8).write(to: comparisonURL, options: .atomic)
         let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
+        let absoluteLocator = ArtifactLocator(
+            location: try ArtifactLocation(fileURL: comparisonURL),
+            role: .output,
+            kind: try ArtifactKind(rawValue: "post-layout-comparison"),
+            format: .json
+        )
+        let absoluteReference = try LocalArtifactReferencer().reference(absoluteLocator)
         try DesignFlowServiceTestSupport.writeHeadlessManifest(HeadlessRoundTripService.Manifest(
             runID: "approval-run",
             title: "Absolute artifact approval run",
@@ -1105,11 +1130,7 @@ struct DesignFlowServiceTests {
                 HeadlessRoundTripService.Stage(name: "post-layout-comparison", status: .passed),
             ],
             artifacts: [
-                try DesignFlowServiceTestSupport.roundTripArtifact(
-                    kind: "post-layout-comparison",
-                    url: comparisonURL,
-                    path: comparisonURL.path(percentEncoded: false)
-                ),
+                HeadlessRoundTripService.Artifact(reference: absoluteReference),
             ]
         ), to: manifestURL)
 

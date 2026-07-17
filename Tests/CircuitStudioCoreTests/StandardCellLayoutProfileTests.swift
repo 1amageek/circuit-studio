@@ -53,8 +53,8 @@ struct StandardCellLayoutProfileTests {
         }
     }
 
-    @Test("Generated inverter GDS preserves drawing geometry and label datatypes")
-    func generatedInverterGDSPreservesLayerPurposes() throws {
+    @Test("Generated inverter GDS resolves labels to conductor layers")
+    func generatedInverterGDSResolvesLabelsToConductorLayers() throws {
         let profile = try Self.bundledProfile()
         let technology = try LayoutTechnologyResource.bundled(
             resourceName: profile.targetTechnologyResourceName
@@ -75,10 +75,10 @@ struct StandardCellLayoutProfileTests {
             $0.layer == LayoutLayerID(name: "nwell", purpose: "drawing")
         })
         #expect(cell.labels.contains {
-            $0.text == "A" && $0.layer == LayoutLayerID(name: "poly", purpose: "label")
+            $0.text == "A" && $0.layer == LayoutLayerID(name: "poly", purpose: "drawing")
         })
         #expect(cell.labels.contains {
-            $0.text == "Y" && $0.layer == LayoutLayerID(name: "li1", purpose: "label")
+            $0.text == "Y" && $0.layer == LayoutLayerID(name: "li1", purpose: "drawing")
         })
     }
 

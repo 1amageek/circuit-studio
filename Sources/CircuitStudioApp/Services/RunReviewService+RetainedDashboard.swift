@@ -64,7 +64,7 @@ extension RunReviewService {
     ) async throws -> ArtifactReference {
         try FlowIdentifierValidator().validate(runID, kind: .runID)
         let store = try workspaceStore(projectRoot: projectRoot)
-        let loader = configuredLedgerLoader(store: store)
+        let loader = configuredReviewLedgerLoader(store: store)
         let bundle = try await configuredReviewBundler(store: store, loader: loader)
             .makeReviewBundle(
                 runID: runID,

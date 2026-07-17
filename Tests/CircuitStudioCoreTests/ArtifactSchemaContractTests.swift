@@ -92,7 +92,7 @@ struct ArtifactSchemaContractTests {
             key: "hexadecimalValue",
             value: "not-a-sha256-digest"
         )
-        #expect(throws: DecodingError.self) {
+        #expect(throws: ContentDigestError.invalidHexadecimalValue("not-a-sha256-digest")) {
             try decoder.decode(ContentDigest.self, from: invalidDigest)
         }
 

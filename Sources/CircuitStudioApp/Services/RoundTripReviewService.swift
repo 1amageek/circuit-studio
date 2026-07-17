@@ -524,6 +524,7 @@ public struct RoundTripReviewService: Sendable {
         warnings: inout [String]
     ) -> URL? {
         do {
+            _ = try resolver.resolve(artifact)
             let verified = try ArtifactIntegrityChecker().verifiedArtifact(
                 for: artifact,
                 in: resolver.runDirectory
