@@ -39,7 +39,7 @@ let package = Package(
     dependencies: [
         workspaceDependency(
             named: "Xcircuite",
-            revision: "d0dd535b71ae726da63289a80aa3d4fa607b30e6"
+            revision: "4d5c6758969e89d7151f699895f9958fbbf15469"
         ),
         workspaceDependency(
             named: "CircuiteFoundation",
@@ -87,6 +87,7 @@ let package = Package(
         .target(
             name: "CircuitStudioCore",
             dependencies: [
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "CoreSpice", package: "CoreSpice"),
                 .product(name: "CoreSpiceIO", package: "CoreSpice"),
                 .product(name: "PEXEngine", package: "PEXEngine"),

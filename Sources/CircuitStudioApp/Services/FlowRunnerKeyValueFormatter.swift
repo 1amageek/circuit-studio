@@ -77,7 +77,7 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("qualification_passed=\(report?.passed ?? false)")
             lines.append("qualification_report=\(result.signoffRepairCandidateCycleHistoryQualificationPath ?? "")")
             lines.append(
-                "qualification_report_sha256=\(result.signoffRepairCandidateCycleHistoryQualificationArtifact?.sha256 ?? "")"
+                "qualification_report_sha256=\(result.signoffRepairCandidateCycleHistoryQualificationArtifact?.digest.hexadecimalValue ?? "")"
             )
             lines.append(
                 "qualification_report_bytes=\(result.signoffRepairCandidateCycleHistoryQualificationArtifact?.byteCount ?? 0)"

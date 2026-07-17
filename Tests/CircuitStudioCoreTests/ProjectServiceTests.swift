@@ -39,8 +39,6 @@ struct ProjectServiceTests {
         let pex = try service.loadPEXProjectConfig(forProjectAt: root)
         #expect(pex.topCell == "TOP")
         #expect(pex.backendID == "")
-        #expect(pex.normalizedBackendID == nil)
-        #expect(!pex.usesMockBackend)
         #expect(pex.normalizedCorners == ["tt_25c_1v0"])
         #expect(pex.options.strictValidation)
 
@@ -170,7 +168,6 @@ struct ProjectServiceTests {
             enabled: true,
             topCell: "AMP_TOP",
             backendID: "magic",
-            corners: ["tt", "ss"],
             processProfile: PEXProcessProfileReference(
                 profileID: "sky130",
                 cornerDeckPaths: [
@@ -178,6 +175,7 @@ struct ProjectServiceTests {
                     "ss": "pdk/sky130B.magicrc",
                 ]
             ),
+            corners: ["tt", "ss"],
             inputs: .init(
                 layout: "layout/amp.oas",
                 netlist: "netlists/amp.cir",

@@ -1,3 +1,4 @@
+import CircuiteFoundation
 import Foundation
 import OpenVAFSupport
 import Testing
@@ -34,14 +35,16 @@ struct ExternalSpicePreprocessorTests {
 
     let netlist = try String(contentsOf: prepared.netlistURL, encoding: .utf8)
     let requests = await compiler.requests()
-    let artifacts = await compiler.artifacts()
+    let results = await compiler.results()
+    let outputArtifact = try #require(results.first?.outputArtifact)
+    let outputURL = try outputArtifact.locator.location.resolvedFileURL()
 
     #expect(requests.map(\.sourceURL) == [sourceURL])
     #expect(
       requests.first?.outputDirectory.path == prepared.netlistURL.deletingLastPathComponent().path)
     #expect(requests.first?.includeRootDirectory?.path == directory.path)
-    #expect(artifacts.count == 1)
-    #expect(netlist.contains("pre_osdi \"\(artifacts[0].outputURL.path)\""))
+    #expect(results.count == 1)
+    #expect(netlist.contains("pre_osdi \"\(outputURL.path)\""))
     #expect(netlist.contains("N1 d g s b compact_model w=1u l=1u"))
     #expect(!netlist.contains(".include \"\(sourceURL.path)\""))
   }
@@ -285,7 +288,7 @@ struct ExternalSpicePreprocessorTests {
 
 private actor RecordingOpenVAFCompiler: OpenVAFCompiler {
   private var recordedRequests: [OpenVAFCompilationRequest] = []
-  private var recordedArtifacts: [OpenVAFCompilationArtifact] = []
+  private var recordedResults: [OpenVAFCompilationResult] = []
 
   func availability() async -> OpenVAFAvailability {
     .available(
@@ -297,7 +300,7 @@ private actor RecordingOpenVAFCompiler: OpenVAFCompiler {
   }
 
   func compile(_ request: OpenVAFCompilationRequest) async throws(OpenVAFError)
-    -> OpenVAFCompilationArtifact
+    -> OpenVAFCompilationResult
   {
     recordedRequests.append(request)
     let outputFileName =
@@ -318,35 +321,56 @@ private actor RecordingOpenVAFCompiler: OpenVAFCompiler {
       )
     }
 
-    let now = Date()
-    let artifact = OpenVAFCompilationArtifact(
-      sourceURL: request.sourceURL,
-      sourceSHA256: "test-sha256",
-      stagedSourceURL: outputDirectory.appending(path: request.sourceURL.lastPathComponent),
-      outputURL: outputURL,
-      command: OpenVAFCommandRecord(
-        executableURL: URL(fileURLWithPath: "/test/openvaf"),
-        arguments: [request.sourceURL.lastPathComponent],
-        workingDirectory: outputDirectory,
-        environmentKeys: []
-      ),
-      openVAFVersion: "test",
-      exitCode: 0,
-      standardOutput: "",
-      standardError: "",
-      startedAt: now,
-      finishedAt: now
-    )
-    recordedArtifacts.append(artifact)
-    return artifact
+    do {
+      let now = Date()
+      let producer = try ProducerIdentity(
+        kind: .tool,
+        identifier: "test.openvaf",
+        version: "test"
+      )
+      let artifact = try LocalArtifactReferencer().reference(
+        ArtifactLocator(
+          location: try ArtifactLocation(fileURL: outputURL),
+          role: .output,
+          kind: .model,
+          format: try ArtifactFormat(rawValue: "osdi")
+        ),
+        producer: producer
+      )
+      let provenance = try ExecutionProvenance(
+        producer: producer,
+        invocation: try .externalProcess(
+          executable: "/test/openvaf",
+          arguments: [request.sourceURL.lastPathComponent],
+          workingDirectory: outputDirectory.path
+        ),
+        startedAt: now,
+        completedAt: now
+      )
+      let result = OpenVAFCompilationResult(
+        artifacts: [artifact],
+        diagnostics: [],
+        provenance: provenance,
+        openVAFVersion: "test",
+        exitCode: 0
+      )
+      recordedResults.append(result)
+      return result
+    } catch {
+      throw .fileSystemFailure(
+        operation: "create fake OpenVAF result",
+        path: outputURL.path,
+        message: error.localizedDescription
+      )
+    }
   }
 
   func requests() -> [OpenVAFCompilationRequest] {
     recordedRequests
   }
 
-  func artifacts() -> [OpenVAFCompilationArtifact] {
-    recordedArtifacts
+  func results() -> [OpenVAFCompilationResult] {
+    recordedResults
   }
 }
 
@@ -361,29 +385,43 @@ private struct FailingOpenVAFCompiler: OpenVAFCompiler {
   }
 
   func compile(_ request: OpenVAFCompilationRequest) async throws(OpenVAFError)
-    -> OpenVAFCompilationArtifact
+    -> OpenVAFCompilationResult
   {
     let now = Date()
-    let command = OpenVAFCommandRecord(
-      executableURL: URL(fileURLWithPath: "/test/openvaf"),
-      arguments: [request.sourceURL.lastPathComponent],
-      workingDirectory: request.outputDirectory,
-      environmentKeys: []
-    )
-    let failure = OpenVAFCompilationFailure(
-      sourceURL: request.sourceURL,
-      sourceSHA256: "test-sha256",
-      stagedSourceURL: request.outputDirectory.appending(path: request.sourceURL.lastPathComponent),
-      outputURL: request.outputDirectory.appending(
-        path: request.sourceURL.deletingPathExtension().lastPathComponent + ".osdi"),
-      command: command,
-      openVAFVersion: "test",
-      exitCode: 2,
-      standardOutput: "",
-      standardError: "syntax error",
-      startedAt: now,
-      finishedAt: now
-    )
+    let failure: OpenVAFCompilationFailure
+    do {
+      let producer = try ProducerIdentity(
+        kind: .tool,
+        identifier: "test.openvaf",
+        version: "test"
+      )
+      failure = OpenVAFCompilationFailure(
+        artifacts: [],
+        diagnostics: [DesignDiagnostic(
+          code: .trusted("test.openvaf.compilation.failed"),
+          severity: .error,
+          summary: "syntax error"
+        )],
+        provenance: try ExecutionProvenance(
+          producer: producer,
+          invocation: try .externalProcess(
+            executable: "/test/openvaf",
+            arguments: [request.sourceURL.lastPathComponent],
+            workingDirectory: request.outputDirectory.path
+          ),
+          startedAt: now,
+          completedAt: now
+        ),
+        openVAFVersion: "test",
+        exitCode: 2
+      )
+    } catch {
+      throw .fileSystemFailure(
+        operation: "create fake OpenVAF failure",
+        path: request.outputDirectory.path,
+        message: error.localizedDescription
+      )
+    }
     throw .compilationFailed(failure)
   }
 }

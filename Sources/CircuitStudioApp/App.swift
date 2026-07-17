@@ -926,12 +926,9 @@ public struct CircuitStudioApp: App {
                 ?? project.topCellName
             try services.projectService.updatePEXTopCell(topLayoutCellName, forProjectAt: projectRoot)
             let config = try services.projectService.loadPEXProjectConfig(forProjectAt: projectRoot)
-            guard let backendID = config.normalizedBackendID else {
+            let backendID = config.backendID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !backendID.isEmpty else {
                 appState.log("Configure a PEX backend before running extraction.", kind: .error)
-                return
-            }
-            guard !config.usesMockBackend else {
-                appState.log("PEX backend '\(backendID)' is a mock backend and cannot produce a post-layout circuit.", kind: .error)
                 return
             }
 

@@ -888,7 +888,7 @@ struct RunReviewSignoffFixture {
 
         _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
-                projectRoot: root,
+                workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
                 runID: runID,
                 intent: "Review signoff artifacts",
                 stages: [

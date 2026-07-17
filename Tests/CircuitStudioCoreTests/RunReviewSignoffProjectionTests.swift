@@ -1141,7 +1141,7 @@ struct RunReviewSignoffProjectionTests {
 private struct StaticRunReviewBundler: FlowRunReviewBundling {
     let bundle: FlowRunReviewBundle
 
-    func makeReviewBundle(runID: String, projectRoot: URL) throws -> FlowRunReviewBundle {
+    func makeReviewBundle(runID: String, workspaceID: FlowWorkspaceID) async throws -> FlowRunReviewBundle {
         bundle
     }
 }

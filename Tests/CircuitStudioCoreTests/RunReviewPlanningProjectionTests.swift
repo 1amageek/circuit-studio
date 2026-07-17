@@ -16,7 +16,7 @@ struct RunReviewPlanningProjectionTests {
         defer { RunReviewTestSupport.removeTemporaryRoot(root) }
 
         let store = try XcircuiteWorkspaceStore(projectRoot: root)
-        let runtime = XcircuiteFlowRuntime(
+        let runtime = try XcircuiteFlowRuntime(
             toolRegistry: ToolRegistry(),
             healthResults: [:],
             executors: [RunReviewPassingExecutor(stageID: "001-planning")],
@@ -24,7 +24,7 @@ struct RunReviewPlanningProjectionTests {
         )
         _ = try await runtime.run(
             request: FlowOperationRequest(
-                projectRoot: root,
+                workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
                 runID: "run-planning",
                 intent: "Review planning correctness",
                 stages: [
@@ -611,7 +611,10 @@ struct RunReviewPlanningProjectionTests {
         ))
         #expect(designDiffChange.artifactCount == 1)
         #expect(designDiffChange.artifacts.first?.path == candidatePlanPath)
-        #expect(designDiffChange.artifacts.first?.sha256 == candidatePlanReference.sha256)
+        #expect(
+            designDiffChange.artifacts.first?.sha256
+                == candidatePlanReference.digest.hexadecimalValue
+        )
         #expect(designDiffChange.artifacts.first?.byteCount == candidatePlanReference.byteCount)
         let schematicDiffChange = try #require(designDiffSummary.changes.last)
         #expect(schematicDiffChange.pathContext == RunReviewDesignDiffPathContext(
@@ -864,7 +867,7 @@ private struct PlanningStaticLedgerLoader: FlowRunLedgerLoading {
 private struct PlanningStaticRunReviewBundler: FlowRunReviewBundling {
     let bundle: FlowRunReviewBundle
 
-    func makeReviewBundle(runID: String, projectRoot: URL) async throws -> FlowRunReviewBundle {
+    func makeReviewBundle(runID: String, workspaceID: FlowWorkspaceID) async throws -> FlowRunReviewBundle {
         bundle
     }
 }

@@ -95,7 +95,7 @@ struct XcircuiteEvidenceRunRecorderTests {
         for reference in recorded.manifest.artifacts {
             let url = root.appendingPathComponent(reference.path)
             #expect(FileManager.default.fileExists(atPath: url.path), "\(reference.path)")
-            #expect(reference.sha256 == (try SHA256ContentDigester().digest(fileAt: url, using: .sha256).hexadecimalValue))
+            #expect(reference.digest == (try SHA256ContentDigester().digest(fileAt: url, using: .sha256)))
             #expect(reference.path.hasPrefix(".xcircuite/runs/run-evidence-1/"))
         }
         let kinds = Set(recorded.manifest.artifacts.map(\.kind))

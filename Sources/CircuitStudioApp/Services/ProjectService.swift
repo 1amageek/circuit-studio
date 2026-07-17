@@ -632,7 +632,8 @@ public struct ProjectService: Sendable {
 
         lines.append("")
         lines.append("[runtime]")
-        lines.append("backend = \"\(escapeTOML(config.normalizedBackendID ?? ""))\"")
+        let backendID = config.backendID.trimmingCharacters(in: .whitespacesAndNewlines)
+        lines.append("backend = \"\(escapeTOML(backendID))\"")
         lines.append("max_jobs = \(max(1, config.options.maxParallelJobs))")
         lines.append("include_coupling = \(config.options.includeCouplingCaps)")
 

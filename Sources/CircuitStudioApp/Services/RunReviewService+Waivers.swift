@@ -16,7 +16,10 @@ extension RunReviewService {
         let loader = configuredLedgerLoader(store: store)
         let bundler = configuredReviewBundler(store: store, loader: loader)
         let ledger = try await loader.loadRunLedger(runID: runID)
-        let bundle = try await bundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+        let bundle = try await bundler.makeReviewBundle(
+            runID: runID,
+            workspaceID: try await workspaceID(store: store)
+        )
         let summary = try waiverReview(
             bundle: bundle,
             actions: ledger.actions,
@@ -60,7 +63,10 @@ extension RunReviewService {
         let loader = configuredLedgerLoader(store: store)
         let bundler = configuredReviewBundler(store: store, loader: loader)
         let ledger = try await loader.loadRunLedger(runID: runID)
-        let bundle = try await bundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+        let bundle = try await bundler.makeReviewBundle(
+            runID: runID,
+            workspaceID: try await workspaceID(store: store)
+        )
         let summary = try waiverReview(
             bundle: bundle,
             actions: ledger.actions,
@@ -110,7 +116,10 @@ extension RunReviewService {
         let loader = configuredLedgerLoader(store: store)
         let bundler = configuredReviewBundler(store: store, loader: loader)
         let ledger = try await loader.loadRunLedger(runID: runID)
-        let bundle = try await bundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+        let bundle = try await bundler.makeReviewBundle(
+            runID: runID,
+            workspaceID: try await workspaceID(store: store)
+        )
         let summary = try waiverReview(
             bundle: bundle,
             actions: ledger.actions,
@@ -168,7 +177,10 @@ extension RunReviewService {
         let loader = configuredLedgerLoader(store: store)
         let bundler = configuredReviewBundler(store: store, loader: loader)
         let ledger = try await loader.loadRunLedger(runID: runID)
-        let bundle = try await bundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+        let bundle = try await bundler.makeReviewBundle(
+            runID: runID,
+            workspaceID: try await workspaceID(store: store)
+        )
         let summary = try waiverReview(
             bundle: bundle,
             actions: ledger.actions,

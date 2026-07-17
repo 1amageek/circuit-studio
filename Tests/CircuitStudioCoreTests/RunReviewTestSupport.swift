@@ -24,19 +24,13 @@ struct RunReviewPassingExecutor: FlowStageExecutor {
             guard let payload = artifactPayloads[path] else {
                 continue
             }
-            let url = context.projectRoot.appending(path: path)
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try payload.write(to: url, options: .atomic)
             let existing = resolvedArtifacts[index]
-            resolvedArtifacts[index] = ArtifactReference(
+            resolvedArtifacts[index] = try await context.infrastructure.persistArtifact(
+                content: payload,
                 id: existing.id,
                 locator: existing.locator,
-                digest: try SHA256ContentDigester().digest(data: payload, using: .sha256),
-                byteCount: UInt64(payload.count),
-                producer: existing.producer
+                runID: context.runID,
+                mode: .replaceable
             )
         }
 
@@ -82,8 +76,20 @@ enum RunReviewTestSupport {
         return DefaultFlowOrchestrator(
             infrastructure: store,
             ledgerPersistence: store,
+            producer: try ProducerIdentity(
+                kind: .library,
+                identifier: "circuit-studio-tests",
+                version: "development"
+            ),
             progressStore: FlowRunProgressStore(persistence: store)
         )
+    }
+
+    static func workspaceID(projectRoot: URL) async throws -> FlowWorkspaceID {
+        let store = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+        try await store.createWorkspace()
+        let manifest = try await store.loadManifest()
+        return try FlowWorkspaceID(rawValue: manifest.identity.projectID)
     }
 
     static func feedbackPenalizedActionIDs(

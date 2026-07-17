@@ -506,14 +506,14 @@ struct FlowRunnerCLITests {
         let qualificationArtifact = try #require(result.signoffRepairCandidateCycleHistoryQualificationArtifact)
         #expect(qualificationArtifact.artifactID == RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID)
         #expect(qualificationArtifact.path == ".xcircuite/retained/signoff-repair-cycle-history-qualification.json")
-        #expect(!qualificationArtifact.sha256.isEmpty)
+        #expect(!qualificationArtifact.digest.hexadecimalValue.isEmpty)
         #expect(qualificationArtifact.byteCount > 0)
 
         let manifest = try await XcircuiteWorkspaceStore(projectRoot: root).loadManifest()
         #expect(manifest.files.contains { file in
             file.artifactID == RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID
                 && file.path == qualificationArtifact.path
-                && file.sha256 == qualificationArtifact.sha256
+                && file.digest == qualificationArtifact.digest
                 && file.byteCount == qualificationArtifact.byteCount
         })
     }

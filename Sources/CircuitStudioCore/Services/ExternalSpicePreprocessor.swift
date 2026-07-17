@@ -409,15 +409,27 @@ public struct ExternalSpicePreprocessor: Sendable {
 
     for source in sources {
       do {
-        let artifact = try await openVAFCompiler.compile(
+        let result = try await openVAFCompiler.compile(
           OpenVAFCompilationRequest(
             sourceURL: source,
             outputDirectory: outputDirectory,
             includeRootDirectory: source.deletingLastPathComponent()
           )
         )
-        outputs.append(artifact.outputURL)
-      } catch {
+        guard let outputArtifact = result.outputArtifact else {
+          throw StudioError.simulationFailure(
+            "OpenVAF completed without an OSDI output artifact for \(source.path)"
+          )
+        }
+        do {
+          outputs.append(try outputArtifact.locator.location.resolvedFileURL())
+        } catch {
+          throw StudioError.simulationFailure(
+            "OpenVAF produced an invalid output artifact for \(source.path): "
+              + error.localizedDescription
+          )
+        }
+      } catch let error as OpenVAFError {
         throw StudioError.simulationFailure(openVAFSimulationFailureMessage(error))
       }
     }
@@ -473,31 +485,12 @@ public struct ExternalSpicePreprocessor: Sendable {
         standardOutput: standardOutput,
         standardError: standardError
       )
-    case .compilationTimedOut(let failure, let timeout):
-      return openVAFMessage(
-        prefix:
-          "OpenVAF compilation timed out after \(timeout) at \(failure.command.executableURL.path)",
-        standardOutput: failure.standardOutput,
-        standardError: failure.standardError
-      )
-    case .compilationCancelled(let failure):
-      return openVAFMessage(
-        prefix: "OpenVAF compilation was cancelled at \(failure.command.executableURL.path)",
-        standardOutput: failure.standardOutput,
-        standardError: failure.standardError
-      )
-    case .compilationFailed(let failure):
-      return openVAFMessage(
-        prefix: "OpenVAF failed with exit code \(failure.exitCode ?? -1)",
-        standardOutput: failure.standardOutput,
-        standardError: failure.standardError
-      )
-    case .outputMissing(let failure):
-      return openVAFMessage(
-        prefix: "OpenVAF did not produce expected output at \(failure.outputURL.path)",
-        standardOutput: failure.standardOutput,
-        standardError: failure.standardError
-      )
+    case .compilationTimedOut,
+      .compilationCancelled,
+      .compilationLaunchFailed,
+      .compilationFailed,
+      .outputMissing:
+      return error.localizedDescription
     case .executableNotFound,
       .notExecutable,
       .invalidConfiguration,

@@ -183,7 +183,7 @@ struct ActivityStoreTests {
         #expect(artifact.reference.locator.role == .output)
         #expect(artifact.reference.kind == .report)
         #expect(artifact.reference.format == .json)
-        #expect(artifact.reference.sha256 == String(repeating: "a", count: 64))
+        #expect(artifact.reference.digest.hexadecimalValue == String(repeating: "a", count: 64))
         #expect(artifact.reference.byteCount == 7)
         #expect(artifact.direction == .output)
     }

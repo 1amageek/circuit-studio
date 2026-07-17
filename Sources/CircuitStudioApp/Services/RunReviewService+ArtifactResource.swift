@@ -11,7 +11,10 @@ extension RunReviewService {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
         let bundle = try await configuredReviewBundler(store: store, loader: loader)
-            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
+            .makeReviewBundle(
+                runID: runID,
+                workspaceID: try await workspaceID(store: store)
+            )
         guard let recordedArtifact = bundle.artifacts.first(where: { isSameArtifact($0, as: artifact) }) else {
             throw RunReviewServiceError.artifactResourceNotFound(
                 runID: runID,

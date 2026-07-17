@@ -75,8 +75,8 @@ extension RunReviewService {
                     proposalID: proposalID,
                     targetPath: after.path,
                     operation: context.decision,
-                    beforeSHA256: before.sha256,
-                    afterSHA256: after.sha256,
+                    beforeSHA256: before.digest.hexadecimalValue,
+                    afterSHA256: after.digest.hexadecimalValue,
                     appliedAt: action.createdAt,
                     note: context.reason
                 )

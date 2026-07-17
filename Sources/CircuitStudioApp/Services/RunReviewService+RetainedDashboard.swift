@@ -66,7 +66,10 @@ extension RunReviewService {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
         let bundle = try await configuredReviewBundler(store: store, loader: loader)
-            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
+            .makeReviewBundle(
+                runID: runID,
+                workspaceID: try await workspaceID(store: store)
+            )
         let projection = retainedDashboardProjection(bundle: bundle)
         let relativePath = ".xcircuite/runs/\(runID)/\(Self.retainedDashboardRelativePath)"
         let encoder = JSONEncoder()

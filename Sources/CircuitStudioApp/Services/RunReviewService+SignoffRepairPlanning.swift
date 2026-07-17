@@ -20,7 +20,10 @@ extension RunReviewService {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
         let bundle = try await configuredReviewBundler(store: store, loader: loader)
-            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
+            .makeReviewBundle(
+                runID: runID,
+                workspaceID: try await workspaceID(store: store)
+            )
         let drcRepairHintPath = explicitDRCRepairHintPath
             ?? repairHintArtifact(domain: .drc, in: bundle.artifacts)?.reference.locator.location.value
         let lvsRepairHintPath = explicitLVSRepairHintPath

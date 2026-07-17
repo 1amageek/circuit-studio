@@ -177,7 +177,7 @@ private struct RunReviewArtifactResourceFixture {
 private struct RunReviewArtifactBundleStub: FlowRunReviewBundling {
     let bundle: FlowRunReviewBundle
 
-    func makeReviewBundle(runID: String, projectRoot: URL) async throws -> FlowRunReviewBundle {
+    func makeReviewBundle(runID: String, workspaceID: FlowWorkspaceID) async throws -> FlowRunReviewBundle {
         bundle
     }
 }

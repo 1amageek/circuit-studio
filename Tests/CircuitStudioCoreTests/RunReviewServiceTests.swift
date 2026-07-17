@@ -21,7 +21,7 @@ struct RunReviewServiceTests {
         defer { RunReviewTestSupport.removeTemporaryRoot(root) }
 
         let request = FlowOperationRequest(
-            projectRoot: root,
+            workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
             runID: "run-review",
             intent: "Review loop",
             stages: [
@@ -116,7 +116,7 @@ struct RunReviewServiceTests {
         // 4. Re-running the same runID resumes past the gate; the
         //    cockpit shows the full picture.
         var resumeRequest = request
-        resumeRequest.allowExistingRunDirectory = true
+        resumeRequest.allowExistingRun = true
         let resumed = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: resumeRequest,
             toolRegistry: ToolRegistry(),
@@ -145,7 +145,7 @@ struct RunReviewServiceTests {
         let summaryPath = ".xcircuite/runs/\(runID)/stages/\(stageID)/raw/drc-summary.json"
         _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
-                projectRoot: root,
+                workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
                 runID: runID,
                 intent: "Review projection",
                 stages: [
@@ -293,7 +293,7 @@ struct RunReviewServiceTests {
         )
         #expect(dashboardRef.artifactID == "retained-dashboard-projection")
         #expect(dashboardRef.path == ".xcircuite/runs/\(runID)/review/retained-dashboard-projection.json")
-        #expect(!dashboardRef.sha256.isEmpty)
+        #expect(!dashboardRef.digest.hexadecimalValue.isEmpty)
         #expect(dashboardRef.byteCount > 0)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -323,7 +323,7 @@ struct RunReviewServiceTests {
         let stageID = "001-plan"
         _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
-                projectRoot: root,
+                workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
                 runID: runID,
                 intent: "Review projection integrity",
                 stages: [
@@ -433,7 +433,7 @@ struct RunReviewServiceTests {
         let stalePayload = Data(#"{"state":"original-stale"}"#.utf8)
         _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
-                projectRoot: root,
+                workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
                 runID: runID,
                 intent: "Review failure states",
                 stages: [
@@ -568,7 +568,7 @@ struct RunReviewServiceTests {
 
         _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
-                projectRoot: root,
+                workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
                 runID: runID,
                 intent: "Missing review context",
                 stages: [
@@ -648,7 +648,7 @@ struct RunReviewServiceTests {
         defer { RunReviewTestSupport.removeTemporaryRoot(root) }
 
         let request = FlowOperationRequest(
-            projectRoot: root,
+            workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
             runID: "run-reject",
             intent: "Review loop",
             stages: [
@@ -673,7 +673,7 @@ struct RunReviewServiceTests {
             projectRoot: root
         )
         var resumeRequest = request
-        resumeRequest.allowExistingRunDirectory = true
+        resumeRequest.allowExistingRun = true
         let rerun = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: resumeRequest,
             toolRegistry: ToolRegistry(),
@@ -699,7 +699,7 @@ struct RunReviewServiceTests {
 private struct RetainedDashboardStaticReviewBundler: FlowRunReviewBundling {
     let bundle: FlowRunReviewBundle
 
-    func makeReviewBundle(runID: String, projectRoot: URL) throws -> FlowRunReviewBundle {
+    func makeReviewBundle(runID: String, workspaceID: FlowWorkspaceID) async throws -> FlowRunReviewBundle {
         bundle
     }
 }

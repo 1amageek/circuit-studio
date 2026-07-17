@@ -15,7 +15,10 @@ extension RunReviewService {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
         let bundle = try await configuredReviewBundler(store: store, loader: loader)
-            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
+            .makeReviewBundle(
+                runID: runID,
+                workspaceID: try await workspaceID(store: store)
+            )
         guard let artifact = bundle.artifacts.first(where: { $0.reference.locator.location.value == artifactPath }) else {
             throw RunReviewServiceError.artifactPreviewNotFound(
                 runID: runID,
@@ -41,7 +44,10 @@ extension RunReviewService {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
         let bundle = try await configuredReviewBundler(store: store, loader: loader)
-            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
+            .makeReviewBundle(
+                runID: runID,
+                workspaceID: try await workspaceID(store: store)
+            )
         guard let resolvedArtifact = bundle.artifacts.first(where: { isSameArtifact($0, as: artifact) }) else {
             throw RunReviewServiceError.artifactPreviewNotFound(
                 runID: runID,

@@ -104,6 +104,11 @@ public struct RunReviewService: Sendable {
         reviewBundler ?? DefaultFlowRunReviewBundler(loader: loader, persistence: store)
     }
 
+    func workspaceID(store: XcircuiteWorkspaceStore) async throws -> FlowWorkspaceID {
+        let manifest = try await store.loadManifest()
+        return try FlowWorkspaceID(rawValue: manifest.identity.projectID)
+    }
+
     /// Every project run resolved from its locator to its canonical manifest, newest last.
     public func listRuns(projectRoot: URL) async throws -> [FlowRunSnapshot] {
         let store = try workspaceStore(projectRoot: projectRoot)
@@ -124,7 +129,10 @@ public struct RunReviewService: Sendable {
         let loader = configuredLedgerLoader(store: store)
         let bundler = configuredReviewBundler(store: store, loader: loader)
         let ledger = try await loader.loadRunLedger(runID: runID)
-        let bundle = try await bundler.makeReviewBundle(runID: runID, projectRoot: projectRoot)
+        let bundle = try await bundler.makeReviewBundle(
+            runID: runID,
+            workspaceID: try await workspaceID(store: store)
+        )
         let approvals = bundle.approvals
         let suggestedCommandSelections = try await store.loadSuggestedCommandSelections(runID: runID)
         let approvalsByStage = Dictionary(
@@ -192,7 +200,10 @@ public struct RunReviewService: Sendable {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
         return try await configuredReviewBundler(store: store, loader: loader)
-            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
+            .makeReviewBundle(
+                runID: runID,
+                workspaceID: try await workspaceID(store: store)
+            )
     }
 
     public func loadSuggestedCommandSelections(
@@ -213,7 +224,10 @@ public struct RunReviewService: Sendable {
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredLedgerLoader(store: store)
         let bundle = try await configuredReviewBundler(store: store, loader: loader)
-            .makeReviewBundle(runID: runID, projectRoot: projectRoot)
+            .makeReviewBundle(
+                runID: runID,
+                workspaceID: try await workspaceID(store: store)
+            )
         guard let nextAction = bundle.summary.nextActions.first(where: { $0.actionID == nextActionID }) else {
             throw RunReviewServiceError.nextActionNotFound(actionID: nextActionID)
         }
@@ -296,7 +310,7 @@ public struct RunReviewService: Sendable {
         case .rejected: .rejected
         }
         return try await recorder.recordApproval(FlowGateApprovalRequest(
-            projectRoot: projectRoot,
+            workspaceID: try await workspaceID(store: store),
             runID: runID,
             stageID: stageID,
             verdict: gateVerdict,

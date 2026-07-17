@@ -161,7 +161,7 @@ struct PEXArtifactServiceTests {
             topCell: "INV",
             corners: [PEXCorner(id: "tt")],
             technology: .inline(makeTechnologyIR()),
-            backendSelection: .mock(),
+            backendSelection: PEXBackendSelection(backendID: "mock"),
             options: .default,
             workingDirectory: root
         )

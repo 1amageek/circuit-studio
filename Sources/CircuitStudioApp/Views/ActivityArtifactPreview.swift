@@ -38,7 +38,9 @@ struct ActivityArtifactPreview: View {
                 .help("Copy artifact path")
             }
         }
-        .task(id: "\(activity.id):\(artifact.reference.path):\(artifact.reference.sha256)") {
+        .task(
+            id: "\(activity.id):\(artifact.reference.path):\(artifact.reference.digest.hexadecimalValue)"
+        ) {
             await load()
         }
     }
@@ -69,7 +71,7 @@ struct ActivityArtifactPreview: View {
                     fromByteCount: Int64(clamping: artifact.reference.byteCount),
                     countStyle: .file
                 ))
-                Text("SHA-256 \(artifact.reference.sha256)")
+                Text("SHA-256 \(artifact.reference.digest.hexadecimalValue)")
                     .textSelection(.enabled)
                 if let runID = activity.runID {
                     Text("Run \(runID)")
@@ -152,7 +154,7 @@ struct ActivityArtifactPreview: View {
             && artifact.purpose.rawValue == self.artifact.reference.locator.role.rawValue
             && artifact.reference.locator.kind.rawValue == self.artifact.reference.kind.rawValue
             && artifact.reference.locator.format.rawValue == self.artifact.reference.format.rawValue
-            && artifact.reference.digest.hexadecimalValue == self.artifact.reference.sha256
+            && artifact.reference.digest == self.artifact.reference.digest
     }
 
     private func artifactTitle(_ artifact: FlowRunReviewArtifact) -> String {
