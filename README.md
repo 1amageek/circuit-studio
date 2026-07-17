@@ -57,18 +57,24 @@ produce.
 ## Build & test
 
 ```bash
-perl -e 'alarm shift; exec @ARGV' 120 \
-  xcodebuild -workspace Xcircuite.xcworkspace -scheme CircuitStudioApp \
-  -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
+./scripts/swift-test-timeout.sh 300 \
+  xcodebuild -workspace .swiftpm/xcode/package.xcworkspace \
+  -scheme CircuitStudio-Package -destination 'platform=macOS' \
+  build CODE_SIGNING_ALLOWED=NO
 
-perl -e 'alarm shift; exec @ARGV' 120 \
-  xcodebuild test -workspace Xcircuite.xcworkspace -scheme CircuitStudioApp \
-  -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
+./scripts/swift-test-timeout.sh 1800 \
+  xcodebuild test -workspace .swiftpm/xcode/package.xcworkspace \
+  -scheme CircuitStudio-Package -destination 'platform=macOS' \
+  -parallel-testing-enabled NO -test-timeouts-enabled YES \
+  -maximum-test-execution-time-allowance 30 \
+  -resultBundlePath CircuitStudioTests.xcresult \
+  CODE_SIGNING_ALLOWED=NO
 
-perl -e 'alarm shift; exec @ARGV' 120 \
+./scripts/swift-test-timeout.sh 300 \
   xcodebuild test -workspace .swiftpm/xcode/package.xcworkspace -scheme SignoffCLI \
   -destination 'platform=macOS' -parallel-testing-enabled NO \
   -test-timeouts-enabled YES -maximum-test-execution-time-allowance 30 \
+  -resultBundlePath SignoffCLITests.xcresult \
   CODE_SIGNING_ALLOWED=NO
 ```
 

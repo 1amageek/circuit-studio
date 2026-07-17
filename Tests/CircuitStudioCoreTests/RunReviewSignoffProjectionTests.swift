@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CircuiteFoundation
 import DesignFlowKernel
 import ToolQualification
 import Xcircuite

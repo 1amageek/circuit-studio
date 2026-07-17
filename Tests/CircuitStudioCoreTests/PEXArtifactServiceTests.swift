@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CircuiteFoundation
 @testable import CircuitStudioCore
 import PEXEngine
 
