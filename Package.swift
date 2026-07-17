@@ -39,7 +39,7 @@ let package = Package(
     dependencies: [
         workspaceDependency(
             named: "Xcircuite",
-            revision: "9bcb1b39f277640106ecfcdb20e237f61599c94b"
+            revision: "d0dd535b71ae726da63289a80aa3d4fa607b30e6"
         ),
         workspaceDependency(
             named: "CircuiteFoundation",
@@ -47,7 +47,7 @@ let package = Package(
         ),
         workspaceDependency(
             named: "DesignFlowKernel",
-            revision: "5a8e7452bc04e10455f64b380aad8ffc7645371b"
+            revision: "5159da1cb7b7c91a6b7bf92a8ec68daf49820a2b"
         ),
         workspaceDependency(
             named: "SignoffToolSupport",
@@ -55,15 +55,15 @@ let package = Package(
         ),
         workspaceDependency(
             named: "CoreSpice",
-            revision: "20d5663a05b9dd98acc1171a8936eda22713add1"
+            revision: "e38a574d64c8702c60db617393da86cccbe7e987"
         ),
         workspaceDependency(
             named: "semiconductor-layout",
-            revision: "eb4f8ac93dbe4c35410ae55e6bb00794376c8333"
+            revision: "fa8f27852bc251fb340dfcfa261f2b3a0a408d1a"
         ),
         workspaceDependency(
             named: "PEXEngine",
-            revision: "e60a3b1fdb27879fd95c41a81c313750f7a45485"
+            revision: "f53859d6d87c4504bad4c59e29a9ef1befcd2ab8"
         ),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
