@@ -39,7 +39,7 @@ let package = Package(
     dependencies: [
         workspaceDependency(
             named: "Xcircuite",
-            revision: "69e7a993bf0b4e60d8cbb8c3c79a2cd64f1e6f9f"
+            revision: "b4b663867a3812c47b62b7dd226b8808ac2af7cc"
         ),
         workspaceDependency(
             named: "CircuiteFoundation",
