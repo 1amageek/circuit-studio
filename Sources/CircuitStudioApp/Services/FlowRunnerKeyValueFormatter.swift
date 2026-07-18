@@ -69,56 +69,56 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("signoff_repair_cycle_history=summarized")
             lines.append("project_root=\(result.projectRootPath ?? "")")
             appendSignoffRepairCandidateCycleHistory(summary, includeRecommendations: true, to: &lines)
-        case .qualifySignoffRepairCandidateCycles:
-            let report = result.signoffRepairCandidateCycleHistoryQualification
+        case .assessSignoffRepairCandidateCycles:
+            let report = result.signoffRepairCandidateCycleHistoryAssessment
             let summary = report?.summary ?? result.signoffRepairCandidateCycleHistoryIndex
-            lines.append("signoff_repair_cycle_history_qualification=\(report?.status.rawValue ?? "")")
+            lines.append("signoff_repair_cycle_history_assessment=\(report?.status.rawValue ?? "")")
             lines.append("project_root=\(result.projectRootPath ?? "")")
-            lines.append("qualification_passed=\(report?.passed ?? false)")
-            lines.append("qualification_report=\(result.signoffRepairCandidateCycleHistoryQualificationPath ?? "")")
+            lines.append("assessment_passed=\(report?.passed ?? false)")
+            lines.append("assessment_report=\(result.signoffRepairCandidateCycleHistoryAssessmentPath ?? "")")
             lines.append(
-                "qualification_report_sha256=\(result.signoffRepairCandidateCycleHistoryQualificationArtifact?.digest.hexadecimalValue ?? "")"
+                "assessment_report_sha256=\(result.signoffRepairCandidateCycleHistoryAssessmentArtifact?.digest.hexadecimalValue ?? "")"
             )
             lines.append(
-                "qualification_report_bytes=\(result.signoffRepairCandidateCycleHistoryQualificationArtifact?.byteCount ?? 0)"
+                "assessment_report_bytes=\(result.signoffRepairCandidateCycleHistoryAssessmentArtifact?.byteCount ?? 0)"
             )
-            lines.append("qualification_profile_id=\(report?.profileID ?? "")")
-            lines.append("qualification_profile_title=\(report?.profileTitle ?? "")")
-            lines.append("qualification_profile_path=\(report?.profilePath ?? "")")
-            lines.append("qualification_failed_gates=\(report?.failedGateIDs.joined(separator: ",") ?? "")")
+            lines.append("assessment_profile_id=\(report?.profileID ?? "")")
+            lines.append("assessment_profile_title=\(report?.profileTitle ?? "")")
+            lines.append("assessment_profile_path=\(report?.profilePath ?? "")")
+            lines.append("assessment_failed_gates=\(report?.failedGateIDs.joined(separator: ",") ?? "")")
             if let request = report?.request {
-                lines.append("qualification_min_history_runs=\(request.minimumRunCount)")
-                lines.append("qualification_min_history_cycles=\(request.minimumCycleCount)")
-                lines.append("qualification_min_history_accepted=\(request.minimumAcceptedCount)")
+                lines.append("assessment_min_history_runs=\(request.minimumRunCount)")
+                lines.append("assessment_min_history_cycles=\(request.minimumCycleCount)")
+                lines.append("assessment_min_history_accepted=\(request.minimumAcceptedCount)")
                 lines.append(
-                    "qualification_min_history_feedback_rank_changes=\(request.minimumFeedbackRankChangeCount)"
+                    "assessment_min_history_feedback_rank_changes=\(request.minimumFeedbackRankChangeCount)"
                 )
                 lines.append(
-                    "qualification_min_history_feedback_score_deltas=\(request.minimumFeedbackScoreDeltaCount)"
+                    "assessment_min_history_feedback_score_deltas=\(request.minimumFeedbackScoreDeltaCount)"
                 )
                 lines.append(
-                    "qualification_min_history_accepted_per_selected_objective_domain=\(request.minimumAcceptedCountPerSelectedObjectiveDomain)"
+                    "assessment_min_history_accepted_per_selected_objective_domain=\(request.minimumAcceptedCountPerSelectedObjectiveDomain)"
                 )
                 lines.append(
-                    "qualification_required_selected_action_domains=\(request.requiredSelectedActionDomainIDs.joined(separator: ","))"
+                    "assessment_required_selected_action_domains=\(request.requiredSelectedActionDomainIDs.joined(separator: ","))"
                 )
                 lines.append(
-                    "qualification_required_selected_objective_domains=\(request.requiredSelectedObjectiveDomainIDs.joined(separator: ","))"
+                    "assessment_required_selected_objective_domains=\(request.requiredSelectedObjectiveDomainIDs.joined(separator: ","))"
                 )
             }
             lines.append(
-                "qualification_missing_selected_action_domains=\(report?.missingSelectedActionDomainIDs.joined(separator: ",") ?? "")"
+                "assessment_missing_selected_action_domains=\(report?.missingSelectedActionDomainIDs.joined(separator: ",") ?? "")"
             )
             lines.append(
-                "qualification_missing_selected_objective_domains=\(report?.missingSelectedObjectiveDomainIDs.joined(separator: ",") ?? "")"
+                "assessment_missing_selected_objective_domains=\(report?.missingSelectedObjectiveDomainIDs.joined(separator: ",") ?? "")"
             )
             lines.append(
-                "qualification_underqualified_selected_objective_domains=\(report?.underqualifiedSelectedObjectiveDomainIDs.joined(separator: ",") ?? "")"
+                "assessment_below_threshold_selected_objective_domains=\(report?.belowThresholdSelectedObjectiveDomainIDs.joined(separator: ",") ?? "")"
             )
             appendSignoffRepairCandidateCycleHistory(summary, includeRecommendations: false, to: &lines)
             for gate in report?.gates ?? [] {
                 lines.append(
-                    "qualification_gate=\(gate.gateID),passed=\(gate.passed),observed=\(gate.observed),required=\(gate.required)"
+                    "assessment_gate=\(gate.gateID),passed=\(gate.passed),observed=\(gate.observed),required=\(gate.required)"
                 )
             }
             for recommendation in report?.recommendations ?? [] {

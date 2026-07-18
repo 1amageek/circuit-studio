@@ -98,7 +98,7 @@ struct CircuitStudioFlowRunner {
     private static var helpText: String {
         """
         Usage:
-          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--timing-model-profile PATH | --timing-model-profile-catalog PATH --timing-model-profile-id ID | --timing-model-profile-catalog PATH --timing-model-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--relative-delta-floor VALUE] [--domain-limit SPEC] [--variable-limit SPEC] [--oscillation-limit SPEC] [--edit-script PATH --output-design-spec PATH] [--waiver-review ID --waiver-proposal ID] [--drc-repair-hints PATH --lvs-repair-hints PATH] [--history-qualification-profile PATH] [--min-history-runs COUNT] [--min-history-cycles COUNT] [--min-history-accepted COUNT] [--min-history-feedback-rank-changes COUNT] [--min-history-feedback-score-deltas COUNT] [--failure-envelope PATH --action-id ID --reviewer ID] [--json]
+          swift run circuit-studio-flow-runner [MODE] [--fixture \(DesignFlowFixtureLibrary.fixtureNames.joined(separator: "|"))] [--design-spec PATH] [--technology-package PATH] [--output PATH] [--run-id ID] [--approve-signoff] [--pex-manifest PATH] [--pex-config PATH] [--pex-executable PATH] [--pex-corner ID] [--timing-model-profile PATH | --timing-model-profile-catalog PATH --timing-model-profile-id ID | --timing-model-profile-catalog PATH --timing-model-corner ID] [--signoff-drc-log PATH --signoff-lvs-log PATH] [--max-abs-delta VALUE] [--max-rel-delta VALUE] [--relative-delta-floor VALUE] [--domain-limit SPEC] [--variable-limit SPEC] [--oscillation-limit SPEC] [--edit-script PATH --output-design-spec PATH] [--waiver-review ID --waiver-proposal ID] [--drc-repair-hints PATH --lvs-repair-hints PATH] [--history-assessment-profile PATH] [--min-history-runs COUNT] [--min-history-cycles COUNT] [--min-history-accepted COUNT] [--min-history-feedback-rank-changes COUNT] [--min-history-feedback-score-deltas COUNT] [--failure-envelope PATH --action-id ID --reviewer ID] [--json]
 
         The runner executes the current headless round-trip flow:
           schematic -> netlist -> pre-layout simulation -> auto layout -> DRC/LVS gate -> PEX injection -> post-layout simulation -> comparison -> manifest
@@ -110,8 +110,8 @@ struct CircuitStudioFlowRunner {
           --summarize-bottlenecks   Summarize existing flow manifests under --output through DesignFlowCommand
           --summarize-signoff-repair-cycles
                                   Summarize persisted signoff repair candidate-cycle history under --output
-          --qualify-signoff-repair-cycles
-                                  Qualify retained signoff repair candidate-cycle history against promotion thresholds
+          --assess-signoff-repair-cycles
+                                  Assess retained signoff repair candidate-cycle history against promotion thresholds
           --load-technology-package Load and validate a technology package manifest through DesignFlowCommand
           --run-pex-extraction     Run pexengine extract through DesignFlowCommand
           --inspect-timing-model-profiles
@@ -192,18 +192,18 @@ struct CircuitStudioFlowRunner {
                            Candidate generation strategy for --run-signoff-repair-candidate-cycle
           --candidate-verification-mode TEXT
                            Candidate verification mode for --run-signoff-repair-candidate-cycle. Default: post-execution
-          --history-qualification-profile PATH
-                           JSON profile that defines retained-history qualification thresholds for --qualify-signoff-repair-cycles
+          --history-assessment-profile PATH
+                           JSON profile that defines retained-history assessment thresholds for --assess-signoff-repair-cycles
           --min-history-runs COUNT
-                           Minimum retained run count for --qualify-signoff-repair-cycles. Overrides profile value. Default: 1
+                           Minimum retained run count for --assess-signoff-repair-cycles. Overrides profile value. Default: 1
           --min-history-cycles COUNT
-                           Minimum retained candidate-cycle count for --qualify-signoff-repair-cycles. Overrides profile value. Default: 1
+                           Minimum retained candidate-cycle count for --assess-signoff-repair-cycles. Overrides profile value. Default: 1
           --min-history-accepted COUNT
-                           Minimum accepted candidate-cycle count for --qualify-signoff-repair-cycles. Overrides profile value. Default: 0
+                           Minimum accepted candidate-cycle count for --assess-signoff-repair-cycles. Overrides profile value. Default: 0
           --min-history-feedback-rank-changes COUNT
-                           Minimum rejected-feedback rank-change count for --qualify-signoff-repair-cycles. Overrides profile value. Default: 0
+                           Minimum rejected-feedback rank-change count for --assess-signoff-repair-cycles. Overrides profile value. Default: 0
           --min-history-feedback-score-deltas COUNT
-                           Minimum rejected-feedback score-delta count for --qualify-signoff-repair-cycles. Overrides profile value. Default: 0
+                           Minimum rejected-feedback score-delta count for --assess-signoff-repair-cycles. Overrides profile value. Default: 0
           --technology-package PATH
                            Inject one technology package manifest into netlist, simulation, layout, signoff, and PEX inputs.
                            Required for --run-layout-trust and --run-verification.

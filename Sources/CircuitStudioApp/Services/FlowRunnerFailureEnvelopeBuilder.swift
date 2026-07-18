@@ -128,7 +128,7 @@ public enum FlowRunnerFailureEnvelopeBuilder {
         failedStage: String?,
         manifestInspectionError: String?
     ) -> [FlowRunNextAction] {
-        if let manifestPath {
+        if manifestPath != nil {
             let diagnosticCodes = manifestInspectionError == nil ? ["runtime"] : ["runtime", "manifest_unreadable"]
             var suggestedActions = [
                 FlowRunSuggestedAction(

@@ -1,0 +1,20 @@
+{
+  "description": "Retained-history promotion thresholds for signoff repair candidate-cycle evidence.",
+  "profileID": "signoff-repair-history-assessment-v1",
+  "request": {
+    "minimumAcceptedCount": 1,
+    "minimumAcceptedCountPerSelectedObjectiveDomain": 1,
+    "minimumCycleCount": 1,
+    "minimumFeedbackRankChangeCount": 1,
+    "minimumFeedbackScoreDeltaCount": 1,
+    "minimumRunCount": 1,
+    "requiredSelectedActionDomainIDs": [
+      "layout-edit"
+    ],
+    "requiredSelectedObjectiveDomainIDs": [
+      "drc"
+    ]
+  },
+  "schemaVersion": 1,
+  "title": "Signoff repair history assessment"
+}

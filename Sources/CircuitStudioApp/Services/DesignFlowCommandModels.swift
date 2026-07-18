@@ -218,7 +218,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case runDesignRoundTrip
         case summarizeBottlenecks
         case summarizeSignoffRepairCandidateCycles
-        case qualifySignoffRepairCandidateCycles
+        case assessSignoffRepairCandidateCycles
         case loadTechnologyPackage
         case runPEXExtraction
         case inspectTimingModelProfiles
@@ -286,7 +286,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let planningProblemID: String?
     public let candidateStrategy: String?
     public let candidateVerificationMode: String?
-    public let signoffRepairHistoryQualificationProfilePath: String?
+    public let signoffRepairHistoryAssessmentProfilePath: String?
     public let signoffRepairHistoryMinimumRunCount: Int?
     public let signoffRepairHistoryMinimumCycleCount: Int?
     public let signoffRepairHistoryMinimumAcceptedCount: Int?
@@ -348,7 +348,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         planningProblemID: String? = nil,
         candidateStrategy: String? = nil,
         candidateVerificationMode: String? = nil,
-        signoffRepairHistoryQualificationProfilePath: String? = nil,
+        signoffRepairHistoryAssessmentProfilePath: String? = nil,
         signoffRepairHistoryMinimumRunCount: Int? = nil,
         signoffRepairHistoryMinimumCycleCount: Int? = nil,
         signoffRepairHistoryMinimumAcceptedCount: Int? = nil,
@@ -406,7 +406,7 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.planningProblemID = planningProblemID
         self.candidateStrategy = candidateStrategy
         self.candidateVerificationMode = candidateVerificationMode
-        self.signoffRepairHistoryQualificationProfilePath = signoffRepairHistoryQualificationProfilePath
+        self.signoffRepairHistoryAssessmentProfilePath = signoffRepairHistoryAssessmentProfilePath
         self.signoffRepairHistoryMinimumRunCount = signoffRepairHistoryMinimumRunCount
         self.signoffRepairHistoryMinimumCycleCount = signoffRepairHistoryMinimumCycleCount
         self.signoffRepairHistoryMinimumAcceptedCount = signoffRepairHistoryMinimumAcceptedCount
@@ -445,10 +445,10 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let bottleneckSummary: HeadlessRoundTripService.BottleneckSummary?
     public let bottleneckHistory: RoundTripBottleneckHistoryService.Summary?
     public let signoffRepairCandidateCycleHistoryIndex: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary?
-    public let signoffRepairCandidateCycleHistoryQualification:
-        RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Report?
-    public let signoffRepairCandidateCycleHistoryQualificationArtifact: ArtifactReference?
-    public let signoffRepairCandidateCycleHistoryQualificationPath: String?
+    public let signoffRepairCandidateCycleHistoryAssessment:
+        SignoffRepairHistoryAssessor.Report?
+    public let signoffRepairCandidateCycleHistoryAssessmentArtifact: ArtifactReference?
+    public let signoffRepairCandidateCycleHistoryAssessmentPath: String?
     public let technologyPackageID: String?
     public let technologyPackagePath: String?
     public let timingArtifactManifestPath: String?
@@ -514,10 +514,10 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         bottleneckSummary: HeadlessRoundTripService.BottleneckSummary? = nil,
         bottleneckHistory: RoundTripBottleneckHistoryService.Summary? = nil,
         signoffRepairCandidateCycleHistoryIndex: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary? = nil,
-        signoffRepairCandidateCycleHistoryQualification:
-            RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Report? = nil,
-        signoffRepairCandidateCycleHistoryQualificationArtifact: ArtifactReference? = nil,
-        signoffRepairCandidateCycleHistoryQualificationPath: String? = nil,
+        signoffRepairCandidateCycleHistoryAssessment:
+            SignoffRepairHistoryAssessor.Report? = nil,
+        signoffRepairCandidateCycleHistoryAssessmentArtifact: ArtifactReference? = nil,
+        signoffRepairCandidateCycleHistoryAssessmentPath: String? = nil,
         technologyPackageID: String? = nil,
         technologyPackagePath: String? = nil,
         timingArtifactManifestPath: String? = nil,
@@ -578,11 +578,11 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.bottleneckSummary = bottleneckSummary
         self.bottleneckHistory = bottleneckHistory
         self.signoffRepairCandidateCycleHistoryIndex = signoffRepairCandidateCycleHistoryIndex
-        self.signoffRepairCandidateCycleHistoryQualification = signoffRepairCandidateCycleHistoryQualification
-        self.signoffRepairCandidateCycleHistoryQualificationArtifact =
-            signoffRepairCandidateCycleHistoryQualificationArtifact
-        self.signoffRepairCandidateCycleHistoryQualificationPath =
-            signoffRepairCandidateCycleHistoryQualificationPath
+        self.signoffRepairCandidateCycleHistoryAssessment = signoffRepairCandidateCycleHistoryAssessment
+        self.signoffRepairCandidateCycleHistoryAssessmentArtifact =
+            signoffRepairCandidateCycleHistoryAssessmentArtifact
+        self.signoffRepairCandidateCycleHistoryAssessmentPath =
+            signoffRepairCandidateCycleHistoryAssessmentPath
         self.technologyPackageID = technologyPackageID
         self.technologyPackagePath = technologyPackagePath
         self.timingArtifactManifestPath = timingArtifactManifestPath

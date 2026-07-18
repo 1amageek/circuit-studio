@@ -403,7 +403,7 @@ extension RunReviewService {
                             ("Status", document.status),
                             ("Dashboard", document.summary.dashboardStatus),
                             ("External oracle", document.summary.externalOracleStatus),
-                            ("Qualification", document.summary.externalOracleQualificationStatus),
+                            ("Assessment", document.summary.externalOracleAssessmentStatus),
                             ("Lanes", document.summary.externalOracleLaneCount.map(String.init)),
                             ("Passed", document.summary.passedExternalOracleLaneCount.map(String.init)),
                             ("Blocked", document.summary.blockedExternalOracleLaneCount.map(String.init)),
@@ -427,7 +427,7 @@ extension RunReviewService {
                 metrics: oracleCompactMetrics([
                     ("Status", lane.status),
                     ("Backend", lane.oracleBackendID),
-                    ("Qualified", lane.qualified.map(String.init)),
+                    ("Meets criteria", lane.assessmentPassed.map(String.init)),
                     ("Cases", lane.caseCount.map(String.init)),
                     ("Passed", lane.passedCaseCount.map(String.init)),
                     ("Failed", lane.failedCaseCount.map(String.init)),
@@ -501,7 +501,7 @@ extension RunReviewService {
                     RunReviewSignoffDetailRow(
                         label: "External Oracle Lane",
                         metrics: oracleCompactMetrics([
-                            ("Qualified", lane.qualified.map(String.init)),
+                            ("Meets criteria", lane.assessmentPassed.map(String.init)),
                             ("Cases", lane.caseCount.map(String.init)),
                             ("Failed", lane.failedCaseCount.map(String.init)),
                             ("Pass rate", lane.passRate.map(formatted)),

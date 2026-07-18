@@ -371,7 +371,7 @@ struct RunReviewSignoffFixture {
             drcRepairHintPath: Data(
                 """
                 {
-                  "schemaVersion": 1,
+                  "schemaVersion": 4,
                   "status": "ready",
                   "reportURL": null,
                   "backendID": "native-drc",
@@ -813,7 +813,7 @@ struct RunReviewSignoffFixture {
                   "summary": {
                     "dashboardStatus": "needs-review",
                     "externalOracleStatus": "partial",
-                    "externalOracleQualificationStatus": "partial",
+                    "externalOracleAssessmentStatus": "partial",
                     "externalOracleLaneCount": 2,
                     "passedExternalOracleLaneCount": 1,
                     "blockedExternalOracleLaneCount": 0,
@@ -824,7 +824,7 @@ struct RunReviewSignoffFixture {
                       "domain": "drc",
                       "status": "passed",
                       "oracleBackendID": "magic",
-                      "qualified": true,
+                      "assessmentPassed": true,
                       "caseCount": 4,
                       "passedCaseCount": 4,
                       "failedCaseCount": 0,
@@ -854,7 +854,7 @@ struct RunReviewSignoffFixture {
                       "domain": "lvs",
                       "status": "failed",
                       "oracleBackendID": "netgen",
-                      "qualified": false,
+                      "assessmentPassed": false,
                       "caseCount": 3,
                       "passedCaseCount": 2,
                       "failedCaseCount": 1,

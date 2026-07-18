@@ -161,7 +161,7 @@ flowchart LR
   Cycle --> Verify["plan-verification.json"]
   Verify --> Ledger["actions.jsonl"]
   Ledger --> History["--summarize-signoff-repair-cycles"]
-  History --> Qualify["--qualify-signoff-repair-cycles"]
+  History --> Assess["--assess-signoff-repair-cycles"]
 ```
 
 `--formulate-signoff-repair-planning --output <project-root> --run-id <run-id>
@@ -254,16 +254,18 @@ Current output keys:
 | `history_run` | One line per retained run with run ID, cycle count, accepted count, rank-change count, and summary path. |
 | `recommendation` | Retained-history follow-up recommendation. |
 
-`--qualify-signoff-repair-cycles --output <project-root>` reads the same
+`--assess-signoff-repair-cycles --output <project-root>` reads the same
 retained summaries and evaluates them against explicit promotion thresholds.
 This is the Agent-facing gate above the retained history index: it writes
-`.xcircuite/retained/signoff-repair-cycle-history-qualification.json`, registers
+`.xcircuite/retained/history-assessment.json`, registers
 that report in the `.xcircuite` manifest with hash and byte-count evidence, and
 returns the observed corpus evidence, the requested thresholds, every gate
 result, and the failed gate IDs without rerunning candidate generation or
-verification.
+verification. This assessment measures whether retained history satisfies
+promotion thresholds. It is not a tool qualification record and does not
+replace `ToolQualification` trust policy.
 
-Qualification profile:
+History assessment profile:
 
 ```json
 {
@@ -284,20 +286,25 @@ Qualification profile:
 }
 ```
 
-Use `--history-qualification-profile <path>` to load the profile. Explicit
+Use `--history-assessment-profile <path>` to load the profile. Explicit
 `--min-history-*` options and `--require-history-selected-action-domain`
 or `--require-history-selected-objective-domain` override the corresponding
-profile values, and the effective request is persisted in the qualification
+profile values, and the effective request is persisted in the assessment
 report. The profile is a versioned data artifact, not a Swift process/PDK file;
 process and domain policy must remain external to the compiled product. The
 versioned baseline fixture is
-`docs/contract-fixtures/signoff-repair-history-qualification-profile-v1.json`.
+`docs/contract-fixtures/signoff-repair-history-assessment-profile-v1.json`;
+the canonical report fixture is
+`docs/contract-fixtures/signoff-repair-history-assessment-report-v1.json`.
+The persisted report uses schema version 1, requires every decision field, and
+is rejected when its status, gates, missing-domain lists, or recommendations do
+not match the retained summary and effective request.
 
 Threshold options:
 
 | Option | Default | Meaning |
 |---|---:|---|
-| `--history-qualification-profile` | none | JSON profile that defines retained-history thresholds. |
+| `--history-assessment-profile` | none | JSON profile that defines retained-history thresholds. |
 | `--min-history-runs` | 1 | Minimum retained run summaries. |
 | `--min-history-cycles` | 1 | Minimum retained candidate cycles. |
 | `--min-history-accepted` | 0 | Minimum accepted candidate cycles. |
@@ -311,29 +318,29 @@ Current output keys:
 
 | Key | Value |
 |---|---|
-| `signoff_repair_cycle_history_qualification` | `passed` or `failed`. |
-| `qualification_passed` | Boolean pass result. |
-| `qualification_report` | Persisted qualification report JSON path. |
-| `qualification_report_sha256` | Persisted report SHA-256 digest. |
-| `qualification_report_bytes` | Persisted report byte count. |
-| `qualification_profile_id` | Profile ID when a profile was used. |
-| `qualification_profile_title` | Profile title when a profile was used. |
-| `qualification_profile_path` | Profile JSON path when a profile was used. |
-| `qualification_failed_gates` | Comma-separated failed gate IDs. |
-| `qualification_min_history_runs` | Requested retained-run threshold. |
-| `qualification_min_history_cycles` | Requested retained-cycle threshold. |
-| `qualification_min_history_accepted` | Requested accepted-cycle threshold. |
-| `qualification_min_history_feedback_rank_changes` | Requested feedback rank-change threshold. |
-| `qualification_min_history_feedback_score_deltas` | Requested feedback score-delta threshold. |
-| `qualification_min_history_accepted_per_selected_objective_domain` | Requested accepted-cycle threshold per selected objective-domain. |
-| `qualification_required_selected_action_domains` | Requested selected action-domain IDs. |
-| `qualification_required_selected_objective_domains` | Requested selected objective-domain IDs. |
-| `qualification_missing_selected_action_domains` | Required selected action-domain IDs absent from retained history. |
-| `qualification_missing_selected_objective_domains` | Required selected objective-domain IDs absent from retained history. |
-| `qualification_underqualified_selected_objective_domains` | Selected objective-domain IDs that do not meet the per-domain accepted-cycle threshold. |
-| `qualification_gate` | One line per gate with gate ID, pass status, observed count, and required count. |
+| `signoff_repair_cycle_history_assessment` | `passed` or `failed`. |
+| `assessment_passed` | Boolean pass result. |
+| `assessment_report` | Persisted assessment report JSON path. |
+| `assessment_report_sha256` | Persisted report SHA-256 digest. |
+| `assessment_report_bytes` | Persisted report byte count. |
+| `assessment_profile_id` | Profile ID when a profile was used. |
+| `assessment_profile_title` | Profile title when a profile was used. |
+| `assessment_profile_path` | Profile JSON path when a profile was used. |
+| `assessment_failed_gates` | Comma-separated failed gate IDs. |
+| `assessment_min_history_runs` | Requested retained-run threshold. |
+| `assessment_min_history_cycles` | Requested retained-cycle threshold. |
+| `assessment_min_history_accepted` | Requested accepted-cycle threshold. |
+| `assessment_min_history_feedback_rank_changes` | Requested feedback rank-change threshold. |
+| `assessment_min_history_feedback_score_deltas` | Requested feedback score-delta threshold. |
+| `assessment_min_history_accepted_per_selected_objective_domain` | Requested accepted-cycle threshold per selected objective-domain. |
+| `assessment_required_selected_action_domains` | Requested selected action-domain IDs. |
+| `assessment_required_selected_objective_domains` | Requested selected objective-domain IDs. |
+| `assessment_missing_selected_action_domains` | Required selected action-domain IDs absent from retained history. |
+| `assessment_missing_selected_objective_domains` | Required selected objective-domain IDs absent from retained history. |
+| `assessment_below_threshold_selected_objective_domains` | Selected objective-domain IDs that do not meet the per-domain accepted-cycle threshold. |
+| `assessment_gate` | One line per gate with gate ID, pass status, observed count, and required count. |
 | `history_*` | Same retained-history evidence keys exposed by `--summarize-signoff-repair-cycles`. |
-| `recommendation` | Qualification follow-up recommendation. |
+| `recommendation` | Assessment follow-up recommendation. |
 
 ## Breaking Changes
 

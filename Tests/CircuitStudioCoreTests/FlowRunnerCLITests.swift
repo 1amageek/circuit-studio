@@ -168,12 +168,12 @@ struct FlowRunnerCLITests {
         #expect(command.projectRootPath == "/tmp/flow-output")
     }
 
-    @Test("signoff repair cycle history qualification arguments construct the qualification command", .timeLimit(.minutes(1)))
-    func signoffRepairCycleHistoryQualificationArgumentsConstructCommand() throws {
+    @Test("signoff repair cycle history assessment arguments construct the assessment command", .timeLimit(.minutes(1)))
+    func signoffRepairCycleHistoryAssessmentArgumentsConstructCommand() throws {
         let options = try FlowRunnerCommandOptions(arguments: [
-            "--qualify-signoff-repair-cycles",
+            "--assess-signoff-repair-cycles",
             "--output", "/tmp/flow-output",
-            "--history-qualification-profile", "/tmp/history-profile.json",
+            "--history-assessment-profile", "/tmp/history-profile.json",
             "--min-history-runs", "2",
             "--min-history-cycles", "3",
             "--min-history-accepted", "1",
@@ -185,10 +185,10 @@ struct FlowRunnerCLITests {
         ])
         let command = options.makeCommand()
 
-        #expect(options.mode == .qualifySignoffRepairCandidateCycles)
-        #expect(command.kind == .qualifySignoffRepairCandidateCycles)
+        #expect(options.mode == .assessSignoffRepairCandidateCycles)
+        #expect(command.kind == .assessSignoffRepairCandidateCycles)
         #expect(command.projectRootPath == "/tmp/flow-output")
-        #expect(command.signoffRepairHistoryQualificationProfilePath == "/tmp/history-profile.json")
+        #expect(command.signoffRepairHistoryAssessmentProfilePath == "/tmp/history-profile.json")
         #expect(command.signoffRepairHistoryMinimumRunCount == 2)
         #expect(command.signoffRepairHistoryMinimumCycleCount == 3)
         #expect(command.signoffRepairHistoryMinimumAcceptedCount == 1)
@@ -197,6 +197,165 @@ struct FlowRunnerCLITests {
         #expect(command.signoffRepairHistoryMinimumAcceptedCountPerSelectedObjectiveDomain == 1)
         #expect(command.signoffRepairHistoryRequiredSelectedActionDomainIDs == ["layout-edit"])
         #expect(command.signoffRepairHistoryRequiredSelectedObjectiveDomainIDs == ["drc"])
+    }
+
+    @Test("history assessment profile fixture decodes through the public service", .timeLimit(.minutes(1)))
+    func historyAssessmentProfileFixtureDecodes() throws {
+        let repositoryRoot = URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let profileURL = repositoryRoot
+            .appending(path: "docs")
+            .appending(path: "contract-fixtures")
+            .appending(path: "signoff-repair-history-assessment-profile-v1.json")
+
+        let profile = try SignoffRepairHistoryAssessor().loadProfile(from: profileURL)
+
+        #expect(profile.schemaVersion == SignoffRepairHistoryAssessor.Profile.currentSchemaVersion)
+        #expect(profile.profileID == "signoff-repair-history-assessment-v1")
+        #expect(profile.request.minimumRunCount == 1)
+        #expect(profile.request.minimumCycleCount == 1)
+    }
+
+    @Test("history assessment report fixture decodes canonically", .timeLimit(.minutes(1)))
+    func historyAssessmentReportFixtureDecodesCanonically() throws {
+        let repositoryRoot = URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let reportURL = repositoryRoot
+            .appending(path: "docs")
+            .appending(path: "contract-fixtures")
+            .appending(path: "signoff-repair-history-assessment-report-v1.json")
+
+        let report = try JSONDecoder().decode(
+            SignoffRepairHistoryAssessor.Report.self,
+            from: Data(contentsOf: reportURL)
+        )
+
+        #expect(report.schemaVersion == SignoffRepairHistoryAssessor.Report.currentSchemaVersion)
+        #expect(!report.passed)
+        #expect(report.failedGateIDs == ["minimum-run-count", "minimum-cycle-count"])
+    }
+
+    @Test("history assessment profile rejects incomplete fail-closed policy", .timeLimit(.minutes(1)))
+    func historyAssessmentProfileRejectsIncompletePolicy() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            do {
+                try FileManager.default.removeItem(at: directory)
+            } catch {
+                Issue.record("Failed to remove temporary history assessment fixture: \(error)")
+            }
+        }
+        let profileURL = directory.appending(path: "incomplete-history-assessment.json")
+        let incompleteProfile = """
+        {
+          "schemaVersion": 1,
+          "profileID": "incomplete-history-assessment",
+          "title": "Incomplete history assessment",
+          "request": {
+            "minimumRunCount": 1
+          }
+        }
+        """
+        try Data(incompleteProfile.utf8).write(to: profileURL)
+
+        #expect(throws: SignoffRepairHistoryAssessor.AssessmentError.self) {
+            try SignoffRepairHistoryAssessor().loadProfile(from: profileURL)
+        }
+    }
+
+    @Test("history assessment rejects invalid programmatic thresholds", .timeLimit(.minutes(1)))
+    func historyAssessmentRejectsInvalidProgrammaticThresholds() {
+        let request = SignoffRepairHistoryAssessor.Request(minimumRunCount: -1)
+
+        #expect(throws: EncodingError.self) {
+            _ = try JSONEncoder().encode(request)
+        }
+        #expect(throws: SignoffRepairHistoryAssessor.AssessmentError.self) {
+            _ = try SignoffRepairHistoryAssessor().assess(
+                summary: emptyHistorySummary(),
+                request: request
+            )
+        }
+    }
+
+    @Test("history assessment rejects invalid programmatic profiles", .timeLimit(.minutes(1)))
+    func historyAssessmentRejectsInvalidProgrammaticProfiles() {
+        #expect(throws: SignoffRepairHistoryAssessor.AssessmentError.self) {
+            _ = try SignoffRepairHistoryAssessor.Profile(
+                profileID: " invalid-profile ",
+                title: "Invalid profile",
+                request: SignoffRepairHistoryAssessor.Request()
+            )
+        }
+    }
+
+    @Test("history summary rejects incomplete evidence", .timeLimit(.minutes(1)))
+    func historySummaryRejectsIncompleteEvidence() throws {
+        let encoded = try JSONEncoder().encode(emptyHistorySummary())
+        var object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object.removeValue(forKey: "selectedActionIDs")
+        let incomplete = try JSONSerialization.data(withJSONObject: object)
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(
+                RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary.self,
+                from: incomplete
+            )
+        }
+    }
+
+    @Test("history assessment rejects inconsistent summary aggregates", .timeLimit(.minutes(1)))
+    func historyAssessmentRejectsInconsistentSummaryAggregates() {
+        let summary = RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary(
+            runCount: 0,
+            cycleCount: 1,
+            acceptedCount: 1,
+            notAcceptedCount: 0,
+            consumedRejectedPlanFeedbackRecordCount: 0,
+            maximumGlobalRejectedPlanFeedbackCount: 0,
+            feedbackRankChangeCount: 0,
+            feedbackScoreDeltaCount: 0,
+            selectedActionIDs: [],
+            selectedActionDomainIDs: [],
+            selectedObjectiveDomainIDs: [],
+            objectiveDomainSummaries: [],
+            feedbackPenalizedActionIDs: [],
+            feedbackRankChangedActionIDs: [],
+            feedbackScoreDeltaActionIDs: [],
+            runs: [],
+            recommendations: []
+        )
+
+        #expect(throws: RunReviewSignoffRepairCandidateCycleHistoryIndexService.ValidationError.self) {
+            _ = try SignoffRepairHistoryAssessor().assess(summary: summary)
+        }
+        #expect(throws: EncodingError.self) {
+            _ = try JSONEncoder().encode(summary)
+        }
+    }
+
+    @Test("history assessment report rejects tampered decisions", .timeLimit(.minutes(1)))
+    func historyAssessmentReportRejectsTamperedDecisions() throws {
+        let report = try SignoffRepairHistoryAssessor().assess(summary: emptyHistorySummary())
+        let encoded = try JSONEncoder().encode(report)
+        var object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object["status"] = "passed"
+        object["passed"] = true
+        let tampered = try JSONSerialization.data(withJSONObject: object)
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(SignoffRepairHistoryAssessor.Report.self, from: tampered)
+        }
     }
 
     @Test("signoff repair cycle history output exposes retained aggregate evidence", .timeLimit(.minutes(1)))
@@ -263,8 +422,8 @@ struct FlowRunnerCLITests {
         #expect(keys["history_run"] == "run-1,cycles=1,accepted=1,rank_changes=1,summary=.xcircuite/runs/run-1/planning/candidate-cycle-history-summary.json")
     }
 
-    @Test("signoff repair cycle history qualification output exposes failed gates", .timeLimit(.minutes(1)))
-    func signoffRepairCycleHistoryQualificationOutputIncludesFailedGates() throws {
+    @Test("signoff repair cycle history assessment output exposes failed gates", .timeLimit(.minutes(1)))
+    func signoffRepairCycleHistoryAssessmentOutputIncludesFailedGates() throws {
         let cycleSummary = RunReviewSignoffRepairCandidateCycleHistorySummary(cycles: [
             RunReviewSignoffRepairCandidateCycleHistoryItem(
                 actionID: "cycle-1",
@@ -299,10 +458,10 @@ struct FlowRunnerCLITests {
         )
         let history = RunReviewSignoffRepairCandidateCycleHistoryIndexService()
             .summarize(runSummaries: [runSummary])
-        let report = RunReviewSignoffRepairCandidateCycleHistoryQualificationService()
-            .qualify(
+        let report = try SignoffRepairHistoryAssessor()
+            .assess(
                 summary: history,
-                request: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request(
+                request: SignoffRepairHistoryAssessor.Request(
                     minimumRunCount: 1,
                     minimumCycleCount: 1,
                     minimumAcceptedCount: 1,
@@ -312,64 +471,64 @@ struct FlowRunnerCLITests {
                     requiredSelectedActionDomainIDs: ["layout-edit", "pex-extraction"],
                     requiredSelectedObjectiveDomainIDs: ["drc", "pex"]
                 ),
-                profile: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Profile(
+                profile: try SignoffRepairHistoryAssessor.Profile(
                     profileID: "candidate-cycle-history-smoke",
                     title: "Candidate cycle history smoke",
-                    request: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request()
+                    request: SignoffRepairHistoryAssessor.Request()
                 ),
                 profilePath: "/tmp/history-profile.json"
             )
         let result = DesignFlowCommandResult(
-            kind: .qualifySignoffRepairCandidateCycles,
+            kind: .assessSignoffRepairCandidateCycles,
             projectRootPath: "/tmp/flow-output",
             signoffRepairCandidateCycleHistoryIndex: history,
-            signoffRepairCandidateCycleHistoryQualification: report,
-            signoffRepairCandidateCycleHistoryQualificationArtifact: try artifactReference(
-                artifactID: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID,
-                path: ".xcircuite/retained/signoff-repair-cycle-history-qualification.json",
+            signoffRepairCandidateCycleHistoryAssessment: report,
+            signoffRepairCandidateCycleHistoryAssessmentArtifact: try artifactReference(
+                artifactID: SignoffRepairHistoryAssessor.reportArtifactID,
+                path: ".xcircuite/retained/history-assessment.json",
                 byteCount: 456
             ),
-            signoffRepairCandidateCycleHistoryQualificationPath:
-                "/tmp/flow-output/.xcircuite/retained/signoff-repair-cycle-history-qualification.json"
+            signoffRepairCandidateCycleHistoryAssessmentPath:
+                "/tmp/flow-output/.xcircuite/retained/history-assessment.json"
         )
         let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
         let keys = keyValueOutput(output)
 
-        #expect(keys["signoff_repair_cycle_history_qualification"] == "failed")
-        #expect(keys["qualification_passed"] == "false")
-        #expect(keys["qualification_report"] == "/tmp/flow-output/.xcircuite/retained/signoff-repair-cycle-history-qualification.json")
-        #expect(keys["qualification_report_sha256"] == String(repeating: "0", count: 64))
-        #expect(keys["qualification_report_bytes"] == "456")
-        #expect(keys["qualification_profile_id"] == "candidate-cycle-history-smoke")
-        #expect(keys["qualification_profile_title"] == "Candidate cycle history smoke")
-        #expect(keys["qualification_profile_path"] == "/tmp/history-profile.json")
-        #expect(keys["qualification_failed_gates"] == "minimum-accepted-count,minimum-feedback-rank-change-count,minimum-feedback-score-delta-count,required-selected-action-domains,required-selected-objective-domains,minimum-accepted-count-per-selected-objective-domain")
-        #expect(keys["qualification_min_history_accepted"] == "1")
-        #expect(keys["qualification_min_history_accepted_per_selected_objective_domain"] == "1")
-        #expect(keys["qualification_required_selected_action_domains"] == "layout-edit,pex-extraction")
-        #expect(keys["qualification_required_selected_objective_domains"] == "drc,pex")
-        #expect(keys["qualification_missing_selected_action_domains"] == "pex-extraction")
-        #expect(keys["qualification_missing_selected_objective_domains"] == "pex")
-        #expect(keys["qualification_underqualified_selected_objective_domains"] == "drc,pex")
+        #expect(keys["signoff_repair_cycle_history_assessment"] == "failed")
+        #expect(keys["assessment_passed"] == "false")
+        #expect(keys["assessment_report"] == "/tmp/flow-output/.xcircuite/retained/history-assessment.json")
+        #expect(keys["assessment_report_sha256"] == String(repeating: "0", count: 64))
+        #expect(keys["assessment_report_bytes"] == "456")
+        #expect(keys["assessment_profile_id"] == "candidate-cycle-history-smoke")
+        #expect(keys["assessment_profile_title"] == "Candidate cycle history smoke")
+        #expect(keys["assessment_profile_path"] == "/tmp/history-profile.json")
+        #expect(keys["assessment_failed_gates"] == "minimum-accepted-count,minimum-feedback-rank-change-count,minimum-feedback-score-delta-count,required-selected-action-domains,required-selected-objective-domains,minimum-accepted-count-per-selected-objective-domain")
+        #expect(keys["assessment_min_history_accepted"] == "1")
+        #expect(keys["assessment_min_history_accepted_per_selected_objective_domain"] == "1")
+        #expect(keys["assessment_required_selected_action_domains"] == "layout-edit,pex-extraction")
+        #expect(keys["assessment_required_selected_objective_domains"] == "drc,pex")
+        #expect(keys["assessment_missing_selected_action_domains"] == "pex-extraction")
+        #expect(keys["assessment_missing_selected_objective_domains"] == "pex")
+        #expect(keys["assessment_below_threshold_selected_objective_domains"] == "drc,pex")
         #expect(keys["history_run_count"] == "1")
         #expect(keys["history_cycle_count"] == "1")
         #expect(keys["history_accepted_count"] == "0")
         #expect(keys["history_objective_domain"] == "drc,cycles=1,accepted=0,not_accepted=1,acceptance_rate=0.0,rank_changes=0,score_deltas=0,actions=repair-action-1,action_domains=layout-edit")
-        #expect(output.contains("qualification_gate=minimum-accepted-count,passed=false,observed=0,required=1"))
-        #expect(output.contains("qualification_gate=minimum-feedback-rank-change-count,passed=false,observed=0,required=1"))
-        #expect(output.contains("qualification_gate=required-selected-action-domains,passed=false,observed=1,required=2"))
-        #expect(output.contains("qualification_gate=required-selected-objective-domains,passed=false,observed=1,required=2"))
-        #expect(output.contains("qualification_gate=minimum-accepted-count-per-selected-objective-domain,passed=false,observed=0,required=1"))
+        #expect(output.contains("assessment_gate=minimum-accepted-count,passed=false,observed=0,required=1"))
+        #expect(output.contains("assessment_gate=minimum-feedback-rank-change-count,passed=false,observed=0,required=1"))
+        #expect(output.contains("assessment_gate=required-selected-action-domains,passed=false,observed=1,required=2"))
+        #expect(output.contains("assessment_gate=required-selected-objective-domains,passed=false,observed=1,required=2"))
+        #expect(output.contains("assessment_gate=minimum-accepted-count-per-selected-objective-domain,passed=false,observed=0,required=1"))
         #expect(output.contains("recommendation=Failed gates: minimum-accepted-count,minimum-feedback-rank-change-count,minimum-feedback-score-delta-count,required-selected-action-domains,required-selected-objective-domains,minimum-accepted-count-per-selected-objective-domain"))
         #expect(output.contains("recommendation=Retain candidate-cycle evidence for selected action domains: pex-extraction."))
         #expect(output.contains("recommendation=Retain candidate-cycle evidence for selected objective domains: pex."))
         #expect(output.contains("recommendation=Retain accepted candidate-cycle evidence for selected objective domains: drc,pex."))
     }
 
-    @Test("signoff repair cycle history qualification command reads retained summaries", .timeLimit(.minutes(1)))
-    func signoffRepairCycleHistoryQualificationCommandReadsRetainedSummaries() async throws {
+    @Test("signoff repair cycle history assessment command reads retained summaries", .timeLimit(.minutes(1)))
+    func signoffRepairCycleHistoryAssessmentCommandReadsRetainedSummaries() async throws {
         let root = FileManager.default.temporaryDirectory
-            .appending(path: "CircuitStudioSignoffRepairQualification-\(UUID().uuidString)")
+            .appending(path: "CircuitStudioSignoffRepairAssessment-\(UUID().uuidString)")
         defer {
             do {
                 try FileManager.default.removeItem(at: root)
@@ -383,12 +542,12 @@ struct FlowRunnerCLITests {
             .appending(path: "run-1")
             .appending(path: "planning")
         try FileManager.default.createDirectory(at: planningDirectory, withIntermediateDirectories: true)
-        let profileURL = root.appending(path: "history-qualification-profile.json")
-        let profile = RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Profile(
-            profileID: "candidate-cycle-history-qualified",
-            title: "Candidate cycle history qualified",
+        let profileURL = root.appending(path: "history-assessment-profile.json")
+        let profile = try SignoffRepairHistoryAssessor.Profile(
+            profileID: "candidate-cycle-history-assessed",
+            title: "Candidate cycle history assessed",
             description: "Requires retained accepted feedback-sensitive candidate-cycle evidence.",
-            request: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request(
+            request: SignoffRepairHistoryAssessor.Request(
                 minimumRunCount: 1,
                 minimumCycleCount: 1,
                 minimumAcceptedCount: 1,
@@ -435,41 +594,41 @@ struct FlowRunnerCLITests {
         )
 
         let result = try await DesignFlowService().execute(DesignFlowCommand(
-            kind: .qualifySignoffRepairCandidateCycles,
+            kind: .assessSignoffRepairCandidateCycles,
             projectRootPath: root.path(percentEncoded: false),
-            signoffRepairHistoryQualificationProfilePath: profileURL.path(percentEncoded: false)
+            signoffRepairHistoryAssessmentProfilePath: profileURL.path(percentEncoded: false)
         ))
 
-        #expect(result.signoffRepairCandidateCycleHistoryQualification?.passed == true)
+        #expect(result.signoffRepairCandidateCycleHistoryAssessment?.passed == true)
         #expect(
-            result.signoffRepairCandidateCycleHistoryQualification?.artifactReference
-                == result.signoffRepairCandidateCycleHistoryQualificationArtifact
+            result.signoffRepairCandidateCycleHistoryAssessment?.artifactReference
+                == result.signoffRepairCandidateCycleHistoryAssessmentArtifact
         )
-        #expect(result.signoffRepairCandidateCycleHistoryQualification?.failedGateIDs.isEmpty == true)
-        #expect(result.signoffRepairCandidateCycleHistoryQualification?.profileID == "candidate-cycle-history-qualified")
-        #expect(result.signoffRepairCandidateCycleHistoryQualification?.profilePath == profileURL.path(percentEncoded: false))
-        #expect(result.signoffRepairCandidateCycleHistoryQualification?.request.minimumAcceptedCount == 1)
+        #expect(result.signoffRepairCandidateCycleHistoryAssessment?.failedGateIDs.isEmpty == true)
+        #expect(result.signoffRepairCandidateCycleHistoryAssessment?.profileID == "candidate-cycle-history-assessed")
+        #expect(result.signoffRepairCandidateCycleHistoryAssessment?.profilePath == profileURL.path(percentEncoded: false))
+        #expect(result.signoffRepairCandidateCycleHistoryAssessment?.request.minimumAcceptedCount == 1)
         #expect(
-            result.signoffRepairCandidateCycleHistoryQualification?
+            result.signoffRepairCandidateCycleHistoryAssessment?
                 .request.minimumAcceptedCountPerSelectedObjectiveDomain == 1
         )
         #expect(
-            result.signoffRepairCandidateCycleHistoryQualification?.request.requiredSelectedActionDomainIDs
+            result.signoffRepairCandidateCycleHistoryAssessment?.request.requiredSelectedActionDomainIDs
                 == ["layout-edit"]
         )
         #expect(
-            result.signoffRepairCandidateCycleHistoryQualification?.request.requiredSelectedObjectiveDomainIDs
+            result.signoffRepairCandidateCycleHistoryAssessment?.request.requiredSelectedObjectiveDomainIDs
                 == ["drc"]
         )
         #expect(
-            result.signoffRepairCandidateCycleHistoryQualification?.missingSelectedActionDomainIDs.isEmpty == true
+            result.signoffRepairCandidateCycleHistoryAssessment?.missingSelectedActionDomainIDs.isEmpty == true
         )
         #expect(
-            result.signoffRepairCandidateCycleHistoryQualification?.missingSelectedObjectiveDomainIDs.isEmpty == true
+            result.signoffRepairCandidateCycleHistoryAssessment?.missingSelectedObjectiveDomainIDs.isEmpty == true
         )
         #expect(
-            result.signoffRepairCandidateCycleHistoryQualification?
-                .underqualifiedSelectedObjectiveDomainIDs.isEmpty == true
+            result.signoffRepairCandidateCycleHistoryAssessment?
+                .belowThresholdSelectedObjectiveDomainIDs.isEmpty == true
         )
         #expect(result.signoffRepairCandidateCycleHistoryIndex?.runCount == 1)
         #expect(result.signoffRepairCandidateCycleHistoryIndex?.selectedActionDomainIDs == ["layout-edit"])
@@ -479,13 +638,13 @@ struct FlowRunnerCLITests {
         #expect(result.signoffRepairCandidateCycleHistoryIndex?.feedbackRankChangeCount == 1)
         #expect(result.signoffRepairCandidateCycleHistoryIndex?.feedbackScoreDeltaCount == 1)
 
-        let qualificationPath = try #require(result.signoffRepairCandidateCycleHistoryQualificationPath)
-        #expect(FileManager.default.fileExists(atPath: qualificationPath))
+        let assessmentPath = try #require(result.signoffRepairCandidateCycleHistoryAssessmentPath)
+        #expect(FileManager.default.fileExists(atPath: assessmentPath))
         let persistedReport = try JSONDecoder().decode(
-            RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Report.self,
-            from: Data(contentsOf: URL(filePath: qualificationPath))
+            SignoffRepairHistoryAssessor.Report.self,
+            from: Data(contentsOf: URL(filePath: assessmentPath))
         )
-        let resultReport = try #require(result.signoffRepairCandidateCycleHistoryQualification)
+        let resultReport = try #require(result.signoffRepairCandidateCycleHistoryAssessment)
         #expect(persistedReport.status == resultReport.status)
         #expect(persistedReport.passed == resultReport.passed)
         #expect(persistedReport.profileID == resultReport.profileID)
@@ -498,23 +657,23 @@ struct FlowRunnerCLITests {
         #expect(persistedReport.missingSelectedActionDomainIDs == resultReport.missingSelectedActionDomainIDs)
         #expect(persistedReport.missingSelectedObjectiveDomainIDs == resultReport.missingSelectedObjectiveDomainIDs)
         #expect(
-            persistedReport.underqualifiedSelectedObjectiveDomainIDs
-                == resultReport.underqualifiedSelectedObjectiveDomainIDs
+            persistedReport.belowThresholdSelectedObjectiveDomainIDs
+                == resultReport.belowThresholdSelectedObjectiveDomainIDs
         )
         #expect(persistedReport.recommendations == resultReport.recommendations)
         #expect(persistedReport.artifactReference == nil)
-        let qualificationArtifact = try #require(result.signoffRepairCandidateCycleHistoryQualificationArtifact)
-        #expect(qualificationArtifact.artifactID == RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID)
-        #expect(qualificationArtifact.path == ".xcircuite/retained/signoff-repair-cycle-history-qualification.json")
-        #expect(!qualificationArtifact.digest.hexadecimalValue.isEmpty)
-        #expect(qualificationArtifact.byteCount > 0)
+        let assessmentArtifact = try #require(result.signoffRepairCandidateCycleHistoryAssessmentArtifact)
+        #expect(assessmentArtifact.artifactID == SignoffRepairHistoryAssessor.reportArtifactID)
+        #expect(assessmentArtifact.path == ".xcircuite/retained/history-assessment.json")
+        #expect(!assessmentArtifact.digest.hexadecimalValue.isEmpty)
+        #expect(assessmentArtifact.byteCount > 0)
 
         let manifest = try await XcircuiteWorkspaceStore(projectRoot: root).loadManifest()
         #expect(manifest.files.contains { file in
-            file.artifactID == RunReviewSignoffRepairCandidateCycleHistoryQualificationService.reportArtifactID
-                && file.path == qualificationArtifact.path
-                && file.digest == qualificationArtifact.digest
-                && file.byteCount == qualificationArtifact.byteCount
+            file.artifactID == SignoffRepairHistoryAssessor.reportArtifactID
+                && file.path == assessmentArtifact.path
+                && file.digest == assessmentArtifact.digest
+                && file.byteCount == assessmentArtifact.byteCount
         })
     }
 
@@ -1307,6 +1466,26 @@ struct FlowRunnerCLITests {
         #expect(throws: FlowRunnerCommandOptions.ParseError.missingValue("--output")) {
             _ = try FlowRunnerCommandOptions(arguments: ["--run-verification", "--output", "--json"])
         }
+    }
+
+    private func emptyHistorySummary()
+        -> RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary {
+        RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary(
+            runCount: 0,
+            cycleCount: 0,
+            acceptedCount: 0,
+            notAcceptedCount: 0,
+            consumedRejectedPlanFeedbackRecordCount: 0,
+            maximumGlobalRejectedPlanFeedbackCount: 0,
+            feedbackRankChangeCount: 0,
+            feedbackScoreDeltaCount: 0,
+            selectedActionIDs: [],
+            feedbackPenalizedActionIDs: [],
+            feedbackRankChangedActionIDs: [],
+            feedbackScoreDeltaActionIDs: [],
+            runs: [],
+            recommendations: []
+        )
     }
 
     private func writeTrustedLayout(to url: URL) throws {

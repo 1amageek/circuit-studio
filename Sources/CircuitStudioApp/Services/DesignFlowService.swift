@@ -348,20 +348,20 @@ public struct DesignFlowService: Sendable {
         try RunReviewSignoffRepairCandidateCycleHistoryIndexService().summarize(forProjectAt: projectRoot)
     }
 
-    public func qualifySignoffRepairCandidateCycles(
+    public func assessSignoffRepairCandidateCycles(
         projectRoot: URL,
-        request: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request
-    ) throws -> RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Report {
-        try RunReviewSignoffRepairCandidateCycleHistoryQualificationService()
-            .qualify(forProjectAt: projectRoot, request: request)
+        request: SignoffRepairHistoryAssessor.Request
+    ) throws -> SignoffRepairHistoryAssessor.Report {
+        try SignoffRepairHistoryAssessor()
+            .assess(forProjectAt: projectRoot, request: request)
     }
 
-    private func signoffRepairHistoryQualificationRequest(
+    private func signoffRepairHistoryAssessmentRequest(
         for command: DesignFlowCommand,
-        profile: RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Profile?
-    ) -> RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request {
-        let base = profile?.request ?? RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request()
-        return RunReviewSignoffRepairCandidateCycleHistoryQualificationService.Request(
+        profile: SignoffRepairHistoryAssessor.Profile?
+    ) -> SignoffRepairHistoryAssessor.Request {
+        let base = profile?.request ?? SignoffRepairHistoryAssessor.Request()
+        return SignoffRepairHistoryAssessor.Request(
             minimumRunCount: command.signoffRepairHistoryMinimumRunCount ?? base.minimumRunCount,
             minimumCycleCount: command.signoffRepairHistoryMinimumCycleCount ?? base.minimumCycleCount,
             minimumAcceptedCount: command.signoffRepairHistoryMinimumAcceptedCount ?? base.minimumAcceptedCount,
@@ -548,33 +548,33 @@ public struct DesignFlowService: Sendable {
                 projectRootPath: projectRoot.path(percentEncoded: false),
                 signoffRepairCandidateCycleHistoryIndex: summary
             )
-        case .qualifySignoffRepairCandidateCycles:
+        case .assessSignoffRepairCandidateCycles:
             guard let projectRootPath = command.projectRootPath else {
                 throw DesignFlowCommandError.missingProjectRoot
             }
             let projectRoot = URL(filePath: projectRootPath)
-            let qualificationService = RunReviewSignoffRepairCandidateCycleHistoryQualificationService()
-            let profilePath = command.signoffRepairHistoryQualificationProfilePath
+            let assessmentService = SignoffRepairHistoryAssessor()
+            let profilePath = command.signoffRepairHistoryAssessmentProfilePath
             let profile = try profilePath.map {
-                try qualificationService.loadProfile(from: URL(filePath: $0))
+                try assessmentService.loadProfile(from: URL(filePath: $0))
             }
-            let report = try qualificationService.qualify(
+            let report = try assessmentService.assess(
                 forProjectAt: projectRoot,
-                request: signoffRepairHistoryQualificationRequest(
+                request: signoffRepairHistoryAssessmentRequest(
                     for: command,
                     profile: profile
                 ),
                 profile: profile,
                 profilePath: profilePath
             )
-            let artifact = try await qualificationService.persist(report, forProjectAt: projectRoot)
+            let artifact = try await assessmentService.persist(report, forProjectAt: projectRoot)
             return DesignFlowCommandResult(
                 kind: command.kind,
                 projectRootPath: projectRoot.path(percentEncoded: false),
                 signoffRepairCandidateCycleHistoryIndex: report.summary,
-                signoffRepairCandidateCycleHistoryQualification: report.attachingArtifactReference(artifact),
-                signoffRepairCandidateCycleHistoryQualificationArtifact: artifact,
-                signoffRepairCandidateCycleHistoryQualificationPath: try absolutePath(
+                signoffRepairCandidateCycleHistoryAssessment: report.attachingArtifactReference(artifact),
+                signoffRepairCandidateCycleHistoryAssessmentArtifact: artifact,
+                signoffRepairCandidateCycleHistoryAssessmentPath: try absolutePath(
                     for: artifact,
                     projectRoot: projectRoot
                 )

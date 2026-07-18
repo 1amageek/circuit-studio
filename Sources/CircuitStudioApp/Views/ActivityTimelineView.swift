@@ -628,30 +628,32 @@ private struct ActivityArtifactSelection: Identifiable {
 private struct ActivityGroup: Identifiable {
     let id: String
     let activities: [Activity]
+    let latestActivity: Activity
 
     static func makeGroups(from activities: [Activity]) -> [ActivityGroup] {
         let grouped = Dictionary(grouping: activities) { activity in
             activity.operationID.isEmpty ? activity.id : activity.operationID
         }
         return grouped
-            .map { ActivityGroup(id: $0.key, activities: $0.value) }
+            .compactMap { ActivityGroup(id: $0.key, activities: $0.value) }
             .sorted { lhs, rhs in
                 lhs.latestActivity.occurredAt > rhs.latestActivity.occurredAt
             }
     }
 
-    init(id: String, activities: [Activity]) {
-        self.id = id
-        self.activities = activities.sorted { lhs, rhs in
+    init?(id: String, activities: [Activity]) {
+        let sortedActivities = activities.sorted { lhs, rhs in
             if lhs.occurredAt != rhs.occurredAt {
                 return lhs.occurredAt < rhs.occurredAt
             }
             return lhs.id < rhs.id
         }
-    }
-
-    var latestActivity: Activity {
-        activities.last!
+        guard let latestActivity = sortedActivities.last else {
+            return nil
+        }
+        self.id = id
+        self.activities = sortedActivities
+        self.latestActivity = latestActivity
     }
 
     var runID: String? {

@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "status": "failed",
+  "passed": false,
+  "profileID": null,
+  "profileTitle": null,
+  "profilePath": null,
+  "request": {
+    "minimumRunCount": 1,
+    "minimumCycleCount": 1,
+    "minimumAcceptedCount": 0,
+    "minimumFeedbackRankChangeCount": 0,
+    "minimumFeedbackScoreDeltaCount": 0,
+    "minimumAcceptedCountPerSelectedObjectiveDomain": 0,
+    "requiredSelectedActionDomainIDs": [],
+    "requiredSelectedObjectiveDomainIDs": []
+  },
+  "summary": {
+    "runCount": 0,
+    "cycleCount": 0,
+    "acceptedCount": 0,
+    "notAcceptedCount": 0,
+    "consumedRejectedPlanFeedbackRecordCount": 0,
+    "maximumGlobalRejectedPlanFeedbackCount": 0,
+    "feedbackRankChangeCount": 0,
+    "feedbackScoreDeltaCount": 0,
+    "selectedActionIDs": [],
+    "selectedActionDomainIDs": [],
+    "selectedObjectiveDomainIDs": [],
+    "objectiveDomainSummaries": [],
+    "feedbackPenalizedActionIDs": [],
+    "feedbackRankChangedActionIDs": [],
+    "feedbackScoreDeltaActionIDs": [],
+    "runs": [],
+    "recommendations": []
+  },
+  "gates": [
+    {
+      "gateID": "minimum-run-count",
+      "title": "Retained run count",
+      "observed": 0,
+      "required": 1,
+      "passed": false,
+      "message": "Retained run count below threshold: observed 0, required 1."
+    },
+    {
+      "gateID": "minimum-cycle-count",
+      "title": "Retained candidate-cycle count",
+      "observed": 0,
+      "required": 1,
+      "passed": false,
+      "message": "Retained candidate-cycle count below threshold: observed 0, required 1."
+    },
+    {
+      "gateID": "minimum-accepted-count",
+      "title": "Accepted candidate-cycle count",
+      "observed": 0,
+      "required": 0,
+      "passed": true,
+      "message": "Accepted candidate-cycle count satisfied: observed 0, required 0."
+    },
+    {
+      "gateID": "minimum-feedback-rank-change-count",
+      "title": "Rejected-feedback rank-change count",
+      "observed": 0,
+      "required": 0,
+      "passed": true,
+      "message": "Rejected-feedback rank-change count satisfied: observed 0, required 0."
+    },
+    {
+      "gateID": "minimum-feedback-score-delta-count",
+      "title": "Rejected-feedback score-delta count",
+      "observed": 0,
+      "required": 0,
+      "passed": true,
+      "message": "Rejected-feedback score-delta count satisfied: observed 0, required 0."
+    },
+    {
+      "gateID": "required-selected-action-domains",
+      "title": "Required selected action domains",
+      "observed": 0,
+      "required": 0,
+      "passed": true,
+      "message": "Required selected action domains satisfied: observed 0, required 0."
+    },
+    {
+      "gateID": "required-selected-objective-domains",
+      "title": "Required selected objective domains",
+      "observed": 0,
+      "required": 0,
+      "passed": true,
+      "message": "Required selected objective domains satisfied: observed 0, required 0."
+    },
+    {
+      "gateID": "minimum-accepted-count-per-selected-objective-domain",
+      "title": "Accepted candidate-cycle count per selected objective domain",
+      "observed": 0,
+      "required": 0,
+      "passed": true,
+      "message": "Accepted candidate-cycle count per selected objective domain satisfied: observed 0, required 0."
+    }
+  ],
+  "failedGateIDs": [
+    "minimum-run-count",
+    "minimum-cycle-count"
+  ],
+  "missingSelectedActionDomainIDs": [],
+  "missingSelectedObjectiveDomainIDs": [],
+  "belowThresholdSelectedObjectiveDomainIDs": [],
+  "recommendations": [
+    "Increase retained signoff repair candidate-cycle corpus before promoting this capability gate.",
+    "Failed gates: minimum-run-count,minimum-cycle-count"
+  ]
+}

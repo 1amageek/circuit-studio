@@ -15,7 +15,7 @@ public struct FlowRunnerCommandOptions: Sendable {
         case runRoundTrip
         case summarizeBottlenecks
         case summarizeSignoffRepairCandidateCycles
-        case qualifySignoffRepairCandidateCycles
+        case assessSignoffRepairCandidateCycles
         case loadTechnologyPackage
         case runPEXExtraction
         case inspectTimingModelProfiles
@@ -50,8 +50,8 @@ public struct FlowRunnerCommandOptions: Sendable {
                 return .summarizeBottlenecks
             case .summarizeSignoffRepairCandidateCycles:
                 return .summarizeSignoffRepairCandidateCycles
-            case .qualifySignoffRepairCandidateCycles:
-                return .qualifySignoffRepairCandidateCycles
+            case .assessSignoffRepairCandidateCycles:
+                return .assessSignoffRepairCandidateCycles
             case .loadTechnologyPackage:
                 return .loadTechnologyPackage
             case .runPEXExtraction:
@@ -167,7 +167,7 @@ public struct FlowRunnerCommandOptions: Sendable {
     public var planningProblemID: String?
     public var candidateStrategy: String?
     public var candidateVerificationMode: String?
-    public var signoffRepairHistoryQualificationProfileURL: URL?
+    public var signoffRepairHistoryAssessmentProfileURL: URL?
     public var signoffRepairHistoryMinimumRunCount: Int?
     public var signoffRepairHistoryMinimumCycleCount: Int?
     public var signoffRepairHistoryMinimumAcceptedCount: Int?
@@ -209,8 +209,8 @@ public struct FlowRunnerCommandOptions: Sendable {
                 try selectMode(.summarizeBottlenecks)
             case "--summarize-signoff-repair-cycles":
                 try selectMode(.summarizeSignoffRepairCandidateCycles)
-            case "--qualify-signoff-repair-cycles":
-                try selectMode(.qualifySignoffRepairCandidateCycles)
+            case "--assess-signoff-repair-cycles":
+                try selectMode(.assessSignoffRepairCandidateCycles)
             case "--load-technology-package":
                 try selectMode(.loadTechnologyPackage)
             case "--run-pex-extraction":
@@ -325,8 +325,8 @@ public struct FlowRunnerCommandOptions: Sendable {
                 candidateStrategy = try Self.value(after: argument, in: arguments, index: &index)
             case "--candidate-verification-mode":
                 candidateVerificationMode = try Self.value(after: argument, in: arguments, index: &index)
-            case "--history-qualification-profile":
-                signoffRepairHistoryQualificationProfileURL = URL(
+            case "--history-assessment-profile":
+                signoffRepairHistoryAssessmentProfileURL = URL(
                     filePath: try Self.value(after: argument, in: arguments, index: &index)
                 )
             case "--min-history-runs":
@@ -440,7 +440,7 @@ public struct FlowRunnerCommandOptions: Sendable {
              .formulateSignoffRepairPlanningProblem, .runSignoffRepairCandidateCycle, .runGoalLayoutAgent:
             return outputURL?.path(percentEncoded: false)
         case .runRoundTrip, .summarizeBottlenecks, .summarizeSignoffRepairCandidateCycles,
-             .qualifySignoffRepairCandidateCycles:
+             .assessSignoffRepairCandidateCycles:
             return (outputURL ?? defaultOutputURL).path(percentEncoded: false)
         }
     }
@@ -493,8 +493,8 @@ public struct FlowRunnerCommandOptions: Sendable {
             planningProblemID: planningProblemID,
             candidateStrategy: candidateStrategy,
             candidateVerificationMode: candidateVerificationMode,
-            signoffRepairHistoryQualificationProfilePath:
-                signoffRepairHistoryQualificationProfileURL?.path(percentEncoded: false),
+            signoffRepairHistoryAssessmentProfilePath:
+                signoffRepairHistoryAssessmentProfileURL?.path(percentEncoded: false),
             signoffRepairHistoryMinimumRunCount: signoffRepairHistoryMinimumRunCount,
             signoffRepairHistoryMinimumCycleCount: signoffRepairHistoryMinimumCycleCount,
             signoffRepairHistoryMinimumAcceptedCount: signoffRepairHistoryMinimumAcceptedCount,

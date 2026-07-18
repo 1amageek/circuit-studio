@@ -28,8 +28,7 @@ public struct GoalDrivenLayoutAgent {
         public let script: [LayoutGoalCommand]
         /// The per-command verdict records around each executed command.
         public let goalLog: [LayoutGoalRecord]
-        /// The editor's whole-picture verdict at close. (Qualified: the
-        /// app layer has its own artifact type of the same name.)
+        /// The editor's whole-picture verdict at close.
         public let trustReport: LayoutEditor.LayoutTrustReport
         /// Replaying `script` on a fresh editor reproduced the same
         /// records and the same verdicts.

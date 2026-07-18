@@ -3,23 +3,30 @@ import CircuiteFoundation
 import DesignFlowKernel
 import Xcircuite
 
-public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: Sendable {
-    public static let reportArtifactID = "planning-candidate-cycle-history-qualification"
-    public static let reportRelativePath = "retained/signoff-repair-cycle-history-qualification.json"
+/// Assesses retained candidate-cycle history against promotion thresholds.
+///
+/// This service does not qualify tools and does not produce ToolQualification
+/// records. Its report is historical evidence for a separate promotion policy.
+public struct SignoffRepairHistoryAssessor: Sendable {
+    public static let reportArtifactID = "signoff-repair-history-assessment"
+    public static let reportRelativePath = "retained/history-assessment.json"
 
-    public enum QualificationError: Error, LocalizedError, Equatable {
+    public enum AssessmentError: Error, LocalizedError, Equatable {
         case readProfileFailed(path: String, reason: String)
         case decodeProfileFailed(path: String, reason: String)
-        case unsupportedProfileSchemaVersion(path: String, version: Int)
+        case invalidProfile(reason: String)
+        case invalidRequest(reason: String)
 
         public var errorDescription: String? {
             switch self {
             case .readProfileFailed(let path, let reason):
-                return "Failed to read signoff repair history qualification profile at \(path): \(reason)"
+                return "Failed to read signoff repair history assessment profile at \(path): \(reason)"
             case .decodeProfileFailed(let path, let reason):
-                return "Failed to decode signoff repair history qualification profile at \(path): \(reason)"
-            case .unsupportedProfileSchemaVersion(let path, let version):
-                return "Unsupported signoff repair history qualification profile schema version \(version) at \(path)."
+                return "Failed to decode signoff repair history assessment profile at \(path): \(reason)"
+            case .invalidProfile(let reason):
+                return "Invalid signoff repair history assessment profile: \(reason)"
+            case .invalidRequest(let reason):
+                return "Invalid signoff repair history assessment request: \(reason)"
             }
         }
     }
@@ -49,15 +56,14 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
             requiredSelectedActionDomainIDs: [String] = [],
             requiredSelectedObjectiveDomainIDs: [String] = []
         ) {
-            self.minimumRunCount = max(0, minimumRunCount)
-            self.minimumCycleCount = max(0, minimumCycleCount)
-            self.minimumAcceptedCount = max(0, minimumAcceptedCount)
-            self.minimumFeedbackRankChangeCount = max(0, minimumFeedbackRankChangeCount)
-            self.minimumFeedbackScoreDeltaCount = max(0, minimumFeedbackScoreDeltaCount)
-            self.minimumAcceptedCountPerSelectedObjectiveDomain =
-                max(0, minimumAcceptedCountPerSelectedObjectiveDomain)
-            self.requiredSelectedActionDomainIDs = Self.uniquePreservingOrder(requiredSelectedActionDomainIDs)
-            self.requiredSelectedObjectiveDomainIDs = Self.uniquePreservingOrder(requiredSelectedObjectiveDomainIDs)
+            self.minimumRunCount = minimumRunCount
+            self.minimumCycleCount = minimumCycleCount
+            self.minimumAcceptedCount = minimumAcceptedCount
+            self.minimumFeedbackRankChangeCount = minimumFeedbackRankChangeCount
+            self.minimumFeedbackScoreDeltaCount = minimumFeedbackScoreDeltaCount
+            self.minimumAcceptedCountPerSelectedObjectiveDomain = minimumAcceptedCountPerSelectedObjectiveDomain
+            self.requiredSelectedActionDomainIDs = requiredSelectedActionDomainIDs
+            self.requiredSelectedObjectiveDomainIDs = requiredSelectedObjectiveDomainIDs
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -73,34 +79,74 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
+            let minimumRunCount = try container.decode(Int.self, forKey: .minimumRunCount)
+            let minimumCycleCount = try container.decode(Int.self, forKey: .minimumCycleCount)
+            let minimumAcceptedCount = try container.decode(Int.self, forKey: .minimumAcceptedCount)
+            let minimumFeedbackRankChangeCount = try container.decode(
+                Int.self,
+                forKey: .minimumFeedbackRankChangeCount
+            )
+            let minimumFeedbackScoreDeltaCount = try container.decode(
+                Int.self,
+                forKey: .minimumFeedbackScoreDeltaCount
+            )
+            let minimumAcceptedCountPerSelectedObjectiveDomain = try container.decode(
+                Int.self,
+                forKey: .minimumAcceptedCountPerSelectedObjectiveDomain
+            )
+            let requiredSelectedActionDomainIDs = try container.decode(
+                [String].self,
+                forKey: .requiredSelectedActionDomainIDs
+            )
+            let requiredSelectedObjectiveDomainIDs = try container.decode(
+                [String].self,
+                forKey: .requiredSelectedObjectiveDomainIDs
+            )
+            let counts = [
+                minimumRunCount,
+                minimumCycleCount,
+                minimumAcceptedCount,
+                minimumFeedbackRankChangeCount,
+                minimumFeedbackScoreDeltaCount,
+                minimumAcceptedCountPerSelectedObjectiveDomain,
+            ]
+            guard counts.allSatisfy({ $0 >= 0 }) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .minimumRunCount,
+                    in: container,
+                    debugDescription: "History assessment thresholds must be nonnegative."
+                )
+            }
+            guard Self.hasValidUniqueDomainIDs(requiredSelectedActionDomainIDs),
+                  Self.hasValidUniqueDomainIDs(requiredSelectedObjectiveDomainIDs) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .requiredSelectedActionDomainIDs,
+                    in: container,
+                    debugDescription: "Required history assessment domain identifiers must be nonempty and unique."
+                )
+            }
             self.init(
-                minimumRunCount: try container.decodeIfPresent(Int.self, forKey: .minimumRunCount) ?? 1,
-                minimumCycleCount: try container.decodeIfPresent(Int.self, forKey: .minimumCycleCount) ?? 1,
-                minimumAcceptedCount: try container.decodeIfPresent(Int.self, forKey: .minimumAcceptedCount) ?? 0,
-                minimumFeedbackRankChangeCount: try container.decodeIfPresent(
-                    Int.self,
-                    forKey: .minimumFeedbackRankChangeCount
-                ) ?? 0,
-                minimumFeedbackScoreDeltaCount: try container.decodeIfPresent(
-                    Int.self,
-                    forKey: .minimumFeedbackScoreDeltaCount
-                ) ?? 0,
-                minimumAcceptedCountPerSelectedObjectiveDomain: try container.decodeIfPresent(
-                    Int.self,
-                    forKey: .minimumAcceptedCountPerSelectedObjectiveDomain
-                ) ?? 0,
-                requiredSelectedActionDomainIDs: try container.decodeIfPresent(
-                    [String].self,
-                    forKey: .requiredSelectedActionDomainIDs
-                ) ?? [],
-                requiredSelectedObjectiveDomainIDs: try container.decodeIfPresent(
-                    [String].self,
-                    forKey: .requiredSelectedObjectiveDomainIDs
-                ) ?? []
+                minimumRunCount: minimumRunCount,
+                minimumCycleCount: minimumCycleCount,
+                minimumAcceptedCount: minimumAcceptedCount,
+                minimumFeedbackRankChangeCount: minimumFeedbackRankChangeCount,
+                minimumFeedbackScoreDeltaCount: minimumFeedbackScoreDeltaCount,
+                minimumAcceptedCountPerSelectedObjectiveDomain: minimumAcceptedCountPerSelectedObjectiveDomain,
+                requiredSelectedActionDomainIDs: requiredSelectedActionDomainIDs,
+                requiredSelectedObjectiveDomainIDs: requiredSelectedObjectiveDomainIDs
             )
         }
 
         public func encode(to encoder: Encoder) throws {
+            if let validationFailure {
+                throw EncodingError.invalidValue(
+                    self,
+                    EncodingError.Context(
+                        codingPath: encoder.codingPath,
+                        debugDescription: validationFailure
+                    )
+                )
+            }
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(minimumRunCount, forKey: .minimumRunCount)
             try container.encode(minimumCycleCount, forKey: .minimumCycleCount)
@@ -115,14 +161,35 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
             try container.encode(requiredSelectedObjectiveDomainIDs, forKey: .requiredSelectedObjectiveDomainIDs)
         }
 
-        private static func uniquePreservingOrder(_ values: [String]) -> [String] {
-            var seen: Set<String> = []
-            var result: [String] = []
-            for value in values where !value.isEmpty && !seen.contains(value) {
-                seen.insert(value)
-                result.append(value)
+        public func validate() throws {
+            if let validationFailure {
+                throw AssessmentError.invalidRequest(reason: validationFailure)
             }
-            return result
+        }
+
+        private var validationFailure: String? {
+            let counts = [
+                minimumRunCount,
+                minimumCycleCount,
+                minimumAcceptedCount,
+                minimumFeedbackRankChangeCount,
+                minimumFeedbackScoreDeltaCount,
+                minimumAcceptedCountPerSelectedObjectiveDomain,
+            ]
+            guard counts.allSatisfy({ $0 >= 0 }) else {
+                return "Thresholds must be nonnegative."
+            }
+            guard Self.hasValidUniqueDomainIDs(requiredSelectedActionDomainIDs),
+                  Self.hasValidUniqueDomainIDs(requiredSelectedObjectiveDomainIDs) else {
+                return "Required domain identifiers must be trimmed, nonempty, and unique."
+            }
+            return nil
+        }
+
+        private static func hasValidUniqueDomainIDs(_ values: [String]) -> Bool {
+            values.allSatisfy {
+                !$0.isEmpty && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            } && Set(values).count == values.count
         }
     }
 
@@ -136,17 +203,81 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
         public let request: Request
 
         public init(
-            schemaVersion: Int = Self.currentSchemaVersion,
             profileID: String,
             title: String,
             description: String? = nil,
             request: Request
-        ) {
-            self.schemaVersion = schemaVersion
+        ) throws {
+            guard !profileID.isEmpty,
+                  profileID == profileID.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty,
+                  title == title.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw AssessmentError.invalidProfile(
+                    reason: "Profile ID and title must be trimmed and nonempty."
+                )
+            }
+            try request.validate()
+            self.schemaVersion = Self.currentSchemaVersion
             self.profileID = profileID
             self.title = title
             self.description = description
             self.request = request
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case schemaVersion
+            case profileID
+            case title
+            case description
+            case request
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+            guard schemaVersion == Self.currentSchemaVersion else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .schemaVersion,
+                    in: container,
+                    debugDescription: "Unsupported history assessment profile schema version \(schemaVersion)."
+                )
+            }
+            profileID = try container.decode(String.self, forKey: .profileID)
+            title = try container.decode(String.self, forKey: .title)
+            description = try container.decodeIfPresent(String.self, forKey: .description)
+            request = try container.decode(Request.self, forKey: .request)
+            guard !profileID.isEmpty,
+                  profileID == profileID.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty,
+                  title == title.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .profileID,
+                    in: container,
+                    debugDescription: "History assessment profile ID and title must not be empty."
+                )
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            guard !profileID.isEmpty,
+                  profileID == profileID.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty,
+                  title == title.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw EncodingError.invalidValue(
+                    self,
+                    EncodingError.Context(
+                        codingPath: encoder.codingPath,
+                        debugDescription: "History assessment profile ID and title must not be empty."
+                    )
+                )
+            }
+            try request.validate()
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(schemaVersion, forKey: .schemaVersion)
+            try container.encode(profileID, forKey: .profileID)
+            try container.encode(title, forKey: .title)
+            try container.encode(description, forKey: .description)
+            try container.encode(request, forKey: .request)
         }
     }
 
@@ -178,6 +309,9 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
     }
 
     public struct Report: Sendable, Hashable, Codable {
+        public static let currentSchemaVersion = 1
+
+        public let schemaVersion: Int
         public let status: Status
         public let passed: Bool
         public let profileID: String?
@@ -189,14 +323,14 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
         public let failedGateIDs: [String]
         public let missingSelectedActionDomainIDs: [String]
         public let missingSelectedObjectiveDomainIDs: [String]
-        public let underqualifiedSelectedObjectiveDomainIDs: [String]
+        public let belowThresholdSelectedObjectiveDomainIDs: [String]
         public let recommendations: [String]
         /// Canonical identity of the persisted report, attached after the
         /// report payload has been written. This metadata is intentionally
         /// excluded from the report payload to avoid a self-referential digest.
         public let artifactReference: ArtifactReference?
 
-        public init(
+        fileprivate init(
             request: Request,
             summary: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary,
             gates: [Gate],
@@ -215,10 +349,11 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
                 required: request.requiredSelectedObjectiveDomainIDs,
                 observed: summary.selectedObjectiveDomainIDs
             )
-            let underqualifiedSelectedObjectiveDomainIDs = Self.underqualifiedSelectedObjectiveDomains(
+            let belowThresholdSelectedObjectiveDomainIDs = Self.belowThresholdSelectedObjectiveDomains(
                 request: request,
                 summary: summary
             )
+            self.schemaVersion = Self.currentSchemaVersion
             self.status = failedGateIDs.isEmpty ? .passed : .failed
             self.passed = failedGateIDs.isEmpty
             self.profileID = profile?.profileID
@@ -230,12 +365,12 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
             self.failedGateIDs = failedGateIDs
             self.missingSelectedActionDomainIDs = missingSelectedActionDomainIDs
             self.missingSelectedObjectiveDomainIDs = missingSelectedObjectiveDomainIDs
-            self.underqualifiedSelectedObjectiveDomainIDs = underqualifiedSelectedObjectiveDomainIDs
+            self.belowThresholdSelectedObjectiveDomainIDs = belowThresholdSelectedObjectiveDomainIDs
             self.recommendations = Self.recommendations(
                 failedGateIDs: failedGateIDs,
                 missingSelectedActionDomainIDs: missingSelectedActionDomainIDs,
                 missingSelectedObjectiveDomainIDs: missingSelectedObjectiveDomainIDs,
-                underqualifiedSelectedObjectiveDomainIDs: underqualifiedSelectedObjectiveDomainIDs,
+                belowThresholdSelectedObjectiveDomainIDs: belowThresholdSelectedObjectiveDomainIDs,
                 summaryRecommendations: summary.recommendations
             )
             self.artifactReference = artifactReference
@@ -246,6 +381,7 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
         /// payload whose digest it describes.
         public func attachingArtifactReference(_ reference: ArtifactReference) -> Report {
             Report(
+                schemaVersion: schemaVersion,
                 status: status,
                 passed: passed,
                 profileID: profileID,
@@ -257,13 +393,14 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
                 failedGateIDs: failedGateIDs,
                 missingSelectedActionDomainIDs: missingSelectedActionDomainIDs,
                 missingSelectedObjectiveDomainIDs: missingSelectedObjectiveDomainIDs,
-                underqualifiedSelectedObjectiveDomainIDs: underqualifiedSelectedObjectiveDomainIDs,
+                belowThresholdSelectedObjectiveDomainIDs: belowThresholdSelectedObjectiveDomainIDs,
                 recommendations: recommendations,
                 artifactReference: reference
             )
         }
 
         private init(
+            schemaVersion: Int,
             status: Status,
             passed: Bool,
             profileID: String?,
@@ -275,10 +412,11 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
             failedGateIDs: [String],
             missingSelectedActionDomainIDs: [String],
             missingSelectedObjectiveDomainIDs: [String],
-            underqualifiedSelectedObjectiveDomainIDs: [String],
+            belowThresholdSelectedObjectiveDomainIDs: [String],
             recommendations: [String],
             artifactReference: ArtifactReference?
         ) {
+            self.schemaVersion = schemaVersion
             self.status = status
             self.passed = passed
             self.profileID = profileID
@@ -290,13 +428,14 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
             self.failedGateIDs = failedGateIDs
             self.missingSelectedActionDomainIDs = missingSelectedActionDomainIDs
             self.missingSelectedObjectiveDomainIDs = missingSelectedObjectiveDomainIDs
-            self.underqualifiedSelectedObjectiveDomainIDs = underqualifiedSelectedObjectiveDomainIDs
+            self.belowThresholdSelectedObjectiveDomainIDs = belowThresholdSelectedObjectiveDomainIDs
             self.recommendations = recommendations
             self.artifactReference = artifactReference
         }
 
         public static func == (lhs: Report, rhs: Report) -> Bool {
-            lhs.status == rhs.status
+            lhs.schemaVersion == rhs.schemaVersion
+                && lhs.status == rhs.status
                 && lhs.passed == rhs.passed
                 && lhs.profileID == rhs.profileID
                 && lhs.profileTitle == rhs.profileTitle
@@ -307,12 +446,13 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
                 && lhs.failedGateIDs == rhs.failedGateIDs
                 && lhs.missingSelectedActionDomainIDs == rhs.missingSelectedActionDomainIDs
                 && lhs.missingSelectedObjectiveDomainIDs == rhs.missingSelectedObjectiveDomainIDs
-                && lhs.underqualifiedSelectedObjectiveDomainIDs == rhs.underqualifiedSelectedObjectiveDomainIDs
+                && lhs.belowThresholdSelectedObjectiveDomainIDs == rhs.belowThresholdSelectedObjectiveDomainIDs
                 && lhs.recommendations == rhs.recommendations
                 && lhs.artifactReference == rhs.artifactReference
         }
 
         public func hash(into hasher: inout Hasher) {
+            hasher.combine(schemaVersion)
             hasher.combine(status)
             hasher.combine(passed)
             hasher.combine(profileID)
@@ -324,12 +464,13 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
             hasher.combine(failedGateIDs)
             hasher.combine(missingSelectedActionDomainIDs)
             hasher.combine(missingSelectedObjectiveDomainIDs)
-            hasher.combine(underqualifiedSelectedObjectiveDomainIDs)
+            hasher.combine(belowThresholdSelectedObjectiveDomainIDs)
             hasher.combine(recommendations)
             hasher.combine(artifactReference)
         }
 
         private enum CodingKeys: String, CodingKey {
+            case schemaVersion
             case status
             case passed
             case profileID
@@ -341,73 +482,104 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
             case failedGateIDs
             case missingSelectedActionDomainIDs
             case missingSelectedObjectiveDomainIDs
-            case underqualifiedSelectedObjectiveDomainIDs
+            case belowThresholdSelectedObjectiveDomainIDs
             case recommendations
         }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
+            let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+            guard schemaVersion == Self.currentSchemaVersion else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .schemaVersion,
+                    in: container,
+                    debugDescription: "Unsupported history assessment report schema version \(schemaVersion)."
+                )
+            }
             let request = try container.decode(Request.self, forKey: .request)
             let summary = try container.decode(
                 RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary.self,
                 forKey: .summary
             )
-            let gates = try container.decode([Gate].self, forKey: .gates)
-            let failedGateIDs = try container.decodeIfPresent([String].self, forKey: .failedGateIDs)
-                ?? gates.filter { !$0.passed }.map(\.gateID)
-            let missingSelectedActionDomainIDs = try container.decodeIfPresent(
+            let decodedGates = try container.decode([Gate].self, forKey: .gates)
+            let failedGateIDs = try container.decode([String].self, forKey: .failedGateIDs)
+            let missingSelectedActionDomainIDs = try container.decode(
                 [String].self,
                 forKey: .missingSelectedActionDomainIDs
-            ) ?? Self.missingRequiredDomains(
-                required: request.requiredSelectedActionDomainIDs,
-                observed: summary.selectedActionDomainIDs
             )
-            let missingSelectedObjectiveDomainIDs = try container.decodeIfPresent(
+            let missingSelectedObjectiveDomainIDs = try container.decode(
                 [String].self,
                 forKey: .missingSelectedObjectiveDomainIDs
-            ) ?? Self.missingRequiredDomains(
-                required: request.requiredSelectedObjectiveDomainIDs,
-                observed: summary.selectedObjectiveDomainIDs
             )
-            let underqualifiedSelectedObjectiveDomainIDs = try container.decodeIfPresent(
+            let belowThresholdSelectedObjectiveDomainIDs = try container.decode(
                 [String].self,
-                forKey: .underqualifiedSelectedObjectiveDomainIDs
-            ) ?? Self.underqualifiedSelectedObjectiveDomains(
-                request: request,
-                summary: summary
+                forKey: .belowThresholdSelectedObjectiveDomainIDs
             )
-            self.status = try container.decodeIfPresent(Status.self, forKey: .status)
-                ?? (failedGateIDs.isEmpty ? .passed : .failed)
-            self.passed = try container.decodeIfPresent(Bool.self, forKey: .passed)
-                ?? failedGateIDs.isEmpty
-            self.profileID = try container.decodeIfPresent(String.self, forKey: .profileID)
-            self.profileTitle = try container.decodeIfPresent(String.self, forKey: .profileTitle)
-            self.profilePath = try container.decodeIfPresent(String.self, forKey: .profilePath)
+            let decodedStatus = try container.decode(Status.self, forKey: .status)
+            let decodedPassed = try container.decode(Bool.self, forKey: .passed)
+            guard container.contains(.profileID),
+                  container.contains(.profileTitle),
+                  container.contains(.profilePath) else {
+                throw DecodingError.keyNotFound(
+                    CodingKeys.profileID,
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath,
+                        debugDescription: "History assessment report profile metadata must be explicit."
+                    )
+                )
+            }
+            let decodedProfileID = try container.decodeIfPresent(String.self, forKey: .profileID)
+            let decodedProfileTitle = try container.decodeIfPresent(String.self, forKey: .profileTitle)
+            let decodedProfilePath = try container.decodeIfPresent(String.self, forKey: .profilePath)
+            let decodedRecommendations = try container.decode([String].self, forKey: .recommendations)
+            let canonicalGates = SignoffRepairHistoryAssessor.gates(request: request, summary: summary)
+            let canonical = Report(
+                request: request,
+                summary: summary,
+                gates: canonicalGates,
+                profile: nil,
+                profilePath: nil
+            )
+            guard decodedStatus == canonical.status,
+                  decodedPassed == canonical.passed,
+                  decodedGates == canonical.gates,
+                  failedGateIDs == canonical.failedGateIDs,
+                  missingSelectedActionDomainIDs == canonical.missingSelectedActionDomainIDs,
+                  missingSelectedObjectiveDomainIDs == canonical.missingSelectedObjectiveDomainIDs,
+                  belowThresholdSelectedObjectiveDomainIDs == canonical.belowThresholdSelectedObjectiveDomainIDs,
+                  decodedRecommendations == canonical.recommendations else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .gates,
+                    in: container,
+                    debugDescription: "History assessment report decisions do not match its request and summary."
+                )
+            }
+            self.schemaVersion = schemaVersion
+            self.status = canonical.status
+            self.passed = canonical.passed
+            self.profileID = decodedProfileID
+            self.profileTitle = decodedProfileTitle
+            self.profilePath = decodedProfilePath
             self.request = request
             self.summary = summary
-            self.gates = gates
-            self.failedGateIDs = failedGateIDs
-            self.missingSelectedActionDomainIDs = missingSelectedActionDomainIDs
-            self.missingSelectedObjectiveDomainIDs = missingSelectedObjectiveDomainIDs
-            self.underqualifiedSelectedObjectiveDomainIDs = underqualifiedSelectedObjectiveDomainIDs
-            self.recommendations = try container.decodeIfPresent([String].self, forKey: .recommendations)
-                ?? Self.recommendations(
-                    failedGateIDs: failedGateIDs,
-                    missingSelectedActionDomainIDs: missingSelectedActionDomainIDs,
-                    missingSelectedObjectiveDomainIDs: missingSelectedObjectiveDomainIDs,
-                    underqualifiedSelectedObjectiveDomainIDs: underqualifiedSelectedObjectiveDomainIDs,
-                    summaryRecommendations: summary.recommendations
-                )
+            self.gates = canonical.gates
+            self.failedGateIDs = canonical.failedGateIDs
+            self.missingSelectedActionDomainIDs = canonical.missingSelectedActionDomainIDs
+            self.missingSelectedObjectiveDomainIDs = canonical.missingSelectedObjectiveDomainIDs
+            self.belowThresholdSelectedObjectiveDomainIDs = canonical.belowThresholdSelectedObjectiveDomainIDs
+            self.recommendations = canonical.recommendations
             self.artifactReference = nil
         }
 
         public func encode(to encoder: Encoder) throws {
+            try request.validate()
             var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(schemaVersion, forKey: .schemaVersion)
             try container.encode(status, forKey: .status)
             try container.encode(passed, forKey: .passed)
-            try container.encodeIfPresent(profileID, forKey: .profileID)
-            try container.encodeIfPresent(profileTitle, forKey: .profileTitle)
-            try container.encodeIfPresent(profilePath, forKey: .profilePath)
+            try container.encode(profileID, forKey: .profileID)
+            try container.encode(profileTitle, forKey: .profileTitle)
+            try container.encode(profilePath, forKey: .profilePath)
             try container.encode(request, forKey: .request)
             try container.encode(summary, forKey: .summary)
             try container.encode(gates, forKey: .gates)
@@ -415,8 +587,8 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
             try container.encode(missingSelectedActionDomainIDs, forKey: .missingSelectedActionDomainIDs)
             try container.encode(missingSelectedObjectiveDomainIDs, forKey: .missingSelectedObjectiveDomainIDs)
             try container.encode(
-                underqualifiedSelectedObjectiveDomainIDs,
-                forKey: .underqualifiedSelectedObjectiveDomainIDs
+                belowThresholdSelectedObjectiveDomainIDs,
+                forKey: .belowThresholdSelectedObjectiveDomainIDs
             )
             try container.encode(recommendations, forKey: .recommendations)
         }
@@ -433,7 +605,7 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
             failedGateIDs: [String],
             missingSelectedActionDomainIDs: [String],
             missingSelectedObjectiveDomainIDs: [String],
-            underqualifiedSelectedObjectiveDomainIDs: [String],
+            belowThresholdSelectedObjectiveDomainIDs: [String],
             summaryRecommendations: [String]
         ) -> [String] {
             guard !failedGateIDs.isEmpty else {
@@ -453,15 +625,15 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
                     "Retain candidate-cycle evidence for selected objective domains: \(missingSelectedObjectiveDomainIDs.joined(separator: ","))."
                 )
             }
-            if !underqualifiedSelectedObjectiveDomainIDs.isEmpty {
+            if !belowThresholdSelectedObjectiveDomainIDs.isEmpty {
                 values.append(
-                    "Retain accepted candidate-cycle evidence for selected objective domains: \(underqualifiedSelectedObjectiveDomainIDs.joined(separator: ","))."
+                    "Retain accepted candidate-cycle evidence for selected objective domains: \(belowThresholdSelectedObjectiveDomainIDs.joined(separator: ","))."
                 )
             }
             return values + summaryRecommendations
         }
 
-        private static func underqualifiedSelectedObjectiveDomains(
+        private static func belowThresholdSelectedObjectiveDomains(
             request: Request,
             summary: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary
         ) -> [String] {
@@ -501,22 +673,37 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
         self.indexService = indexService
     }
 
-    public func qualify(
+    public func assess(
         forProjectAt projectRoot: URL,
         request: Request = Request(),
         profile: Profile? = nil,
         profilePath: String? = nil
     ) throws -> Report {
         let summary = try indexService.summarize(forProjectAt: projectRoot)
-        return qualify(summary: summary, request: request, profile: profile, profilePath: profilePath)
+        return try assess(summary: summary, request: request, profile: profile, profilePath: profilePath)
     }
 
-    public func qualify(
+    public func assess(
         summary: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary,
         request: Request = Request(),
         profile: Profile? = nil,
         profilePath: String? = nil
-    ) -> Report {
+    ) throws -> Report {
+        try request.validate()
+        try summary.validate()
+        return Report(
+            request: request,
+            summary: summary,
+            gates: Self.gates(request: request, summary: summary),
+            profile: profile,
+            profilePath: profilePath
+        )
+    }
+
+    private static func gates(
+        request: Request,
+        summary: RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary
+    ) -> [Gate] {
         let missingDomainIDs = missingRequiredDomains(
             required: request.requiredSelectedActionDomainIDs,
             observed: summary.selectedActionDomainIDs
@@ -538,65 +725,59 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
             domainIDs: objectiveDomainsForAcceptedGate,
             summaries: summary.objectiveDomainSummaries
         )
-        return Report(
-            request: request,
-            summary: summary,
-            gates: [
-                Gate(
-                    gateID: "minimum-run-count",
-                    title: "Retained run count",
-                    observed: summary.runCount,
-                    required: request.minimumRunCount
-                ),
-                Gate(
-                    gateID: "minimum-cycle-count",
-                    title: "Retained candidate-cycle count",
-                    observed: summary.cycleCount,
-                    required: request.minimumCycleCount
-                ),
-                Gate(
-                    gateID: "minimum-accepted-count",
-                    title: "Accepted candidate-cycle count",
-                    observed: summary.acceptedCount,
-                    required: request.minimumAcceptedCount
-                ),
-                Gate(
-                    gateID: "minimum-feedback-rank-change-count",
-                    title: "Rejected-feedback rank-change count",
-                    observed: summary.feedbackRankChangeCount,
-                    required: request.minimumFeedbackRankChangeCount
-                ),
-                Gate(
-                    gateID: "minimum-feedback-score-delta-count",
-                    title: "Rejected-feedback score-delta count",
-                    observed: summary.feedbackScoreDeltaCount,
-                    required: request.minimumFeedbackScoreDeltaCount
-                ),
-                Gate(
-                    gateID: "required-selected-action-domains",
-                    title: "Required selected action domains",
-                    observed: observedRequiredDomainCount,
-                    required: request.requiredSelectedActionDomainIDs.count
-                ),
-                Gate(
-                    gateID: "required-selected-objective-domains",
-                    title: "Required selected objective domains",
-                    observed: observedRequiredObjectiveDomainCount,
-                    required: request.requiredSelectedObjectiveDomainIDs.count
-                ),
-                Gate(
-                    gateID: "minimum-accepted-count-per-selected-objective-domain",
-                    title: "Accepted candidate-cycle count per selected objective domain",
-                    observed: minimumAcceptedCountPerObjectiveDomain,
-                    required: request.minimumAcceptedCountPerSelectedObjectiveDomain
-                ),
-            ],
-            profile: profile,
-            profilePath: profilePath
-        )
+        return [
+            Gate(
+                gateID: "minimum-run-count",
+                title: "Retained run count",
+                observed: summary.runCount,
+                required: request.minimumRunCount
+            ),
+            Gate(
+                gateID: "minimum-cycle-count",
+                title: "Retained candidate-cycle count",
+                observed: summary.cycleCount,
+                required: request.minimumCycleCount
+            ),
+            Gate(
+                gateID: "minimum-accepted-count",
+                title: "Accepted candidate-cycle count",
+                observed: summary.acceptedCount,
+                required: request.minimumAcceptedCount
+            ),
+            Gate(
+                gateID: "minimum-feedback-rank-change-count",
+                title: "Rejected-feedback rank-change count",
+                observed: summary.feedbackRankChangeCount,
+                required: request.minimumFeedbackRankChangeCount
+            ),
+            Gate(
+                gateID: "minimum-feedback-score-delta-count",
+                title: "Rejected-feedback score-delta count",
+                observed: summary.feedbackScoreDeltaCount,
+                required: request.minimumFeedbackScoreDeltaCount
+            ),
+            Gate(
+                gateID: "required-selected-action-domains",
+                title: "Required selected action domains",
+                observed: observedRequiredDomainCount,
+                required: request.requiredSelectedActionDomainIDs.count
+            ),
+            Gate(
+                gateID: "required-selected-objective-domains",
+                title: "Required selected objective domains",
+                observed: observedRequiredObjectiveDomainCount,
+                required: request.requiredSelectedObjectiveDomainIDs.count
+            ),
+            Gate(
+                gateID: "minimum-accepted-count-per-selected-objective-domain",
+                title: "Accepted candidate-cycle count per selected objective domain",
+                observed: minimumAcceptedCountPerObjectiveDomain,
+                required: request.minimumAcceptedCountPerSelectedObjectiveDomain
+            ),
+        ]
     }
 
-    private func missingRequiredDomains(
+    private static func missingRequiredDomains(
         required: [String],
         observed: [String]
     ) -> [String] {
@@ -604,7 +785,7 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
         return required.filter { !observedSet.contains($0) }
     }
 
-    private func minimumAcceptedCountPerObjectiveDomain(
+    private static func minimumAcceptedCountPerObjectiveDomain(
         domainIDs: [String],
         summaries: [RunReviewSignoffRepairCandidateCycleObjectiveDomainSummary]
     ) -> Int {
@@ -626,22 +807,16 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryQualificationService: S
         do {
             data = try Data(contentsOf: url)
         } catch {
-            throw QualificationError.readProfileFailed(path: path, reason: error.localizedDescription)
+            throw AssessmentError.readProfileFailed(path: path, reason: error.localizedDescription)
         }
 
         let profile: Profile
         do {
             profile = try JSONDecoder().decode(Profile.self, from: data)
         } catch {
-            throw QualificationError.decodeProfileFailed(path: path, reason: error.localizedDescription)
+            throw AssessmentError.decodeProfileFailed(path: path, reason: error.localizedDescription)
         }
 
-        guard profile.schemaVersion == Profile.currentSchemaVersion else {
-            throw QualificationError.unsupportedProfileSchemaVersion(
-                path: path,
-                version: profile.schemaVersion
-            )
-        }
         return profile
     }
 

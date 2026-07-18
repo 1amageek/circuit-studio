@@ -2,6 +2,20 @@ import Foundation
 import CircuitStudioCore
 
 public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable {
+    public enum ValidationError: Error, LocalizedError, Equatable {
+        case invalidSummary(String)
+        case invalidRunSummary(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .invalidSummary(let reason):
+                return "Invalid candidate-cycle history summary: \(reason)"
+            case .invalidRunSummary(let reason):
+                return "Invalid candidate-cycle run summary: \(reason)"
+            }
+        }
+    }
+
     public struct Summary: Sendable, Hashable, Codable {
         public let runCount: Int
         public let cycleCount: Int
@@ -95,36 +109,56 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
             )
             self.feedbackRankChangeCount = try container.decode(Int.self, forKey: .feedbackRankChangeCount)
             self.feedbackScoreDeltaCount = try container.decode(Int.self, forKey: .feedbackScoreDeltaCount)
-            self.selectedActionIDs = try container.decodeIfPresent([String].self, forKey: .selectedActionIDs) ?? []
-            self.selectedActionDomainIDs = try container.decodeIfPresent(
+            self.selectedActionIDs = try container.decode([String].self, forKey: .selectedActionIDs)
+            self.selectedActionDomainIDs = try container.decode(
                 [String].self,
                 forKey: .selectedActionDomainIDs
-            ) ?? []
-            self.selectedObjectiveDomainIDs = try container.decodeIfPresent(
+            )
+            self.selectedObjectiveDomainIDs = try container.decode(
                 [String].self,
                 forKey: .selectedObjectiveDomainIDs
-            ) ?? []
-            self.objectiveDomainSummaries = try container.decodeIfPresent(
+            )
+            self.objectiveDomainSummaries = try container.decode(
                 [RunReviewSignoffRepairCandidateCycleObjectiveDomainSummary].self,
                 forKey: .objectiveDomainSummaries
-            ) ?? []
-            self.feedbackPenalizedActionIDs = try container.decodeIfPresent(
+            )
+            self.feedbackPenalizedActionIDs = try container.decode(
                 [String].self,
                 forKey: .feedbackPenalizedActionIDs
-            ) ?? []
-            self.feedbackRankChangedActionIDs = try container.decodeIfPresent(
+            )
+            self.feedbackRankChangedActionIDs = try container.decode(
                 [String].self,
                 forKey: .feedbackRankChangedActionIDs
-            ) ?? []
-            self.feedbackScoreDeltaActionIDs = try container.decodeIfPresent(
+            )
+            self.feedbackScoreDeltaActionIDs = try container.decode(
                 [String].self,
                 forKey: .feedbackScoreDeltaActionIDs
-            ) ?? []
-            self.runs = try container.decodeIfPresent([RunSummary].self, forKey: .runs) ?? []
-            self.recommendations = try container.decodeIfPresent([String].self, forKey: .recommendations) ?? []
+            )
+            self.runs = try container.decode([RunSummary].self, forKey: .runs)
+            self.recommendations = try container.decode([String].self, forKey: .recommendations)
+            do {
+                try validate()
+            } catch {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .runCount,
+                    in: container,
+                    debugDescription: error.localizedDescription
+                )
+            }
         }
 
         public func encode(to encoder: Encoder) throws {
+            do {
+                try validate()
+            } catch {
+                throw EncodingError.invalidValue(
+                    self,
+                    EncodingError.Context(
+                        codingPath: encoder.codingPath,
+                        debugDescription: error.localizedDescription
+                    )
+                )
+            }
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(runCount, forKey: .runCount)
             try container.encode(cycleCount, forKey: .cycleCount)
@@ -149,6 +183,98 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
             try container.encode(feedbackScoreDeltaActionIDs, forKey: .feedbackScoreDeltaActionIDs)
             try container.encode(runs, forKey: .runs)
             try container.encode(recommendations, forKey: .recommendations)
+        }
+
+        public func validate() throws {
+            let counts = [
+                runCount,
+                cycleCount,
+                acceptedCount,
+                notAcceptedCount,
+                consumedRejectedPlanFeedbackRecordCount,
+                maximumGlobalRejectedPlanFeedbackCount,
+                feedbackRankChangeCount,
+                feedbackScoreDeltaCount,
+            ]
+            guard counts.allSatisfy({ $0 >= 0 }) else {
+                throw ValidationError.invalidSummary("Counts must be nonnegative.")
+            }
+            guard runCount == runs.count else {
+                throw ValidationError.invalidSummary("runCount must equal the number of run summaries.")
+            }
+            guard cycleCount == acceptedCount + notAcceptedCount else {
+                throw ValidationError.invalidSummary("cycleCount must equal acceptedCount plus notAcceptedCount.")
+            }
+            for run in runs {
+                try run.validate()
+            }
+            guard cycleCount == runs.reduce(0, { $0 + $1.cycleCount }),
+                  acceptedCount == runs.reduce(0, { $0 + $1.acceptedCount }),
+                  notAcceptedCount == runs.reduce(0, { $0 + $1.notAcceptedCount }),
+                  consumedRejectedPlanFeedbackRecordCount == runs.reduce(
+                    0,
+                    { $0 + $1.consumedRejectedPlanFeedbackRecordCount }
+                  ),
+                  feedbackRankChangeCount == runs.reduce(0, { $0 + $1.feedbackRankChangeCount }),
+                  feedbackScoreDeltaCount == runs.reduce(0, { $0 + $1.feedbackScoreDeltaCount }) else {
+                throw ValidationError.invalidSummary("Aggregate counts must match the retained run summaries.")
+            }
+            let expectedMaximumFeedbackCount = runs
+                .map(\.maximumGlobalRejectedPlanFeedbackCount)
+                .max() ?? 0
+            guard maximumGlobalRejectedPlanFeedbackCount == expectedMaximumFeedbackCount else {
+                throw ValidationError.invalidSummary(
+                    "maximumGlobalRejectedPlanFeedbackCount must match the retained run summaries."
+                )
+            }
+            let identifierCollections = [
+                selectedActionIDs,
+                selectedActionDomainIDs,
+                selectedObjectiveDomainIDs,
+                feedbackPenalizedActionIDs,
+                feedbackRankChangedActionIDs,
+                feedbackScoreDeltaActionIDs,
+            ]
+            guard identifierCollections.allSatisfy(Self.hasValidUniqueIdentifiers) else {
+                throw ValidationError.invalidSummary("Identifier collections must contain unique, trimmed values.")
+            }
+            guard Self.hasValidUniqueIdentifiers(objectiveDomainSummaries.map(\.domainID)) else {
+                throw ValidationError.invalidSummary("Objective-domain summaries must have unique, trimmed IDs.")
+            }
+            for domain in objectiveDomainSummaries {
+                let domainCounts = [
+                    domain.cycleCount,
+                    domain.acceptedCount,
+                    domain.notAcceptedCount,
+                    domain.feedbackRankChangeCount,
+                    domain.feedbackScoreDeltaCount,
+                ]
+                guard domainCounts.allSatisfy({ $0 >= 0 }),
+                      domain.cycleCount == domain.acceptedCount + domain.notAcceptedCount,
+                      domain.acceptanceRate.isFinite,
+                      domain.acceptanceRate >= 0,
+                      domain.acceptanceRate <= 1,
+                      Self.hasValidUniqueIdentifiers(domain.selectedActionIDs),
+                      Self.hasValidUniqueIdentifiers(domain.selectedActionDomainIDs) else {
+                    throw ValidationError.invalidSummary(
+                        "Objective-domain summary \(domain.domainID) is internally inconsistent."
+                    )
+                }
+                let expectedRate = domain.cycleCount == 0
+                    ? 0
+                    : Double(domain.acceptedCount) / Double(domain.cycleCount)
+                guard abs(domain.acceptanceRate - expectedRate) <= 1e-12 else {
+                    throw ValidationError.invalidSummary(
+                        "Objective-domain summary \(domain.domainID) has an inconsistent acceptance rate."
+                    )
+                }
+            }
+        }
+
+        private static func hasValidUniqueIdentifiers(_ values: [String]) -> Bool {
+            values.allSatisfy {
+                !$0.isEmpty && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            } && Set(values).count == values.count
         }
     }
 
@@ -237,34 +363,54 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
             )
             self.feedbackRankChangeCount = try container.decode(Int.self, forKey: .feedbackRankChangeCount)
             self.feedbackScoreDeltaCount = try container.decode(Int.self, forKey: .feedbackScoreDeltaCount)
-            self.selectedActionIDs = try container.decodeIfPresent([String].self, forKey: .selectedActionIDs) ?? []
-            self.selectedActionDomainIDs = try container.decodeIfPresent(
+            self.selectedActionIDs = try container.decode([String].self, forKey: .selectedActionIDs)
+            self.selectedActionDomainIDs = try container.decode(
                 [String].self,
                 forKey: .selectedActionDomainIDs
-            ) ?? []
-            self.selectedObjectiveDomainIDs = try container.decodeIfPresent(
+            )
+            self.selectedObjectiveDomainIDs = try container.decode(
                 [String].self,
                 forKey: .selectedObjectiveDomainIDs
-            ) ?? []
-            self.objectiveDomainSummaries = try container.decodeIfPresent(
+            )
+            self.objectiveDomainSummaries = try container.decode(
                 [RunReviewSignoffRepairCandidateCycleObjectiveDomainSummary].self,
                 forKey: .objectiveDomainSummaries
-            ) ?? []
-            self.feedbackPenalizedActionIDs = try container.decodeIfPresent(
+            )
+            self.feedbackPenalizedActionIDs = try container.decode(
                 [String].self,
                 forKey: .feedbackPenalizedActionIDs
-            ) ?? []
-            self.feedbackRankChangedActionIDs = try container.decodeIfPresent(
+            )
+            self.feedbackRankChangedActionIDs = try container.decode(
                 [String].self,
                 forKey: .feedbackRankChangedActionIDs
-            ) ?? []
-            self.feedbackScoreDeltaActionIDs = try container.decodeIfPresent(
+            )
+            self.feedbackScoreDeltaActionIDs = try container.decode(
                 [String].self,
                 forKey: .feedbackScoreDeltaActionIDs
-            ) ?? []
+            )
+            do {
+                try validate()
+            } catch {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .runID,
+                    in: container,
+                    debugDescription: error.localizedDescription
+                )
+            }
         }
 
         public func encode(to encoder: Encoder) throws {
+            do {
+                try validate()
+            } catch {
+                throw EncodingError.invalidValue(
+                    self,
+                    EncodingError.Context(
+                        codingPath: encoder.codingPath,
+                        debugDescription: error.localizedDescription
+                    )
+                )
+            }
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(runID, forKey: .runID)
             try container.encode(summaryPath, forKey: .summaryPath)
@@ -290,6 +436,54 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
             try container.encode(feedbackPenalizedActionIDs, forKey: .feedbackPenalizedActionIDs)
             try container.encode(feedbackRankChangedActionIDs, forKey: .feedbackRankChangedActionIDs)
             try container.encode(feedbackScoreDeltaActionIDs, forKey: .feedbackScoreDeltaActionIDs)
+        }
+
+        public func validate() throws {
+            guard !runID.isEmpty,
+                  runID == runID.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !summaryPath.isEmpty,
+                  summaryPath == summaryPath.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw ValidationError.invalidRunSummary("Run ID and summary path must be trimmed and nonempty.")
+            }
+            let counts = [
+                cycleCount,
+                acceptedCount,
+                notAcceptedCount,
+                consumedRejectedPlanFeedbackRecordCount,
+                maximumGlobalRejectedPlanFeedbackCount,
+                feedbackRankChangeCount,
+                feedbackScoreDeltaCount,
+            ]
+            guard counts.allSatisfy({ $0 >= 0 }),
+                  cycleCount == acceptedCount + notAcceptedCount else {
+                throw ValidationError.invalidRunSummary("Run counts are internally inconsistent.")
+            }
+            guard (latestCycleIndex == nil) == (latestAccepted == nil),
+                  latestCycleIndex.map({ $0 >= 0 }) ?? true else {
+                throw ValidationError.invalidRunSummary(
+                    "Latest cycle index and acceptance must both be present or both be absent."
+                )
+            }
+            let identifierCollections = [
+                selectedActionIDs,
+                selectedActionDomainIDs,
+                selectedObjectiveDomainIDs,
+                feedbackPenalizedActionIDs,
+                feedbackRankChangedActionIDs,
+                feedbackScoreDeltaActionIDs,
+                objectiveDomainSummaries.map(\.domainID),
+            ]
+            guard identifierCollections.allSatisfy(Self.hasValidUniqueIdentifiers) else {
+                throw ValidationError.invalidRunSummary(
+                    "Run identifier collections must contain unique, trimmed values."
+                )
+            }
+        }
+
+        private static func hasValidUniqueIdentifiers(_ values: [String]) -> Bool {
+            values.allSatisfy {
+                !$0.isEmpty && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            } && Set(values).count == values.count
         }
     }
 
