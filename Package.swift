@@ -46,7 +46,7 @@ let package = Package(
     dependencies: [
         workspaceDependency(
             named: "Xcircuite",
-            revision: "53b1323461c683a38231fdf6cd457edf9371ee62"
+            revision: "cd3e082d2bc615606b6c6d06c34ea25f8122fb52"
         ),
         workspaceDependency(
             named: "CircuiteFoundation",
@@ -74,15 +74,15 @@ let package = Package(
         ),
         workspaceDependency(
             named: "DRCEngine",
-            revision: "835997d81adfda7590695dc840abd3c076f3dd51"
+            revision: "3cab3f150fb47c9a084472aa9f4ad3ea09edc882"
         ),
         workspaceDependency(
             named: "LVSEngine",
-            revision: "123ff573036294955a90d3619095c156cf8e7f37"
+            revision: "0ac3caff6a8e72b2daadd0da7f9121831d7b760f"
         ),
         workspaceDependency(
             named: "TimingEngine",
-            revision: "2b8f0df3e359fca274edc8ede176457de40e1648"
+            revision: "8d302e0a9ffe7e0ba4b4079c72fa3c96aec7c8d3"
         ),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",

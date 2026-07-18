@@ -1,6 +1,5 @@
 import Foundation
 import STAEngine
-import TimingEngine
 
 /// Runs failure-driven cell sizing against TimingEngine's canonical STA contract.
 public struct TimingDrivenClosureLoop: Sendable {
@@ -40,7 +39,7 @@ public struct TimingDrivenClosureLoop: Sendable {
     private let requestBuilder: any STARequestBuilding
 
     public init(
-        engine: any STAExecuting = TimingEngineAPI.makeSTAEngine(),
+        engine: any STAExecuting = NativeSTAEngine(),
         requestBuilder: any STARequestBuilding
     ) {
         self.engine = engine
