@@ -1379,12 +1379,13 @@ struct Sky130GeneratedDRCTests {
             .exportDocument(labeledInverter(cell: "gen_inverter"), to: gds, format: .gds)
 
         let extractor = try #require(MagicLayoutNetlistExtractor.locate())
-        let netlistURL = try await extractor.extractLayoutNetlist(
+        let extraction = try await extractor.extractLayoutNetlist(
             gds: gds,
             topCell: "gen_inverter",
             into: dir,
             timeoutSeconds: 300
         )
+        let netlistURL = try extraction.netlistFileURL()
         let netlist = try String(contentsOf: netlistURL, encoding: .utf8)
 
         let devices = netlist.split(whereSeparator: \.isNewline).filter { $0.first == "X" || $0.first == "M" }

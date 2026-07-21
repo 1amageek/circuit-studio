@@ -519,6 +519,25 @@ private struct FixturePEXExtractor: PEXExtracting {
 
     func execute(_ context: PEXExecutionContext) async throws -> PEXAdapterExecutionResult {
         let outputURL = context.rawOutputDirectory.appending(path: "\(context.corner.id.value).spef")
+        let binaryDigest = try SHA256ContentDigester().digest(
+            data: Data("fixture-pex-extractor:1.0".utf8),
+            using: .sha256
+        )
+        let executionIdentity = try PEXBackendExecutionIdentity(
+            producer: ProducerIdentity(
+                kind: .tool,
+                identifier: "pex-mock",
+                version: "1.0",
+                build: binaryDigest.hexadecimalValue
+            ),
+            binaryDigest: binaryDigest,
+            invocation: .inProcess(entryPoint: "FixturePEXExtractor.execute"),
+            environment: ExecutionEnvironmentFingerprint(
+                platform: "test",
+                architecture: "test",
+                toolchain: "fixture"
+            )
+        )
         let spef = """
         *SPEF "IEEE 1481-1998"
         *DESIGN "\(context.topCell)"
@@ -560,7 +579,8 @@ private struct FixturePEXExtractor: PEXExtracting {
                     cornerID: context.corner.id,
                     url: outputURL
                 )
-            ]
+            ],
+            executionIdentity: executionIdentity
         )
     }
 

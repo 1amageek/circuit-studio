@@ -18,9 +18,9 @@ struct SignoffReviewSourceTests {
             exit 0
             """
         )
-        let runner: any SignoffCommandRunning = ExternalSignoffCommandService()
+        let runner: any SignoffCommandRunning = ExternalSignoffCommandRunner()
 
-        let review = try await runner.run(
+        let batch = try await runner.run(
             commands: [
                 ExternalSignoffCommand(
                     kind: .drc,
@@ -31,9 +31,9 @@ struct SignoffReviewSourceTests {
             artifactDirectory: root.appending(path: "artifacts")
         )
 
-        #expect(review.reports.count == 1)
-        #expect(review.passed)
-        #expect(review.reports[0].diagnostics.first?.ruleID == "DRC_CLEAN")
+        #expect(batch.review.reports.count == 1)
+        #expect(batch.review.passed)
+        #expect(batch.review.reports[0].diagnostics.first?.ruleID == "DRC_CLEAN")
     }
 
     @Test func artifactServiceLoadsGoldenLogs() async throws {

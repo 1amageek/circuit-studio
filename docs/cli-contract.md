@@ -228,7 +228,7 @@ Current output keys:
 | `accepted` | Whether verification accepted the candidate. |
 
 `--summarize-signoff-repair-cycles --output <project-root>` reads persisted
-`.xcircuite/runs/*/planning/candidate-cycle-history-summary.json` artifacts and
+`.xcircuite/runs/*/planning/candidate-cycle-history/history-<cycle>.json` artifacts and
 does not regenerate plans or rerun verification.
 
 Current output keys:

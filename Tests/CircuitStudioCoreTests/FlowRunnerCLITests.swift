@@ -389,7 +389,7 @@ struct FlowRunnerCLITests {
         ])
         let runSummary = RunReviewSignoffRepairCandidateCycleHistoryIndexService.RunSummary(
             runID: "run-1",
-            summaryPath: ".xcircuite/runs/run-1/planning/candidate-cycle-history-summary.json",
+            summaryPath: ".xcircuite/runs/run-1/planning/candidate-cycle-history/history-1.json",
             summary: cycleSummary
         )
         let history = RunReviewSignoffRepairCandidateCycleHistoryIndexService()
@@ -419,7 +419,7 @@ struct FlowRunnerCLITests {
         #expect(keys["history_feedback_penalized_actions"] == "repair-action-0")
         #expect(keys["history_feedback_rank_changed_actions"] == "repair-action-0")
         #expect(keys["history_feedback_score_delta_actions"] == "repair-action-0")
-        #expect(keys["history_run"] == "run-1,cycles=1,accepted=1,rank_changes=1,summary=.xcircuite/runs/run-1/planning/candidate-cycle-history-summary.json")
+        #expect(keys["history_run"] == "run-1,cycles=1,accepted=1,rank_changes=1,summary=.xcircuite/runs/run-1/planning/candidate-cycle-history/history-1.json")
     }
 
     @Test("signoff repair cycle history assessment output exposes failed gates", .timeLimit(.minutes(1)))
@@ -453,7 +453,7 @@ struct FlowRunnerCLITests {
         ])
         let runSummary = RunReviewSignoffRepairCandidateCycleHistoryIndexService.RunSummary(
             runID: "run-1",
-            summaryPath: ".xcircuite/runs/run-1/planning/candidate-cycle-history-summary.json",
+            summaryPath: ".xcircuite/runs/run-1/planning/candidate-cycle-history/history-1.json",
             summary: cycleSummary
         )
         let history = RunReviewSignoffRepairCandidateCycleHistoryIndexService()
@@ -536,12 +536,11 @@ struct FlowRunnerCLITests {
                 Issue.record("Failed to remove temporary directory \(root.path(percentEncoded: false)): \(error)")
             }
         }
-        let planningDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "run-1")
-            .appending(path: "planning")
-        try FileManager.default.createDirectory(at: planningDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try await DesignFlowServiceTestSupport.createCanonicalRunLedger(
+            projectRoot: root,
+            runID: "run-1"
+        )
         let profileURL = root.appending(path: "history-assessment-profile.json")
         let profile = try SignoffRepairHistoryAssessor.Profile(
             profileID: "candidate-cycle-history-assessed",
@@ -588,9 +587,20 @@ struct FlowRunnerCLITests {
         ])
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(summary).write(
-            to: planningDirectory.appending(path: "candidate-cycle-history-summary.json"),
-            options: .atomic
+        let store = try XcircuiteWorkspaceStore(projectRoot: root)
+        _ = try await store.persistArtifact(
+            content: encoder.encode(summary),
+            id: try ArtifactID(rawValue: "planning-candidate-cycle-history-summary-1"),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(
+                    workspaceRelativePath: ".xcircuite/runs/run-1/planning/candidate-cycle-history/history-1.json"
+                ),
+                role: .output,
+                kind: .other,
+                format: .json
+            ),
+            runID: "run-1",
+            mode: .immutable
         )
 
         let result = try await DesignFlowService().execute(DesignFlowCommand(
@@ -1189,7 +1199,7 @@ struct FlowRunnerCLITests {
             candidatePlanPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/candidate-plan.json",
             planExecutionPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/plan-execution.json",
             planVerificationPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/plan-verification.json",
-            candidateCycleHistorySummaryPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/candidate-cycle-history-summary.json",
+            candidateCycleHistorySummaryPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/candidate-cycle-history/history-3.json",
             candidateAccepted: true,
             message: "signoff-repair-candidate-cycle-1"
         )
@@ -1236,7 +1246,7 @@ struct FlowRunnerCLITests {
         #expect(keys["plan_execution"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/plan-execution.json")
         #expect(keys["design_diff"] == "/tmp/flow-output/.xcircuite/runs/run-1/design-diff.json")
         #expect(keys["plan_verification"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/plan-verification.json")
-        #expect(keys["cycle_history_summary"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/candidate-cycle-history-summary.json")
+        #expect(keys["cycle_history_summary"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/candidate-cycle-history/history-3.json")
     }
 
     @Test("apply-waiver-edit-and-verify arguments construct the combined command", .timeLimit(.minutes(1)))

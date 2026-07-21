@@ -184,7 +184,7 @@ struct RunReviewServiceTests {
             $0.kind == .approvalGate
                 && $0.status == .readyToResume
                 && $0.nextActionID == "001-drc-resume-run"
-                && $0.artifactPaths.contains(".xcircuite/runs/run-review/approvals/001-drc.json")
+                && $0.artifactPaths.contains("runs/run-review/approvals/001-drc.json")
         })
         let approvalStore = try XcircuiteWorkspaceStore(projectRoot: root)
         let approvalActions = try await approvalStore.loadRunActions(runID: "run-review")
@@ -228,6 +228,50 @@ struct RunReviewServiceTests {
         let runID = "run-flow-review"
         let stageID = "001-drc"
         let summaryPath = ".xcircuite/runs/\(runID)/stages/\(stageID)/raw/drc-summary.json"
+        let ladderPath = ".xcircuite/runs/\(runID)/review/stage-artifact-ladder.json"
+        let planningPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
+        let retainedPath = ".xcircuite/runs/\(runID)/retention/retained-ci-regression-budget.json"
+        let waiverPath = ".xcircuite/runs/\(runID)/waivers/waiver-review.json"
+        let summaryPayload = Data(#"{"artifactID":"drc-summary"}"#.utf8)
+        let ladderPayload = Data(#"{"schemaVersion":1,"readiness":"needsReview"}"#.utf8)
+        let planningPayload = Data(#"{"schemaVersion":1,"planID":"plan-1","steps":[]}"#.utf8)
+        let retainedPayload = Data(#"{"schemaVersion":1,"status":"failed","failures":[{"code":"retained_ci_regression_budget_evidence_stale"}]}"#.utf8)
+        let waiverPayload = Data(#"{"schemaVersion":1,"waiverID":"waiver-1","status":"accepted"}"#.utf8)
+        let summaryReference = try RunReviewTestSupport.artifactReference(
+            artifactID: "drc-summary",
+            path: summaryPath,
+            payload: summaryPayload,
+            kind: .report,
+            format: .json
+        )
+        let ladderReference = try RunReviewTestSupport.artifactReference(
+            artifactID: "review-stage-artifact-ladder",
+            path: ladderPath,
+            payload: ladderPayload,
+            kind: .other,
+            format: .json
+        )
+        let planningReference = try RunReviewTestSupport.artifactReference(
+            artifactID: "planning-candidate-plan",
+            path: planningPath,
+            payload: planningPayload,
+            kind: .other,
+            format: .json
+        )
+        let retainedReference = try RunReviewTestSupport.artifactReference(
+            artifactID: "retained-ci-regression-budget",
+            path: retainedPath,
+            payload: retainedPayload,
+            kind: .other,
+            format: .json
+        )
+        let waiverRef = try RunReviewTestSupport.artifactReference(
+            artifactID: "waiver-review",
+            path: waiverPath,
+            payload: waiverPayload,
+            kind: .other,
+            format: .json
+        )
         _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
                 workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
@@ -242,52 +286,23 @@ struct RunReviewServiceTests {
             executors: [
                 RunReviewPassingExecutor(
                     stageID: stageID,
-                    artifacts: [
-                        try RunReviewTestSupport.artifactReference(
-                            artifactID: "drc-summary",
-                            path: summaryPath,
-                            kind: .report,
-                            format: .json
-                        ),
-                    ],
-                    artifactPayloads: [summaryPath: Data(#"{"artifactID":"drc-summary"}"#.utf8)]
+                    artifacts: [summaryReference],
+                    artifactPayloads: [summaryPath: summaryPayload]
                 ),
-            ]
+            ],
+            artifactPreparer: RunReviewArtifactPreparer(
+                workspaceStore: try XcircuiteWorkspaceStore(projectRoot: root),
+                artifacts: [ladderReference, planningReference, retainedReference, waiverRef],
+                artifactPayloads: [
+                    ladderPath: ladderPayload,
+                    planningPath: planningPayload,
+                    retainedPath: retainedPayload,
+                    waiverPath: waiverPayload,
+                ]
+            )
         )
 
         let store = try XcircuiteWorkspaceStore(projectRoot: root)
-        let ladderPath = ".xcircuite/runs/\(runID)/review/stage-artifact-ladder.json"
-        let planningPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
-        let retainedPath = ".xcircuite/runs/\(runID)/retention/retained-ci-regression-budget.json"
-        let waiverPath = ".xcircuite/runs/\(runID)/waivers/waiver-review.json"
-        _ = try await RunReviewTestSupport.writeRunJSONArtifact(
-            Data(#"{"schemaVersion":1,"readiness":"needsReview"}"#.utf8),
-            path: ladderPath,
-            artifactID: "review-stage-artifact-ladder",
-            root: root,
-            runID: runID
-        )
-        _ = try await RunReviewTestSupport.writeRunJSONArtifact(
-            Data(#"{"schemaVersion":1,"planID":"plan-1","steps":[]}"#.utf8),
-            path: planningPath,
-            artifactID: "planning-candidate-plan",
-            root: root,
-            runID: runID
-        )
-        _ = try await RunReviewTestSupport.writeRunJSONArtifact(
-            Data(#"{"schemaVersion":1,"status":"failed","failures":[{"code":"retained_ci_regression_budget_evidence_stale"}]}"#.utf8),
-            path: retainedPath,
-            artifactID: "retained-ci-regression-budget",
-            root: root,
-            runID: runID
-        )
-        let waiverRef = try await RunReviewTestSupport.writeRunJSONArtifact(
-            Data(#"{"schemaVersion":1,"waiverID":"waiver-1","status":"accepted"}"#.utf8),
-            path: waiverPath,
-            artifactID: "waiver-review",
-            root: root,
-            runID: runID
-        )
 
         let service = RunReviewService()
         _ = try await service.decide(
@@ -376,8 +391,9 @@ struct RunReviewServiceTests {
             runID: runID,
             projectRoot: root
         )
-        #expect(dashboardRef.artifactID == "retained-dashboard-projection")
-        #expect(dashboardRef.path == ".xcircuite/runs/\(runID)/review/retained-dashboard-projection.json")
+        #expect(dashboardRef.artifactID.hasPrefix("retained-dashboard-projection-"))
+        #expect(dashboardRef.path.hasPrefix(".xcircuite/runs/\(runID)/review/retained-dashboard/"))
+        #expect(dashboardRef.path.hasSuffix(".json"))
         #expect(!dashboardRef.digest.hexadecimalValue.isEmpty)
         #expect(dashboardRef.byteCount > 0)
         let decoder = JSONDecoder()
@@ -388,14 +404,23 @@ struct RunReviewServiceTests {
         )
         #expect(persistedProjection.status == .needsRepair)
         #expect(persistedProjection.artifactStates.contains { $0.path == retainedPath })
-        let runManifest = try await store.readJSON(
-            FlowRunManifest.self,
-            from: ".xcircuite/runs/\(runID)/manifest.json"
-        )
-        #expect(runManifest.artifacts.contains {
-            $0.artifactID == "retained-dashboard-projection"
-                && $0.path == dashboardRef.path
+        let updatedLedger = try await store.loadRunLedger(runID: runID)
+        #expect(!updatedLedger.runManifest.artifacts.contains {
+            $0.path == dashboardRef.path
         })
+        #expect(updatedLedger.actions.contains {
+            $0.actionKind == "review.persist-retained-dashboard"
+                && $0.outputs == [dashboardRef]
+        })
+        let repeatedDashboardRef = try await service.persistRetainedDashboardProjection(
+            runID: runID,
+            projectRoot: root
+        )
+        #expect(repeatedDashboardRef == dashboardRef)
+        let repeatedLedger = try await store.loadRunLedger(runID: runID)
+        #expect(repeatedLedger.actions.filter {
+            $0.actionKind == "review.persist-retained-dashboard"
+        }.count == 1)
     }
 
     @Test func flowReviewProjectionSeparatesUnverifiedArtifactsFromDecisionRefs() async throws {
@@ -406,6 +431,15 @@ struct RunReviewServiceTests {
 
         let runID = "run-flow-integrity"
         let stageID = "001-plan"
+        let planningPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
+        let planningPayload = Data(#"{"schemaVersion":1,"planID":"plan-1","steps":[]}"#.utf8)
+        let planningReference = try RunReviewTestSupport.artifactReference(
+            artifactID: "planning-candidate-plan",
+            path: planningPath,
+            payload: planningPayload,
+            kind: .other,
+            format: .json
+        )
         _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
                 workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
@@ -419,17 +453,14 @@ struct RunReviewServiceTests {
             healthResults: [:],
             executors: [
                 RunReviewPassingExecutor(stageID: stageID),
-            ]
+            ],
+            artifactPreparer: RunReviewArtifactPreparer(
+                workspaceStore: try XcircuiteWorkspaceStore(projectRoot: root),
+                artifacts: [planningReference],
+                artifactPayloads: [planningPath: planningPayload]
+            )
         )
 
-        let planningPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
-        _ = try await RunReviewTestSupport.writeRunJSONArtifact(
-            Data(#"{"schemaVersion":1,"planID":"plan-1","steps":[]}"#.utf8),
-            path: planningPath,
-            artifactID: "planning-candidate-plan",
-            root: root,
-            runID: runID
-        )
         try Data(#"{"schemaVersion":1,"planID":"plan-2","steps":[]}"#.utf8)
             .write(to: root.appending(path: planningPath), options: .atomic)
 

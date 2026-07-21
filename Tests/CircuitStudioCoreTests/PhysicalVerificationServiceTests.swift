@@ -215,7 +215,8 @@ struct PhysicalVerificationServiceTests {
 
         #expect(report.lvs.passed)
         #expect(report.drc.passed)
-        #expect(report.isReadyForPEX)
+        #expect(report.isLocalPreflightPassing)
+        #expect(!report.isReadyForPEX)
     }
 
     @Test func prePEXVerificationRequiresExternalSignoffApproval() {
@@ -797,14 +798,11 @@ struct PhysicalVerificationServiceTests {
             designUnit: designUnit
         )
 
-        if !report.isReadyForPEX {
-            Issue.record("DRC: \(report.drc)")
-            Issue.record("LVS: \(report.lvs)")
-        }
-
         #expect(report.drc.passed)
         #expect(report.lvs.passed)
-        #expect(report.isReadyForPEX)
+        #expect(report.isLocalPreflightPassing)
+        #expect(report.externalSignoff == nil)
+        #expect(!report.isReadyForPEX)
     }
 
     @Test func rawMOSLVSRecognizesMultiFingerParameters() {

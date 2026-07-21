@@ -25,13 +25,24 @@ struct RunReviewPassingExecutor: FlowStageExecutor {
                 continue
             }
             let existing = resolvedArtifacts[index]
-            resolvedArtifacts[index] = try await context.infrastructure.persistArtifact(
-                content: payload,
-                id: existing.id,
-                locator: existing.locator,
-                runID: context.runID,
-                mode: .replaceable
-            )
+            if let producer = existing.producer {
+                resolvedArtifacts[index] = try await context.infrastructure.persistArtifact(
+                    content: payload,
+                    id: existing.id,
+                    locator: existing.locator,
+                    runID: context.runID,
+                    producer: producer,
+                    mode: .replaceable
+                )
+            } else {
+                resolvedArtifacts[index] = try await context.infrastructure.persistArtifact(
+                    content: payload,
+                    id: existing.id,
+                    locator: existing.locator,
+                    runID: context.runID,
+                    mode: .replaceable
+                )
+            }
         }
 
         return FlowStageResult(
@@ -40,6 +51,53 @@ struct RunReviewPassingExecutor: FlowStageExecutor {
             gates: [FlowGateResult(gateID: "drc", status: .passed)],
             artifacts: resolvedArtifacts
         )
+    }
+}
+
+enum RunReviewTestSupportError: Error {
+    case missingArtifactPayload(path: String)
+}
+
+struct RunReviewArtifactPreparer: FlowRunArtifactPreparing {
+    let workspaceStore: XcircuiteWorkspaceStore
+    let artifacts: [ArtifactReference]
+    let artifactPayloads: [String: Data]
+    var designDiff: DesignDiff? = nil
+
+    func prepareArtifacts(
+        runID: String,
+        workspaceID: FlowWorkspaceID
+    ) async throws -> [ArtifactReference] {
+        _ = workspaceID
+        var persistedArtifacts: [ArtifactReference] = []
+        for artifact in artifacts {
+            let path = artifact.locator.location.value
+            guard let payload = artifactPayloads[path] else {
+                throw RunReviewTestSupportError.missingArtifactPayload(path: path)
+            }
+            if let producer = artifact.producer {
+                persistedArtifacts.append(try await workspaceStore.persistArtifact(
+                    content: payload,
+                    id: artifact.id,
+                    locator: artifact.locator,
+                    runID: runID,
+                    producer: producer,
+                    mode: .replaceable
+                ))
+            } else {
+                persistedArtifacts.append(try await workspaceStore.persistArtifact(
+                    content: payload,
+                    id: artifact.id,
+                    locator: artifact.locator,
+                    runID: runID,
+                    mode: .replaceable
+                ))
+            }
+        }
+        if let designDiff {
+            persistedArtifacts.append(try await workspaceStore.persistDesignDiff(designDiff))
+        }
+        return persistedArtifacts
     }
 }
 
@@ -68,6 +126,30 @@ enum RunReviewTestSupport {
             locator: locator,
             digest: digest,
             byteCount: byteCount
+        )
+    }
+
+    static func artifactReference(
+        artifactID: String,
+        path: String,
+        payload: Data,
+        kind: ArtifactKind = .report,
+        format: ArtifactFormat = .json,
+        producer: ProducerIdentity? = nil
+    ) throws -> ArtifactReference {
+        let reference = try artifactReference(
+            artifactID: artifactID,
+            path: path,
+            kind: kind,
+            format: format,
+            byteCount: UInt64(payload.count)
+        )
+        return ArtifactReference(
+            id: reference.id,
+            locator: reference.locator,
+            digest: try SHA256ContentDigester().digest(data: payload, using: .sha256),
+            byteCount: UInt64(payload.count),
+            producer: producer
         )
     }
 

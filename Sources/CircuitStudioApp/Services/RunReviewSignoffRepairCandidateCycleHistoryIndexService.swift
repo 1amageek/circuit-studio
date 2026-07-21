@@ -1,5 +1,8 @@
 import Foundation
+import CircuiteFoundation
 import CircuitStudioCore
+import DesignFlowKernel
+import Xcircuite
 
 public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable {
     public enum ValidationError: Error, LocalizedError, Equatable {
@@ -501,15 +504,11 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
             return emptySummary()
         }
 
-        let runSummaries = try summaryURLs(in: runsDirectory).map { url in
-            let runID = url
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .lastPathComponent
-            let summary = try readSummary(from: url)
+        let runSummaries = try retainedSummaries(in: runsDirectory, projectRoot: projectRoot).map { retained in
+            let summary = try readSummary(from: retained.url)
             return RunSummary(
-                runID: runID,
-                summaryPath: ".xcircuite/runs/\(runID)/planning/candidate-cycle-history-summary.json",
+                runID: retained.runID,
+                summaryPath: retained.reference.path,
                 summary: summary
             )
         }
@@ -579,7 +578,13 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
         )
     }
 
-    private func summaryURLs(in runsDirectory: URL) throws -> [URL] {
+    private struct RetainedSummary {
+        let runID: String
+        let reference: ArtifactReference
+        let url: URL
+    }
+
+    private func retainedSummaries(in runsDirectory: URL, projectRoot: URL) throws -> [RetainedSummary] {
         let entries: [URL]
         do {
             entries = try FileManager.default.contentsOfDirectory(
@@ -591,16 +596,39 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
             throw StudioError.projectLoadFailed("Failed to list candidate-cycle runs: \(error.localizedDescription)")
         }
 
-        return entries
-            .map {
-                $0
-                    .appending(path: "planning")
-                    .appending(path: "candidate-cycle-history-summary.json")
+        var summaries: [RetainedSummary] = []
+        for runDirectory in entries {
+            let runID = runDirectory.lastPathComponent
+            let manifestURL = runDirectory.appending(path: "manifest.json")
+            guard FileManager.default.fileExists(atPath: manifestURL.path(percentEncoded: false)) else {
+                continue
             }
-            .filter { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }
-            .sorted { left, right in
-                left.path(percentEncoded: false) < right.path(percentEncoded: false)
+            let manifest = try decoder.decode(
+                FlowRunManifest.self,
+                from: Data(contentsOf: manifestURL, options: [.mappedIfSafe])
+            )
+            let prefix = "\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID)-"
+            let references = manifest.artifacts.filter { $0.artifactID.hasPrefix(prefix) }
+            guard let reference = references.max(by: {
+                historySummaryCycleIndex($0.artifactID, prefix: prefix)
+                    < historySummaryCycleIndex($1.artifactID, prefix: prefix)
+            }) else {
+                continue
             }
+            let integrity = LocalArtifactVerifier().verify(reference, relativeTo: projectRoot)
+            guard integrity.isVerified else {
+                throw StudioError.projectLoadFailed(
+                    "Candidate-cycle history summary failed integrity verification: \(reference.path)"
+                )
+            }
+            let url = try reference.locator.location.resolvedFileURL(relativeTo: projectRoot)
+            summaries.append(RetainedSummary(runID: runID, reference: reference, url: url))
+        }
+        return summaries.sorted { $0.runID < $1.runID }
+    }
+
+    private func historySummaryCycleIndex(_ artifactID: String, prefix: String) -> Int {
+        Int(artifactID.dropFirst(prefix.count)) ?? -1
     }
 
     private func readSummary(

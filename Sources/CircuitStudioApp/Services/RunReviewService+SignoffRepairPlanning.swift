@@ -37,11 +37,10 @@ extension RunReviewService {
             lvsRepairHintPath: lvsRepairHintPath,
             bundleArtifacts: bundle.artifacts
         )
-        let inputArtifacts = try await repairHintInputArtifacts(
+        let inputArtifacts = try repairHintInputArtifacts(
             drcRepairHintPath: drcRepairHintPath,
             lvsRepairHintPath: lvsRepairHintPath,
-            bundleArtifacts: bundle.artifacts,
-            projectRoot: projectRoot
+            bundleArtifacts: bundle.artifacts
         )
         let compilation = try await XcircuiteSignoffRepairFormulationBuilder(
             workspaceStore: store,
@@ -58,10 +57,7 @@ extension RunReviewService {
             ),
             projectRoot: projectRoot
         )
-        let actionDomainArtifact = try await actionDomainArtifact(
-            runID: runID,
-            store: store
-        )
+        let actionDomainArtifact = compilation.actionDomainArtifact
         let outputArtifacts = [
             actionDomainArtifact,
             compilation.compilation.formulationArtifact,
@@ -170,8 +166,15 @@ extension RunReviewService {
         path: String,
         bundleArtifacts: [FlowRunReviewArtifact]
     ) throws {
-        guard let artifact = bundleArtifacts.first(where: { $0.reference.locator.location.value == path }) else {
-            return
+        let matches = bundleArtifacts.filter { $0.reference.locator.location.value == path }
+        guard matches.count == 1, let artifact = matches.first else {
+            throw RunReviewServiceError.signoffRepairHintIntegrityUnverified(
+                path: path,
+                status: matches.isEmpty ? "missing" : "ambiguous",
+                message: matches.isEmpty
+                    ? "The repair-hint artifact is not retained by the run ledger."
+                    : "The run ledger retains multiple identities at the repair-hint path."
+            )
         }
         guard let integrity = artifact.integrity else {
             throw RunReviewServiceError.signoffRepairHintIntegrityUnverified(
@@ -192,25 +195,19 @@ extension RunReviewService {
     private func repairHintInputArtifacts(
         drcRepairHintPath: String?,
         lvsRepairHintPath: String?,
-        bundleArtifacts: [FlowRunReviewArtifact],
-        projectRoot: URL
-    ) async throws -> [ArtifactReference] {
-        let store = try workspaceStore(projectRoot: projectRoot)
+        bundleArtifacts: [FlowRunReviewArtifact]
+    ) throws -> [ArtifactReference] {
         var references: [ArtifactReference] = []
         if let drcRepairHintPath {
-            references.append(try await repairHintInputArtifact(
+            references.append(try repairHintInputArtifact(
                 path: drcRepairHintPath,
-                artifactID: "drc-repair-hints",
-                bundleArtifacts: bundleArtifacts,
-                store: store
+                bundleArtifacts: bundleArtifacts
             ))
         }
         if let lvsRepairHintPath {
-            references.append(try await repairHintInputArtifact(
+            references.append(try repairHintInputArtifact(
                 path: lvsRepairHintPath,
-                artifactID: "lvs-repair-hints",
-                bundleArtifacts: bundleArtifacts,
-                store: store
+                bundleArtifacts: bundleArtifacts
             ))
         }
         return references
@@ -218,30 +215,21 @@ extension RunReviewService {
 
     private func repairHintInputArtifact(
         path: String,
-        artifactID: String,
-        bundleArtifacts: [FlowRunReviewArtifact],
-        store: XcircuiteWorkspaceStore
-    ) async throws -> ArtifactReference {
-        if let artifact = bundleArtifacts.first(where: { $0.reference.locator.location.value == path }) {
-            return ArtifactReference(
-                id: artifact.reference.id,
-                locator: ArtifactLocator(
-                    location: try ArtifactLocation(workspaceRelativePath: artifact.reference.locator.location.value),
-                    role: .input,
-                    kind: artifact.reference.locator.kind,
-                    format: artifact.reference.locator.format
-                ),
-                digest: artifact.reference.digest,
-                byteCount: artifact.reference.byteCount
+        bundleArtifacts: [FlowRunReviewArtifact]
+    ) throws -> ArtifactReference {
+        let matches = bundleArtifacts.filter {
+            $0.reference.locator.location.value == path
+        }
+        guard matches.count == 1, let artifact = matches.first else {
+            throw RunReviewServiceError.signoffRepairHintIntegrityUnverified(
+                path: path,
+                status: matches.isEmpty ? "missing" : "ambiguous",
+                message: matches.isEmpty
+                    ? "The repair-hint artifact is not retained by the run ledger."
+                    : "The run ledger retains multiple identities at the repair-hint path."
             )
         }
-        return try await store.makeArtifactReference(
-            forProjectRelativePath: path,
-            artifactID: artifactID,
-            role: .input,
-            kind: .report,
-            format: .json
-        )
+        return artifact.reference
     }
 
     private func runIDForProducedArtifact(_ artifact: FlowRunReviewArtifact) -> String? {
@@ -255,27 +243,14 @@ extension RunReviewService {
         return components[2]
     }
 
-    private func actionDomainArtifact(
-        runID: String,
-        store: XcircuiteWorkspaceStore
-    ) async throws -> ArtifactReference {
-        return try await store.makeArtifactReference(
-            forProjectRelativePath: "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/\(XcircuitePlanningArtifactStore.actionDomainRelativePath)",
-            artifactID: XcircuitePlanningArtifactStore.actionDomainArtifactID,
-            role: .output,
-            kind: .other,
-            format: .json
-        )
-    }
-
     private func commonStageID(
         for inputArtifacts: [ArtifactReference],
         in bundleArtifacts: [FlowRunReviewArtifact]
     ) -> String? {
-        let inputPaths = Set(inputArtifacts.map(\.path))
+        let inputReferences = Set(inputArtifacts)
         let stageIDs = Set(
             bundleArtifacts
-                .filter { inputPaths.contains($0.reference.locator.location.value) }
+                .filter { inputReferences.contains($0.reference) }
                 .compactMap(\.stageID)
         )
         guard stageIDs.count == 1 else {

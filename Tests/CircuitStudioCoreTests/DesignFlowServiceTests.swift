@@ -120,6 +120,16 @@ struct DesignFlowServiceTests {
             DesignFlowServiceTestSupport.agentResistorDividerSpec(postLayoutComparisonLimits: embeddedLimits),
             to: specURL
         )
+        let drcLogURL = root.appending(path: "imported-drc.log")
+        let lvsLogURL = root.appending(path: "imported-lvs.log")
+        try """
+        [INFO] rule=DRC_CLEAN message="clean drc"
+        SIGNOFF_RESULT status=pass
+        """.write(to: drcLogURL, atomically: true, encoding: .utf8)
+        try """
+        [INFO] rule=LVS_MATCH message="clean lvs"
+        SIGNOFF_RESULT status=pass
+        """.write(to: lvsLogURL, atomically: true, encoding: .utf8)
 
         let service = DesignFlowService()
         let netlist = try await service.execute(DesignFlowCommand(
@@ -142,7 +152,9 @@ struct DesignFlowServiceTests {
             designSpecPath: specURL.path(percentEncoded: false),
             projectRootPath: root.path(percentEncoded: false),
             runID: "agent-resistor-divider-run",
-            approveSignoff: true
+            approveSignoff: true,
+            signoffDRCLogPath: drcLogURL.path(percentEncoded: false),
+            signoffLVSLogPath: lvsLogURL.path(percentEncoded: false)
         ))
         #expect(roundTrip.designName == "agent-resistor-divider")
         #expect(roundTrip.runID == "agent-resistor-divider-run")
@@ -150,8 +162,8 @@ struct DesignFlowServiceTests {
         #expect(roundTrip.comparisonLimitsConfigured == true)
         #expect(roundTrip.manifestPath?.hasSuffix("round-trip-manifest.json") == true)
         let manifest = try #require(roundTrip.manifestPath).loadManifest()
-        #expect(!manifest.artifacts.contains { $0.kind == "external-signoff-log" })
-        #expect(!manifest.stages.contains { $0.name == "external-signoff" })
+        #expect(manifest.artifacts.contains { $0.kind == "external-signoff-log" })
+        #expect(manifest.stages.contains { $0.name == "external-signoff" })
         #expect(manifest.artifacts.contains {
             $0.kind == "design-spec"
                 && $0.path.contains("input-artifacts/design/")

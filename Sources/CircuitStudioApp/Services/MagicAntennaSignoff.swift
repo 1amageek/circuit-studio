@@ -1,7 +1,7 @@
 import CircuitSignoff
 import Foundation
 
-/// Builds a Magic-driven antenna signoff command for `ExternalSignoffCommandService`.
+/// Builds a Magic-driven antenna signoff command for `ExternalSignoffCommandRunner`.
 ///
 /// Magic's `antennacheck` is a real physical check the geometry checks (DRC/LVS)
 /// cannot see: during fabrication, a long stretch of metal connected to a gate

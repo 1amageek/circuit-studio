@@ -70,7 +70,7 @@ struct MagicAntennaSignoffTests {
         try MaskDataFormatConverter(tech: try Sky130LayoutTech.tech()).exportDocument(document, to: gds, format: .gds)
 
         let antenna = try #require(MagicAntennaSignoff.locate())
-        let result = try await ExternalSignoffCommandService(parser: MagicAntennaSignoff.reportParser).run(
+        let result = try await ExternalSignoffCommandRunner(parser: MagicAntennaSignoff.reportParser).run(
             command: antenna.command(cell: cell, gds: gds, artifactDirectory: dir),
             artifactDirectory: dir
         )

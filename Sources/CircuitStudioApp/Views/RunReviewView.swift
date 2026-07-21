@@ -326,7 +326,7 @@ public struct RunReviewView: View {
                         runSignoffRepairCandidateCycle(runID: runID)
                     }
                 )
-                ForEach(signoff.cards, id: \.artifact.reference.locator.location.value) { card in
+                ForEach(signoff.cards) { card in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
                             Image(systemName: signoffIcon(card))

@@ -25,7 +25,7 @@ public struct RunReviewSignoffSummary: Sendable, Hashable {
     }
 }
 
-public struct RunReviewSignoffCard: Sendable, Hashable {
+public struct RunReviewSignoffCard: Sendable, Hashable, Identifiable {
     public let domain: String
     public let title: String
     public let status: String
@@ -37,6 +37,14 @@ public struct RunReviewSignoffCard: Sendable, Hashable {
     public let detailSections: [RunReviewSignoffDetailSection]
     public let evaluationEvidence: [RunReviewArtifactEvaluationEvidence]
     public let issues: [RunReviewSignoffIssue]
+
+    public var id: String {
+        [
+            artifact.reference.id.rawValue,
+            domain,
+            title,
+        ].joined(separator: "::")
+    }
 
     public init(
         domain: String,

@@ -72,11 +72,12 @@ public struct LiveSignoffService: Sendable {
 
         let lvsExecution = try await lvs.run(
             LVSRequest(
-                layoutNetlistURL: layoutNetlist,
+                layoutNetlistURL: try layoutNetlist.netlistFileURL(),
                 schematicNetlistURL: schematicNetlist,
                 topCell: topCell,
                 workingDirectory: artifactDirectory,
-                backendSelection: LVSBackendSelection(backendID: lvs.backendID)
+                backendSelection: LVSBackendSelection(backendID: lvs.backendID),
+                executionInputArtifacts: [layoutNetlist.netlist]
             )
         )
 

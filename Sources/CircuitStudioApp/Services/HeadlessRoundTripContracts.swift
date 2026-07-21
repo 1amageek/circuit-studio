@@ -29,10 +29,9 @@ extension HeadlessRoundTripService {
         public let catalog: DeviceCatalog
         public let processConfiguration: ProcessConfiguration?
         public let layoutTech: LayoutTechDatabase?
-        public let continueAfterFailedPrePEXGate: Bool
         /// Probe nodes to cross-check post-layout against the ngspice oracle. `nil`
-        /// (default) disables the cross-check; when set and ngspice is available, the
-        /// post-layout deck is also run in ngspice and the agreement is recorded.
+        /// disables the cross-check. A non-`nil` value requests a required gate, so
+        /// an empty set, unavailable oracle, or failed agreement fails the run.
         public let oracleProbes: [String]?
 
         public init(
@@ -59,7 +58,6 @@ extension HeadlessRoundTripService {
             catalog: DeviceCatalog = .standard(),
             processConfiguration: ProcessConfiguration? = nil,
             layoutTech: LayoutTechDatabase? = nil,
-            continueAfterFailedPrePEXGate: Bool = false,
             oracleProbes: [String]? = nil
         ) {
             self.projectRoot = projectRoot
@@ -82,7 +80,6 @@ extension HeadlessRoundTripService {
             self.catalog = catalog
             self.processConfiguration = processConfiguration
             self.layoutTech = layoutTech
-            self.continueAfterFailedPrePEXGate = continueAfterFailedPrePEXGate
             self.oracleProbes = oracleProbes
         }
     }

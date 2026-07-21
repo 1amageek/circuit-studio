@@ -46,7 +46,7 @@ let package = Package(
     dependencies: [
         workspaceDependency(
             named: "Xcircuite",
-            revision: "ebb69fc6ed03f3b004b8b827b9772cc5aa395943"
+            revision: "62bf4ea335e0c63d26b1b25fd185f1469e17aebd"
         ),
         workspaceDependency(
             named: "CircuiteFoundation",
@@ -74,15 +74,19 @@ let package = Package(
         ),
         workspaceDependency(
             named: "DRCEngine",
-            revision: "3cab3f150fb47c9a084472aa9f4ad3ea09edc882"
+            revision: "e6a0fa2c5b64de1b4ef81e651bd1bb77ecc77299"
         ),
         workspaceDependency(
             named: "LVSEngine",
-            revision: "0ac3caff6a8e72b2daadd0da7f9121831d7b760f"
+            revision: "f79b52da83146c108e0a122f4581fe93fae59527"
         ),
         workspaceDependency(
             named: "TimingEngine",
-            revision: "8d302e0a9ffe7e0ba4b4079c72fa3c96aec7c8d3"
+            revision: "2b8f0df3e359fca274edc8ede176457de40e1648"
+        ),
+        workspaceDependency(
+            named: "ReleaseEngine",
+            revision: "be52779216b055914fe02063862941c88a227498"
         ),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
@@ -160,6 +164,7 @@ let package = Package(
             name: "CircuitSignoff",
             dependencies: [
                 "CircuitStudioCore",
+                .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "DRCAdapters", package: "DRCEngine"),
                 .product(name: "DRCCore", package: "DRCEngine"),
                 .product(name: "LVSAdapters", package: "LVSEngine"),
@@ -187,6 +192,9 @@ let package = Package(
                 .product(name: "STAEngine", package: "TimingEngine"),
                 .product(name: "TimingEngine", package: "TimingEngine"),
                 .product(name: "TimingCore", package: "TimingEngine"),
+                .product(name: "ReleaseCore", package: "ReleaseEngine"),
+                .product(name: "SignoffEngine", package: "ReleaseEngine"),
+                .product(name: "TapeoutEngine", package: "ReleaseEngine"),
                 .product(name: "PEXEngine", package: "PEXEngine"),
                 .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
                 "CircuitStudioCore",
@@ -284,6 +292,9 @@ let package = Package(
                 .product(name: "STAEngine", package: "TimingEngine"),
                 .product(name: "TimingEngine", package: "TimingEngine"),
                 .product(name: "TimingCore", package: "TimingEngine"),
+                .product(name: "ReleaseCore", package: "ReleaseEngine"),
+                .product(name: "SignoffEngine", package: "ReleaseEngine"),
+                .product(name: "TapeoutEngine", package: "ReleaseEngine"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
                 .product(name: "OpenVAFSupport", package: "swift-openvaf"),
                 .product(name: "VerilogACompiler", package: "swift-openvaf"),

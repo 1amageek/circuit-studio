@@ -86,7 +86,7 @@ extension RunReviewService {
         let artifacts = drilldownArtifactReferences([card.artifact] + card.relatedArtifacts)
         let issues = card.issues.enumerated().map { index, issue in
             RunReviewInteractiveSignoffDrilldown.Issue(
-                issueID: "\(card.artifact.reference.locator.location.value)#issue-\(index)",
+                issueID: "\(card.id)#issue-\(index)",
                 severity: issue.severity,
                 label: issue.label,
                 count: issue.count,
@@ -98,7 +98,7 @@ extension RunReviewService {
             )
         }
         return RunReviewInteractiveSignoffDrilldown.Item(
-            itemID: "signoff:\(domain.rawValue):\(card.artifact.reference.locator.location.value)",
+            itemID: "signoff:\(domain.rawValue):\(card.id)",
             domain: domain,
             title: card.title,
             status: card.status,
@@ -443,6 +443,12 @@ extension RunReviewService {
             return .oracle
         case "Post-layout":
             return .postLayout
+        case "Release Authorization":
+            return .authorization
+        case "Tapeout", "Tapeout Handoff":
+            return .tapeout
+        case let domain where domain == "Release" || domain.hasPrefix("Release / "):
+            return .release
         default:
             return .simulation
         }
@@ -466,6 +472,12 @@ extension RunReviewService {
             return "Simulation"
         case .postLayout:
             return "Post-layout"
+        case .release:
+            return "Release Signoff"
+        case .authorization:
+            return "Release Authorization"
+        case .tapeout:
+            return "Tapeout"
         case .waveform:
             return "Waveforms"
         }
@@ -489,8 +501,14 @@ extension RunReviewService {
             return 5
         case .postLayout:
             return 6
-        case .waveform:
+        case .release:
             return 7
+        case .authorization:
+            return 8
+        case .tapeout:
+            return 9
+        case .waveform:
+            return 10
         }
     }
 

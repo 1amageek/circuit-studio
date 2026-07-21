@@ -37,7 +37,7 @@ extension RunReviewService {
             actor: FlowRunActor(kind: .human, identifier: reviewer),
             actionKind: FlowRunReviewDecisionKind.waiver.rawValue,
             status: .succeeded,
-            inputs: [try fileReference(from: item.artifact)],
+            inputs: [fileReference(from: item.artifact)],
             context: FlowRunActionContext(
                 reviewDecision: FlowRunActionContext.ReviewDecision(
                     kind: .waiver,
@@ -91,7 +91,7 @@ extension RunReviewService {
             actor: FlowRunActor(kind: .human, identifier: reviewer),
             actionKind: RunReviewWaiverEditProposalSelection.actionKind,
             status: .succeeded,
-            inputs: [try fileReference(from: item.artifact)],
+            inputs: [fileReference(from: item.artifact)],
             context: FlowRunActionContext(
                 reviewDecision: FlowRunActionContext.ReviewDecision(
                     kind: .waiver,
@@ -138,7 +138,12 @@ extension RunReviewService {
             )
         }
 
-        let appliedEdit = try applyEdit(proposal: proposal, projectRoot: projectRoot)
+        let appliedEdit = try await prepareEdit(
+            proposal: proposal,
+            runID: runID,
+            store: store,
+            projectRoot: projectRoot
+        )
         let record = FlowRunActionRecord(
             actionID: "waiver-edit-proposal-application-\(UUID().uuidString)",
             runID: runID,
@@ -147,11 +152,16 @@ extension RunReviewService {
             actionKind: RunReviewWaiverEditApplication.actionKind,
             status: .succeeded,
             inputs: [
-                try fileReference(from: item.artifact),
+                fileReference(from: item.artifact),
                 appliedEdit.beforeReference,
             ],
             outputs: [appliedEdit.afterReference],
             context: FlowRunActionContext(
+                artifactEdit: FlowRunActionContext.ArtifactEdit(
+                    proposalID: proposal.proposalID,
+                    targetPath: proposal.targetPath,
+                    operation: proposal.operation
+                ),
                 reviewDecision: FlowRunActionContext.ReviewDecision(
                     kind: .waiver,
                     decision: proposal.operation,
@@ -161,7 +171,12 @@ extension RunReviewService {
                 )
             )
         )
-        try await store.appendRunAction(record)
+        _ = try await store.appendRunAction(
+            record,
+            replacingProjectArtifactAt: appliedEdit.targetPath,
+            expectedContent: appliedEdit.beforeData,
+            replacementContent: appliedEdit.afterData
+        )
         return record
     }
 
@@ -206,25 +221,51 @@ extension RunReviewService {
             )
         }
 
-        let verificationReference = try projectFileReference(
-            url: verificationReportURL,
-            projectRoot: projectRoot,
-            artifactID: "post-waiver-edit-physical-verification",
-            kind: .report,
-            format: .json
+        let verificationSourcePath = try projectRelativePath(
+            for: verificationReportURL,
+            projectRoot: projectRoot
         )
-        let layoutTrustReference = try layoutTrustReportURL.map {
-            try projectFileReference(
-                url: $0,
-                projectRoot: projectRoot,
-                artifactID: "post-waiver-edit-layout-trust",
-                kind: .report,
-                format: .json
+        let verificationData = try Data(contentsOf: verificationReportURL, options: [.mappedIfSafe])
+        let retainedVerificationReport = try JSONDecoder().decode(
+            DesignFlowVerificationReport.self,
+            from: verificationData
+        )
+        guard retainedVerificationReport == verificationReport else {
+            throw RunReviewServiceError.waiverEditVerificationReportMismatch(
+                path: verificationSourcePath
             )
+        }
+        let safeProposalID = safeIdentifierComponent(proposalID)
+        let verificationReference = try await persistWaiverEditEvidence(
+            content: verificationData,
+            artifactIDPrefix: "post-waiver-edit-physical-verification",
+            fileNamePrefix: "verification",
+            kind: .report,
+            format: .json,
+            safeProposalID: safeProposalID,
+            runID: runID,
+            store: store
+        )
+        let layoutTrustReference: ArtifactReference?
+        if let layoutTrustReportURL {
+            _ = try projectRelativePath(for: layoutTrustReportURL, projectRoot: projectRoot)
+            let layoutTrustData = try Data(contentsOf: layoutTrustReportURL, options: [.mappedIfSafe])
+            layoutTrustReference = try await persistWaiverEditEvidence(
+                content: layoutTrustData,
+                artifactIDPrefix: "post-waiver-edit-layout-trust",
+                fileNamePrefix: "layout-trust",
+                kind: .report,
+                format: .json,
+                safeProposalID: safeProposalID,
+                runID: runID,
+                store: store
+            )
+        } else {
+            layoutTrustReference = nil
         }
         let targetReference = try waiverEditTargetReference(
             application: application,
-            projectRoot: projectRoot
+            actions: ledger.actions
         )
         let feedback = try await recordWaiverEditPlanningFeedback(
             runID: runID,
@@ -238,7 +279,7 @@ extension RunReviewService {
             projectRoot: projectRoot
         )
 
-        let supplementaryReferences = [layoutTrustReference, feedback.rejectedPlansRef]
+        let supplementaryReferences = [layoutTrustReference]
             .compactMap { $0 }
         let record = FlowRunActionRecord(
             actionID: "waiver-edit-proposal-verification-\(UUID().uuidString)",
@@ -248,7 +289,7 @@ extension RunReviewService {
             actionKind: RunReviewWaiverEditVerification.actionKind,
             status: .succeeded,
             inputs: [
-                try fileReference(from: item.artifact),
+                fileReference(from: item.artifact),
                 targetReference,
             ],
             outputs: [
@@ -258,6 +299,11 @@ extension RunReviewService {
             ] + supplementaryReferences,
             context: FlowRunActionContext(
                 iterationID: application.actionRecordID,
+                artifactEdit: FlowRunActionContext.ArtifactEdit(
+                    proposalID: proposalID,
+                    targetPath: application.targetPath,
+                    operation: application.operation
+                ),
                 reviewDecision: FlowRunActionContext.ReviewDecision(
                     kind: .waiver,
                     decision: feedback.status,
@@ -373,7 +419,7 @@ extension RunReviewService {
     ) throws -> RunReviewWaiverSummary {
         let decisions = waiverDecisionsByReviewID(from: actions)
         let editProposalSelections = waiverEditProposalSelectionsByReviewID(from: actions)
-        let editApplications = waiverEditApplicationsByReviewID(from: actions)
+        let editApplications = try waiverEditApplicationsByReviewID(from: actions)
         let editVerifications = try waiverEditVerificationsByReviewID(
             from: actions,
             projectRoot: projectRoot
@@ -606,46 +652,8 @@ extension RunReviewService {
         return decision.decision.rawValue
     }
 
-    private func fileReference(from artifact: FlowRunReviewArtifact) throws -> ArtifactReference {
-        return ArtifactReference(
-            id: artifact.reference.id,
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: artifact.reference.locator.location.value),
-                role: .input,
-                kind: artifact.reference.locator.kind,
-                format: artifact.reference.locator.format
-            ),
-            digest: artifact.reference.digest,
-            byteCount: artifact.reference.byteCount
-        )
-    }
-
-    private func projectFileReference(
-        url: URL,
-        projectRoot: URL,
-        artifactID: String,
-        kind: ArtifactKind,
-        format: ArtifactFormat
-    ) throws -> ArtifactReference {
-        let path = try projectRelativePath(for: url, projectRoot: projectRoot)
-        let values = try url.resourceValues(forKeys: [.fileSizeKey])
-        guard let byteCount = values.fileSize, byteCount >= 0 else {
-            throw RunReviewServiceError.invalidArtifactReference(
-                path: path,
-                message: "Generated verification artifact has no valid byte count."
-            )
-        }
-        return ArtifactReference(
-            id: try ArtifactID(rawValue: artifactID),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: path),
-                role: .output,
-                kind: kind,
-                format: format
-            ),
-            digest: try SHA256ContentDigester().digest(fileAt: url, using: .sha256),
-            byteCount: UInt64(byteCount)
-        )
+    private func fileReference(from artifact: FlowRunReviewArtifact) -> ArtifactReference {
+        artifact.reference
     }
 
     private func recordWaiverEditPlanningFeedback(
@@ -661,9 +669,10 @@ extension RunReviewService {
     ) async throws -> WaiverEditPlanningFeedback {
         let store = try workspaceStore(projectRoot: projectRoot)
         let safeProposalID = safeIdentifierComponent(proposalID)
+        let verificationToken = verificationReference.digest.hexadecimalValue
         let planID = "\(runID)-waiver-edit-\(safeProposalID)"
         let problemID = "\(runID)-waiver-edit-problem-\(safeProposalID)"
-        let basePath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/planning/waiver-edit-feedback/\(safeProposalID)"
+        let basePath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/planning/waiver-edit-feedback/\(safeProposalID)/verifications/\(verificationToken)"
         let candidatePlanPath = "\(basePath)/candidate-plan.json"
         let planVerificationPath = "\(basePath)/plan-verification.json"
         let gateIDs = [
@@ -739,7 +748,7 @@ extension RunReviewService {
         let candidatePlanRef = try await writePlanningFeedbackArtifact(
             candidatePlan,
             path: candidatePlanPath,
-            artifactID: "post-waiver-edit-candidate-plan-\(safeProposalID)",
+            artifactID: "post-waiver-edit-candidate-plan-\(safeProposalID)-\(verificationToken)",
             runID: runID,
             store: store
         )
@@ -779,7 +788,7 @@ extension RunReviewService {
         let planVerificationRef = try await writePlanningFeedbackArtifact(
             planVerification,
             path: planVerificationPath,
-            artifactID: "post-waiver-edit-plan-verification-\(safeProposalID)",
+            artifactID: "post-waiver-edit-plan-verification-\(safeProposalID)-\(verificationToken)",
             runID: runID,
             store: store
         )
@@ -794,7 +803,7 @@ extension RunReviewService {
         }
 
         let rejectedRecord = XcircuiteRejectedPlanRecord(
-            rejectionID: "\(planID)-rejected",
+            rejectionID: "\(planID)-rejected-\(verificationToken)",
             runID: runID,
             problemID: problemID,
             planID: planID,
@@ -842,7 +851,7 @@ extension RunReviewService {
                 format: .json
             ),
             runID: runID,
-            mode: .replaceable
+            mode: .immutable
         )
     }
 
@@ -927,20 +936,32 @@ extension RunReviewService {
 
     private func waiverEditTargetReference(
         application: RunReviewWaiverEditApplication,
-        projectRoot: URL
+        actions: [FlowRunActionRecord]
     ) throws -> ArtifactReference {
-        let targetURL = try waiverEditTargetURL(path: application.targetPath, projectRoot: projectRoot)
-        let data = try Data(contentsOf: targetURL)
-        return ArtifactReference(
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: application.targetPath),
-                role: .input,
-                kind: .other,
-                format: fileFormat(for: application.targetPath)
-            ),
-            digest: try SHA256ContentDigester().digest(data: data, using: .sha256),
-            byteCount: UInt64(data.count)
-        )
+        guard let applicationAction = actions.first(where: {
+            $0.actionID == application.actionRecordID
+                && $0.actionKind == RunReviewWaiverEditApplication.actionKind
+                && $0.context.artifactEdit?.proposalID == application.proposalID
+                && $0.context.artifactEdit?.targetPath == application.targetPath
+                && $0.context.artifactEdit?.operation == application.operation
+        }) else {
+            throw RunReviewServiceError.waiverEditApplicationNotFound(
+                waiverReviewID: application.waiverReviewID,
+                proposalID: application.proposalID
+            )
+        }
+        let matches = applicationAction.outputs.filter {
+            $0.digest.hexadecimalValue.caseInsensitiveCompare(
+                    application.afterSHA256
+                ) == .orderedSame
+        }
+        guard matches.count == 1, let reference = matches.first else {
+            throw RunReviewServiceError.invalidArtifactReference(
+                path: application.targetPath,
+                message: "The waiver edit action does not retain one exact output artifact reference."
+            )
+        }
+        return reference
     }
 
     private func projectRelativePath(for url: URL, projectRoot: URL) throws -> String {
@@ -979,12 +1000,14 @@ extension RunReviewService {
         return String(path.dropLast())
     }
 
-    private func applyEdit(
+    private func prepareEdit(
         proposal: RunReviewWaiverEditProposal,
+        runID: String,
+        store: XcircuiteWorkspaceStore,
         projectRoot: URL
-    ) throws -> AppliedWaiverEdit {
+    ) async throws -> AppliedWaiverEdit {
         let targetURL = try waiverEditTargetURL(path: proposal.targetPath, projectRoot: projectRoot)
-        let beforeData = try Data(contentsOf: targetURL)
+        let beforeData = try Data(contentsOf: targetURL, options: [.mappedIfSafe])
         let afterData: Data
         switch proposal.operation {
         case "remove-json-object":
@@ -1001,28 +1024,63 @@ extension RunReviewService {
             throw RunReviewServiceError.waiverEditNoChange(proposalID: proposal.proposalID)
         }
 
-        let beforeReference = ArtifactReference(
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: proposal.targetPath),
-                role: .input,
-                kind: .other,
-                format: fileFormat(for: proposal.targetPath)
-            ),
-            digest: try SHA256ContentDigester().digest(data: beforeData, using: .sha256),
-            byteCount: UInt64(beforeData.count)
+        let safeProposalID = safeIdentifierComponent(proposal.proposalID)
+        let format = fileFormat(for: proposal.targetPath)
+        let beforeReference = try await persistWaiverEditEvidence(
+            content: beforeData,
+            artifactIDPrefix: "waiver-edit-before",
+            fileNamePrefix: "before",
+            kind: .other,
+            format: format,
+            safeProposalID: safeProposalID,
+            runID: runID,
+            store: store
         )
-        try afterData.write(to: targetURL, options: .atomic)
-        let afterReference = ArtifactReference(
+        let afterReference = try await persistWaiverEditEvidence(
+            content: afterData,
+            artifactIDPrefix: "waiver-edit-after",
+            fileNamePrefix: "after",
+            kind: .other,
+            format: format,
+            safeProposalID: safeProposalID,
+            runID: runID,
+            store: store
+        )
+        return AppliedWaiverEdit(
+            targetPath: proposal.targetPath,
+            beforeData: beforeData,
+            afterData: afterData,
+            beforeReference: beforeReference,
+            afterReference: afterReference
+        )
+    }
+
+    private func persistWaiverEditEvidence(
+        content: Data,
+        artifactIDPrefix: String,
+        fileNamePrefix: String,
+        kind: ArtifactKind,
+        format: ArtifactFormat,
+        safeProposalID: String,
+        runID: String,
+        store: XcircuiteWorkspaceStore
+    ) async throws -> ArtifactReference {
+        let digest = try SHA256ContentDigester().digest(data: content, using: .sha256)
+        let digestToken = String(digest.hexadecimalValue.prefix(16))
+        let fileExtension = format == .json ? "json" : "data"
+        let path = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/review/waiver-edits/\(safeProposalID)/\(fileNamePrefix)-\(digestToken).\(fileExtension)"
+        return try await store.persistArtifact(
+            content: content,
+            id: try ArtifactID(rawValue: "\(artifactIDPrefix)-\(safeProposalID)-\(digestToken)"),
             locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: proposal.targetPath),
+                location: try ArtifactLocation(workspaceRelativePath: path),
                 role: .output,
-                kind: .other,
-                format: fileFormat(for: proposal.targetPath)
+                kind: kind,
+                format: format
             ),
-            digest: try SHA256ContentDigester().digest(data: afterData, using: .sha256),
-            byteCount: UInt64(afterData.count)
+            runID: runID,
+            mode: .immutable
         )
-        return AppliedWaiverEdit(beforeReference: beforeReference, afterReference: afterReference)
     }
 
     private func waiverEditTargetURL(path: String, projectRoot: URL) throws -> URL {

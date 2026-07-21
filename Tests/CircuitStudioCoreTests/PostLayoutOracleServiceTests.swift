@@ -35,7 +35,7 @@ struct PostLayoutOracleServiceTests {
             probes: ["out"],
             toleranceV: 0.05
         )
-        #expect(agreement.consistent,
+        #expect(agreement.isConsistent,
                 "CoreSpice vs ngspice max ΔV(out) = \(agreement.maxDivergenceV) V (tol \(agreement.toleranceV))")
         #expect(agreement.probes.first?.probe == "out")
         #expect((agreement.probes.first?.sampleCount ?? 0) > 0)
@@ -49,6 +49,63 @@ struct PostLayoutOracleServiceTests {
                 deck: "* empty\n",
                 command: .tran(TranSpec(stopTime: 1e-9, stepTime: 1e-12)),
                 probes: []
+            )
+        }
+    }
+
+    @Test("Oracle agreement rejects invalid numerical states")
+    func invalidAgreementStatesFailClosed() async throws {
+        #expect(throws: PostLayoutOracleAgreementError.self) {
+            _ = try PostLayoutProbeAgreement(
+                probe: "out",
+                maxAbsoluteDeltaV: .infinity,
+                sampleCount: 1
+            )
+        }
+        #expect(throws: PostLayoutOracleAgreementError.self) {
+            _ = try PostLayoutProbeAgreement(
+                probe: "out",
+                maxAbsoluteDeltaV: 0,
+                sampleCount: 0
+            )
+        }
+        #expect(throws: PostLayoutOracleAgreementError.self) {
+            _ = try PostLayoutOracleAgreement(probes: [], toleranceV: 0.1)
+        }
+        await #expect(throws: PostLayoutOracleAgreementError.self) {
+            _ = try await PostLayoutOracleService().crossCheck(
+                deck: "* tolerance validation must precede execution\n",
+                command: .tran(TranSpec(stopTime: 1e-9, stepTime: 1e-12)),
+                probes: ["out"],
+                toleranceV: .nan
+            )
+        }
+    }
+
+    @Test("Probe identity rejects case-insensitive duplicates before execution")
+    func caseInsensitiveDuplicateProbesFailBeforeExecution() async throws {
+        let lowercase = try PostLayoutProbeAgreement(
+            probe: "out",
+            maxAbsoluteDeltaV: 0,
+            sampleCount: 1
+        )
+        let uppercase = try PostLayoutProbeAgreement(
+            probe: "OUT",
+            maxAbsoluteDeltaV: 0,
+            sampleCount: 1
+        )
+        #expect(throws: PostLayoutOracleAgreementError.self) {
+            _ = try PostLayoutOracleAgreement(
+                probes: [lowercase, uppercase],
+                toleranceV: 0.1
+            )
+        }
+        await #expect(throws: PostLayoutOracleAgreementError.self) {
+            _ = try await PostLayoutOracleService().crossCheck(
+                deck: "* duplicate probes must fail before simulation\n",
+                command: .tran(TranSpec(stopTime: 1e-9, stepTime: 1e-12)),
+                probes: ["out", "OUT"],
+                toleranceV: 0.1
             )
         }
     }

@@ -8,6 +8,9 @@ enum WaiverArtifactKind {
 }
 
 struct AppliedWaiverEdit: Sendable, Hashable {
+    let targetPath: String
+    let beforeData: Data
+    let afterData: Data
     let beforeReference: ArtifactReference
     let afterReference: ArtifactReference
 }

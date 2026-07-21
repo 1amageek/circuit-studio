@@ -12,6 +12,7 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
     case waiverEditMissingWaiverID(proposalID: String)
     case waiverEditNoChange(proposalID: String)
     case waiverEditApplicationNotFound(waiverReviewID: String, proposalID: String)
+    case waiverEditVerificationReportMismatch(path: String)
     case waiverEditVerificationArtifactEscapesProject(path: String)
     case waiverEditVerificationDesignSpecNotFound(runID: String)
     case waiverEditVerificationLayoutDocumentNotFound(runID: String)
@@ -60,6 +61,8 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
             "Waiver edit proposal did not change the target file: \(proposalID)"
         case .waiverEditApplicationNotFound(let waiverReviewID, let proposalID):
             "Waiver edit proposal has not been applied in review \(waiverReviewID): \(proposalID)"
+        case .waiverEditVerificationReportMismatch(let path):
+            "The supplied verification report does not match the retained report file: \(path)"
         case .waiverEditVerificationArtifactEscapesProject(let path):
             "Waiver edit verification artifact is outside the project root: \(path)"
         case .waiverEditVerificationDesignSpecNotFound(let runID):

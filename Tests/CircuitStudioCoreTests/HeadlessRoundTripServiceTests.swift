@@ -689,12 +689,18 @@ struct HeadlessRoundTripServiceTests {
         #expect(manifest.bottleneckSummary?.recommendations.contains {
             $0.contains("configured design, signoff, and PEX artifact paths")
         } == true)
-        let canonicalManifest = try await XcircuiteWorkspaceStore(projectRoot: root)
-            .loadRunManifest(runID: "capture-directory")
+        let canonicalStore = try XcircuiteWorkspaceStore(projectRoot: root)
+        let canonicalManifest = try await canonicalStore.loadRunManifest(runID: "capture-directory")
         #expect(canonicalManifest.status == .failed)
         #expect(canonicalManifest.artifacts.contains {
             $0.artifactID == "round-trip-manifest"
         })
+        let canonicalLedger = try await canonicalStore.loadRunLedger(runID: "capture-directory")
+        #expect(canonicalLedger.stages.first {
+            $0.stageID == "input-artifact-capture"
+        }?.status == .failed)
+        #expect(canonicalLedger.evidence?.artifacts == canonicalLedger.artifacts)
+        #expect(canonicalLedger.evidence?.provenance.environment != nil)
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -799,11 +805,14 @@ struct HeadlessRoundTripServiceTests {
         )
         #expect(manifest.stages.first { $0.name == "external-signoff" }?.status == .failed)
         #expect(manifest.stages.first { $0.name == "pre-pex-verification" }?.status == .failed)
-        #expect(manifest.artifacts.map(\.path).contains { $0.hasSuffix("drc-mock-drc.log") })
+        #expect(manifest.artifacts.map(\.path).contains {
+            $0.contains("drc-mock-drc-") && $0.hasSuffix(".log")
+        })
         #expect(manifest.artifacts.contains {
             $0.kind == "external-signoff-review"
                 && $0.sourcePath?.hasSuffix(".xcircuite/signoff/external-signoff-review.json") == true
-                && $0.path.contains("input-artifacts/signoff/")
+                && $0.path.contains("generated-artifacts/signoff/")
+                && $0.reference.locator.role == .output
         })
         #expect(manifest.artifacts.contains {
             $0.kind == "pre-layout-simulation-report"
@@ -843,6 +852,67 @@ struct HeadlessRoundTripServiceTests {
         #expect(verificationReport.status == "failed")
         #expect(!verificationReport.readyForPEX)
         #expect(verificationReport.externalSignoff?.readyForPEX == false)
+        let canonicalLedger = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunLedger(runID: "pre-pex-failure")
+        #expect(canonicalLedger.runManifest.status == .failed)
+        #expect(canonicalLedger.artifacts.contains {
+            $0.path.contains("external-signoff") && $0.locator.role == .output
+        })
+        #expect(canonicalLedger.evidence?.provenance.inputs == canonicalLedger.artifacts.filter {
+            $0.locator.role == .input
+        })
+        #expect(canonicalLedger.stages.first { $0.stageID == "external-signoff" }?.artifacts.isEmpty == false)
+        #expect(canonicalLedger.toolchain?.stages.count == canonicalLedger.stages.count)
+        let provenance = try #require(canonicalLedger.evidence?.provenance)
+        #expect(provenance.producer.version.hasPrefix("sha256-"))
+        #expect(provenance.producer.version.count == 71)
+        #expect(provenance.supportingTools.allSatisfy {
+            $0.version.hasPrefix("sha256-") && $0.version.count == 71
+        })
+        #expect(provenance.supportingTools.filter {
+            ["corespice", "semiconductor-layout", "circuit-signoff"].contains($0.identifier)
+        }.allSatisfy { $0.kind == .library })
+        #expect(Set(provenance.supportingTools.filter { $0.kind == .tool }.map(\.identifier)) == [
+            "mock-drc",
+            "mock-lvs",
+        ])
+        #expect(!provenance.supportingTools.contains { $0.version == "unreported" })
+        let environment = try #require(provenance.environment)
+        #expect(environment.platform.hasPrefix("macos-"))
+        #expect(environment.architecture != "unknown")
+        #expect(environment.toolchain.contains("Swift version"))
+        #expect(environment.toolchain != "swift-6.3")
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func missingExternalSignoffFailsBeforePEX() async throws {
+        let root = try makeTemporaryRoot("missing-signoff")
+        defer { removeTemporaryRoot(root) }
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: "missing-signoff",
+            title: "Missing signoff is fail closed",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .op,
+            pexIR: smallPEXIR()
+        )
+
+        try await expectInvalidDesign(
+            "Pre-PEX verification gate failed.",
+            operation: {
+                _ = try await HeadlessRoundTripService().run(
+                    schematic: SchematicPreview.voltageDividerViewModel().document,
+                    configuration: configuration
+                )
+            }
+        )
+
+        let ledger = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunLedger(runID: "missing-signoff")
+        #expect(ledger.runManifest.status == .failed)
+        #expect(ledger.stages.first { $0.stageID == "external-signoff" }?.status == .failed)
+        #expect(!ledger.stages.contains { $0.stageID == "pex-injection" && $0.status == .succeeded })
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -917,9 +987,234 @@ struct HeadlessRoundTripServiceTests {
         #expect(manifest.stages.first { $0.name == "pex-injection" }?.status == .passed)
     }
 
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func requestedUnavailableOracleFailsCanonicalRun() async throws {
+        let root = try makeTemporaryRoot("oracle-unavailable")
+        defer { removeTemporaryRoot(root) }
+        let runID = "oracle-unavailable"
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: runID,
+            title: "Unavailable oracle failure",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .op,
+            pexIR: smallPEXIR(),
+            externalSignoffCommands: try makeSignoffCommands(in: root),
+            oracleProbes: ["out"]
+        )
+
+        do {
+            _ = try await HeadlessRoundTripService(
+                postLayoutOracle: TestPostLayoutOracle(outcome: .unavailable)
+            ).run(
+                schematic: SchematicPreview.voltageDividerViewModel().document,
+                configuration: configuration
+            )
+            Issue.record("Expected unavailable oracle failure.")
+        } catch StudioError.simulationFailure(let message) {
+            #expect(message == "The requested post-layout oracle is unavailable.")
+        } catch {
+            Issue.record("Expected typed simulation failure, got \(error).")
+        }
+
+        let manifest = try loadManifest(projectRoot: root, runID: runID)
+        assertFailureManifest(
+            manifest,
+            failedStage: "post-layout-oracle",
+            skippedStages: ["post-layout-comparison"],
+            isReadyForPEX: true
+        )
+        #expect(manifest.artifacts.contains { $0.kind == "post-layout-simulation-report" })
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func requestedInconsistentOracleFailsCanonicalRun() async throws {
+        let root = try makeTemporaryRoot("oracle-inconsistent")
+        defer { removeTemporaryRoot(root) }
+        let runID = "oracle-inconsistent"
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: runID,
+            title: "Inconsistent oracle failure",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .op,
+            pexIR: smallPEXIR(),
+            externalSignoffCommands: try makeSignoffCommands(in: root),
+            oracleProbes: ["out"]
+        )
+
+        do {
+            _ = try await HeadlessRoundTripService(
+                postLayoutOracle: TestPostLayoutOracle(outcome: .inconsistent)
+            ).run(
+                schematic: SchematicPreview.voltageDividerViewModel().document,
+                configuration: configuration
+            )
+            Issue.record("Expected inconsistent oracle failure.")
+        } catch StudioError.simulationFailure(let message) {
+            #expect(message.contains("CoreSpice vs ngspice"))
+        } catch {
+            Issue.record("Expected typed simulation failure, got \(error).")
+        }
+
+        let manifest = try loadManifest(projectRoot: root, runID: runID)
+        assertFailureManifest(
+            manifest,
+            failedStage: "post-layout-oracle",
+            skippedStages: ["post-layout-comparison"],
+            isReadyForPEX: true
+        )
+        let agreementArtifact = try #require(
+            manifest.artifacts.first { $0.kind == "post-layout-oracle-report" }
+        )
+        let agreement = try JSONDecoder().decode(
+            PostLayoutOracleAgreement.self,
+            from: Data(contentsOf: root.appending(path: ".xcircuite/runs/\(runID)/\(agreementArtifact.path)"))
+        )
+        #expect(!agreement.isConsistent)
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func requestedOracleExecutionErrorFailsCanonicalRun() async throws {
+        let root = try makeTemporaryRoot("oracle-error")
+        defer { removeTemporaryRoot(root) }
+        let runID = "oracle-error"
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: runID,
+            title: "Oracle execution failure",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .op,
+            pexIR: smallPEXIR(),
+            externalSignoffCommands: try makeSignoffCommands(in: root),
+            oracleProbes: ["out"]
+        )
+
+        do {
+            _ = try await HeadlessRoundTripService(
+                postLayoutOracle: TestPostLayoutOracle(outcome: .failure)
+            ).run(
+                schematic: SchematicPreview.voltageDividerViewModel().document,
+                configuration: configuration
+            )
+            Issue.record("Expected oracle execution failure.")
+        } catch is TestPostLayoutOracle.Failure {
+            // The canonical failed run retains the concrete oracle failure.
+        } catch {
+            Issue.record("Expected typed oracle failure, got \(error).")
+        }
+
+        let manifest = try loadManifest(projectRoot: root, runID: runID)
+        assertFailureManifest(
+            manifest,
+            failedStage: "post-layout-oracle",
+            skippedStages: ["post-layout-comparison"],
+            isReadyForPEX: true
+        )
+        #expect(manifest.artifacts.contains { $0.kind == "post-layout-simulation-report" })
+        #expect(!manifest.artifacts.contains { $0.kind == "post-layout-oracle-report" })
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func explicitlyEmptyOracleProbeSetFailsCanonicalRun() async throws {
+        let root = try makeTemporaryRoot("oracle-empty-probes")
+        defer { removeTemporaryRoot(root) }
+        let runID = "oracle-empty-probes"
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: runID,
+            title: "Empty oracle probe failure",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .op,
+            pexIR: smallPEXIR(),
+            externalSignoffCommands: try makeSignoffCommands(in: root),
+            oracleProbes: []
+        )
+
+        do {
+            _ = try await HeadlessRoundTripService(
+                postLayoutOracle: TestPostLayoutOracle(outcome: .unavailable)
+            ).run(
+                schematic: SchematicPreview.voltageDividerViewModel().document,
+                configuration: configuration
+            )
+            Issue.record("Expected an explicitly empty oracle probe set to fail.")
+        } catch PostLayoutOracleService.OracleError.noProbes {
+            // The explicit request must fail before availability or execution checks.
+        } catch {
+            Issue.record("Expected a typed no-probes failure, got \(error).")
+        }
+
+        let manifest = try loadManifest(projectRoot: root, runID: runID)
+        assertFailureManifest(
+            manifest,
+            failedStage: "post-layout-oracle",
+            skippedStages: ["input-artifact-capture", "post-layout-comparison"],
+            isReadyForPEX: false
+        )
+        #expect(manifest.artifacts.contains { $0.kind == "configuration-error-report" })
+        #expect(!manifest.artifacts.contains { $0.kind == "post-layout-simulation-report" })
+        let ledger = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunLedger(runID: runID)
+        #expect(ledger.runManifest.status == .failed)
+        #expect(ledger.stages.first { $0.stageID == "post-layout-oracle" }?.status == .failed)
+        #expect(ledger.stages.first { $0.stageID == "post-layout-oracle" }?.artifacts.contains {
+            $0.path.hasSuffix("/headless-configuration-error.json")
+        } == true)
+    }
+
     private struct RoundTripOutput {
         var result: HeadlessRoundTripService.Result
         var projectRoot: URL
+    }
+
+    private struct TestPostLayoutOracle: PostLayoutOracleChecking {
+        enum Outcome: Sendable {
+            case unavailable
+            case inconsistent
+            case failure
+        }
+
+        enum Failure: Error {
+            case executionFailed
+            case unavailableOracleWasExecuted
+        }
+
+        let outcome: Outcome
+
+        var isAvailable: Bool {
+            if case .unavailable = outcome { return false }
+            return true
+        }
+
+        func crossCheck(
+            deck: String,
+            command: AnalysisCommand,
+            probes: [String],
+            toleranceV: Double
+        ) async throws -> PostLayoutOracleAgreement {
+            switch outcome {
+            case .unavailable:
+                throw Failure.unavailableOracleWasExecuted
+            case .inconsistent:
+                return try PostLayoutOracleAgreement(
+                    probes: [
+                        try PostLayoutProbeAgreement(
+                            probe: probes.first ?? "out",
+                            maxAbsoluteDeltaV: 0.2,
+                            sampleCount: 10
+                        ),
+                    ],
+                    toleranceV: toleranceV
+                )
+            case .failure:
+                throw Failure.executionFailed
+            }
+        }
     }
 
     @MainActor
@@ -1011,13 +1306,14 @@ struct HeadlessRoundTripServiceTests {
         #expect(artifactPaths.contains { $0.hasSuffix("post-layout-simulation.json") })
         #expect(artifactPaths.contains { $0.hasSuffix("post-layout-waveform.csv") })
         #expect(artifactPaths.contains { $0.hasSuffix("post-layout-comparison.json") })
-        #expect(artifactPaths.contains { $0.hasSuffix("drc-mock-drc.log") })
-        #expect(artifactPaths.contains { $0.hasSuffix("lvs-mock-lvs.log") })
+        #expect(artifactPaths.contains { $0.contains("drc-mock-drc-") && $0.hasSuffix(".log") })
+        #expect(artifactPaths.contains { $0.contains("lvs-mock-lvs-") && $0.hasSuffix(".log") })
         #expect(artifactPaths.contains { $0.hasSuffix("external-signoff-review.json") })
         #expect(result.manifest.artifacts.contains {
             $0.kind == "external-signoff-review"
                 && $0.sourcePath?.hasSuffix(".xcircuite/signoff/external-signoff-review.json") == true
-                && $0.path.contains("input-artifacts/signoff/")
+                && $0.path.contains("generated-artifacts/signoff/")
+                && $0.reference.locator.role == .output
         })
         for artifact in result.manifest.artifacts {
             let integrity = LocalArtifactVerifier().verify(
@@ -1047,9 +1343,8 @@ struct HeadlessRoundTripServiceTests {
         let manifest = try decoder.decode(HeadlessRoundTripService.Manifest.self, from: manifestData)
         #expect(manifest == result.manifest)
 
-        let canonicalManifest = try await XcircuiteWorkspaceStore(
-            projectRoot: roundTrip.projectRoot
-        ).loadRunManifest(runID: result.manifest.runID)
+        let canonicalStore = try XcircuiteWorkspaceStore(projectRoot: roundTrip.projectRoot)
+        let canonicalManifest = try await canonicalStore.loadRunManifest(runID: result.manifest.runID)
         #expect(canonicalManifest.status == .succeeded)
         #expect(canonicalManifest.intent == result.manifest.title)
         let canonicalArtifactIDs = canonicalManifest.artifacts.compactMap(\.artifactID)
@@ -1062,6 +1357,18 @@ struct HeadlessRoundTripServiceTests {
         #expect(canonicalManifest.artifacts.contains {
             $0.path.hasSuffix("/post-layout-comparison.json")
         })
+        let canonicalLedger = try await canonicalStore.loadRunLedger(runID: result.manifest.runID)
+        #expect(!canonicalLedger.stages.isEmpty)
+        #expect(canonicalLedger.stages.allSatisfy { $0.status == .succeeded })
+        #expect(canonicalLedger.evidence?.artifacts == canonicalLedger.artifacts)
+        #expect(canonicalLedger.artifacts.contains {
+            $0.path.contains("external-signoff") && $0.locator.role == .output
+        })
+        #expect(canonicalLedger.evidence?.provenance.inputs == canonicalLedger.artifacts.filter {
+            $0.locator.role == .input
+        })
+        #expect(canonicalLedger.toolchain?.stages.count == canonicalLedger.stages.count)
+        #expect(canonicalLedger.evidence?.provenance.environment != nil)
 
         let review = try ExternalSignoffReviewStore().load(forProjectAt: roundTrip.projectRoot)
         #expect(review.approvedBy == "layout-reviewer")

@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "runID": { "value": "00000000-0000-0000-0000-000000000100" },
   "requestHash": { "value": "fixture" },
   "backendID": "golden-fixture",
@@ -37,7 +37,13 @@
               "algorithm": "sha256",
               "hexadecimalValue": "23ffadbcf1e1bb2ddcf69289c2c05193b0bd4ddf6de1ec867117b6aa3e69ba4b"
             },
-            "byteCount": 289
+            "byteCount": 289,
+            "producer": {
+              "kind": "engine",
+              "identifier": "golden-fixture-pex",
+              "version": "1.0.0",
+              "build": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
           }
         }
       },
@@ -63,7 +69,13 @@
               "algorithm": "sha256",
               "hexadecimalValue": "f9bf974701b5622f3ce8e3c1cf12183767a79b2f53df2546b1cd2fe973536b98"
             },
-            "byteCount": 1006
+            "byteCount": 1006,
+            "producer": {
+              "kind": "engine",
+              "identifier": "golden-fixture-pex",
+              "version": "1.0.0",
+              "build": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
           }
         }
       },
@@ -89,7 +101,13 @@
               "algorithm": "sha256",
               "hexadecimalValue": "55bcff438361d0766a90f07cc0c5531904e1c6f45c058644873527cada1dbb77"
             },
-            "byteCount": 101
+            "byteCount": 101,
+            "producer": {
+              "kind": "engine",
+              "identifier": "golden-fixture-pex",
+              "version": "1.0.0",
+              "build": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
           }
         }
       },
@@ -115,7 +133,13 @@
               "algorithm": "sha256",
               "hexadecimalValue": "59c3fe237acd49eec5446b4c5f8f0257e118fa39921b1022eb5fba71a499bd00"
             },
-            "byteCount": 289
+            "byteCount": 289,
+            "producer": {
+              "kind": "engine",
+              "identifier": "golden-fixture-pex",
+              "version": "1.0.0",
+              "build": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
           }
         }
       },
@@ -141,7 +165,13 @@
               "algorithm": "sha256",
               "hexadecimalValue": "072c5d6a9bd3acf0f5ba532c0243c302b0c66f991aeec3e304542f82c1da72d8"
             },
-            "byteCount": 1007
+            "byteCount": 1007,
+            "producer": {
+              "kind": "engine",
+              "identifier": "golden-fixture-pex",
+              "version": "1.0.0",
+              "build": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
           }
         }
       },
@@ -167,7 +197,13 @@
               "algorithm": "sha256",
               "hexadecimalValue": "38795603b4ae643f462db609f27fc4d42de77a3fbb4902a38ce7b4df7d928045"
             },
-            "byteCount": 102
+            "byteCount": 102,
+            "producer": {
+              "kind": "engine",
+              "identifier": "golden-fixture-pex",
+              "version": "1.0.0",
+              "build": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
           }
         }
       },
@@ -176,5 +212,51 @@
       "createdAt": "2026-05-07T00:00:00Z"
     }
   ],
-  "warnings": []
+  "warnings": [],
+  "backendExecutions": [],
+  "provenance": {
+    "producer": {
+      "kind": "engine",
+      "identifier": "golden-fixture-pex",
+      "version": "1.0.0",
+      "build": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "supportingTools": [],
+    "inputs": [
+      {
+        "id": "fixture-layout",
+        "locator": {
+          "location": {
+            "storage": "workspaceRelative",
+            "value": "inputs/layout.json"
+          },
+          "role": "input",
+          "kind": "layout",
+          "format": "json"
+        },
+        "digest": {
+          "algorithm": "sha256",
+          "hexadecimalValue": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+        },
+        "byteCount": 3,
+        "producer": {
+          "kind": "library",
+          "identifier": "golden-fixture-source",
+          "version": "1.0.0"
+        }
+      }
+    ],
+    "invocation": {
+      "mode": "inProcess",
+      "entryPoint": "CircuitStudioTests.GoldenPEXFixture",
+      "arguments": []
+    },
+    "environment": {
+      "platform": "macos",
+      "architecture": "arm64",
+      "toolchain": "golden-fixture"
+    },
+    "startedAt": "2026-05-07T00:00:00Z",
+    "completedAt": "2026-05-07T00:00:01Z"
+  }
 }

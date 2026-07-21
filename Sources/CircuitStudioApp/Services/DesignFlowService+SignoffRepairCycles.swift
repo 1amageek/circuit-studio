@@ -1,6 +1,8 @@
 import Foundation
 import CircuiteFoundation
 import CircuitStudioCore
+import DRCEngine
+import LVSEngine
 import Xcircuite
 import DesignFlowKernel
 
@@ -64,19 +66,34 @@ extension DesignFlowService {
         let artifactStore = XcircuitePlanningArtifactStore(workspaceStore: workspaceStore)
         let strategy = command.candidateStrategy ?? "first-ready-action-per-objective"
         let verificationMode = command.candidateVerificationMode ?? "post-execution"
-        let planning = try await RunReviewService().formulateSignoffRepairPlanningProblem(
+        let planning = if hasExplicitSignoffRepairPlanningInput(command) {
+            try await RunReviewService().formulateSignoffRepairPlanningProblem(
+                runID: runID,
+                drcRepairHintPath: command.drcRepairHintPath,
+                lvsRepairHintPath: command.lvsRepairHintPath,
+                formulationID: command.planningFormulationID,
+                intentID: command.planningIntentID,
+                intent: command.planningIntent,
+                problemID: command.planningProblemID,
+                actorKind: command.actionActorKind ?? .human,
+                actorIdentifier: reviewer,
+                note: command.approvalNote ?? "",
+                projectRoot: projectRoot
+            )
+        } else if let retained = try await retainedSignoffRepairPlanningResult(
             runID: runID,
-            drcRepairHintPath: command.drcRepairHintPath,
-            lvsRepairHintPath: command.lvsRepairHintPath,
-            formulationID: command.planningFormulationID,
-            intentID: command.planningIntentID,
-            intent: command.planningIntent,
-            problemID: command.planningProblemID,
-            actorKind: command.actionActorKind ?? .human,
-            actorIdentifier: reviewer,
-            note: command.approvalNote ?? "",
-            projectRoot: projectRoot
-        )
+            workspaceStore: workspaceStore
+        ) {
+            retained
+        } else {
+            try await RunReviewService().formulateSignoffRepairPlanningProblem(
+                runID: runID,
+                actorKind: command.actionActorKind ?? .human,
+                actorIdentifier: reviewer,
+                note: command.approvalNote ?? "",
+                projectRoot: projectRoot
+            )
+        }
         let generation = try await XcircuiteCandidatePlanGenerator(
             workspaceStore: workspaceStore,
             artifactStore: artifactStore
@@ -161,6 +178,7 @@ extension DesignFlowService {
         )
         let historySummaryArtifact = try await persistSignoffRepairCandidateCycleHistorySummary(
             historySummary,
+            cycleIndex: cycleIndex,
             runID: runID,
             workspaceStore: workspaceStore
         )
@@ -227,6 +245,132 @@ extension DesignFlowService {
         )
     }
 
+    private func hasExplicitSignoffRepairPlanningInput(_ command: DesignFlowCommand) -> Bool {
+        command.drcRepairHintPath != nil
+            || command.lvsRepairHintPath != nil
+            || command.planningFormulationID != nil
+            || command.planningIntentID != nil
+            || command.planningIntent != nil
+            || command.planningProblemID != nil
+    }
+
+    private func retainedSignoffRepairPlanningResult(
+        runID: String,
+        workspaceStore: XcircuiteWorkspaceStore
+    ) async throws -> RunReviewSignoffRepairPlanningResult? {
+        let actions = try await workspaceStore.loadRunActions(runID: runID)
+        guard let action = actions.last(where: {
+            $0.actionKind == "review.formulateSignoffRepairPlanningProblem" && $0.status == .succeeded
+        }) else {
+            return nil
+        }
+        guard let actionDomainArtifact = action.outputs.first(where: {
+            $0.artifactID == XcircuitePlanningArtifactStore.actionDomainArtifactID
+        }), let formulationArtifact = action.outputs.first(where: {
+            $0.artifactID == XcircuitePlanningArtifactStore.repairPlanFormulationArtifactID
+        }), let problemArtifact = action.outputs.first(where: {
+            $0.artifactID == XcircuitePlanningArtifactStore.problemArtifactID
+        }) else {
+            throw StudioError.projectLoadFailed(
+                "Retained signoff repair planning action is missing required output artifacts."
+            )
+        }
+        for reference in [actionDomainArtifact, formulationArtifact, problemArtifact] + action.inputs {
+            _ = try await workspaceStore.verify(reference)
+        }
+        let formulation = try await workspaceStore.readJSON(
+            XcircuiteRepairPlanFormulation.self,
+            from: formulationArtifact.path
+        )
+        let problem = try await workspaceStore.readJSON(
+            XcircuiteCircuitPlanningProblem.self,
+            from: problemArtifact.path
+        )
+        guard formulation.runID == runID, problem.runID == runID else {
+            throw StudioError.projectLoadFailed(
+                "Retained signoff repair planning artifacts do not match their run or problem identity."
+            )
+        }
+        let sourceReports = try await retainedSignoffRepairSourceReports(
+            action.inputs,
+            workspaceStore: workspaceStore
+        )
+        return RunReviewSignoffRepairPlanningResult(
+            runID: runID,
+            formulationID: formulation.formulationID,
+            problemID: problem.problemID,
+            drcRepairHintPath: action.inputs.first(where: { $0.artifactID == "drc-repair-hints" })?.path,
+            lvsRepairHintPath: action.inputs.first(where: { $0.artifactID == "lvs-repair-hints" })?.path,
+            actionDomainArtifact: actionDomainArtifact,
+            repairFormulationArtifact: formulationArtifact,
+            planningProblemArtifact: problemArtifact,
+            sourceReports: sourceReports,
+            actionRecord: action
+        )
+    }
+
+    private func retainedSignoffRepairSourceReports(
+        _ references: [ArtifactReference],
+        workspaceStore: XcircuiteWorkspaceStore
+    ) async throws -> [XcircuiteSignoffRepairFormulationResult.SourceReport] {
+        var reports: [XcircuiteSignoffRepairFormulationResult.SourceReport] = []
+        for reference in references {
+            switch reference.artifactID {
+            case "drc-repair-hints":
+                let report = try await workspaceStore.readJSON(DRCRepairHintReport.self, from: reference.path)
+                reports.append(signoffRepairSourceReport(kind: "drc", report: report, reference: reference))
+            case "lvs-repair-hints":
+                let report = try await workspaceStore.readJSON(LVSRepairHintReport.self, from: reference.path)
+                reports.append(signoffRepairSourceReport(kind: "lvs", report: report, reference: reference))
+            default:
+                continue
+            }
+        }
+        return reports.sorted { $0.sourceKind < $1.sourceKind }
+    }
+
+    private func signoffRepairSourceReport(
+        kind: String,
+        report: DRCRepairHintReport,
+        reference: ArtifactReference
+    ) -> XcircuiteSignoffRepairFormulationResult.SourceReport {
+        XcircuiteSignoffRepairFormulationResult.SourceReport(
+            sourceKind: kind,
+            path: reference.path,
+            backendID: report.backendID,
+            topCell: report.topCell,
+            status: report.status,
+            activeDiagnosticCount: report.activeDiagnosticCount,
+            hintCount: report.hintCount,
+            unsupportedDiagnosticCount: report.unsupportedDiagnosticIndexes.count,
+            artifactID: reference.artifactID,
+            sha256: reference.digest.hexadecimalValue,
+            byteCount: Int64(exactly: reference.byteCount),
+            integrityStatus: "verified"
+        )
+    }
+
+    private func signoffRepairSourceReport(
+        kind: String,
+        report: LVSRepairHintReport,
+        reference: ArtifactReference
+    ) -> XcircuiteSignoffRepairFormulationResult.SourceReport {
+        XcircuiteSignoffRepairFormulationResult.SourceReport(
+            sourceKind: kind,
+            path: reference.path,
+            backendID: report.backendID,
+            topCell: report.topCell,
+            status: report.status,
+            activeDiagnosticCount: report.activeDiagnosticCount,
+            hintCount: report.hintCount,
+            unsupportedDiagnosticCount: report.unsupportedDiagnosticIndexes.count,
+            artifactID: reference.artifactID,
+            sha256: reference.digest.hexadecimalValue,
+            byteCount: Int64(exactly: reference.byteCount),
+            integrityStatus: "verified"
+        )
+    }
+
     private func persistSignoffRepairCandidateCycle(
         _ cycle: RunReviewSignoffRepairCandidateCycleHistoryItem,
         runID: String,
@@ -236,42 +380,47 @@ extension DesignFlowService {
         let planningPath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/planning"
         try await workspaceStore.ensureWorkspaceDirectory(at: planningPath)
         let projectRelativePath = "\(planningPath)/\(filename)"
-        try await workspaceStore.writeJSON(cycle, to: projectRelativePath)
-        let reference = try await workspaceStore.makeArtifactReference(
-            forProjectRelativePath: projectRelativePath,
-            artifactID: "signoff-repair-candidate-cycle-\(cycle.cycleIndex)",
-            role: .output,
-            kind: .report,
-            format: .json
-        )
-        _ = try await FlowRunLedgerCoordinator(persistence: workspaceStore).register(
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try await workspaceStore.persistArtifact(
+            content: encoder.encode(cycle),
+            id: try ArtifactID(rawValue: "signoff-repair-candidate-cycle-\(cycle.cycleIndex)"),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: projectRelativePath),
+                role: .output,
+                kind: .report,
+                format: .json
+            ),
             runID: runID,
-            artifacts: [reference]
+            mode: .immutable
         )
-        return reference
     }
 
     private func persistSignoffRepairCandidateCycleHistorySummary(
         _ summary: RunReviewSignoffRepairCandidateCycleHistorySummary,
+        cycleIndex: Int,
         runID: String,
         workspaceStore: XcircuiteWorkspaceStore
     ) async throws -> ArtifactReference {
         let planningPath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/planning"
         try await workspaceStore.ensureWorkspaceDirectory(at: planningPath)
-        let projectRelativePath = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryRelativePath)"
-        try await workspaceStore.writeJSON(summary, to: projectRelativePath)
-        let reference = try await workspaceStore.makeArtifactReference(
-            forProjectRelativePath: projectRelativePath,
-            artifactID: XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID,
-            role: .output,
-            kind: .other,
-            format: .json
-        )
-        _ = try await FlowRunLedgerCoordinator(persistence: workspaceStore).register(
+        let projectRelativePath = "\(planningPath)/candidate-cycle-history/history-\(cycleIndex).json"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try await workspaceStore.persistArtifact(
+            content: encoder.encode(summary),
+            id: try ArtifactID(
+                rawValue: "\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID)-\(cycleIndex)"
+            ),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: projectRelativePath),
+                role: .output,
+                kind: .other,
+                format: .json
+            ),
             runID: runID,
-            artifacts: [reference]
+            mode: .immutable
         )
-        return reference
     }
 
     private func appendSignoffRepairCandidateCycleActionRecord(
@@ -297,7 +446,6 @@ extension DesignFlowService {
             execution.planExecutionArtifact,
             execution.designDiffArtifact,
             verification.planVerificationArtifact,
-            verification.rejectedPlansArtifact,
         ].compactMap { $0 } + execution.producedArtifacts
         let outputs = foundationOutputs + [historySummaryArtifact, cycleArtifact]
         let record = FlowRunActionRecord(

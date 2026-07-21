@@ -15,36 +15,7 @@ import CoreSpiceWaveform
 /// ngspice is optional evidence: `ngspiceAvailable()` reports whether a binary is
 /// reachable, so the caller can cross-check when it is present without a silent
 /// fallback when it is not.
-public struct PostLayoutOracleService: Sendable {
-
-    /// Per-probe agreement between CoreSpice and the ngspice oracle.
-    public struct ProbeAgreement: Sendable, Hashable, Codable {
-        public let probe: String
-        public let maxAbsoluteDeltaV: Double
-        public let sampleCount: Int
-
-        public init(probe: String, maxAbsoluteDeltaV: Double, sampleCount: Int) {
-            self.probe = probe
-            self.maxAbsoluteDeltaV = maxAbsoluteDeltaV
-            self.sampleCount = sampleCount
-        }
-    }
-
-    /// The overall CoreSpice-vs-ngspice agreement for a deck.
-    public struct Agreement: Sendable, Hashable, Codable {
-        public let probes: [ProbeAgreement]
-        public let toleranceV: Double
-
-        public init(probes: [ProbeAgreement], toleranceV: Double) {
-            self.probes = probes
-            self.toleranceV = toleranceV
-        }
-
-        /// The worst per-probe divergence (volts).
-        public var maxDivergenceV: Double { probes.map(\.maxAbsoluteDeltaV).max() ?? .infinity }
-        /// True when every probe agrees within tolerance.
-        public var consistent: Bool { !probes.isEmpty && maxDivergenceV <= toleranceV }
-    }
+public struct PostLayoutOracleService: Sendable, PostLayoutOracleChecking {
 
     public enum OracleError: Error, LocalizedError, Equatable {
         case noProbes
@@ -77,6 +48,10 @@ public struct PostLayoutOracleService: Sendable {
         self.external = external
     }
 
+    public var isAvailable: Bool {
+        Self.ngspiceAvailable()
+    }
+
     /// Whether an ngspice binary is reachable (`NGSPICE_BIN`, or `ngspice` on PATH).
     public static func ngspiceAvailable(
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -103,8 +78,11 @@ public struct PostLayoutOracleService: Sendable {
         command: AnalysisCommand,
         probes: [String],
         toleranceV: Double = 0.1
-    ) async throws -> Agreement {
+    ) async throws -> PostLayoutOracleAgreement {
         guard !probes.isEmpty else { throw OracleError.noProbes }
+        try PostLayoutOracleAgreement.validate(toleranceV: toleranceV)
+        let normalizedProbes = try PostLayoutOracleAgreement
+            .normalizedUniqueProbeNames(probes)
 
         // If the deck needs external models, CoreSpice's own runAnalysis would itself
         // route to ngspice — the cross-check would silently compare ngspice against
@@ -123,8 +101,8 @@ public struct PostLayoutOracleService: Sendable {
             command: command, cancellation: CancellationToken()
         )
 
-        var agreements: [ProbeAgreement] = []
-        for probe in probes {
+        var agreements: [PostLayoutProbeAgreement] = []
+        for probe in normalizedProbes {
             guard let cs = resolveProbe(probe, in: csWave) else {
                 throw OracleError.probeNotFound(probe: probe, tool: "CoreSpice")
             }
@@ -132,9 +110,13 @@ public struct PostLayoutOracleService: Sendable {
                 throw OracleError.probeNotFound(probe: probe, tool: "ngspice")
             }
             let (delta, count) = maxAbsoluteDelta(cs, ng)
-            agreements.append(ProbeAgreement(probe: probe, maxAbsoluteDeltaV: delta, sampleCount: count))
+            agreements.append(try PostLayoutProbeAgreement(
+                probe: probe,
+                maxAbsoluteDeltaV: delta,
+                sampleCount: count
+            ))
         }
-        return Agreement(probes: agreements, toleranceV: toleranceV)
+        return try PostLayoutOracleAgreement(probes: agreements, toleranceV: toleranceV)
     }
 
     // MARK: - waveform helpers

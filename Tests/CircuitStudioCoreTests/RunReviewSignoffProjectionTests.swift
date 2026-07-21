@@ -28,7 +28,6 @@ struct RunReviewSignoffProjectionTests {
         let simulationSummaryPath = fixture.simulationSummaryPath
         let preLayoutWaveformPath = fixture.preLayoutWaveformPath
         let postLayoutWaveformPath = fixture.postLayoutWaveformPath
-        let symlinkEscapePath = fixture.symlinkEscapePath
         let comparisonPath = fixture.comparisonPath
         let designSpecPath = fixture.designSpecPath
         let layoutDocumentPath = fixture.layoutDocumentPath
@@ -144,14 +143,6 @@ struct RunReviewSignoffProjectionTests {
                 projectRoot: root
             )
         }
-        await #expect(throws: RunReviewServiceError.artifactPreviewEscapesProject(path: symlinkEscapePath)) {
-            try await service.loadArtifactPreview(
-                runID: runID,
-                artifactPath: symlinkEscapePath,
-                projectRoot: root
-            )
-        }
-
         let lvs = try #require(review.signoff.cards.first { $0.domain == "LVS" })
         #expect(lvs.status == "mismatch")
         #expect(lvs.passed == false)
@@ -509,6 +500,11 @@ struct RunReviewSignoffProjectionTests {
         #expect(verificationResult.runID == runID)
         #expect(verificationResult.verificationReportPath?.hasSuffix(".xcircuite/runs/\(runID)/reports/physical-verification.json") == true)
         #expect(verificationResult.actionLogPath?.hasSuffix(".xcircuite/runs/\(runID)/actions.jsonl") == true)
+        #expect(verificationResult.verificationReport?.readyForPEX == false)
+        #expect(verificationResult.verificationReport?.drc.passed == true)
+        #expect(verificationResult.verificationReport?.lvs.passed == true)
+        #expect(verificationResult.verificationReport?.layoutTrust?.passed == true)
+        #expect(verificationResult.verificationReport?.externalSignoff == nil)
         let actionRecordIDs = try #require(verificationResult.actionRecordIDs)
         #expect(actionRecordIDs.count == 2)
         #expect(actionRecordIDs.first?.hasPrefix("waiver-edit-proposal-application-") == true)
@@ -552,10 +548,15 @@ struct RunReviewSignoffProjectionTests {
         #expect(approvedWaiver.editVerifications.first?.proposalID == "remove-obsolete-drc-waiver")
         #expect(approvedWaiver.editVerifications.first?.actor == "agent-1")
         #expect(approvedWaiver.editVerifications.first?.status == verificationResult.verificationReport?.status)
-        #expect(approvedWaiver.editVerifications.first?.verificationReportPath.hasSuffix(".xcircuite/runs/\(runID)/reports/physical-verification.json") == true)
+        #expect(approvedWaiver.editVerifications.first?.verificationReportPath.contains(
+            ".xcircuite/runs/\(runID)/review/waiver-edits/remove-obsolete-drc-waiver/verification-"
+        ) == true)
         #expect(approvedWaiver.editVerifications.first?.applicationActionID == approvedWaiver.editApplications.first?.actionRecordID)
-        #expect(approvedWaiver.editVerifications.first?.planningFeedbackStatus == "accepted-no-rejected-plan")
-        #expect(approvedWaiver.editVerifications.first?.rejectedPlansPath == nil)
+        #expect(approvedWaiver.editVerifications.first?.planningFeedbackStatus == "rejected-plan-recorded")
+        #expect(
+            approvedWaiver.editVerifications.first?.rejectedPlansPath
+                == ".xcircuite/runs/\(runID)/planning/rejected-plans.jsonl"
+        )
         #expect(approvedWaiver.editVerifications.first?.note == "Apply waiver cleanup and re-run DRC/LVS.")
         let approvedVerificationSummary = try #require(approvedWaiver.editVerifications.first?.reportSummary)
         #expect(approvedVerificationSummary.status == verificationResult.verificationReport?.status)
@@ -623,12 +624,14 @@ struct RunReviewSignoffProjectionTests {
         #expect(failedVerificationAction.actionKind == "review.verifyWaiverEditProposal")
         #expect(failedVerificationAction.context.reviewDecision?.decision == "rejected-plan-recorded")
         #expect(failedVerificationAction.context.iterationID?.hasPrefix("waiver-edit-proposal-application-") == true)
-        #expect(failedVerificationAction.outputs.contains { $0.artifactID == "planning-rejected-plans" })
+        #expect(!failedVerificationAction.outputs.contains { $0.artifactID == "planning-rejected-plans" })
         #expect(failedVerificationAction.outputs.contains {
-            $0.path == ".xcircuite/runs/\(runID)/planning/waiver-edit-feedback/remove-obsolete-drc-waiver/candidate-plan.json"
+            $0.path.hasPrefix(".xcircuite/runs/\(runID)/planning/waiver-edit-feedback/remove-obsolete-drc-waiver/verifications/") &&
+                $0.path.hasSuffix("/candidate-plan.json")
         })
         #expect(failedVerificationAction.outputs.contains {
-            $0.path == ".xcircuite/runs/\(runID)/planning/waiver-edit-feedback/remove-obsolete-drc-waiver/plan-verification.json"
+            $0.path.hasPrefix(".xcircuite/runs/\(runID)/planning/waiver-edit-feedback/remove-obsolete-drc-waiver/verifications/") &&
+                $0.path.hasSuffix("/plan-verification.json")
         })
 
         let rejectedPlansPath = ".xcircuite/runs/\(runID)/planning/rejected-plans.jsonl"
@@ -648,8 +651,10 @@ struct RunReviewSignoffProjectionTests {
             "post-waiver-edit-drc",
             "post-waiver-edit-ready-for-pex",
         ])
-        #expect(rejectedPlan.candidatePlanRef.path == ".xcircuite/runs/\(runID)/planning/waiver-edit-feedback/remove-obsolete-drc-waiver/candidate-plan.json")
-        #expect(rejectedPlan.planVerificationRef.path == ".xcircuite/runs/\(runID)/planning/waiver-edit-feedback/remove-obsolete-drc-waiver/plan-verification.json")
+        #expect(rejectedPlan.candidatePlanRef.path.hasPrefix(".xcircuite/runs/\(runID)/planning/waiver-edit-feedback/remove-obsolete-drc-waiver/verifications/"))
+        #expect(rejectedPlan.candidatePlanRef.path.hasSuffix("/candidate-plan.json"))
+        #expect(rejectedPlan.planVerificationRef.path.hasPrefix(".xcircuite/runs/\(runID)/planning/waiver-edit-feedback/remove-obsolete-drc-waiver/verifications/"))
+        #expect(rejectedPlan.planVerificationRef.path.hasSuffix("/plan-verification.json"))
         #expect(rejectedPlan.diagnostics.map(\.code) == [
             "DRC_POST_WAIVER_EDIT_FAILED",
             "POST_WAIVER_EDIT_READY_FOR_PEX_FAILED",
@@ -689,8 +694,8 @@ struct RunReviewSignoffProjectionTests {
         #expect(cycleResult.candidateGeneration.status == "generated")
         let cycleTrace = try #require(cycleResult.candidateGeneration.symbolicPlannerTrace)
         #expect(cycleTrace.rejectedPlansPath == rejectedPlansPath)
-        #expect(cycleTrace.rejectedPlanFeedbackRecordCount == 1)
-        #expect(cycleTrace.globalRejectedPlanFeedbackCount == 1)
+        #expect(cycleTrace.rejectedPlanFeedbackRecordCount == 2)
+        #expect(cycleTrace.globalRejectedPlanFeedbackCount == 2)
         #expect(candidateCycle.candidateAccepted == cycleResult.candidateVerification.accepted)
         let planningProblemPath = try #require(candidateCycle.planningProblemPath)
         let candidateCyclePlanningProblem = try JSONDecoder().decode(
@@ -705,8 +710,8 @@ struct RunReviewSignoffProjectionTests {
         #expect(commandHistorySummary.notAcceptedCount == (cycleResult.candidateVerification.accepted ? 0 : 1))
         #expect(commandHistorySummary.latestCycleIndex == 1)
         #expect(commandHistorySummary.latestAccepted == .some(cycleResult.candidateVerification.accepted))
-        #expect(commandHistorySummary.consumedRejectedPlanFeedbackRecordCount == 1)
-        #expect(commandHistorySummary.maximumGlobalRejectedPlanFeedbackCount == 1)
+        #expect(commandHistorySummary.consumedRejectedPlanFeedbackRecordCount == 2)
+        #expect(commandHistorySummary.maximumGlobalRejectedPlanFeedbackCount == 2)
         #expect(commandHistorySummary.selectedActionIDs == cycleTrace.selectedActionIDs)
         #expect(commandHistorySummary.selectedActionDomainIDs == RunReviewTestSupport.selectedActionDomainIDs(from: cycleTrace))
         #expect(
@@ -743,8 +748,8 @@ struct RunReviewSignoffProjectionTests {
         #expect(retainedHistoryIndex.cycleCount == commandHistorySummary.cycleCount)
         #expect(retainedHistoryIndex.acceptedCount == commandHistorySummary.acceptedCount)
         #expect(retainedHistoryIndex.notAcceptedCount == commandHistorySummary.notAcceptedCount)
-        #expect(retainedHistoryIndex.consumedRejectedPlanFeedbackRecordCount == 1)
-        #expect(retainedHistoryIndex.maximumGlobalRejectedPlanFeedbackCount == 1)
+        #expect(retainedHistoryIndex.consumedRejectedPlanFeedbackRecordCount == 2)
+        #expect(retainedHistoryIndex.maximumGlobalRejectedPlanFeedbackCount == 2)
         #expect(retainedHistoryIndex.feedbackRankChangeCount == commandHistorySummary.feedbackRankChangeCount)
         #expect(retainedHistoryIndex.feedbackScoreDeltaCount == commandHistorySummary.feedbackScoreDeltaCount)
         #expect(retainedHistoryIndex.selectedActionDomainIDs == commandHistorySummary.selectedActionDomainIDs)
@@ -753,13 +758,38 @@ struct RunReviewSignoffProjectionTests {
         #expect(retainedHistoryIndex.feedbackRankChangedActionIDs == commandHistorySummary.feedbackRankChangedActionIDs)
         #expect(retainedHistoryIndex.feedbackScoreDeltaActionIDs == commandHistorySummary.feedbackScoreDeltaActionIDs)
         #expect(retainedHistoryIndex.runs.first?.runID == runID)
-        #expect(retainedHistoryIndex.runs.first?.summaryPath == ".xcircuite/runs/\(runID)/planning/candidate-cycle-history-summary.json")
+        #expect(retainedHistoryIndex.runs.first?.summaryPath == ".xcircuite/runs/\(runID)/planning/candidate-cycle-history/history-1.json")
         if let designDiffPath = candidateCycle.designDiffPath {
             #expect(FileManager.default.fileExists(atPath: designDiffPath))
         }
         if let cycleRejectedPlansPath = candidateCycle.rejectedPlansPath {
             #expect(FileManager.default.fileExists(atPath: cycleRejectedPlansPath))
         }
+
+        let secondCandidateCycle = try await DesignFlowService().execute(DesignFlowCommand(
+            kind: .runSignoffRepairCandidateCycle,
+            projectRootPath: root.path(percentEncoded: false),
+            runID: runID,
+            approvalReviewer: "agent-1",
+            approvalNote: "Run the next candidate cycle from retained planning evidence.",
+            actionActorKind: .agent
+        ))
+        let secondCycleResult = try #require(secondCandidateCycle.signoffRepairCandidateCycleResult)
+        #expect(secondCycleResult.cycleIndex == 2)
+        #expect(secondCycleResult.candidateGeneration.candidatePlanArtifact.path.hasPrefix(
+            ".xcircuite/runs/\(runID)/planning/generated-candidate-plans/"
+        ))
+        #expect(secondCycleResult.candidateGeneration.symbolicPlannerTraceArtifact?.path.hasPrefix(
+            ".xcircuite/runs/\(runID)/planning/generated-symbolic-planner-traces/"
+        ) == true)
+        let secondHistorySummary = try #require(
+            secondCandidateCycle.signoffRepairCandidateCycleHistorySummary
+        )
+        #expect(secondHistorySummary.cycleCount == 2)
+        #expect(secondHistorySummary.latestCycleIndex == 2)
+        #expect(secondCandidateCycle.candidateCycleHistorySummaryPath?.hasSuffix(
+            "/planning/candidate-cycle-history/history-2.json"
+        ) == true)
 
         let cycleActions = try await XcircuiteWorkspaceStore(projectRoot: root)
             .loadRunActions(runID: runID)
@@ -770,9 +800,16 @@ struct RunReviewSignoffProjectionTests {
         })
         #expect(cycleSummaryAction.outputs.contains { $0.artifactID == "planning-plan-verification" })
         #expect(cycleSummaryAction.outputs.contains {
-            $0.artifactID == XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID
+            $0.artifactID == "\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID)-1"
         })
         #expect(cycleSummaryAction.context.iterationID == "1")
+        #expect(cycleActions.contains {
+            $0.actionKind == "review.runSignoffRepairCandidateCycle"
+                && $0.context.iterationID == "2"
+                && $0.outputs.contains {
+                    $0.artifactID == "\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID)-2"
+                }
+        })
         let cycleArtifact = try #require(cycleSummaryAction.outputs.first {
             $0.artifactID == "signoff-repair-candidate-cycle-1"
         })
@@ -780,8 +817,8 @@ struct RunReviewSignoffProjectionTests {
             RunReviewSignoffRepairCandidateCycleHistoryItem.self,
             from: Data(contentsOf: root.appending(path: cycleArtifact.path))
         )
-        #expect(persistedCycle.rejectedPlanFeedbackRecordCount == 1)
-        #expect(persistedCycle.globalRejectedPlanFeedbackCount == 1)
+        #expect(persistedCycle.rejectedPlanFeedbackRecordCount == 2)
+        #expect(persistedCycle.globalRejectedPlanFeedbackCount == 2)
         #expect(persistedCycle.selectedActionIDs == cycleTrace.selectedActionIDs)
         #expect(persistedCycle.selectedActionDomainIDs == RunReviewTestSupport.selectedActionDomainIDs(from: cycleTrace))
         #expect(persistedCycle.selectedObjectiveDomainIDs == RunReviewTestSupport.selectedObjectiveDomainIDs(from: cycleTrace, problem: candidateCyclePlanningProblem))
@@ -790,8 +827,9 @@ struct RunReviewSignoffProjectionTests {
         #expect(persistedCycle.feedbackScoreDeltas == RunReviewTestSupport.feedbackScoreDeltas(from: cycleTrace))
 
         let reloadedReview = try await RunReviewService().loadRun(runID: runID, projectRoot: root)
-        #expect(reloadedReview.signoff.repairCandidateCycles.count == 1)
+        #expect(reloadedReview.signoff.repairCandidateCycles.count == 2)
         let projectedCycle = try #require(reloadedReview.signoff.repairCandidateCycles.first)
+        let projectedSecondCycle = try #require(reloadedReview.signoff.repairCandidateCycles.last)
         #expect(projectedCycle.actionID == cycleSummaryAction.actionID)
         #expect(projectedCycle.cycleIndex == 1)
         #expect(projectedCycle.status == cycleSummaryAction.status)
@@ -801,8 +839,8 @@ struct RunReviewSignoffProjectionTests {
         #expect(projectedCycle.verificationStatus == cycleResult.candidateVerification.status)
         #expect(projectedCycle.accepted == cycleResult.candidateVerification.accepted)
         #expect(projectedCycle.rejectedPlansPath == rejectedPlansPath)
-        #expect(projectedCycle.rejectedPlanFeedbackRecordCount == 1)
-        #expect(projectedCycle.globalRejectedPlanFeedbackCount == 1)
+        #expect(projectedCycle.rejectedPlanFeedbackRecordCount == 2)
+        #expect(projectedCycle.globalRejectedPlanFeedbackCount == 2)
         #expect(projectedCycle.selectedActionIDs == cycleTrace.selectedActionIDs)
         #expect(projectedCycle.selectedActionDomainIDs == RunReviewTestSupport.selectedActionDomainIDs(from: cycleTrace))
         #expect(
@@ -817,21 +855,43 @@ struct RunReviewSignoffProjectionTests {
         #expect(projectedCycle.planVerificationArtifact?.path == cycleResult.candidateVerification.planVerificationArtifact.path)
         #expect(projectedCycle.rejectedPlansArtifact?.path == cycleResult.candidateVerification.rejectedPlansArtifact?.path)
         #expect(projectedCycle.designDiffArtifact?.path == cycleResult.candidateExecution.designDiffArtifact?.path)
+        #expect(projectedSecondCycle.cycleIndex == 2)
+        #expect(projectedSecondCycle.planID == secondCycleResult.candidateGeneration.planID)
+        #expect(projectedSecondCycle.generationStatus == secondCycleResult.candidateGeneration.status)
+        #expect(projectedSecondCycle.executionStatus == secondCycleResult.candidateExecution.status)
+        #expect(projectedSecondCycle.verificationStatus == secondCycleResult.candidateVerification.status)
+        #expect(projectedSecondCycle.accepted == secondCycleResult.candidateVerification.accepted)
+        #expect(
+            projectedSecondCycle.candidatePlanArtifact?.path
+                == secondCycleResult.candidateGeneration.candidatePlanArtifact.path
+        )
+        #expect(
+            projectedSecondCycle.planExecutionArtifact?.path
+                == secondCycleResult.candidateExecution.planExecutionArtifact.path
+        )
+        #expect(
+            projectedSecondCycle.planVerificationArtifact?.path
+                == secondCycleResult.candidateVerification.planVerificationArtifact.path
+        )
 
         let projectedHistorySummary = reloadedReview.signoff.repairCandidateCycleHistorySummary
-        #expect(projectedHistorySummary.cycleCount == 1)
-        #expect(projectedHistorySummary.acceptedCount == (projectedCycle.accepted ? 1 : 0))
-        #expect(projectedHistorySummary.notAcceptedCount == (projectedCycle.accepted ? 0 : 1))
-        #expect(projectedHistorySummary.latestCycleIndex == 1)
-        #expect(projectedHistorySummary.latestAccepted == .some(projectedCycle.accepted))
-        #expect(projectedHistorySummary.consumedRejectedPlanFeedbackRecordCount == 1)
-        #expect(projectedHistorySummary.maximumGlobalRejectedPlanFeedbackCount == 1)
-        #expect(projectedHistorySummary.selectedActionIDs == projectedCycle.selectedActionIDs)
-        #expect(projectedHistorySummary.selectedActionDomainIDs == projectedCycle.selectedActionDomainIDs)
-        #expect(projectedHistorySummary.selectedObjectiveDomainIDs == projectedCycle.selectedObjectiveDomainIDs)
-        #expect(projectedHistorySummary.feedbackPenalizedActionIDs == projectedCycle.feedbackPenalizedActionIDs)
-        #expect(projectedHistorySummary.feedbackRankChangeCount == projectedCycle.feedbackRankChanges.count)
-        #expect(projectedHistorySummary.feedbackScoreDeltaCount == projectedCycle.feedbackScoreDeltas.count)
+        #expect(projectedHistorySummary == secondHistorySummary)
+    }
+
+    @Test @MainActor func artifactPreviewRejectsSymlinkEscape() async throws {
+        let fixture = try await RunReviewSignoffFixture.make(includeSymlinkEscape: true)
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
+
+        await #expect(throws: RunReviewServiceError.artifactPreviewEscapesProject(
+            path: fixture.symlinkEscapePath
+        )) {
+            try await fixture.service.loadArtifactPreview(
+                runID: fixture.runID,
+                artifactPath: fixture.symlinkEscapePath,
+                projectRoot: fixture.root
+            )
+        }
     }
 
     @Test @MainActor func signoffSummaryRequiresVerifiedIntegrity() async throws {

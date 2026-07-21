@@ -159,6 +159,12 @@ extension RunReviewView {
             return "waveform.path.ecg"
         case .postLayout:
             return "rectangle.connected.to.line.below"
+        case .release:
+            return "shippingbox"
+        case .authorization:
+            return "person.badge.shield.checkmark"
+        case .tapeout:
+            return "opticaldisc"
         case .waveform:
             return "waveform.path"
         }

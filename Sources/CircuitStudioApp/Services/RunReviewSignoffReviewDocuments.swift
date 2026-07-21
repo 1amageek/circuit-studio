@@ -9,6 +9,27 @@ enum SignoffArtifactKind {
     case simulationMetric
     case simulationMeasurement
     case postLayoutComparison
+    case signoffBundle
+    case releaseAuthorization
+    case tapeoutResult
+    case foundryHandoff
+}
+
+enum RunReviewReleaseDocumentError: Error, LocalizedError {
+    case unsupportedSchema(document: String, actual: Int, expected: Int)
+    case invalidContent(document: String, reason: String)
+    case producerMismatch(document: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedSchema(let document, let actual, let expected):
+            "Unsupported \(document) schema version \(actual); expected \(expected)."
+        case .invalidContent(let document, let reason):
+            "Invalid \(document) content: \(reason)"
+        case .producerMismatch(let document):
+            "The \(document) artifact producer does not match its typed execution provenance."
+        }
+    }
 }
 
 struct DRCReviewDocument: Decodable {

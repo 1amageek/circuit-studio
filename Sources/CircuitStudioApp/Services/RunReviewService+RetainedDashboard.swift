@@ -4,7 +4,7 @@ import DesignFlowKernel
 
 extension RunReviewService {
     static let retainedDashboardArtifactID = "retained-dashboard-projection"
-    static let retainedDashboardRelativePath = "review/retained-dashboard-projection.json"
+    static let retainedDashboardRelativePath = "review/retained-dashboard"
 
     func retainedDashboardProjection(
         bundle: FlowRunReviewBundle
@@ -71,23 +71,56 @@ extension RunReviewService {
                 workspaceID: try await workspaceID(store: store)
             )
         let projection = retainedDashboardProjection(bundle: bundle)
-        let relativePath = ".xcircuite/runs/\(runID)/\(Self.retainedDashboardRelativePath)"
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(projection)
-        return try await store.persistArtifact(
-            content: data,
-            id: try ArtifactID(rawValue: Self.retainedDashboardArtifactID),
+        let digest = try SHA256ContentDigester().digest(data: data, using: .sha256)
+        let relativePath = ".xcircuite/runs/\(runID)/\(Self.retainedDashboardRelativePath)/\(digest.hexadecimalValue).json"
+        let reference = ArtifactReference(
+            id: try ArtifactID(rawValue: "\(Self.retainedDashboardArtifactID)-\(digest.hexadecimalValue)"),
             locator: ArtifactLocator(
                 location: try ArtifactLocation(workspaceRelativePath: relativePath),
                 role: .output,
-                kind: .other,
+                kind: .report,
                 format: .json
             ),
-            runID: runID,
-            mode: .replaceable
+            digest: digest,
+            byteCount: UInt64(data.count)
         )
+        let inputs = bundle.artifacts
+            .filter { !Self.isRetainedDashboardProjectionArtifact($0) }
+            .map(\.reference)
+            .sorted { lhs, rhs in
+                if lhs.path != rhs.path { return lhs.path < rhs.path }
+                return lhs.artifactID < rhs.artifactID
+            }
+        let actionID = "retained-dashboard-\(digest.hexadecimalValue)"
+        let ledger = try await store.loadRunLedger(runID: runID)
+        let createdAt = ledger.actions.first { $0.actionID == actionID }?.createdAt ?? Date()
+        let action = FlowRunActionRecord(
+            actionID: actionID,
+            runID: runID,
+            actor: FlowRunActor(kind: .system, identifier: "circuit-studio"),
+            actionKind: "review.persist-retained-dashboard",
+            status: .succeeded,
+            inputs: inputs,
+            outputs: [reference],
+            diagnostics: [
+                FlowRunDiagnostic(
+                    severity: .info,
+                    code: "retained-dashboard-snapshot-persisted",
+                    message: "Persisted a content-addressed retained-dashboard review snapshot."
+                ),
+            ],
+            createdAt: createdAt
+        )
+        _ = try await store.appendActionArtifact(
+            content: data,
+            reference: reference,
+            action: action
+        )
+        return reference
     }
 
     private static func isRetainedDashboardArtifact(_ artifact: FlowRunReviewArtifact) -> Bool {
@@ -104,6 +137,13 @@ extension RunReviewService {
         default:
             return false
         }
+    }
+
+    private static func isRetainedDashboardProjectionArtifact(
+        _ artifact: FlowRunReviewArtifact
+    ) -> Bool {
+        artifact.reference.artifactID.hasPrefix("\(retainedDashboardArtifactID)-")
+            || artifact.reference.path.contains("/\(retainedDashboardRelativePath)/")
     }
 
     private static func diagnosticsByArtifactPath(

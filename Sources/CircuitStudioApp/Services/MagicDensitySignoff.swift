@@ -86,7 +86,7 @@ public struct MagicDensitySignoff: Sendable {
     /// Throws on a tool error or an incomplete run — a failure is never a silent clean pass.
     public func run(cell: String, gds: URL?, window: DensityWindow, artifactDirectory: URL) async throws -> DensityReport {
         let command = command(cell: cell, gds: gds, layers: window.layers, artifactDirectory: artifactDirectory)
-        let result = try await ExternalSignoffCommandService().run(command: command, artifactDirectory: artifactDirectory)
+        let result = try await ExternalSignoffCommandRunner().run(command: command, artifactDirectory: artifactDirectory)
         let logPath = result.logURL.path(percentEncoded: false)
         let output = result.standardOutput + "\n" + result.standardError
 

@@ -38,7 +38,11 @@ struct RunReviewSignoffFixture {
     let review: RunReviewService.RunReview
 
     @MainActor
-    static func make() async throws -> Self {
+    static func make(
+        includeSymlinkEscape: Bool = false,
+        additionalArtifacts: [ArtifactReference] = [],
+        additionalArtifactPayloads: [String: Data] = [:]
+    ) async throws -> Self {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("run-review-signoff-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -68,6 +72,8 @@ struct RunReviewSignoffFixture {
         let retainedSignoffReportPath = "\(rawPrefix)/retained-signoff-report.json"
         let drcOracleLaneReportPath = "\(rawPrefix)/oracle/drc-external-oracle-report.json"
         let waiverSourcePath = "signoff/waivers/drc-waivers.json"
+        let preLayoutWaveformData = Data("time,v(out),v(in)\n0,0,1\n1e-9,0.9,0\n".utf8)
+        let postLayoutWaveformData = Data("time,v(out),v(in)\n0,0,1\n1e-9,1,0\n".utf8)
         try FileManager.default.createDirectory(
             at: root.appending(path: waiverSourcePath).deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -98,7 +104,7 @@ struct RunReviewSignoffFixture {
             catalog: .standard()
         ))
 
-        let artifacts = [
+        var artifacts = [
             try RunReviewTestSupport.artifactReference(artifactID: "drc-summary", path: drcPath, kind: .report, format: .json),
             try RunReviewTestSupport.artifactReference(artifactID: "drc-raw-log", path: drcLogPath, kind: .report, format: .text),
             try RunReviewTestSupport.artifactReference(artifactID: "drc-repair-hints", path: drcRepairHintPath, kind: .report, format: .json),
@@ -121,12 +127,14 @@ struct RunReviewSignoffFixture {
             try RunReviewTestSupport.artifactReference(
                 artifactID: "pre-layout-waveform",
                 path: preLayoutWaveformPath,
+                payload: preLayoutWaveformData,
                 kind: .waveform,
                 format: .csv
             ),
             try RunReviewTestSupport.artifactReference(
                 artifactID: "post-layout-waveform",
                 path: postLayoutWaveformPath,
+                payload: postLayoutWaveformData,
                 kind: .waveform,
                 format: .csv
             ),
@@ -160,6 +168,50 @@ struct RunReviewSignoffFixture {
                 format: .json
             ),
         ]
+        let comparisonInputs = artifacts.filter {
+            $0.id.rawValue == "pre-layout-waveform" || $0.id.rawValue == "post-layout-waveform"
+        }
+        let comparisonTimestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let comparisonReportData = try JSONEncoder().encode(PostLayoutComparisonReport(
+            status: "completed",
+            preLayoutPointCount: 10,
+            postLayoutPointCount: 10,
+            sweepVariable: "time",
+            comparedPointCount: 10,
+            maxAbsoluteDelta: 0.25,
+            maxRelativeDelta: 0.5,
+            comparedVariables: [
+                PostLayoutVariableComparison(
+                    variableName: "v(out)",
+                    pointCount: 10,
+                    maxAbsoluteDelta: 0.25,
+                    maxRelativeDelta: 0.5
+                ),
+            ],
+            requiredPostVariables: [],
+            oscillationMetrics: [],
+            missingInPostLayout: [],
+            addedInPostLayout: [],
+            diagnostics: ["ringing observed"],
+            gateStatus: "failed",
+            gateViolations: ["max relative delta exceeded"],
+            provenance: ExecutionProvenance(
+                producer: ProducerIdentity(
+                    kind: .engine,
+                    identifier: "post-layout-comparison",
+                    version: "1.0.0"
+                ),
+                inputs: comparisonInputs,
+                invocation: .inProcess(entryPoint: "RunReviewSignoffFixture.postLayoutComparison"),
+                environment: ExecutionEnvironmentFingerprint(
+                    platform: "test",
+                    architecture: "test",
+                    toolchain: "fixture"
+                ),
+                startedAt: comparisonTimestamp,
+                completedAt: comparisonTimestamp
+            )
+        ))
         let pexManifestURLString = root
             .appending(path: "\(rawPrefix)/pex-artifact-manifest.json")
             .absoluteString
@@ -207,7 +259,7 @@ struct RunReviewSignoffFixture {
             }
             """.utf8
         )
-        let payloads: [String: Data] = [
+        var payloads: [String: Data] = [
             drcPath: Data(
                 """
                 {
@@ -371,7 +423,7 @@ struct RunReviewSignoffFixture {
             drcRepairHintPath: Data(
                 """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 1,
                   "status": "ready",
                   "reportURL": null,
                   "backendID": "native-drc",
@@ -497,8 +549,9 @@ struct RunReviewSignoffFixture {
                 """.utf8
             ),
             pexPath: pexPayload,
-            preLayoutWaveformPath: Data("time,v(out),v(in)\n0,0,1\n1e-9,0.9,0\n".utf8),
-            postLayoutWaveformPath: Data("time,v(out),v(in)\n0,0,1\n1e-9,1,0\n".utf8),
+            preLayoutWaveformPath: preLayoutWaveformData,
+            postLayoutWaveformPath: postLayoutWaveformData,
+            symlinkEscapePath: Data("artifact replaced after terminal finalization\n".utf8),
             simulationSummaryPath: Data(
                 """
                 {
@@ -525,35 +578,7 @@ struct RunReviewSignoffFixture {
                 ]
                 """.utf8
             ),
-            comparisonPath: Data(
-                """
-                {
-                  "schemaVersion": 1,
-                  "status": "completed",
-                  "preLayoutPointCount": 10,
-                  "postLayoutPointCount": 10,
-                  "sweepVariable": "time",
-                  "comparedPointCount": 10,
-                  "maxAbsoluteDelta": 0.25,
-                  "maxRelativeDelta": 0.5,
-                  "comparedVariables": [
-                    {
-                      "variableName": "v(out)",
-                      "pointCount": 10,
-                      "maxAbsoluteDelta": 0.25,
-                      "maxRelativeDelta": 0.5
-                    }
-                  ],
-                  "requiredPostVariables": [],
-                  "oscillationMetrics": [],
-                  "missingInPostLayout": [],
-                  "addedInPostLayout": [],
-                  "diagnostics": ["ringing observed"],
-                  "gateStatus": "failed",
-                  "gateViolations": ["max relative delta exceeded"]
-                }
-                """.utf8
-            ),
+            comparisonPath: comparisonReportData,
             designSpecPath: try RunReviewTestSupport.encodedJSONData(designSpec),
             layoutDocumentPath: try RunReviewTestSupport.encodedJSONData(layoutOutput.document),
             designUnitPath: try RunReviewTestSupport.encodedJSONData(layoutOutput.designUnit),
@@ -886,6 +911,15 @@ struct RunReviewSignoffFixture {
             ),
         ]
 
+        for artifact in additionalArtifacts {
+            let path = artifact.locator.location.value
+            guard let payload = additionalArtifactPayloads[path] else {
+                throw RunReviewTestSupportError.missingArtifactPayload(path: path)
+            }
+            artifacts.append(artifact)
+            payloads[path] = payload
+        }
+
         _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
             request: FlowOperationRequest(
                 workspaceID: try await RunReviewTestSupport.workspaceID(projectRoot: root),
@@ -906,12 +940,15 @@ struct RunReviewSignoffFixture {
         try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
         let outsideArtifact = outsideRoot.appending(path: "outside.log")
         try Data("outside artifact\n".utf8).write(to: outsideArtifact, options: .atomic)
-        let symlinkURL = root.appending(path: symlinkEscapePath)
-        try FileManager.default.createDirectory(
-            at: symlinkURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: outsideArtifact)
+        if includeSymlinkEscape {
+            let symlinkURL = root.appending(path: symlinkEscapePath)
+            try FileManager.default.createDirectory(
+                at: symlinkURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.removeItem(at: symlinkURL)
+            try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: outsideArtifact)
+        }
 
         let service = RunReviewService()
         let review = try await service.loadRun(runID: runID, projectRoot: root)

@@ -28,10 +28,39 @@ enum DesignFlowServiceTestSupport {
             startedAt: timestamp,
             finishedAt: timestamp
         )
-        try await store.saveRunLedger(FlowRunLedger(
+        let stageID = "failure-stage"
+        let stage = FlowStageResult(
+            stageID: stageID,
+            status: .failed,
+            gates: [FlowGateResult(gateID: "execution", status: .failed)]
+        )
+        let toolchain = FlowToolchainManifest(
+            runID: runID,
+            stages: [
+                FlowToolchainStageRecord(
+                    stageID: stageID,
+                    executorToolID: "circuit-studio-tests"
+                ),
+            ]
+        )
+        let evidence = EvidenceManifest(
+            provenance: try ExecutionProvenance(
+                producer: ProducerIdentity(
+                    kind: .library,
+                    identifier: "circuit-studio-tests",
+                    version: "development"
+                ),
+                startedAt: timestamp,
+                completedAt: timestamp
+            ),
+            artifacts: []
+        )
+        _ = try await store.saveRunLedger(FlowRunLedger(
             runID: runID,
             runManifest: manifest,
-            stages: []
+            stages: [stage],
+            toolchain: toolchain,
+            evidence: evidence
         ))
     }
 
@@ -74,10 +103,13 @@ enum DesignFlowServiceTestSupport {
     static func writePEXArtifacts(runDirectory: URL) throws {
         let rawDirectory = runDirectory.appending(path: "raw").appending(path: "tt_25c_1v0")
         let irDirectory = runDirectory.appending(path: "ir")
+        let inputDirectory = runDirectory.appending(path: "inputs")
         try FileManager.default.createDirectory(at: rawDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: irDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: inputDirectory, withIntermediateDirectories: true)
         let spefData = Data("mock spef".utf8)
         let logData = Data("mock log".utf8)
+        let inputData = Data("{}".utf8)
         let irData = Data("""
         {
           "version": "1.0",
@@ -100,8 +132,15 @@ enum DesignFlowServiceTestSupport {
         try spefData.write(to: rawDirectory.appending(path: "top.spef"), options: .atomic)
         try logData.write(to: rawDirectory.appending(path: "extraction.log"), options: .atomic)
         try irData.write(to: irDirectory.appending(path: "tt_25c_1v0.json"), options: .atomic)
+        try inputData.write(to: inputDirectory.appending(path: "layout.json"), options: .atomic)
         let cornerID = PEXCornerID("tt_25c_1v0")
         let createdAt = Date(timeIntervalSince1970: 1_778_112_000)
+        let producer = try ProducerIdentity(
+            kind: .engine,
+            identifier: "mock-pexengine",
+            version: "1.0.0",
+            build: String(repeating: "a", count: 64)
+        )
         func artifactRecord(
             id: String,
             kind: PEXArtifactKind,
@@ -123,7 +162,8 @@ enum DesignFlowServiceTestSupport {
                     algorithm: .sha256,
                     hexadecimalValue: PEXRequestHash.compute(from: data).value
                 ),
-                byteCount: UInt64(data.count)
+                byteCount: UInt64(data.count),
+                producer: producer
             )
             return PEXArtifactRecord(
                 payload: .available(reference),
@@ -162,6 +202,22 @@ enum DesignFlowServiceTestSupport {
         guard let runUUID = UUID(uuidString: "00000000-0000-0000-0000-000000000300") else {
             throw StudioError.projectLoadFailed("Invalid PEX fixture run ID")
         }
+        let inputArtifact = ArtifactReference(
+            id: try ArtifactID(rawValue: "layout-input"),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: "inputs/layout.json"),
+                role: .input,
+                kind: .layout,
+                format: .json
+            ),
+            digest: try SHA256ContentDigester().digest(data: inputData),
+            byteCount: UInt64(inputData.count),
+            producer: try ProducerIdentity(
+                kind: .library,
+                identifier: "circuit-studio-pex-fixture",
+                version: "1.0.0"
+            )
+        )
         let manifest = PEXArtifactManifest(
             runID: PEXRunID(runUUID),
             requestHash: PEXRequestHash("fixture"),
@@ -177,7 +233,21 @@ enum DesignFlowServiceTestSupport {
                 )
             ],
             artifacts: artifacts,
-            warnings: []
+            warnings: [],
+            provenance: try ExecutionProvenance(
+                producer: producer,
+                inputs: [inputArtifact],
+                invocation: try .inProcess(
+                    entryPoint: "CircuitStudioTests.DesignFlowServiceTestSupport.writePEXArtifacts"
+                ),
+                environment: try ExecutionEnvironmentFingerprint(
+                    platform: "macos",
+                    architecture: "arm64",
+                    toolchain: "mock-pexengine"
+                ),
+                startedAt: createdAt,
+                completedAt: createdAt.addingTimeInterval(1)
+            )
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

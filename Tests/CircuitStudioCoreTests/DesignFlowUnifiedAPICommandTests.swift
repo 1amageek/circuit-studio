@@ -87,7 +87,9 @@ struct DesignFlowUnifiedAPICommandTests {
         #expect(layout.unroutedNets.isEmpty)
         #expect(verification.drc.passed)
         #expect(verification.lvs.passed)
-        #expect(verification.isReadyForPEX)
+        #expect(verification.isLocalPreflightPassing)
+        #expect(verification.externalSignoff == nil)
+        #expect(!verification.isReadyForPEX)
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -108,7 +110,7 @@ struct DesignFlowUnifiedAPICommandTests {
             catalog: .standard()
         ))
 
-        if !verification.isReadyForPEX {
+        if !verification.isLocalPreflightPassing {
             Issue.record("Auto-layout DRC violations: \(layout.drcResult.violations.map(\.message).joined(separator: " | "))")
             Issue.record("Auto-layout DRC details: \(layout.drcResult.violations.map { "\($0.kind.rawValue) layer=\($0.layer?.name ?? "-") region=\($0.region) nets=\($0.netIDs)" }.joined(separator: " | "))")
             Issue.record("Auto-layout via neighborhood: \(viaNeighborhoodSummary(layout.document, around: layout.drcResult.violations.first?.region))")
@@ -119,7 +121,9 @@ struct DesignFlowUnifiedAPICommandTests {
         #expect(layout.unroutedNets.isEmpty)
         #expect(verification.drc.passed)
         #expect(verification.lvs.passed)
-        #expect(verification.isReadyForPEX)
+        #expect(verification.isLocalPreflightPassing)
+        #expect(verification.externalSignoff == nil)
+        #expect(!verification.isReadyForPEX)
     }
 
     private func viaNeighborhoodSummary(_ document: LayoutDocument, around region: LayoutRect?) -> String {

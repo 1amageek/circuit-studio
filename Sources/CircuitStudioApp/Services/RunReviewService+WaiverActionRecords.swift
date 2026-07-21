@@ -55,30 +55,48 @@ extension RunReviewService {
 
     func waiverEditApplicationsByReviewID(
         from actions: [FlowRunActionRecord]
-    ) -> [String: [RunReviewWaiverEditApplication]] {
+    ) throws -> [String: [RunReviewWaiverEditApplication]] {
         var applications: [String: [RunReviewWaiverEditApplication]] = [:]
         for action in actions where action.actionKind == RunReviewWaiverEditApplication.actionKind {
-            guard let context = action.context.reviewDecision,
-                  context.kind == .waiver,
-                  let proposalID = context.targetPath,
-                  let before = action.inputs.last,
-                  let after = action.outputs.first
+            guard let decision = action.context.reviewDecision,
+                  decision.kind == .waiver,
+                  let edit = action.context.artifactEdit,
+                  edit.proposalID.isEmpty == false,
+                  edit.targetPath.isEmpty == false,
+                  edit.operation.isEmpty == false,
+                  action.inputs.count == 2,
+                  action.outputs.count == 1
             else {
-                continue
+                throw RunReviewServiceError.invalidArtifactReference(
+                    path: action.outputs.first?.path ?? action.inputs.last?.path ?? action.actionID,
+                    message: "Waiver edit action has an invalid typed artifact-edit contract."
+                )
             }
-            applications[context.targetID, default: []].append(
+            let before = action.inputs[1]
+            let after = action.outputs[0]
+            guard before.locator.role == .output,
+                  after.locator.role == .output,
+                  before.digest != after.digest,
+                  decision.targetPath == edit.proposalID,
+                  decision.decision == edit.operation else {
+                throw RunReviewServiceError.invalidArtifactReference(
+                    path: edit.targetPath,
+                    message: "Waiver edit action references do not match its typed edit context."
+                )
+            }
+            applications[decision.targetID, default: []].append(
                 RunReviewWaiverEditApplication(
                     actionRecordID: action.actionID,
                     runID: action.runID,
                     actor: action.actor.identifier,
-                    waiverReviewID: context.targetID,
-                    proposalID: proposalID,
-                    targetPath: after.path,
-                    operation: context.decision,
+                    waiverReviewID: decision.targetID,
+                    proposalID: edit.proposalID,
+                    targetPath: edit.targetPath,
+                    operation: edit.operation,
                     beforeSHA256: before.digest.hexadecimalValue,
                     afterSHA256: after.digest.hexadecimalValue,
                     appliedAt: action.createdAt,
-                    note: context.reason
+                    note: decision.reason
                 )
             )
         }
@@ -93,13 +111,29 @@ extension RunReviewService {
         for action in actions where action.actionKind == RunReviewWaiverEditVerification.actionKind {
             guard let context = action.context.reviewDecision,
                   context.kind == .waiver,
-                  let proposalID = context.targetPath,
+                  let edit = action.context.artifactEdit,
+                  context.targetPath == edit.proposalID,
                   let applicationActionID = action.context.iterationID,
                   let verificationArtifact = action.outputs.first(where: {
-                      $0.artifactID == "post-waiver-edit-physical-verification"
+                      $0.artifactID.hasPrefix("post-waiver-edit-physical-verification-")
                   })
             else {
-                continue
+                throw RunReviewServiceError.invalidArtifactReference(
+                    path: action.outputs.first?.path ?? action.actionID,
+                    message: "Waiver edit verification action has an invalid typed artifact-edit contract."
+                )
+            }
+            guard let applicationAction = actions.first(where: {
+                $0.actionID == applicationActionID
+                    && $0.actionKind == RunReviewWaiverEditApplication.actionKind
+            }),
+            let appliedReference = applicationAction.outputs.first,
+            action.inputs.contains(appliedReference),
+            applicationAction.context.artifactEdit == edit else {
+                throw RunReviewServiceError.invalidArtifactReference(
+                    path: edit.targetPath,
+                    message: "Waiver edit verification is not bound to its exact application output."
+                )
             }
             let reportURL = projectRoot.appending(path: verificationArtifact.path)
             let report = try JSONDecoder().decode(
@@ -107,18 +141,18 @@ extension RunReviewService {
                 from: Data(contentsOf: reportURL)
             )
             let layoutTrustPath = action.outputs.first(where: {
-                $0.artifactID == "post-waiver-edit-layout-trust"
+                $0.artifactID.hasPrefix("post-waiver-edit-layout-trust-")
             })?.path
-            let rejectedPlansPath = action.outputs.first(where: {
-                $0.artifactID == XcircuitePlanningArtifactStore.rejectedPlansArtifactID
-            })?.path
+            let rejectedPlansPath = context.decision == "rejected-plan-recorded"
+                ? ".xcircuite/runs/\(action.runID)/\(XcircuitePlanningArtifactStore.rejectedPlansRelativePath)"
+                : nil
             verifications[context.targetID, default: []].append(
                 RunReviewWaiverEditVerification(
                     actionRecordID: action.actionID,
                     runID: action.runID,
                     actor: action.actor.identifier,
                     waiverReviewID: context.targetID,
-                    proposalID: proposalID,
+                    proposalID: edit.proposalID,
                     applicationActionID: applicationActionID,
                     verificationReportPath: verificationArtifact.path,
                     layoutTrustReportPath: layoutTrustPath,

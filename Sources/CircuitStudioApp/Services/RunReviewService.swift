@@ -325,7 +325,10 @@ public struct RunReviewService: Sendable {
         let recorder = DefaultFlowGateApprovalRecorder(
             loader: loader,
             inspector: DefaultFlowRunLedgerInspector(reviewBundler: bundler),
-            ledgerPersistence: store
+            approvalPersistence: store,
+            artifactLocationValidator: DefaultFlowRunArtifactLocationValidator(
+                storagePrefix: ".xcircuite"
+            )
         )
         let gateVerdict: FlowGateApprovalVerdict = switch verdict {
         case .approved: .approved

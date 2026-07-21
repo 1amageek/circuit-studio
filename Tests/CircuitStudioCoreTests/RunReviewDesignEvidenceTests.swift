@@ -38,37 +38,25 @@ struct RunReviewDesignEvidenceTests {
 
     @MainActor
     @Test func waveformProjectionSamplesTheWholeArtifact() async throws {
-        let fixture = try await RunReviewSignoffFixture.make()
-        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
-        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
-
-        let path = ".xcircuite/runs/\(fixture.runID)/analysis-waveform.csv"
+        let runID = "run-signoff"
+        let path = ".xcircuite/runs/\(runID)/analysis-waveform.csv"
         let rows = (0..<5_000).map { index in
             "\(index),\(index.isMultiple(of: 2) ? 0 : 1)"
         }
         let data = Data((["time,V(out)"] + rows).joined(separator: "\n").utf8)
-        let url = fixture.root.appending(path: path)
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        let reference = try RunReviewTestSupport.artifactReference(
+            artifactID: "analysis-waveform",
+            path: path,
+            payload: data,
+            kind: .waveform,
+            format: .csv
         )
-        try data.write(to: url, options: .atomic)
-        let reference = ArtifactReference(
-            id: try ArtifactID(rawValue: "analysis-waveform"),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: path),
-                role: .output,
-                kind: .waveform,
-                format: .csv
-            ),
-            digest: try SHA256ContentDigester().digest(data: data, using: .sha256),
-            byteCount: UInt64(data.count)
+        let fixture = try await RunReviewSignoffFixture.make(
+            additionalArtifacts: [reference],
+            additionalArtifactPayloads: [path: data]
         )
-        let store = try XcircuiteWorkspaceStore(projectRoot: fixture.root)
-        _ = try await FlowRunLedgerCoordinator(persistence: store).register(
-            runID: fixture.runID,
-            artifacts: [reference]
-        )
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
 
         let review = try await fixture.service.loadRun(
             runID: fixture.runID,

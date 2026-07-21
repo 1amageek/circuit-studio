@@ -22,19 +22,26 @@ public final class HeadlessRoundTripService {
         "pre-pex-verification",
         "pex-injection",
         "post-layout-simulation",
+        "post-layout-oracle",
         "post-layout-comparison",
     ]
 
     private let layoutEngineCatalog: any LayoutEngineCataloging
     private let workspaceStoreFactory: @Sendable (URL) throws -> XcircuiteWorkspaceStore
+    private let signoffCommandRunner: any SignoffCommandRunning
+    private let postLayoutOracle: any PostLayoutOracleChecking
 
     public init(
         layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog(),
+        signoffCommandRunner: any SignoffCommandRunning = ExternalSignoffCommandRunner(),
+        postLayoutOracle: any PostLayoutOracleChecking = PostLayoutOracleService(),
         workspaceStoreFactory: @escaping @Sendable (URL) throws -> XcircuiteWorkspaceStore = {
             try XcircuiteWorkspaceStore(projectRoot: $0)
         }
     ) {
         self.layoutEngineCatalog = layoutEngineCatalog
+        self.signoffCommandRunner = signoffCommandRunner
+        self.postLayoutOracle = postLayoutOracle
         self.workspaceStoreFactory = workspaceStoreFactory
     }
 
@@ -68,8 +75,9 @@ public final class HeadlessRoundTripService {
             runManifest: initialManifest,
             stages: []
         )
-        try await ledgerStore.saveRunLedger(initialLedger)
-        _ = try await FlowRunLedgerCoordinator(persistence: ledgerStore).transition(
+        let coordinator = FlowRunLedgerCoordinator(persistence: ledgerStore)
+        _ = try await coordinator.create(initialLedger)
+        _ = try await coordinator.transition(
             runID: configuration.runID,
             to: .running,
             at: configuration.createdAt
@@ -104,6 +112,85 @@ public final class HeadlessRoundTripService {
     ) async throws -> Result {
         var stages: [Stage] = []
         var artifacts: [Artifact] = []
+        do {
+            return try await executeRunSteps(
+                schematic: schematic,
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: &artifacts
+            )
+        } catch {
+            let store = try workspaceStoreFactory(configuration.projectRoot)
+            let ledger = try await store.loadRunLedger(runID: configuration.runID)
+            guard ledger.runManifest.status == .running else {
+                throw error
+            }
+            if !stages.contains(where: { $0.status == .failed }) {
+                stages.append(Stage(
+                    name: "headless-run",
+                    status: .failed,
+                    message: error.localizedDescription
+                ))
+            }
+            try await failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
+    }
+
+    private func executeRunSteps(
+        schematic: SchematicDocument,
+        configuration: Configuration,
+        runDirectory: URL,
+        stages: inout [Stage],
+        artifacts: inout [Artifact]
+    ) async throws -> Result {
+        if let probes = configuration.oracleProbes, probes.isEmpty {
+            let error = PostLayoutOracleService.OracleError.noProbes
+            let failureURL = runDirectory.appending(
+                path: "headless-configuration-error.json"
+            )
+            try writeJSON(
+                UncaughtFailure(
+                    runID: configuration.runID,
+                    reason: error.localizedDescription,
+                    errorType: String(describing: type(of: error)),
+                    recordedAt: configuration.createdAt
+                ),
+                to: failureURL
+            )
+            artifacts.append(try artifact(
+                kind: "configuration-error-report",
+                url: failureURL,
+                runDirectory: runDirectory
+            ))
+            stages.append(contentsOf: Self.orderedStageNames
+                .prefix { $0 != "post-layout-oracle" }
+                .map { name in
+                    Stage(
+                        name: name,
+                        status: .skipped,
+                        message: "not executed because oracle probe configuration is invalid"
+                    )
+                })
+            stages.append(Stage(
+                name: "post-layout-oracle",
+                status: .failed,
+                message: error.localizedDescription
+            ))
+            try await failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
         let inputArtifactCaptureStartedAt = Date()
         do {
             let capturedArtifacts = try captureInputArtifacts(
@@ -282,12 +369,59 @@ public final class HeadlessRoundTripService {
             )
         }
 
-        let externalSignoff: ExternalSignoffReview?
+        let externalSignoffExecution: (
+            review: ExternalSignoffReview,
+            supportingTools: [ProducerIdentity],
+            results: [ExternalSignoffCommandResult],
+            evidenceURL: URL?,
+            artifactRole: ArtifactRole
+        )?
         let externalSignoffStartedAt = Date()
         do {
-            externalSignoff = try await runExternalSignoffIfNeeded(
+            externalSignoffExecution = try await runExternalSignoffIfNeeded(
                 configuration: configuration,
                 runDirectory: runDirectory
+            )
+        } catch let error as ExternalSignoffBatchError {
+            let completedTools = error.completedResults.map(\.provenance.producer)
+            let failedTools = error.failedProducer.map { [$0] } ?? []
+            do {
+                artifacts.append(contentsOf: try captureExternalSignoffExecutionArtifacts(
+                    reports: error.completedResults.map(\.report),
+                    results: error.completedResults,
+                    evidenceURL: error.evidenceURL,
+                    role: .output,
+                    runDirectory: runDirectory
+                ))
+            } catch {
+                stages.append(Stage(
+                    name: "external-signoff",
+                    status: .failed,
+                    message: error.localizedDescription,
+                    durationSeconds: duration(since: externalSignoffStartedAt)
+                ))
+                try await failRun(
+                    configuration: configuration,
+                    runDirectory: runDirectory,
+                    stages: &stages,
+                    artifacts: artifacts,
+                    externallyExecutedTools: completedTools + failedTools,
+                    error: error
+                )
+            }
+            stages.append(Stage(
+                name: "external-signoff",
+                status: .failed,
+                message: error.localizedDescription,
+                durationSeconds: duration(since: externalSignoffStartedAt)
+            ))
+            try await failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                externallyExecutedTools: completedTools + failedTools,
+                error: error
             )
         } catch {
             stages.append(Stage(
@@ -304,22 +438,35 @@ public final class HeadlessRoundTripService {
                 error: error
             )
         }
+        let externalSignoff = externalSignoffExecution?.review
+        let externalSignoffSupportingTools = externalSignoffExecution?.supportingTools ?? []
         if let externalSignoff {
             do {
-                artifacts.append(contentsOf: try captureInputArtifacts(
-                    paths: externalSignoff.reports.map(\.logPath),
-                    kind: "external-signoff-log",
-                    runDirectory: runDirectory,
-                    subdirectory: "signoff"
+                artifacts.append(contentsOf: try captureExternalSignoffExecutionArtifacts(
+                    reports: externalSignoff.reports,
+                    results: externalSignoffExecution?.results ?? [],
+                    evidenceURL: externalSignoffExecution?.evidenceURL,
+                    role: externalSignoffExecution?.artifactRole ?? .output,
+                    runDirectory: runDirectory
                 ))
                 let reviewURL = ExternalSignoffReviewStore()
                     .reviewURL(forProjectAt: configuration.projectRoot)
-                artifacts.append(contentsOf: try captureInputArtifacts(
-                    paths: [reviewURL.path(percentEncoded: false)],
-                    kind: "external-signoff-review",
-                    runDirectory: runDirectory,
-                    subdirectory: "signoff"
-                ))
+                let reviewArtifacts = if externalSignoffExecution?.artifactRole == .input {
+                    try captureInputArtifacts(
+                        paths: [reviewURL.path(percentEncoded: false)],
+                        kind: "external-signoff-review",
+                        runDirectory: runDirectory,
+                        subdirectory: "signoff"
+                    )
+                } else {
+                    try captureGeneratedArtifacts(
+                        paths: [reviewURL.path(percentEncoded: false)],
+                        kind: "external-signoff-review",
+                        runDirectory: runDirectory,
+                        subdirectory: "signoff"
+                    )
+                }
+                artifacts.append(contentsOf: reviewArtifacts)
                 stages.append(Stage(
                     name: "external-signoff",
                     status: externalSignoff.isReadyForPEX ? .passed : .failed,
@@ -338,9 +485,17 @@ public final class HeadlessRoundTripService {
                     runDirectory: runDirectory,
                     stages: &stages,
                     artifacts: artifacts,
+                    externallyExecutedTools: externalSignoffSupportingTools,
                     error: error
                 )
             }
+        } else {
+            stages.append(Stage(
+                name: "external-signoff",
+                status: .failed,
+                message: "retained external DRC/LVS signoff evidence is required",
+                durationSeconds: duration(since: externalSignoffStartedAt)
+            ))
         }
 
         let prePEXVerificationStartedAt = Date()
@@ -372,6 +527,7 @@ public final class HeadlessRoundTripService {
                 isReadyForPEX: verification.isReadyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
+                externallyExecutedTools: externalSignoffSupportingTools,
                 error: error
             )
         }
@@ -381,13 +537,14 @@ public final class HeadlessRoundTripService {
             message: verification.isReadyForPEX ? nil : prePEXFailureMessage(verification),
             durationSeconds: duration(since: prePEXVerificationStartedAt)
         ))
-        if !verification.isReadyForPEX && !configuration.continueAfterFailedPrePEXGate {
+        if !verification.isReadyForPEX {
             try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
                 isReadyForPEX: verification.isReadyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
+                externallyExecutedTools: externalSignoffSupportingTools,
                 error: StudioError.invalidDesign("Pre-PEX verification gate failed.")
             )
         }
@@ -427,6 +584,7 @@ public final class HeadlessRoundTripService {
                 isReadyForPEX: verification.isReadyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
+                externallyExecutedTools: externalSignoffSupportingTools,
                 error: error
             )
         }
@@ -437,6 +595,7 @@ public final class HeadlessRoundTripService {
                 isReadyForPEX: verification.isReadyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
+                externallyExecutedTools: externalSignoffSupportingTools,
                 error: StudioError.invalidDesign("Headless round trip requires non-empty PEX IR.")
             )
         }
@@ -463,6 +622,7 @@ public final class HeadlessRoundTripService {
                 isReadyForPEX: verification.isReadyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
+                externallyExecutedTools: externalSignoffSupportingTools,
                 error: error
             )
         }
@@ -472,38 +632,6 @@ public final class HeadlessRoundTripService {
             message: postLayoutResult.status.rawValue,
             durationSeconds: duration(since: postLayoutSimulationStartedAt)
         ))
-
-        // Optional independent-oracle cross-check: run the SAME post-layout deck in
-        // ngspice and record how far CoreSpice diverges. Opt-in (oracleProbes) and
-        // only when ngspice is reachable — evidence when available, no silent
-        // fallback when it is not.
-        if let probes = configuration.oracleProbes, !probes.isEmpty,
-           PostLayoutOracleService.ngspiceAvailable() {
-            let oracleStartedAt = Date()
-            do {
-                let agreement = try await PostLayoutOracleService().crossCheck(
-                    deck: postLayoutNetlist,
-                    command: configuration.postLayoutCommand,
-                    probes: probes
-                )
-                stages.append(Stage(
-                    name: "post-layout-oracle",
-                    status: agreement.consistent ? .passed : .failed,
-                    message: String(
-                        format: "CoreSpice vs ngspice max ΔV = %.4f V (tol %.3f)",
-                        agreement.maxDivergenceV, agreement.toleranceV
-                    ),
-                    durationSeconds: duration(since: oracleStartedAt)
-                ))
-            } catch {
-                stages.append(Stage(
-                    name: "post-layout-oracle",
-                    status: .failed,
-                    message: "oracle cross-check error: \(error.localizedDescription)",
-                    durationSeconds: duration(since: oracleStartedAt)
-                ))
-            }
-        }
         do {
             try await persistSimulationArtifacts(
                 postLayoutResult,
@@ -518,6 +646,7 @@ public final class HeadlessRoundTripService {
                 isReadyForPEX: verification.isReadyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
+                externallyExecutedTools: externalSignoffSupportingTools,
                 error: error
             )
         }
@@ -528,8 +657,91 @@ public final class HeadlessRoundTripService {
                 isReadyForPEX: verification.isReadyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
+                externallyExecutedTools: externalSignoffSupportingTools,
                 error: StudioError.simulationFailure("Post-layout simulation did not complete.")
             )
+        }
+
+        // An explicitly requested independent-oracle cross-check is a required gate.
+        // Omitting oracleProbes keeps the normal local flow independent of ngspice.
+        if let probes = configuration.oracleProbes {
+            let oracleStartedAt = Date()
+            guard postLayoutOracle.isAvailable else {
+                let error = StudioError.simulationFailure(
+                    "The requested post-layout oracle is unavailable."
+                )
+                stages.append(Stage(
+                    name: "post-layout-oracle",
+                    status: .failed,
+                    message: error.localizedDescription,
+                    durationSeconds: duration(since: oracleStartedAt)
+                ))
+                try await failRun(
+                    configuration: configuration,
+                    runDirectory: runDirectory,
+                    isReadyForPEX: verification.isReadyForPEX,
+                    stages: &stages,
+                    artifacts: artifacts,
+                    externallyExecutedTools: externalSignoffSupportingTools,
+                    error: error
+                )
+            }
+            let agreement: PostLayoutOracleAgreement
+            do {
+                agreement = try await postLayoutOracle.crossCheck(
+                    deck: postLayoutNetlist,
+                    command: configuration.postLayoutCommand,
+                    probes: probes,
+                    toleranceV: 0.1
+                )
+                let agreementURL = runDirectory.appending(
+                    path: "post-layout-oracle-agreement.json"
+                )
+                try writeJSON(agreement, to: agreementURL)
+                artifacts.append(try artifact(
+                    kind: "post-layout-oracle-report",
+                    url: agreementURL,
+                    runDirectory: runDirectory
+                ))
+            } catch {
+                stages.append(Stage(
+                    name: "post-layout-oracle",
+                    status: .failed,
+                    message: "oracle cross-check error: \(error.localizedDescription)",
+                    durationSeconds: duration(since: oracleStartedAt)
+                ))
+                try await failRun(
+                    configuration: configuration,
+                    runDirectory: runDirectory,
+                    isReadyForPEX: verification.isReadyForPEX,
+                    stages: &stages,
+                    artifacts: artifacts,
+                    externallyExecutedTools: externalSignoffSupportingTools,
+                    error: error
+                )
+            }
+            let oracleMessage = String(
+                format: "CoreSpice vs ngspice max ΔV = %.4f V (tol %.3f)",
+                agreement.maxDivergenceV,
+                agreement.toleranceV
+            )
+            stages.append(Stage(
+                name: "post-layout-oracle",
+                status: agreement.isConsistent ? .passed : .failed,
+                message: oracleMessage,
+                durationSeconds: duration(since: oracleStartedAt)
+            ))
+            guard agreement.isConsistent else {
+                try await failRun(
+                    configuration: configuration,
+                    runDirectory: runDirectory,
+                    isReadyForPEX: verification.isReadyForPEX,
+                    stages: &stages,
+                    artifacts: artifacts,
+                    externallyExecutedTools: externalSignoffSupportingTools,
+                    error: StudioError.simulationFailure(oracleMessage)
+                )
+            }
         }
 
         let postLayoutComparisonStartedAt = Date()
@@ -559,6 +771,7 @@ public final class HeadlessRoundTripService {
                 isReadyForPEX: verification.isReadyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
+                externallyExecutedTools: externalSignoffSupportingTools,
                 error: error
             )
         }
@@ -579,24 +792,35 @@ public final class HeadlessRoundTripService {
                 isReadyForPEX: verification.isReadyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
+                externallyExecutedTools: externalSignoffSupportingTools,
                 error: StudioError.simulationFailure("Post-layout comparison exceeded configured limits.")
             )
         }
 
+        let isRoundTripComplete = stages.allSatisfy { $0.status == .passed }
+        let canonicalRunStatus: FlowRunStatus = if stages.contains(where: { $0.status == .failed }) {
+            .failed
+        } else if isRoundTripComplete {
+            .succeeded
+        } else {
+            .partial
+        }
         let manifestURL = try writeManifest(
             configuration: configuration,
             runDirectory: runDirectory,
-            isRoundTripComplete: true,
+            isRoundTripComplete: isRoundTripComplete,
             isReadyForPEX: verification.isReadyForPEX,
             stages: stages,
             artifacts: artifacts
         )
         let manifest = try readManifest(from: manifestURL)
         try await finalizeCanonicalRun(
-            status: .succeeded,
+            status: canonicalRunStatus,
             domainManifestURL: manifestURL,
+            stages: stages,
             artifacts: artifacts,
-            configuration: configuration
+            configuration: configuration,
+            externallyExecutedTools: externalSignoffSupportingTools
         )
 
         return Result(
@@ -706,6 +930,8 @@ public final class HeadlessRoundTripService {
             return "\(reason): inspect PEX IR completeness, captured PEX artifacts, units, and parasitic element validity."
         case "post-layout-simulation":
             return "\(reason): inspect extracted netlist, PEX element scale, solver diagnostics, and analysis command."
+        case "post-layout-oracle":
+            return "\(reason): inspect independent-oracle availability, probe coverage, tolerance, and retained agreement evidence."
         case "post-layout-comparison":
             return "\(reason): inspect comparison sweep alignment, applied limits, and post-layout delta attribution."
         default:
@@ -719,6 +945,7 @@ public final class HeadlessRoundTripService {
         isReadyForPEX: Bool = false,
         stages: inout [Stage],
         artifacts: [Artifact],
+        externallyExecutedTools: [ProducerIdentity] = [],
         error: Error
     ) async throws -> Never {
         stages.append(contentsOf: skippedStages(after: stages))
@@ -733,8 +960,10 @@ public final class HeadlessRoundTripService {
         try await finalizeCanonicalRun(
             status: .failed,
             domainManifestURL: manifestURL,
+            stages: stages,
             artifacts: artifacts,
-            configuration: configuration
+            configuration: configuration,
+            externallyExecutedTools: externallyExecutedTools
         )
         throw error
     }
@@ -778,10 +1007,65 @@ public final class HeadlessRoundTripService {
                 "Headless failure artifact integrity failed: \(integrityMessage(integrity))"
             )
         }
-        _ = try await coordinator.transition(
+        let diagnostic = FlowDiagnostic(
+            severity: .error,
+            code: "HEADLESS_RUN_FAILED",
+            message: error.localizedDescription
+        )
+        let failureStage = FlowStageResult(
+            stageID: "headless-run",
+            status: .failed,
+            diagnostics: [diagnostic],
+            gates: [
+                FlowGateResult(
+                    gateID: "headless-run",
+                    status: .failed,
+                    diagnostics: [diagnostic]
+                ),
+            ],
+            artifacts: [failureReference]
+        )
+        let producer = try await CircuitStudioExecutionEnvironment.producerIdentity(
+            kind: .engine,
+            identifier: "circuit-studio-headless"
+        )
+        let recordedAt = Date()
+        let provenance = try ExecutionProvenance(
+            producer: producer,
+            inputs: ledger.artifacts.filter { $0.locator.role == .input },
+            invocation: try .inProcess(entryPoint: "HeadlessRoundTripService.run"),
+            environment: try await CircuitStudioExecutionEnvironment.current(),
+            startedAt: configuration.createdAt,
+            completedAt: recordedAt
+        )
+        let artifacts = ledger.artifacts + [failureReference]
+        let finalStages = ledger.stages + [failureStage]
+        var existingToolchainStages: [String: FlowToolchainStageRecord] = [:]
+        for record in ledger.toolchain?.stages ?? [] {
+            guard existingToolchainStages.updateValue(record, forKey: record.stageID) == nil else {
+                throw StudioError.projectLoadFailed(
+                    "Canonical run toolchain contains duplicate stage ID '\(record.stageID)'."
+                )
+            }
+        }
+        let toolchain = FlowToolchainManifest(
             runID: configuration.runID,
-            to: .failed,
-            registering: [failureReference]
+            profile: ledger.toolchain?.profile,
+            stages: finalStages.map { stage in
+                existingToolchainStages[stage.stageID] ?? FlowToolchainStageRecord(
+                    stageID: stage.stageID,
+                    executorToolID: canonicalExecutorToolID(forStage: stage.stageID)
+                )
+            }
+        )
+        _ = try await coordinator.finalize(
+            runID: configuration.runID,
+            status: .failed,
+            stages: finalStages,
+            toolchain: toolchain,
+            evidence: EvidenceManifest(provenance: provenance, artifacts: artifacts),
+            artifacts: artifacts,
+            at: recordedAt
         )
     }
 
@@ -796,20 +1080,170 @@ public final class HeadlessRoundTripService {
     private func finalizeCanonicalRun(
         status: FlowRunStatus,
         domainManifestURL: URL,
+        stages: [Stage],
         artifacts: [Artifact],
-        configuration: Configuration
+        configuration: Configuration,
+        externallyExecutedTools: [ProducerIdentity] = []
     ) async throws {
         let references = try canonicalArtifactReferences(
             domainManifestURL: domainManifestURL,
             artifacts: artifacts,
             configuration: configuration
         )
-        let ledgerStore = try workspaceStoreFactory(configuration.projectRoot)
-        _ = try await FlowRunLedgerCoordinator(persistence: ledgerStore).transition(
+        let stageResults = stages.map {
+            canonicalStageResult(
+                $0,
+                domainArtifacts: artifacts,
+                canonicalReferences: references
+            )
+        }
+        let toolchain = canonicalToolchainManifest(
             runID: configuration.runID,
-            to: status,
-            registering: references
+            stages: stages
         )
+        let producer = try await CircuitStudioExecutionEnvironment.producerIdentity(
+            kind: .engine,
+            identifier: "circuit-studio-headless"
+        )
+        let provenance = try ExecutionProvenance(
+            producer: producer,
+            supportingTools: try await canonicalSupportingTools(
+                externallyExecutedTools: externallyExecutedTools
+            ),
+            inputs: references.filter { $0.locator.role == .input },
+            invocation: try .inProcess(entryPoint: "HeadlessRoundTripService.run"),
+            environment: try await CircuitStudioExecutionEnvironment.current(),
+            startedAt: configuration.createdAt,
+            completedAt: Date()
+        )
+        let ledgerStore = try workspaceStoreFactory(configuration.projectRoot)
+        _ = try await FlowRunLedgerCoordinator(persistence: ledgerStore).finalize(
+            runID: configuration.runID,
+            status: status,
+            stages: stageResults,
+            toolchain: toolchain,
+            evidence: EvidenceManifest(provenance: provenance, artifacts: references),
+            artifacts: references
+        )
+    }
+
+    private func canonicalStageResult(
+        _ stage: Stage,
+        domainArtifacts: [Artifact],
+        canonicalReferences: [ArtifactReference]
+    ) -> FlowStageResult {
+        let artifactIDs = Set(domainArtifacts.compactMap { artifact in
+            canonicalArtifactKinds(forStage: stage.name).contains(artifact.kind)
+                ? canonicalArtifactID(for: artifact)
+                : nil
+        })
+        let stageArtifacts = canonicalReferences.filter { artifactIDs.contains($0.id.rawValue) }
+        switch stage.status {
+        case .passed:
+            return FlowStageResult(
+                stageID: stage.name,
+                status: .succeeded,
+                artifacts: stageArtifacts
+            )
+        case .skipped:
+            return FlowStageResult(
+                stageID: stage.name,
+                status: .skipped,
+                artifacts: stageArtifacts
+            )
+        case .failed:
+            let diagnostic = FlowDiagnostic(
+                severity: .error,
+                code: "HEADLESS_STAGE_FAILED",
+                message: stage.message ?? "The headless stage failed."
+            )
+            return FlowStageResult(
+                stageID: stage.name,
+                status: .failed,
+                diagnostics: [diagnostic],
+                gates: [
+                    FlowGateResult(
+                        gateID: "headless-stage",
+                        status: .failed,
+                        diagnostics: [diagnostic]
+                    ),
+                ],
+                artifacts: stageArtifacts
+            )
+        }
+    }
+
+    private func canonicalArtifactKinds(forStage stageName: String) -> Set<String> {
+        switch stageName {
+        case "input-artifact-capture": ["design-spec"]
+        case "netlist-generation": ["pre-layout-netlist"]
+        case "pre-layout-simulation": ["pre-layout-simulation-report", "pre-layout-waveform"]
+        case "auto-layout": ["layout-document", "design-unit"]
+        case "external-signoff": [
+            "external-signoff-log",
+            "external-signoff-review",
+            "external-signoff-executable",
+            "external-signoff-execution-evidence",
+        ]
+        case "pre-pex-verification": ["physical-verification-report"]
+        case "pex-injection": ["pex-artifact", "post-layout-netlist"]
+        case "post-layout-simulation": ["post-layout-simulation-report", "post-layout-waveform"]
+        case "post-layout-oracle": ["post-layout-oracle-report", "configuration-error-report"]
+        case "post-layout-comparison": ["post-layout-comparison"]
+        default: []
+        }
+    }
+
+    private func canonicalToolchainManifest(
+        runID: String,
+        stages: [Stage]
+    ) -> FlowToolchainManifest {
+        FlowToolchainManifest(
+            runID: runID,
+            stages: stages.map { stage in
+                FlowToolchainStageRecord(
+                    stageID: stage.name,
+                    executorToolID: canonicalExecutorToolID(forStage: stage.name)
+                )
+            }
+        )
+    }
+
+    private func canonicalExecutorToolID(forStage stageName: String) -> String {
+        switch stageName {
+        case "input-artifact-capture": "circuit-studio-artifact-capture"
+        case "net-extraction": "circuit-studio-net-extractor"
+        case "netlist-generation": "circuit-studio-netlist-generator"
+        case "pre-layout-simulation", "post-layout-simulation": "corespice"
+        case "auto-layout": "semiconductor-layout"
+        case "external-signoff": "circuit-signoff"
+        case "pre-pex-verification": "circuit-studio-local-preflight"
+        case "pex-injection": "circuit-studio-pex-injection"
+        case "post-layout-oracle": "circuit-studio-post-layout-oracle"
+        case "post-layout-comparison": "circuit-studio-post-layout-comparison"
+        default: "circuit-studio-headless"
+        }
+    }
+
+    private func canonicalSupportingTools(
+        externallyExecutedTools: [ProducerIdentity]
+    ) async throws -> [ProducerIdentity] {
+        var identities: [String: ProducerIdentity] = [:]
+        for identifier in ["corespice", "semiconductor-layout", "circuit-signoff"] {
+            identities[identifier] = try await CircuitStudioExecutionEnvironment.producerIdentity(
+                kind: .library,
+                identifier: identifier
+            )
+        }
+        for measured in externallyExecutedTools {
+            if let existing = identities[measured.identifier], existing != measured {
+                throw StudioError.invalidDesign(
+                    "External signoff tool '\(measured.identifier)' resolves to conflicting executable identities."
+                )
+            }
+            identities[measured.identifier] = measured
+        }
+        return identities.values.sorted { $0.identifier < $1.identifier }
     }
 
     private func canonicalArtifactReferences(
@@ -818,10 +1252,20 @@ public final class HeadlessRoundTripService {
         configuration: Configuration
     ) throws -> [CircuiteFoundation.ArtifactReference] {
         let runPrefix = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(configuration.runID)"
+        let manifestPath = try RoundTripArtifactResolver(
+            runDirectory: try XcircuiteWorkspaceLayout(projectRoot: configuration.projectRoot)
+                .runDirectoryURL(for: configuration.runID)
+        ).relativePath(for: domainManifestURL)
+        guard manifestPath == "round-trip-manifest.json" else {
+            throw StudioError.projectSaveFailed(
+                "The canonical round-trip manifest resolved to an unexpected run path: \(manifestPath)"
+            )
+        }
         var references = try artifacts.map { artifact in
             try artifactReference(
                 artifactID: canonicalArtifactID(for: artifact),
                 path: "\(runPrefix)/\(artifact.path)",
+                role: artifact.reference.locator.role,
                 kind: canonicalFileKind(for: artifact.kind),
                 format: canonicalFileFormat(for: artifact.path),
                 projectRoot: configuration.projectRoot
@@ -829,7 +1273,8 @@ public final class HeadlessRoundTripService {
         }
         references.append(try artifactReference(
             artifactID: "round-trip-manifest",
-            path: "\(runPrefix)/round-trip-manifest.json",
+            path: "\(runPrefix)/\(manifestPath)",
+            role: .output,
             kind: .report,
             format: .json,
             projectRoot: configuration.projectRoot
@@ -862,13 +1307,14 @@ public final class HeadlessRoundTripService {
     private func artifactReference(
         artifactID: String,
         path: String,
+        role: ArtifactRole = .output,
         kind: ArtifactKind,
         format: ArtifactFormat,
         projectRoot: URL
     ) throws -> CircuiteFoundation.ArtifactReference {
         let locator = ArtifactLocator(
             location: try ArtifactLocation(workspaceRelativePath: path),
-            role: .output,
+            role: role,
             kind: kind,
             format: format
         )
@@ -893,6 +1339,9 @@ public final class HeadlessRoundTripService {
     }
 
     private func canonicalFileKind(for kind: String) -> ArtifactKind {
+        if kind == "external-signoff-executable" {
+            return .other
+        }
         if kind.contains("netlist") {
             return .netlist
         }
@@ -1023,7 +1472,13 @@ public final class HeadlessRoundTripService {
     private func runExternalSignoffIfNeeded(
         configuration: Configuration,
         runDirectory: URL
-    ) async throws -> ExternalSignoffReview? {
+    ) async throws -> (
+        review: ExternalSignoffReview,
+        supportingTools: [ProducerIdentity],
+        results: [ExternalSignoffCommandResult],
+        evidenceURL: URL?,
+        artifactRole: ArtifactRole
+    )? {
         let store = ExternalSignoffReviewStore()
         if var review = configuration.externalSignoffReview {
             try store.save(review, forProjectAt: configuration.projectRoot)
@@ -1037,7 +1492,7 @@ public final class HeadlessRoundTripService {
                 )
                 try store.save(review, forProjectAt: configuration.projectRoot)
             }
-            return review
+            return (review, [], [], nil, .input)
         }
 
         guard !configuration.externalSignoffCommands.isEmpty else {
@@ -1045,11 +1500,11 @@ public final class HeadlessRoundTripService {
         }
 
         let artifactDirectory = runDirectory.appending(path: "external-signoff")
-        let runner: any SignoffCommandRunning = ExternalSignoffCommandService()
-        var review = try await runner.run(
+        let batch = try await signoffCommandRunner.run(
             commands: configuration.externalSignoffCommands,
             artifactDirectory: artifactDirectory
         )
+        var review = batch.review
         try store.save(review, forProjectAt: configuration.projectRoot)
 
         if let approvedBy = configuration.approvedBy,
@@ -1063,7 +1518,55 @@ public final class HeadlessRoundTripService {
             )
         }
 
-        return review
+        return (
+            review,
+            batch.results.map(\.provenance.producer),
+            batch.results,
+            batch.evidenceURL,
+            .output
+        )
+    }
+
+    private func captureExternalSignoffExecutionArtifacts(
+        reports: [ExternalSignoffToolReport],
+        results: [ExternalSignoffCommandResult],
+        evidenceURL: URL?,
+        role: ArtifactRole,
+        runDirectory: URL
+    ) throws -> [Artifact] {
+        let logPaths = Array(Set(reports.map(\.logPath))).sorted()
+        var artifacts = if role == .input {
+            try captureInputArtifacts(
+                paths: logPaths,
+                kind: "external-signoff-log",
+                runDirectory: runDirectory,
+                subdirectory: "signoff"
+            )
+        } else {
+            try captureGeneratedArtifacts(
+                paths: logPaths,
+                kind: "external-signoff-log",
+                runDirectory: runDirectory,
+                subdirectory: "signoff"
+            )
+        }
+        artifacts.append(contentsOf: try captureGeneratedArtifacts(
+            paths: Array(Set(results.map {
+                $0.executableSnapshotURL.path(percentEncoded: false)
+            })).sorted(),
+            kind: "external-signoff-executable",
+            runDirectory: runDirectory,
+            subdirectory: "signoff/executables"
+        ))
+        if let evidenceURL {
+            artifacts.append(contentsOf: try captureGeneratedArtifacts(
+                paths: [evidenceURL.path(percentEncoded: false)],
+                kind: "external-signoff-execution-evidence",
+                runDirectory: runDirectory,
+                subdirectory: "signoff"
+            ))
+        }
+        return artifacts
     }
 
     private func persistSimulationArtifacts(
@@ -1135,7 +1638,12 @@ public final class HeadlessRoundTripService {
             }
 
             if isArtifactAlreadyInsideRunDirectory(sourceURL: sourceURL, runDirectory: runDirectory) {
-                return try artifact(kind: kind, url: sourceURL, runDirectory: runDirectory)
+                return try artifact(
+                    kind: kind,
+                    url: sourceURL,
+                    runDirectory: runDirectory,
+                    role: .input
+                )
             }
 
             let resolvedSourceURL = sourceURL.resolvingSymlinksInPath()
@@ -1164,6 +1672,70 @@ public final class HeadlessRoundTripService {
                 kind: kind,
                 url: destinationURL,
                 runDirectory: runDirectory,
+                role: .input,
+                sourcePath: sourcePath
+            )
+        }
+    }
+
+    private func captureGeneratedArtifacts(
+        paths: [String],
+        kind: String,
+        runDirectory: URL,
+        subdirectory: String
+    ) throws -> [Artifact] {
+        guard !paths.isEmpty else { return [] }
+        let captureDirectory = runDirectory
+            .appending(path: "generated-artifacts")
+            .appending(path: subdirectory)
+        try createDirectory(captureDirectory)
+
+        var usedNames = Set<String>()
+        return try paths.map { path in
+            let sourceURL = URL(filePath: path)
+            let sourcePath = sourceURL.path(percentEncoded: false)
+            var isDirectory = ObjCBool(false)
+            guard FileManager.default.fileExists(atPath: sourcePath, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else {
+                throw StudioError.projectLoadFailed(
+                    "Generated artifact is missing or not a regular file: \(sourcePath)"
+                )
+            }
+            let resolvedSourceURL = sourceURL.resolvingSymlinksInPath()
+            let values = try resolvedSourceURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else {
+                throw StudioError.projectLoadFailed(
+                    "Generated artifact must resolve to a regular file: \(sourcePath)"
+                )
+            }
+            if isArtifactAlreadyInsideRunDirectory(
+                sourceURL: resolvedSourceURL,
+                runDirectory: runDirectory
+            ) {
+                return try artifact(
+                    kind: kind,
+                    url: resolvedSourceURL,
+                    runDirectory: runDirectory,
+                    role: .output
+                )
+            }
+            let destinationURL = uniqueCaptureURL(
+                for: resolvedSourceURL,
+                in: captureDirectory,
+                usedNames: &usedNames
+            )
+            do {
+                try FileManager.default.copyItem(at: resolvedSourceURL, to: destinationURL)
+            } catch {
+                throw StudioError.projectSaveFailed(
+                    "Failed to retain generated artifact \(sourcePath): \(error.localizedDescription)"
+                )
+            }
+            return try artifact(
+                kind: kind,
+                url: destinationURL,
+                runDirectory: runDirectory,
+                role: .output,
                 sourcePath: sourcePath
             )
         }
@@ -1173,6 +1745,7 @@ public final class HeadlessRoundTripService {
         kind: String,
         url: URL,
         runDirectory: URL,
+        role: ArtifactRole = .output,
         sourcePath: String? = nil
     ) throws -> Artifact {
         let path = try RoundTripArtifactResolver(
@@ -1182,7 +1755,8 @@ public final class HeadlessRoundTripService {
             id: "\(kind)-\(path)",
             kind: kind,
             relativePath: path,
-            fileURL: url
+            fileURL: url,
+            role: role
         )
         return Artifact(
             reference: reference,
@@ -1232,6 +1806,9 @@ public final class HeadlessRoundTripService {
         }
         if let externalSignoff = verification.externalSignoff, !externalSignoff.isReadyForPEX {
             parts.append("external signoff not ready")
+        }
+        if verification.externalSignoff == nil {
+            parts.append("retained external DRC/LVS signoff evidence is missing")
         }
         return parts.isEmpty ? "DRC/LVS/signoff gate failed" : parts.joined(separator: "; ")
     }

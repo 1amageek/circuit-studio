@@ -16,23 +16,7 @@ struct RunReviewPlanningProjectionTests {
         defer { RunReviewTestSupport.removeTemporaryRoot(root) }
 
         let store = try XcircuiteWorkspaceStore(projectRoot: root)
-        let runtime = try XcircuiteFlowRuntime(
-            toolRegistry: ToolRegistry(),
-            healthResults: [:],
-            executors: [RunReviewPassingExecutor(stageID: "001-planning")],
-            workspaceStore: store
-        )
         let workspaceID = try await RunReviewTestSupport.workspaceID(projectRoot: root)
-        _ = try await runtime.run(
-            request: FlowOperationRequest(
-                workspaceID: workspaceID,
-                runID: "run-planning",
-                intent: "Review planning correctness",
-                stages: [
-                    FlowStageDefinition(stageID: "001-planning", displayName: "Planning"),
-                ]
-            )
-        )
 
         let encoder = JSONEncoder()
         let candidatePlanPath = ".xcircuite/runs/run-planning/planning/candidate-plan.json"
@@ -102,17 +86,12 @@ struct RunReviewPlanningProjectionTests {
             blockers: ["approval-required"]
         )
         let candidatePlanPayload = try encoder.encode(candidatePlan)
-        let candidatePlanReference = try await store.persistArtifact(
-            content: candidatePlanPayload,
-            id: ArtifactID(rawValue: "planning-candidate-plan"),
-            locator: ArtifactLocator(
-                location: ArtifactLocation(workspaceRelativePath: candidatePlanPath),
-                role: .output,
-                kind: .other,
-                format: .json
-            ),
-            runID: "run-planning",
-            mode: .immutable
+        let candidatePlanReference = try RunReviewTestSupport.artifactReference(
+            artifactID: "planning-candidate-plan",
+            path: candidatePlanPath,
+            payload: candidatePlanPayload,
+            kind: .other,
+            format: .json
         )
 
         let planVerificationPath = ".xcircuite/runs/run-planning/planning/plan-verification.json"
@@ -205,24 +184,18 @@ struct RunReviewPlanningProjectionTests {
             ]
         )
         let payload = try encoder.encode(planVerification)
-        _ = try await store.persistArtifact(
-            content: payload,
-            id: ArtifactID(rawValue: "planning-plan-verification"),
-            locator: ArtifactLocator(
-                location: ArtifactLocation(workspaceRelativePath: planVerificationPath),
-                role: .output,
-                kind: .other,
-                format: .json
-            ),
-            runID: "run-planning",
-            mode: .immutable
+        let planVerificationReference = try RunReviewTestSupport.artifactReference(
+            artifactID: "planning-plan-verification",
+            path: planVerificationPath,
+            payload: payload,
+            kind: .other,
+            format: .json
         )
-        try await store.persistDesignDiff(
-            DesignDiff(
-                runID: "run-planning",
-                title: "Planning edit proposal",
-                actor: "agent-1",
-                changes: [
+        let designDiff = DesignDiff(
+            runID: "run-planning",
+            title: "Planning edit proposal",
+            actor: "agent-1",
+            changes: [
                     DesignDiffChange(
                         changeID: "change-1",
                         domain: .layout,
@@ -314,7 +287,28 @@ struct RunReviewPlanningProjectionTests {
                         after: .number(1.2),
                         summary: "Retune M1 width for the same candidate plan."
                     ),
+            ]
+        )
+        _ = try await RunReviewTestSupport.orchestrator(projectRoot: root).run(
+            request: FlowOperationRequest(
+                workspaceID: workspaceID,
+                runID: "run-planning",
+                intent: "Review planning correctness",
+                stages: [
+                    FlowStageDefinition(stageID: "001-planning", displayName: "Planning"),
                 ]
+            ),
+            toolRegistry: ToolRegistry(),
+            healthResults: [:],
+            executors: [RunReviewPassingExecutor(stageID: "001-planning")],
+            artifactPreparer: RunReviewArtifactPreparer(
+                workspaceStore: store,
+                artifacts: [candidatePlanReference, planVerificationReference],
+                artifactPayloads: [
+                    candidatePlanPath: candidatePlanPayload,
+                    planVerificationPath: payload,
+                ],
+                designDiff: designDiff
             )
         )
 
@@ -826,7 +820,7 @@ struct RunReviewPlanningProjectionTests {
             artifacts: [artifact]
         )
         let store = try XcircuiteWorkspaceStore(projectRoot: root)
-        try await store.saveRunLedger(ledger)
+        try await store.createWorkspace()
         let service = RunReviewService(
             ledgerLoader: PlanningStaticLedgerLoader(ledger: ledger),
             reviewLedgerLoader: PlanningStaticLedgerLoader(ledger: ledger),

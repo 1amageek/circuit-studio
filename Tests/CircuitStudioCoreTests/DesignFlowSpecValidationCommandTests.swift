@@ -518,6 +518,16 @@ struct DesignFlowSpecValidationCommandTests {
     func commandAPIRunsFixtureRoundTripAndSummarizesBottlenecks() async throws {
         let root = try DesignFlowServiceTestSupport.makeTemporaryRoot("command-round-trip")
         defer { DesignFlowServiceTestSupport.removeTemporaryRoot(root) }
+        let drcLogURL = root.appending(path: "imported-drc.log")
+        let lvsLogURL = root.appending(path: "imported-lvs.log")
+        try """
+        [INFO] rule=DRC_CLEAN message="clean drc"
+        SIGNOFF_RESULT status=pass
+        """.write(to: drcLogURL, atomically: true, encoding: .utf8)
+        try """
+        [INFO] rule=LVS_MATCH message="clean lvs"
+        SIGNOFF_RESULT status=pass
+        """.write(to: lvsLogURL, atomically: true, encoding: .utf8)
 
         let service = DesignFlowService()
         let roundTrip = try await service.execute(DesignFlowCommand(
@@ -526,6 +536,8 @@ struct DesignFlowSpecValidationCommandTests {
             projectRootPath: root.path(percentEncoded: false),
             runID: "command-api-round-trip",
             approveSignoff: true,
+            signoffDRCLogPath: drcLogURL.path(percentEncoded: false),
+            signoffLVSLogPath: lvsLogURL.path(percentEncoded: false),
             maxAbsoluteDelta: 1.0e-3,
             maxRelativeDelta: 1.0e-3,
             relativeDeltaDenominatorFloor: 0.1
