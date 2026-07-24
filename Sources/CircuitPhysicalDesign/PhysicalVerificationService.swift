@@ -692,4 +692,3 @@ public struct PhysicalVerificationService: Sendable {
         return lhs.pinName < rhs.pinName
     }
 }
-

@@ -138,10 +138,9 @@ extension RunReviewService {
             )
         }
 
-        let appliedEdit = try await prepareEdit(
+        let appliedEdit = try prepareEdit(
             proposal: proposal,
             runID: runID,
-            store: store,
             projectRoot: projectRoot
         )
         let record = FlowRunActionRecord(
@@ -151,11 +150,11 @@ extension RunReviewService {
             actor: FlowRunActor(kind: .human, identifier: reviewer),
             actionKind: RunReviewWaiverEditApplication.actionKind,
             status: .succeeded,
-            inputs: [
-                fileReference(from: item.artifact),
+            inputs: [fileReference(from: item.artifact)],
+            outputs: [
                 appliedEdit.beforeReference,
+                appliedEdit.afterReference,
             ],
-            outputs: [appliedEdit.afterReference],
             context: FlowRunActionContext(
                 artifactEdit: FlowRunActionContext.ArtifactEdit(
                     proposalID: proposal.proposalID,
@@ -171,8 +170,9 @@ extension RunReviewService {
                 )
             )
         )
-        _ = try await store.appendRunAction(
-            record,
+        _ = try await store.appendActionArtifacts(
+            appliedEdit.artifacts,
+            action: record,
             replacingProjectArtifactAt: appliedEdit.targetPath,
             expectedContent: appliedEdit.beforeData,
             replacementContent: appliedEdit.afterData
@@ -236,50 +236,49 @@ extension RunReviewService {
             )
         }
         let safeProposalID = safeIdentifierComponent(proposalID)
-        let verificationReference = try await persistWaiverEditEvidence(
+        let verificationArtifact = try prepareWaiverEditEvidence(
             content: verificationData,
             artifactIDPrefix: "post-waiver-edit-physical-verification",
             fileNamePrefix: "verification",
             kind: .report,
             format: .json,
             safeProposalID: safeProposalID,
-            runID: runID,
-            store: store
+            runID: runID
         )
-        let layoutTrustReference: ArtifactReference?
+        let layoutTrustArtifact: XcircuitePreparedArtifact?
         if let layoutTrustReportURL {
             _ = try projectRelativePath(for: layoutTrustReportURL, projectRoot: projectRoot)
             let layoutTrustData = try Data(contentsOf: layoutTrustReportURL, options: [.mappedIfSafe])
-            layoutTrustReference = try await persistWaiverEditEvidence(
+            layoutTrustArtifact = try prepareWaiverEditEvidence(
                 content: layoutTrustData,
                 artifactIDPrefix: "post-waiver-edit-layout-trust",
                 fileNamePrefix: "layout-trust",
                 kind: .report,
                 format: .json,
                 safeProposalID: safeProposalID,
-                runID: runID,
-                store: store
+                runID: runID
             )
         } else {
-            layoutTrustReference = nil
+            layoutTrustArtifact = nil
         }
         let targetReference = try waiverEditTargetReference(
             application: application,
             actions: ledger.actions
         )
-        let feedback = try await recordWaiverEditPlanningFeedback(
+        let feedback = try await prepareWaiverEditPlanningFeedback(
             runID: runID,
             waiverReviewID: item.waiverReviewID,
             proposalID: proposalID,
             application: application,
             targetReference: targetReference,
             verificationReport: verificationReport,
-            verificationReference: verificationReference,
-            layoutTrustReference: layoutTrustReference,
-            projectRoot: projectRoot
+            verificationReference: verificationArtifact.reference,
+            layoutTrustReference: layoutTrustArtifact?.reference,
+            actions: ledger.actions,
+            store: store
         )
 
-        let supplementaryReferences = [layoutTrustReference]
+        let supplementaryReferences = [layoutTrustArtifact?.reference]
             .compactMap { $0 }
         let record = FlowRunActionRecord(
             actionID: "waiver-edit-proposal-verification-\(UUID().uuidString)",
@@ -293,10 +292,10 @@ extension RunReviewService {
                 targetReference,
             ],
             outputs: [
-                verificationReference,
+                verificationArtifact.reference,
                 feedback.candidatePlanRef,
                 feedback.planVerificationRef,
-            ] + supplementaryReferences,
+            ] + supplementaryReferences + [feedback.rejectedPlansRef].compactMap { $0 },
             context: FlowRunActionContext(
                 iterationID: application.actionRecordID,
                 artifactEdit: FlowRunActionContext.ArtifactEdit(
@@ -313,7 +312,10 @@ extension RunReviewService {
                 )
             )
         )
-        try await store.appendRunAction(record)
+        _ = try await store.appendActionArtifacts(
+            [verificationArtifact] + [layoutTrustArtifact].compactMap { $0 } + feedback.artifacts,
+            action: record
+        )
         return record
     }
 
@@ -656,7 +658,7 @@ extension RunReviewService {
         artifact.reference
     }
 
-    private func recordWaiverEditPlanningFeedback(
+    private func prepareWaiverEditPlanningFeedback(
         runID: String,
         waiverReviewID: String,
         proposalID: String,
@@ -665,9 +667,9 @@ extension RunReviewService {
         verificationReport: DesignFlowVerificationReport,
         verificationReference: ArtifactReference,
         layoutTrustReference: ArtifactReference?,
-        projectRoot: URL
+        actions: [FlowRunActionRecord],
+        store: XcircuiteWorkspaceStore
     ) async throws -> WaiverEditPlanningFeedback {
-        let store = try workspaceStore(projectRoot: projectRoot)
         let safeProposalID = safeIdentifierComponent(proposalID)
         let verificationToken = verificationReference.digest.hexadecimalValue
         let planID = "\(runID)-waiver-edit-\(safeProposalID)"
@@ -745,13 +747,12 @@ extension RunReviewService {
             unresolvedObjectives: [],
             blockers: []
         )
-        let candidatePlanRef = try await writePlanningFeedbackArtifact(
+        let candidatePlanArtifact = try preparePlanningFeedbackArtifact(
             candidatePlan,
             path: candidatePlanPath,
-            artifactID: "post-waiver-edit-candidate-plan-\(safeProposalID)-\(verificationToken)",
-            runID: runID,
-            store: store
+            artifactID: "post-waiver-edit-candidate-plan-\(safeProposalID)-\(verificationToken)"
         )
+        let candidatePlanRef = candidatePlanArtifact.reference
 
         let gateResults = waiverEditVerificationGateResults(verificationReport, sourceStepID: stepID)
         let diagnostics = gateResults.flatMap(\.diagnostics)
@@ -785,20 +786,20 @@ extension RunReviewService {
             accepted: accepted,
             nextActions: accepted ? [] : failedGateIDs.map { "repair-verification-gate:\($0)" }
         )
-        let planVerificationRef = try await writePlanningFeedbackArtifact(
+        let planVerificationArtifact = try preparePlanningFeedbackArtifact(
             planVerification,
             path: planVerificationPath,
-            artifactID: "post-waiver-edit-plan-verification-\(safeProposalID)-\(verificationToken)",
-            runID: runID,
-            store: store
+            artifactID: "post-waiver-edit-plan-verification-\(safeProposalID)-\(verificationToken)"
         )
+        let planVerificationRef = planVerificationArtifact.reference
 
         guard !accepted else {
             return WaiverEditPlanningFeedback(
                 status: "accepted-no-rejected-plan",
                 candidatePlanRef: candidatePlanRef,
                 planVerificationRef: planVerificationRef,
-                rejectedPlansRef: nil
+                rejectedPlansRef: nil,
+                artifacts: [candidatePlanArtifact, planVerificationArtifact]
             )
         }
 
@@ -818,31 +819,34 @@ extension RunReviewService {
             diagnostics: diagnostics,
             nextActions: failedGateIDs.map { "repair-verification-gate:\($0)" }
         )
-        let rejectedPlansRef = try await XcircuitePlanningArtifactStore(workspaceStore: store).appendRejectedPlan(
+        let rejectedPlansArtifact = try await prepareRejectedPlanSnapshot(
             rejectedRecord,
             runID: runID,
-            projectRoot: projectRoot
+            actions: actions,
+            store: store
         )
         return WaiverEditPlanningFeedback(
             status: "rejected-plan-recorded",
             candidatePlanRef: candidatePlanRef,
             planVerificationRef: planVerificationRef,
-            rejectedPlansRef: rejectedPlansRef
+            rejectedPlansRef: rejectedPlansArtifact.reference,
+            artifacts: [
+                candidatePlanArtifact,
+                planVerificationArtifact,
+                rejectedPlansArtifact,
+            ]
         )
     }
 
-    private func writePlanningFeedbackArtifact<T: Encodable & Sendable>(
+    private func preparePlanningFeedbackArtifact<T: Encodable & Sendable>(
         _ value: T,
         path: String,
-        artifactID: String,
-        runID: String,
-        store: XcircuiteWorkspaceStore
-    ) async throws -> ArtifactReference {
+        artifactID: String
+    ) throws -> XcircuitePreparedArtifact {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(value)
-        return try await store.persistArtifact(
-            content: data,
+        let reference = ArtifactReference(
             id: try ArtifactID(rawValue: artifactID),
             locator: ArtifactLocator(
                 location: try ArtifactLocation(workspaceRelativePath: path),
@@ -850,9 +854,75 @@ extension RunReviewService {
                 kind: .other,
                 format: .json
             ),
-            runID: runID,
-            mode: .immutable
+            digest: try SHA256ContentDigester().digest(data: data, using: .sha256),
+            byteCount: UInt64(data.count)
         )
+        return XcircuitePreparedArtifact(reference: reference, content: data)
+    }
+
+    private func prepareRejectedPlanSnapshot(
+        _ record: XcircuiteRejectedPlanRecord,
+        runID: String,
+        actions: [FlowRunActionRecord],
+        store: XcircuiteWorkspaceStore
+    ) async throws -> XcircuitePreparedArtifact {
+        let priorReference = actions.reversed()
+            .lazy
+            .flatMap(\.outputs)
+            .first {
+                $0.artifactID == XcircuitePlanningArtifactStore.rejectedPlansArtifactID
+            }
+        var content = Data()
+        if let priorReference {
+            _ = try await store.verify(priorReference)
+            content = try await store.read(from: priorReference.path)
+            for (index, line) in String(decoding: content, as: UTF8.self)
+                .split(separator: "\n")
+                .enumerated() {
+                let existing: XcircuiteRejectedPlanRecord
+                do {
+                    existing = try JSONDecoder().decode(
+                        XcircuiteRejectedPlanRecord.self,
+                        from: Data(line.utf8)
+                    )
+                } catch {
+                    throw RunReviewServiceError.invalidArtifactReference(
+                        path: priorReference.path,
+                        message: "Rejected-plan snapshot contains invalid JSON at line \(index + 1)."
+                    )
+                }
+                guard existing.rejectionID != record.rejectionID else {
+                    throw RunReviewServiceError.invalidArtifactReference(
+                        path: priorReference.path,
+                        message: "Rejected-plan snapshot contains duplicate rejection ID \(record.rejectionID)."
+                    )
+                }
+            }
+        }
+        if !content.isEmpty, content.last != 0x0A {
+            content.append(0x0A)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        content.append(try encoder.encode(record))
+        content.append(0x0A)
+        let digest = try SHA256ContentDigester().digest(data: content, using: .sha256)
+        let digestToken = String(digest.hexadecimalValue.prefix(16))
+        let path = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/planning/rejected-plan-snapshots/\(digestToken).jsonl"
+        let reference = ArtifactReference(
+            id: try ArtifactID(
+                rawValue: XcircuitePlanningArtifactStore.rejectedPlansArtifactID
+            ),
+            locator: ArtifactLocator(
+                location: try ArtifactLocation(workspaceRelativePath: path),
+                role: .output,
+                kind: .other,
+                format: .text
+            ),
+            digest: digest,
+            byteCount: UInt64(content.count)
+        )
+        return XcircuitePreparedArtifact(reference: reference, content: content)
     }
 
     private func waiverEditVerificationGateResults(
@@ -1003,9 +1073,8 @@ extension RunReviewService {
     private func prepareEdit(
         proposal: RunReviewWaiverEditProposal,
         runID: String,
-        store: XcircuiteWorkspaceStore,
         projectRoot: URL
-    ) async throws -> AppliedWaiverEdit {
+    ) throws -> AppliedWaiverEdit {
         let targetURL = try waiverEditTargetURL(path: proposal.targetPath, projectRoot: projectRoot)
         let beforeData = try Data(contentsOf: targetURL, options: [.mappedIfSafe])
         let afterData: Data
@@ -1026,51 +1095,48 @@ extension RunReviewService {
 
         let safeProposalID = safeIdentifierComponent(proposal.proposalID)
         let format = fileFormat(for: proposal.targetPath)
-        let beforeReference = try await persistWaiverEditEvidence(
+        let beforeArtifact = try prepareWaiverEditEvidence(
             content: beforeData,
             artifactIDPrefix: "waiver-edit-before",
             fileNamePrefix: "before",
             kind: .other,
             format: format,
             safeProposalID: safeProposalID,
-            runID: runID,
-            store: store
+            runID: runID
         )
-        let afterReference = try await persistWaiverEditEvidence(
+        let afterArtifact = try prepareWaiverEditEvidence(
             content: afterData,
             artifactIDPrefix: "waiver-edit-after",
             fileNamePrefix: "after",
             kind: .other,
             format: format,
             safeProposalID: safeProposalID,
-            runID: runID,
-            store: store
+            runID: runID
         )
         return AppliedWaiverEdit(
             targetPath: proposal.targetPath,
             beforeData: beforeData,
             afterData: afterData,
-            beforeReference: beforeReference,
-            afterReference: afterReference
+            beforeReference: beforeArtifact.reference,
+            afterReference: afterArtifact.reference,
+            artifacts: [beforeArtifact, afterArtifact]
         )
     }
 
-    private func persistWaiverEditEvidence(
+    private func prepareWaiverEditEvidence(
         content: Data,
         artifactIDPrefix: String,
         fileNamePrefix: String,
         kind: ArtifactKind,
         format: ArtifactFormat,
         safeProposalID: String,
-        runID: String,
-        store: XcircuiteWorkspaceStore
-    ) async throws -> ArtifactReference {
+        runID: String
+    ) throws -> XcircuitePreparedArtifact {
         let digest = try SHA256ContentDigester().digest(data: content, using: .sha256)
         let digestToken = String(digest.hexadecimalValue.prefix(16))
         let fileExtension = format == .json ? "json" : "data"
         let path = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/review/waiver-edits/\(safeProposalID)/\(fileNamePrefix)-\(digestToken).\(fileExtension)"
-        return try await store.persistArtifact(
-            content: content,
+        let reference = ArtifactReference(
             id: try ArtifactID(rawValue: "\(artifactIDPrefix)-\(safeProposalID)-\(digestToken)"),
             locator: ArtifactLocator(
                 location: try ArtifactLocation(workspaceRelativePath: path),
@@ -1078,9 +1144,10 @@ extension RunReviewService {
                 kind: kind,
                 format: format
             ),
-            runID: runID,
-            mode: .immutable
+            digest: digest,
+            byteCount: UInt64(content.count)
         )
+        return XcircuitePreparedArtifact(reference: reference, content: content)
     }
 
     private func waiverEditTargetURL(path: String, projectRoot: URL) throws -> URL {

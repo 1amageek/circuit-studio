@@ -12,7 +12,7 @@ Physical layout work is split into two layers:
 | Layer | Responsibility |
 |---|---|
 | `LayoutEngine` | Physical-layout execution infrastructure: engine catalog, placement/routing/device-cell backend selection, route repair contracts, and layout-stage descriptors. It knows layout documents and technology data, not CircuitStudio schematic models. |
-| `CircuitPhysicalDesign` | Circuit-to-physical bridge: schematic net extraction, device catalog mapping, primitive layout synthesis, design-unit mapping, preflight availability, CircuitStudio-specific DRC verifier adaptation, and physical layout trust evaluation. |
+| `CircuitPhysicalDesign` | Circuit-to-physical bridge: schematic net extraction, device catalog mapping, primitive layout synthesis, floorplanning, inter-block routing, connectivity/device extraction, topology validation, physical DRC/LVS report composition, design-unit mapping, preflight availability, and physical layout trust evaluation. |
 
 `CircuitStudioApp` must remain a UI, persistence, command, and diagnostics presentation
 layer. It may choose and pass a catalog, but it must not own placement, routing,
@@ -42,7 +42,7 @@ flowchart TD
 |---|---|---|
 | `LayoutEngine` | `LayoutCore`, `LayoutTech`, `LayoutAutoGen` | `CircuitStudioCore`, `CircuitStudioApp`, project files, UI state |
 | `CircuitPhysicalDesign` | `CircuitStudioCore`, `LayoutEngine`, `LayoutAutoGen`, `LayoutVerify` | SwiftUI views, app state, project persistence, menu/log presentation, run artifact publishing |
-| `CircuitStudioApp` | `CircuitPhysicalDesign`, UI/editor/persistence services | Primitive placement/routing/generator selection logic |
+| `CircuitStudioApp` | `CircuitPhysicalDesign`, UI/editor/persistence services | Floorplanning, routing, connectivity extraction, topology validation, physical verification algorithms |
 
 This keeps algorithm and engine research usable from a package boundary while preserving
 CircuitStudio-specific meaning in a bridge layer.
@@ -54,7 +54,8 @@ CircuitStudio-specific meaning in a bridge layer.
 | `LayoutEngineCatalog`, `LayoutEngineDescriptor`, engine registrations, placement/routing/device/verifier provider protocols, placement/routing selections | `LayoutEngine` |
 | `CircuitLayoutSynthesizer`, `PhysicalDeviceMapper`, semantic `CircuitLayoutAvailability`, `DRCPostRouteVerifier` | `CircuitPhysicalDesign` |
 | `LayoutOwnershipPolicy`, `LayoutOwnershipResolver`, `NetAwareLayoutEvaluator`, `LayoutTrustEvaluationService`, `LayoutTrustReport` | `CircuitPhysicalDesign` |
-| Preflight source snapshots, source/file materialization availability reasons, diagnostic log formatting, project file paths, UI command state, layout trust artifact publishing | `CircuitStudioApp` |
+| `GridFloorplanner`, `InterBlockRouter`, `LayoutConnectivityExtractor`, `RawLayoutDeviceExtractor`, `LayoutTopologyValidator`, `PhysicalVerificationService`, and their typed reports/profiles | `CircuitPhysicalDesign` |
+| Bundled JSON loading for physical profiles, default profile/catalog selection, preflight source snapshots, source/file materialization availability reasons, diagnostic log formatting, project file paths, UI command state, and layout trust artifact publishing | `CircuitStudioApp` |
 
 ## Runtime Flow
 

@@ -1,6 +1,6 @@
 # CircuitStudio Feature Maturity
 
-Last evaluated: 2026-07-14
+Last evaluated: 2026-07-24
 
 この評価は、`circuit-studio` を Agent API としてではなく、人間が操作する統合 cockpit として見た個別機能の完成度を記録する。
 
@@ -43,8 +43,35 @@ as decode issues and never projected as successful cards.
 | Canonical artifact contract | Pass: Activity stores `CircuiteFoundation.ArtifactReference` unchanged and adds only direction metadata. App-local artifact reference projections are removed. |
 | Source parse | Pass for Activity, CircuitStudio services, and views. |
 | Test declaration floor | Pass: 925 `@Test` declarations; the pre-migration baseline was 924. |
-| CircuitStudio build | Blocked upstream in the in-progress Xcircuite storage migration; CircuitStudio compilation has not produced a local compiler error. |
-| CircuitStudio tests | Pending a successful Xcircuite build. Run through timeout-bounded `xcodebuild test` after the upstream package compiles. |
+| CircuitStudio build | Pass: `swift build` completed after the physical-design service split and terminal-ledger migration. |
+| CircuitStudio tests | Pass: timeout-bounded full `xcodebuild test` for `CircuitStudio-Package`. Focused parallel coverage also passed for `CircuitPhysicalDesignTests`, physical verification, technology translation, run-review planning/signoff, and flow-runner CLI. |
+
+### Terminal planning and review persistence
+
+```mermaid
+flowchart LR
+  Prepare["Prepare immutable bytes + reference"] --> Action["Bind outputs to typed action"]
+  Action --> Commit["Atomic workspace transaction"]
+  Commit --> Snapshot["Digest-addressed snapshot"]
+  Snapshot --> Resume["Attested review / next planning cycle"]
+```
+
+Completed runs no longer accept unaudited planning mutations. Signoff repair
+formulation, waiver edits, post-edit verification, rejected-plan feedback, and
+candidate-cycle summaries prepare their artifacts before persistence and commit
+them with the owning action. Rejected-plan history is cumulative but immutable:
+each update writes a digest-addressed snapshot, and the next planning cycle
+selects the latest verified action output. This removes the previous conflict
+between terminal evidence immutability and post-run human/agent continuation.
+
+### Physical-design ownership
+
+Floorplanning, inter-block routing, connectivity/device extraction, topology
+validation, and physical DRC/LVS report types now belong to
+`CircuitPhysicalDesign`. `CircuitStudioApp` retains only resource composition,
+project persistence, commands, diagnostics presentation, and artifact
+publication. Bundled routing/translation profiles are injected through app-side
+adapters rather than loaded by the physical-design library.
 
 ## Historical Verification Summary (2026-06-28)
 

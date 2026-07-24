@@ -12,6 +12,7 @@ produce.
 |---|---|
 | `CircuitStudioCore` | Shared app-domain logic |
 | `CircuitSignoff` | UI-independent DRC/LVS execution, PDK discovery, signoff reports, and PEX back-annotation |
+| `CircuitPhysicalDesign` | UI-independent floorplanning, inter-block routing, connectivity/device extraction, layout topology validation, and physical DRC/LVS report composition |
 | `SchematicEditor` | Schematic capture UI |
 | `WaveformViewer` | Simulation waveform display |
 | `CircuitStudioApp` | The app: editor workspaces, evidence recording, run review, and goal-driven layout agent |
@@ -40,11 +41,13 @@ emit the same fields from the shared `FlowRunReviewBundle`.
 |---|---|
 | `SignoffPDKContext` | Loads profile artifacts and resolves app signoff PDK roots / required files through `SignoffToolSupport` instead of process-specific Swift locators |
 | `LayoutTechnologyResource` | Loads app-side `LayoutTechDatabase` resources from JSON so process layer/rule/via data is not owned by Swift constants |
-| `LayoutTechnologyTranslationProfile` | Loads app-side layout translation policy from JSON so source/target layer names, via maps, and enclosure values are not owned by Swift constants |
+| `LayoutTechnologyTranslationProfile` | Defines the physical-design library's typed layout translation policy; the app supplies bundled JSON through a resource adapter |
 | `LayoutTechnologyTranslator` | Translates generic-tech layout documents through an explicitly selected translation profile and target `LayoutTechDatabase` resource |
 | `LayoutTechnologyCatalog` | Loads selectable layout technology inventory from JSON so default technology/routing profile selection is catalog-driven rather than process-named Swift facade driven |
 | `MagicLayoutDRCChecker` | Runs Magic DRC through injected or catalog-selected `LayoutTechDatabase` data so layout checking is not tied to a process-named Swift checker |
-| `LayoutRoutingProfile` | Loads app-side global/inter-block routing layer selection and routing geometry from JSON so router layer IDs and pad/track dimensions are not owned by Swift constants |
+| `LayoutRoutingProfile` | Defines UI-independent global/inter-block routing layer selection and routing geometry; the app supplies bundled defaults through composition helpers |
+| `GridFloorplanner` / `InterBlockRouter` | Perform physical floorplanning and routing in `CircuitPhysicalDesign`; `CircuitStudioApp` only selects bundled profiles and records results |
+| `PhysicalVerificationService` | Composes UI-independent DRC/LVS verification and typed reports in `CircuitPhysicalDesign`; app services own project resource lookup and artifact publication |
 | `StandardCellLayoutProfile` | Loads app-side standard-cell layout policy, dynamic synthesizer geometry/routing policy, and fixed-cell catalogs from JSON; it exposes separate drawing and terminal-label layer references so GDS export preserves physical geometry and top-level ports |
 | `CMOSGateLibrary` | Builds standard CMOS gate netlists from explicit profile-derived device sizing so logic/topology APIs do not own process-specific transistor dimensions |
 | `Level1DeviceModelProfile` | Loads timing-characterization MOS model cards, supply voltage, oxide capacitance, and technology provenance from JSON so catalog-backed default model selection, `circuit-studio-flow-runner --build-timing-library`, model-profile selection artifacts, and timing artifacts do not own process-specific model constants |

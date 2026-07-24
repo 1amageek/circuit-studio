@@ -490,13 +490,9 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
         }
     }
 
-    private let decoder: JSONDecoder
+    public init() {}
 
-    public init() {
-        self.decoder = JSONDecoder()
-    }
-
-    public func summarize(forProjectAt projectRoot: URL) throws -> Summary {
+    public func summarize(forProjectAt projectRoot: URL) async throws -> Summary {
         let runsDirectory = projectRoot
             .appending(path: ".xcircuite")
             .appending(path: "runs")
@@ -504,7 +500,11 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
             return emptySummary()
         }
 
-        let runSummaries = try retainedSummaries(in: runsDirectory, projectRoot: projectRoot).map { retained in
+        let retained = try await retainedSummaries(
+            in: runsDirectory,
+            projectRoot: projectRoot
+        )
+        let runSummaries = try retained.map { retained in
             let summary = try readSummary(from: retained.url)
             return RunSummary(
                 runID: retained.runID,
@@ -584,7 +584,10 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
         let url: URL
     }
 
-    private func retainedSummaries(in runsDirectory: URL, projectRoot: URL) throws -> [RetainedSummary] {
+    private func retainedSummaries(
+        in runsDirectory: URL,
+        projectRoot: URL
+    ) async throws -> [RetainedSummary] {
         let entries: [URL]
         do {
             entries = try FileManager.default.contentsOfDirectory(
@@ -596,19 +599,15 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
             throw StudioError.projectLoadFailed("Failed to list candidate-cycle runs: \(error.localizedDescription)")
         }
 
+        let store = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
         var summaries: [RetainedSummary] = []
         for runDirectory in entries {
             let runID = runDirectory.lastPathComponent
-            let manifestURL = runDirectory.appending(path: "manifest.json")
-            guard FileManager.default.fileExists(atPath: manifestURL.path(percentEncoded: false)) else {
-                continue
-            }
-            let manifest = try decoder.decode(
-                FlowRunManifest.self,
-                from: Data(contentsOf: manifestURL, options: [.mappedIfSafe])
-            )
+            let ledger = try await store.loadAttestedRunLedger(runID: runID)
             let prefix = "\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID)-"
-            let references = manifest.artifacts.filter { $0.artifactID.hasPrefix(prefix) }
+            let references = Set(
+                ledger.artifacts + ledger.actions.flatMap(\.outputs)
+            ).filter { $0.artifactID.hasPrefix(prefix) }
             guard let reference = references.max(by: {
                 historySummaryCycleIndex($0.artifactID, prefix: prefix)
                     < historySummaryCycleIndex($1.artifactID, prefix: prefix)
@@ -642,7 +641,10 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
         }
 
         do {
-            return try decoder.decode(RunReviewSignoffRepairCandidateCycleHistorySummary.self, from: data)
+            return try JSONDecoder().decode(
+                RunReviewSignoffRepairCandidateCycleHistorySummary.self,
+                from: data
+            )
         } catch {
             throw StudioError.projectLoadFailed("Failed to decode candidate-cycle summary: \(error.localizedDescription)")
         }

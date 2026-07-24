@@ -311,6 +311,15 @@ struct RunReviewPlanningProjectionTests {
                 designDiff: designDiff
             )
         )
+        try await store.appendRunAction(FlowRunActionRecord(
+            actionID: "verify-plan-1",
+            runID: "run-planning",
+            actor: FlowRunActor(kind: .cli, identifier: "xcircuite-flow"),
+            actionKind: "planning.verify-candidate-plan",
+            status: .blocked,
+            inputs: [candidatePlanReference],
+            outputs: [planVerificationReference]
+        ))
 
         let service = RunReviewService()
         let review = try await service.loadRun(runID: "run-planning", projectRoot: root)

@@ -553,10 +553,9 @@ struct RunReviewSignoffProjectionTests {
         ) == true)
         #expect(approvedWaiver.editVerifications.first?.applicationActionID == approvedWaiver.editApplications.first?.actionRecordID)
         #expect(approvedWaiver.editVerifications.first?.planningFeedbackStatus == "rejected-plan-recorded")
-        #expect(
-            approvedWaiver.editVerifications.first?.rejectedPlansPath
-                == ".xcircuite/runs/\(runID)/planning/rejected-plans.jsonl"
-        )
+        #expect(approvedWaiver.editVerifications.first?.rejectedPlansPath?.hasPrefix(
+            ".xcircuite/runs/\(runID)/planning/rejected-plan-snapshots/"
+        ) == true)
         #expect(approvedWaiver.editVerifications.first?.note == "Apply waiver cleanup and re-run DRC/LVS.")
         let approvedVerificationSummary = try #require(approvedWaiver.editVerifications.first?.reportSummary)
         #expect(approvedVerificationSummary.status == verificationResult.verificationReport?.status)
@@ -624,7 +623,7 @@ struct RunReviewSignoffProjectionTests {
         #expect(failedVerificationAction.actionKind == "review.verifyWaiverEditProposal")
         #expect(failedVerificationAction.context.reviewDecision?.decision == "rejected-plan-recorded")
         #expect(failedVerificationAction.context.iterationID?.hasPrefix("waiver-edit-proposal-application-") == true)
-        #expect(!failedVerificationAction.outputs.contains { $0.artifactID == "planning-rejected-plans" })
+        #expect(failedVerificationAction.outputs.contains { $0.artifactID == "planning-rejected-plans" })
         #expect(failedVerificationAction.outputs.contains {
             $0.path.hasPrefix(".xcircuite/runs/\(runID)/planning/waiver-edit-feedback/remove-obsolete-drc-waiver/verifications/") &&
                 $0.path.hasSuffix("/candidate-plan.json")
@@ -634,7 +633,14 @@ struct RunReviewSignoffProjectionTests {
                 $0.path.hasSuffix("/plan-verification.json")
         })
 
-        let rejectedPlansPath = ".xcircuite/runs/\(runID)/planning/rejected-plans.jsonl"
+        let rejectedPlansPath = try #require(
+            failedVerificationAction.outputs.first {
+                $0.artifactID == XcircuitePlanningArtifactStore.rejectedPlansArtifactID
+            }?.path
+        )
+        #expect(rejectedPlansPath.hasPrefix(
+            ".xcircuite/runs/\(runID)/planning/rejected-plan-snapshots/"
+        ))
         let rejectedPlansText = try String(
             contentsOf: root.appending(path: rejectedPlansPath),
             encoding: .utf8

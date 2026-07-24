@@ -1,4 +1,5 @@
 import CircuitSignoff
+import CircuitPhysicalDesign
 import DRCAdapters
 import Foundation
 import Testing

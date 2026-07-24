@@ -1,4 +1,5 @@
 import Foundation
+import CircuitPhysicalDesign
 
 public enum StandardCellLayoutProfileError: Error, Sendable, Hashable {
     case missingBundledResource(String)

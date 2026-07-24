@@ -64,16 +64,16 @@ extension RunReviewService {
                   edit.proposalID.isEmpty == false,
                   edit.targetPath.isEmpty == false,
                   edit.operation.isEmpty == false,
-                  action.inputs.count == 2,
-                  action.outputs.count == 1
+                  action.inputs.count == 1,
+                  action.outputs.count == 2
             else {
                 throw RunReviewServiceError.invalidArtifactReference(
                     path: action.outputs.first?.path ?? action.inputs.last?.path ?? action.actionID,
                     message: "Waiver edit action has an invalid typed artifact-edit contract."
                 )
             }
-            let before = action.inputs[1]
-            let after = action.outputs[0]
+            let before = action.outputs[0]
+            let after = action.outputs[1]
             guard before.locator.role == .output,
                   after.locator.role == .output,
                   before.digest != after.digest,
@@ -127,7 +127,7 @@ extension RunReviewService {
                 $0.actionID == applicationActionID
                     && $0.actionKind == RunReviewWaiverEditApplication.actionKind
             }),
-            let appliedReference = applicationAction.outputs.first,
+            let appliedReference = applicationAction.outputs.last,
             action.inputs.contains(appliedReference),
             applicationAction.context.artifactEdit == edit else {
                 throw RunReviewServiceError.invalidArtifactReference(
@@ -143,9 +143,9 @@ extension RunReviewService {
             let layoutTrustPath = action.outputs.first(where: {
                 $0.artifactID.hasPrefix("post-waiver-edit-layout-trust-")
             })?.path
-            let rejectedPlansPath = context.decision == "rejected-plan-recorded"
-                ? ".xcircuite/runs/\(action.runID)/\(XcircuitePlanningArtifactStore.rejectedPlansRelativePath)"
-                : nil
+            let rejectedPlansPath = action.outputs.first {
+                $0.artifactID == XcircuitePlanningArtifactStore.rejectedPlansArtifactID
+            }?.path
             verifications[context.targetID, default: []].append(
                 RunReviewWaiverEditVerification(
                     actionRecordID: action.actionID,

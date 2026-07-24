@@ -678,8 +678,8 @@ public struct SignoffRepairHistoryAssessor: Sendable {
         request: Request = Request(),
         profile: Profile? = nil,
         profilePath: String? = nil
-    ) throws -> Report {
-        let summary = try indexService.summarize(forProjectAt: projectRoot)
+    ) async throws -> Report {
+        let summary = try await indexService.summarize(forProjectAt: projectRoot)
         return try assess(summary: summary, request: request, profile: profile, profilePath: profilePath)
     }
 

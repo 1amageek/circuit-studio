@@ -1,4 +1,5 @@
 import CircuitSignoff
+import CircuitPhysicalDesign
 import Foundation
 import Testing
 @testable import CircuitStudioApp

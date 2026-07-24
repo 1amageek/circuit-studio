@@ -42,10 +42,10 @@ extension RunReviewService {
             lvsRepairHintPath: lvsRepairHintPath,
             bundleArtifacts: bundle.artifacts
         )
-        let compilation = try await XcircuiteSignoffRepairFormulationBuilder(
+        let preparation = try await XcircuiteSignoffRepairFormulationBuilder(
             workspaceStore: store,
             artifactStore: XcircuitePlanningArtifactStore(workspaceStore: store)
-        ).compile(
+        ).prepare(
             request: XcircuiteSignoffRepairFormulationRequest(
                 runID: runID,
                 drcRepairHintPath: drcRepairHintPath,
@@ -57,6 +57,7 @@ extension RunReviewService {
             ),
             projectRoot: projectRoot
         )
+        let compilation = preparation.result
         let actionDomainArtifact = compilation.actionDomainArtifact
         let outputArtifacts = [
             actionDomainArtifact,
@@ -74,7 +75,10 @@ extension RunReviewService {
             outputs: outputArtifacts,
             context: FlowRunActionContext(iterationID: compilation.formulationID)
         )
-        try await store.appendRunAction(record)
+        _ = try await store.appendActionArtifacts(
+            preparation.artifacts,
+            action: record
+        )
 
         return RunReviewSignoffRepairPlanningResult(
             runID: runID,

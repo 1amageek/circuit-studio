@@ -1,4 +1,5 @@
 import Foundation
+import CircuitPhysicalDesign
 import LayoutCore
 
 /// End-to-end automatic hierarchical place & route: it partitions a flat netlist into blocks

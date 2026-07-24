@@ -1,4 +1,5 @@
 import CircuitSignoff
+import CircuitPhysicalDesign
 import CircuiteFoundation
 import Foundation
 import CircuitStudioCore

@@ -27,14 +27,6 @@ public struct InterBlockRouter: Sendable {
         self.profile = profile
     }
 
-    public static func bundledDefault() throws -> InterBlockRouter {
-        InterBlockRouter(profile: try LayoutTechnologyCatalog.loadDefaultRoutingProfile())
-    }
-
-    public init() throws {
-        self.init(profile: try LayoutTechnologyCatalog.loadDefaultRoutingProfile())
-    }
-
     private func rect(_ role: LayoutRoutingProfile.LayerRole, _ x: Double, _ y: Double, _ w: Double, _ h: Double) -> LayoutShape {
         LayoutShape(layer: profile.layerID(for: role),
                     geometry: .rect(LayoutRect(origin: LayoutPoint(x: x, y: y), size: LayoutSize(width: w, height: h))))

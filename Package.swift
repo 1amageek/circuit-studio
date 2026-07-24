@@ -144,6 +144,7 @@ let package = Package(
             name: "CircuitPhysicalDesign",
             dependencies: [
                 "CircuitStudioCore",
+                "CircuitSignoff",
                 .product(name: "LayoutAutoGen", package: "semiconductor-layout"),
                 .product(name: "LayoutCore", package: "semiconductor-layout"),
                 .product(name: "LayoutTech", package: "semiconductor-layout"),

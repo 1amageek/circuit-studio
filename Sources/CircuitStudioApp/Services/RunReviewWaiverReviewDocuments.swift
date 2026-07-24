@@ -1,6 +1,7 @@
 import Foundation
 import CircuiteFoundation
 import DesignFlowKernel
+import Xcircuite
 
 enum WaiverArtifactKind {
     case drc
@@ -13,6 +14,7 @@ struct AppliedWaiverEdit: Sendable, Hashable {
     let afterData: Data
     let beforeReference: ArtifactReference
     let afterReference: ArtifactReference
+    let artifacts: [XcircuitePreparedArtifact]
 }
 
 struct WaiverEditPlanningFeedback: Sendable, Hashable {
@@ -20,6 +22,7 @@ struct WaiverEditPlanningFeedback: Sendable, Hashable {
     let candidatePlanRef: ArtifactReference
     let planVerificationRef: ArtifactReference
     let rejectedPlansRef: ArtifactReference?
+    let artifacts: [XcircuitePreparedArtifact]
 }
 
 struct DRCWaiverReviewDocument: Decodable {

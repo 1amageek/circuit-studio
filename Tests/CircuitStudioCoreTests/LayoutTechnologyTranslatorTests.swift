@@ -1,5 +1,6 @@
 import CircuitSignoff
 import Foundation
+import CircuitPhysicalDesign
 import Testing
 import LayoutCore
 import LayoutTech

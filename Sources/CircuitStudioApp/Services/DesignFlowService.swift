@@ -344,15 +344,16 @@ public struct DesignFlowService: Sendable {
 
     public func summarizeSignoffRepairCandidateCycles(
         projectRoot: URL
-    ) throws -> RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary {
-        try RunReviewSignoffRepairCandidateCycleHistoryIndexService().summarize(forProjectAt: projectRoot)
+    ) async throws -> RunReviewSignoffRepairCandidateCycleHistoryIndexService.Summary {
+        try await RunReviewSignoffRepairCandidateCycleHistoryIndexService()
+            .summarize(forProjectAt: projectRoot)
     }
 
     public func assessSignoffRepairCandidateCycles(
         projectRoot: URL,
         request: SignoffRepairHistoryAssessor.Request
-    ) throws -> SignoffRepairHistoryAssessor.Report {
-        try SignoffRepairHistoryAssessor()
+    ) async throws -> SignoffRepairHistoryAssessor.Report {
+        try await SignoffRepairHistoryAssessor()
             .assess(forProjectAt: projectRoot, request: request)
     }
 
@@ -542,7 +543,7 @@ public struct DesignFlowService: Sendable {
                 throw DesignFlowCommandError.missingProjectRoot
             }
             let projectRoot = URL(filePath: projectRootPath)
-            let summary = try summarizeSignoffRepairCandidateCycles(projectRoot: projectRoot)
+            let summary = try await summarizeSignoffRepairCandidateCycles(projectRoot: projectRoot)
             return DesignFlowCommandResult(
                 kind: command.kind,
                 projectRootPath: projectRoot.path(percentEncoded: false),
@@ -558,7 +559,7 @@ public struct DesignFlowService: Sendable {
             let profile = try profilePath.map {
                 try assessmentService.loadProfile(from: URL(filePath: $0))
             }
-            let report = try assessmentService.assess(
+            let report = try await assessmentService.assess(
                 forProjectAt: projectRoot,
                 request: signoffRepairHistoryAssessmentRequest(
                     for: command,

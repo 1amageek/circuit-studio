@@ -147,13 +147,6 @@ public struct LayoutRoutingProfile: Codable, Sendable, Hashable {
         return try JSONDecoder().decode(LayoutRoutingProfile.self, from: data)
     }
 
-    public static func bundled(resourceName: String) throws -> LayoutRoutingProfile {
-        guard let url = Bundle.module.url(forResource: resourceName, withExtension: "json") else {
-            throw LayoutRoutingProfileError.missingBundledResource(resourceName)
-        }
-        return try load(from: url)
-    }
-
     public func layerReference(for role: LayerRole) -> LayerReference {
         switch role {
         case .pinAccessBottom:

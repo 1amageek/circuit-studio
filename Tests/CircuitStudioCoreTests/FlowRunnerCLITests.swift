@@ -588,8 +588,8 @@ struct FlowRunnerCLITests {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let store = try XcircuiteWorkspaceStore(projectRoot: root)
-        _ = try await store.persistArtifact(
-            content: encoder.encode(summary),
+        let summaryContent = try encoder.encode(summary)
+        let summaryReference = ArtifactReference(
             id: try ArtifactID(rawValue: "planning-candidate-cycle-history-summary-1"),
             locator: ArtifactLocator(
                 location: try ArtifactLocation(
@@ -599,8 +599,25 @@ struct FlowRunnerCLITests {
                 kind: .other,
                 format: .json
             ),
-            runID: "run-1",
-            mode: .immutable
+            digest: try SHA256ContentDigester().digest(
+                data: summaryContent,
+                using: .sha256
+            ),
+            byteCount: UInt64(summaryContent.count)
+        )
+        _ = try await store.appendActionArtifacts(
+            [XcircuitePreparedArtifact(
+                reference: summaryReference,
+                content: summaryContent
+            )],
+            action: FlowRunActionRecord(
+                actionID: "retain-candidate-cycle-history-1",
+                runID: "run-1",
+                actor: FlowRunActor(kind: .cli, identifier: "circuit-studio-tests"),
+                actionKind: "planning.retain-candidate-cycle-history",
+                status: .succeeded,
+                outputs: [summaryReference]
+            )
         )
 
         let result = try await DesignFlowService().execute(DesignFlowCommand(
