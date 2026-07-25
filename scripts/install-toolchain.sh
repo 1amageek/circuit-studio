@@ -19,7 +19,7 @@ log() { printf '[toolchain] %s\n' "$*" >&2; }
 
 install_prereqs() {
     if [ "$OS" = "Darwin" ]; then
-        brew install tcl-tk tcl-tk@8 gnu-sed libx11 ngspice >/dev/null 2>&1 || true
+        brew install tcl-tk tcl-tk@8 gnu-sed libx11 ngspice >/dev/null
     else
         sudo apt-get update -y >/dev/null
         sudo apt-get install -y --no-install-recommends \
@@ -40,7 +40,7 @@ build_magic() {
         export CC="$(xcrun -f clang)" CXX="$(xcrun -f clang++)"
         ./configure --prefix="$PREFIX/magic" --without-x \
             --with-tcl=/opt/homebrew/opt/tcl-tk/lib --with-tk=/opt/homebrew/opt/tcl-tk/lib >/dev/null
-        sed -i 's#^SED *= .*#SED = /opt/homebrew/opt/gnu-sed/libexec/gnubin/sed#' defs.mak
+        gsed -i 's#^SED *= .*#SED = /opt/homebrew/opt/gnu-sed/libexec/gnubin/sed#' defs.mak
     else
         ./configure --prefix="$PREFIX/magic" >/dev/null
     fi
