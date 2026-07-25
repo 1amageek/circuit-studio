@@ -9,6 +9,87 @@ import Xcircuite
 
 @Suite("Run review signoff projection", .timeLimit(.minutes(2)))
 struct RunReviewSignoffProjectionTests {
+    @Test func signoffArtifactIndexMaterializesSearchMetadataOnce() throws {
+        let artifactCount = 1_200
+        let artifacts = try (0..<artifactCount).map { index in
+            let domain = switch index % 4 {
+            case 0: "drc"
+            case 1: "lvs"
+            case 2: "pex"
+            default: "simulation"
+            }
+            return FlowRunReviewArtifact(
+                reference: try RunReviewTestSupport.artifactReference(
+                    artifactID: "\(domain)-artifact-\(index)",
+                    path: ".xcircuite/runs/performance/\(domain)-artifact-\(index).json"
+                ),
+                purpose: index % 11 == 0 ? .stageResult : .stageSummary,
+                stageID: index % 11 == 0 ? "shared-stage" : "\(domain)-stage"
+            )
+        }
+        let primary = try #require(artifacts.first)
+        let index = RunReviewSignoffArtifactIndex(artifacts: artifacts)
+
+        #expect(index.indexedArtifactCount == artifactCount)
+        for _ in 0..<100 {
+            let related = index.relatedArtifacts(for: primary, artifactKind: .drc)
+            #expect(!related.contains(primary))
+            #expect(related.allSatisfy {
+                $0.reference.id.rawValue.contains("drc")
+                    || $0.stageID == primary.stageID && $0.purpose == .stageResult
+            })
+        }
+    }
+
+    @Test @MainActor func retainedActionDomainSnapshotDrivesRepairMetadata() async throws {
+        let runID = "run-signoff"
+        let snapshotPath = ".xcircuite/runs/\(runID)/planning/action-domain-snapshot.json"
+        let snapshot = XcircuitePlanningActionDomainSnapshot(
+            runID: runID,
+            generatedAt: "2026-07-26T00:00:00Z",
+            domains: [
+                XcircuiteActionDomain(
+                    domainID: "layout-edit",
+                    ownerPackages: ["semiconductor-layout"],
+                    operations: [
+                        XcircuiteActionDomainOperation(
+                            operationID: "layout.resize-shape",
+                            maturity: .implemented,
+                            inputRefs: ["retained-document-ref", "retained-shape-ref"],
+                            preconditions: ["retained-shape-exists"],
+                            effects: ["retained-shape-updated"],
+                            producedArtifacts: ["retained-layout-document"],
+                            verificationGates: ["retained-integrity-gate"],
+                            reversible: true
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let snapshotData = try JSONEncoder().encode(snapshot)
+        let snapshotReference = try RunReviewTestSupport.artifactReference(
+            artifactID: "planning-action-domain-snapshot",
+            path: snapshotPath,
+            payload: snapshotData,
+            kind: .other,
+            format: .json
+        )
+        let fixture = try await RunReviewSignoffFixture.make(
+            additionalArtifacts: [snapshotReference],
+            additionalArtifactPayloads: [snapshotPath: snapshotData]
+        )
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
+        defer { RunReviewTestSupport.removeTemporaryRoot(fixture.outsideRoot) }
+
+        let drc = try #require(fixture.review.signoff.cards.first { $0.domain == "DRC" })
+        let repairAction = try #require(drc.issues.first?.repairActionHints.first)
+        #expect(repairAction.domainID == "layout-edit")
+        #expect(repairAction.operationID == "layout.resize-shape")
+        #expect(repairAction.maturity == "implemented")
+        #expect(repairAction.requiredInputRefs == ["retained-document-ref", "retained-shape-ref"])
+        #expect(repairAction.verificationGates == ["retained-integrity-gate"])
+    }
+
     @Test @MainActor func signoffArtifactsAreVisibleInTheReview() async throws {
         let fixture = try await RunReviewSignoffFixture.make()
         defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
@@ -79,7 +160,8 @@ struct RunReviewSignoffProjectionTests {
         let drcRepairAction = try #require(drcIssue.repairActionHints.first)
         #expect(drcRepairAction.domainID == "layout-edit")
         #expect(drcRepairAction.operationID == "layout.resize-shape")
-        #expect(drcRepairAction.requiredInputRefs == ["layout-ref"])
+        #expect(drcRepairAction.maturity == "implemented")
+        #expect(drcRepairAction.requiredInputRefs == ["document-ref", "cell-ref", "shape-ref"])
         #expect(drcRepairAction.verificationGates == ["artifact-integrity", "native-drc", "native-lvs"])
         let drcViolationDetail = try #require(drcIssue.detailRows.first { $0.label == "Violation" })
         #expect(drcViolationDetail.metrics.contains { $0.label == "Rule" && $0.value == "M1.WIDTH" })
@@ -244,6 +326,14 @@ struct RunReviewSignoffProjectionTests {
             "pex.metric-recovery-objective",
             "layout-command-replay",
         ])
+        let pexRecoveryAction = try #require(pexIssue.repairActionHints.first)
+        #expect(pexRecoveryAction.domainID == "pex-extraction")
+        #expect(pexRecoveryAction.maturity == "implemented")
+        let layoutReplayAction = try #require(pexIssue.repairActionHints.last)
+        #expect(layoutReplayAction.domainID == "layout-edit")
+        #expect(layoutReplayAction.maturity == "implemented")
+        #expect(layoutReplayAction.requiredInputRefs == ["layout-command-request"])
+        #expect(layoutReplayAction.verificationGates == ["artifact-integrity"])
         let pexCornerPanel = try #require(pex.detailSections.first { $0.title == "Corners" })
         let failedCornerRow = try #require(pexCornerPanel.rows.first { $0.label == "ss" })
         #expect(failedCornerRow.metrics.contains { $0.label == "Status" && $0.value == "failed" })

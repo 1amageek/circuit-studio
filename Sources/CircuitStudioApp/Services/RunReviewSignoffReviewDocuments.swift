@@ -1,6 +1,6 @@
 import Foundation
 
-enum SignoffArtifactKind {
+enum SignoffArtifactKind: Hashable {
     case drc
     case lvs
     case pex

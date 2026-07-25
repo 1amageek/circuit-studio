@@ -80,15 +80,19 @@ public struct RunReviewService: Sendable {
     let ledgerLoader: (any FlowRunLedgerLoading)?
     let reviewLedgerLoader: (any FlowRunReviewLedgerLoading)?
     let reviewBundler: (any FlowRunReviewBundling)?
+    let suggestedActionExecutor: any RunReviewSuggestedActionExecuting
 
     public init(
         ledgerLoader: (any FlowRunLedgerLoading)? = nil,
         reviewLedgerLoader: (any FlowRunReviewLedgerLoading)? = nil,
-        reviewBundler: (any FlowRunReviewBundling)? = nil
+        reviewBundler: (any FlowRunReviewBundling)? = nil,
+        suggestedActionExecutor: any RunReviewSuggestedActionExecuting =
+            DefaultRunReviewSuggestedActionExecutor()
     ) {
         self.ledgerLoader = ledgerLoader
         self.reviewLedgerLoader = reviewLedgerLoader
         self.reviewBundler = reviewBundler
+        self.suggestedActionExecutor = suggestedActionExecutor
     }
 
     func workspaceStore(projectRoot: URL) throws -> XcircuiteWorkspaceStore {
@@ -280,6 +284,38 @@ public struct RunReviewService: Sendable {
         )
         try await store.appendRunAction(record)
         return record
+    }
+
+    public func runSuggestedAction(
+        runID: String,
+        nextActionID: String,
+        actionID: String,
+        reviewer: String,
+        projectRoot: URL
+    ) async throws -> RunReviewSuggestedActionExecutionResult {
+        let selections = try await loadSuggestedActionSelections(
+            runID: runID,
+            projectRoot: projectRoot
+        )
+        let hasSucceededSelection = selections.contains {
+            $0.status == .succeeded
+                && $0.nextActionID == nextActionID
+                && $0.action.id == actionID
+        }
+        if !hasSucceededSelection {
+            _ = try await recordSuggestedActionSelection(
+                runID: runID,
+                nextActionID: nextActionID,
+                actionID: actionID,
+                reviewer: reviewer,
+                projectRoot: projectRoot
+            )
+        }
+        return try await suggestedActionExecutor.execute(
+            runID: runID,
+            actionID: actionID,
+            projectRoot: projectRoot
+        )
     }
 
     public func decidePlanningRiskApproval(

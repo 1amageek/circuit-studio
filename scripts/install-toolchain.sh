@@ -92,11 +92,38 @@ install_pdk
 MAGIC_BIN="$PREFIX/magic/bin/magic"
 NETGEN_BIN="$PREFIX/netgen/bin/netgen"
 PDK_ROOT="$HOME/.volare/volare/sky130/versions/$SKY130_HASH"
+MAGIC_VERSION="$("$MAGIC_BIN" --version 2>&1 | sed -n '1p')"
+NETGEN_VERSION="$("$NETGEN_BIN" -batch </dev/null 2>&1 | sed -n '1s/^Netgen //p')"
+
+if [ -z "$MAGIC_VERSION" ] || [ -z "$NETGEN_VERSION" ]; then
+    log "failed to resolve required Magic or Netgen executable identity"
+    exit 1
+fi
 
 if [ -n "${GITHUB_ENV:-}" ]; then
-    { echo "MAGIC_BIN=$MAGIC_BIN"; echo "NETGEN_BIN=$NETGEN_BIN"; echo "PDK_ROOT=$PDK_ROOT"; } >> "$GITHUB_ENV"
-    log "exported MAGIC_BIN/NETGEN_BIN/PDK_ROOT to GITHUB_ENV"
+    {
+        echo "MAGIC_BIN=$MAGIC_BIN"
+        echo "MAGIC_VERSION=$MAGIC_VERSION"
+        echo "NETGEN_BIN=$NETGEN_BIN"
+        echo "NETGEN_VERSION=$NETGEN_VERSION"
+        echo "PDK_ROOT=$PDK_ROOT"
+    } >> "$GITHUB_ENV"
+    log "exported tool paths, executable identities, and PDK_ROOT to GITHUB_ENV"
+fi
+if [ -n "${CIRCUIT_STUDIO_TOOL_ENV_FILE:-}" ]; then
+    mkdir -p "$(dirname "$CIRCUIT_STUDIO_TOOL_ENV_FILE")"
+    {
+        echo "MAGIC_BIN=$MAGIC_BIN"
+        echo "MAGIC_VERSION=$MAGIC_VERSION"
+        echo "NETGEN_BIN=$NETGEN_BIN"
+        echo "NETGEN_VERSION=$NETGEN_VERSION"
+        echo "PDK_ROOT=$PDK_ROOT"
+        echo "NGSPICE_BIN=$(command -v ngspice)"
+    } > "$CIRCUIT_STUDIO_TOOL_ENV_FILE"
+    log "retained tool environment at $CIRCUIT_STUDIO_TOOL_ENV_FILE"
 fi
 echo "export MAGIC_BIN=$MAGIC_BIN"
+echo "export MAGIC_VERSION=$MAGIC_VERSION"
 echo "export NETGEN_BIN=$NETGEN_BIN"
+echo "export NETGEN_VERSION=$NETGEN_VERSION"
 echo "export PDK_ROOT=$PDK_ROOT"

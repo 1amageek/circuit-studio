@@ -19,6 +19,87 @@ struct RunReviewPlanningProjectionTests {
         let workspaceID = try await RunReviewTestSupport.workspaceID(projectRoot: root)
 
         let encoder = JSONEncoder()
+        let planningProblemPath = ".xcircuite/runs/run-planning/planning/problem.json"
+        let planningProblem = XcircuiteCircuitPlanningProblem(
+            problemID: "problem-1",
+            runID: "run-planning",
+            sourceRefs: [],
+            initialStateRefs: [],
+            riskClassifications: [
+                XcircuitePlanningRiskClassification(
+                    riskID: "risk-policy-repair",
+                    category: "lvs-policy",
+                    severity: "high",
+                    scope: "plan",
+                    description: "Policy repair changes LVS equivalence and needs review.",
+                    affectedActionIDs: ["action-1"],
+                    requiredApprovals: ["policy-repair-approval"],
+                    mitigationActions: ["approval-gate", "native-lvs"]
+                ),
+            ],
+            objectives: [
+                XcircuitePlanningObjective(
+                    objectiveID: "objective-1",
+                    kind: "satisfy",
+                    domain: "lvs",
+                    priority: "error",
+                    sourceRefIDs: [],
+                    target: "reviewed-policy-repair",
+                    description: "Apply only an explicitly approved LVS policy repair."
+                ),
+            ],
+            constraints: [
+                XcircuitePlanningConstraint(
+                    constraintID: "policy-repair-approval",
+                    kind: "human-approval",
+                    severity: "high",
+                    description: "Human review is required before policy repair execution."
+                ),
+            ],
+            actionDomainRefs: ["lvs-signoff"],
+            candidateActions: [
+                XcircuitePlanningCandidateAction(
+                    actionID: "action-1",
+                    domainID: "lvs-signoff",
+                    operationID: "lvs.policy-repair",
+                    maturity: "implemented",
+                    reason: "Allow a reviewed model-equivalence policy before native LVS.",
+                    sourceObjectiveIDs: ["objective-1"],
+                    requiredInputRefs: ["layout-netlist-ref", "schematic-netlist-ref"],
+                    verificationGates: ["approval-gate", "native-lvs"],
+                    parameterHints: [:]
+                ),
+            ],
+            costModel: XcircuitePlanningCostModel(
+                strategy: "minimize-risk-then-churn",
+                terms: []
+            ),
+            verificationGates: [
+                XcircuitePlanningVerificationGate(
+                    gateID: "approval-gate",
+                    required: true,
+                    description: "Policy repair requires human approval."
+                ),
+                XcircuitePlanningVerificationGate(
+                    gateID: "native-lvs",
+                    required: true,
+                    description: "Native LVS must pass after policy repair."
+                ),
+            ],
+            resumeContract: XcircuitePlanningResumeContract(
+                mode: "run-ledger",
+                requiredArtifacts: ["planning/problem.json"],
+                blockedStates: ["approval-required"]
+            )
+        )
+        let planningProblemPayload = try encoder.encode(planningProblem)
+        let planningProblemReference = try RunReviewTestSupport.artifactReference(
+            artifactID: "planning-problem",
+            path: planningProblemPath,
+            payload: planningProblemPayload,
+            kind: .other,
+            format: .json
+        )
         let candidatePlanPath = ".xcircuite/runs/run-planning/planning/candidate-plan.json"
         let candidatePlan = XcircuiteCandidatePlan(
             planID: "plan-1",
@@ -303,8 +384,13 @@ struct RunReviewPlanningProjectionTests {
             executors: [RunReviewPassingExecutor(stageID: "001-planning")],
             artifactPreparer: RunReviewArtifactPreparer(
                 workspaceStore: store,
-                artifacts: [candidatePlanReference, planVerificationReference],
+                artifacts: [
+                    planningProblemReference,
+                    candidatePlanReference,
+                    planVerificationReference,
+                ],
                 artifactPayloads: [
+                    planningProblemPath: planningProblemPayload,
                     candidatePlanPath: candidatePlanPayload,
                     planVerificationPath: payload,
                 ],
@@ -716,6 +802,37 @@ struct RunReviewPlanningProjectionTests {
         let reloadedReview = try await service.loadRun(runID: "run-planning", projectRoot: root)
         #expect(reloadedReview.suggestedActionSelections == selections)
         #expect(reloadedReview.planning.selectedActions == selections)
+
+        let execution = try await service.runSuggestedAction(
+            runID: "run-planning",
+            nextActionID: action.actionID,
+            actionID: suggestedAction.id,
+            reviewer: "reviewer-1",
+            projectRoot: root
+        )
+        #expect(execution.resolvedAction.command == .verifyCandidatePlan)
+        #expect(execution.resolvedAction.selection.action == suggestedAction)
+        #expect(!execution.commandOutput.isEmpty)
+        let actionsAfterExecution = try await store.loadRunActions(runID: "run-planning")
+        #expect(actionsAfterExecution.filter {
+            $0.actionKind == "review.selectSuggestedAction"
+                && $0.context.suggestedAction?.action.id == suggestedAction.id
+        }.count == 1)
+        #expect(actionsAfterExecution.contains {
+            $0.actionKind == "planning.verify-candidate-plan"
+        })
+        await #expect(
+            throws: XcircuiteSelectedSuggestedActionResolutionError.noSelection(
+                runID: "run-planning",
+                actionID: "missing-selected-action"
+            )
+        ) {
+            _ = try await DefaultRunReviewSuggestedActionExecutor().execute(
+                runID: "run-planning",
+                actionID: "missing-selected-action",
+                projectRoot: root
+            )
+        }
 
         let approvalResult = try await service.decidePlanningRiskApproval(
             runID: "run-planning",

@@ -46,11 +46,17 @@ jobs:
 
       - name: Install / detect toolchain
         working-directory: circuit-studio
-        run: bash scripts/install-toolchain.sh   # appends MAGIC_BIN/NETGEN_BIN/PDK_ROOT to $GITHUB_ENV
+        env:
+          CIRCUIT_STUDIO_TOOL_ENV_FILE: .build/real-tool-environment
+        run: bash scripts/install-toolchain.sh
 
       - name: Run tests (gated real-tool tests now execute)
         working-directory: circuit-studio
+        env:
+          CIRCUIT_STUDIO_REQUIRE_REAL_TOOLS: "1"
         run: |
+          mkdir -p .build
+          touch .build/require-real-tools
           ./scripts/swift-test-timeout.sh 5400 \
             xcodebuild test \
               -workspace .swiftpm/xcode/package.xcworkspace \

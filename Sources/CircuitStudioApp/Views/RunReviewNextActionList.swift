@@ -5,6 +5,9 @@ struct RunReviewNextActionList: View {
     let actions: [FlowRunNextAction]
     let selections: [FlowRunSuggestedActionSelection]
     let recordSelection: (FlowRunNextAction, FlowRunSuggestedAction) -> Void
+    let runAction: (FlowRunNextAction, FlowRunSuggestedAction) -> Void
+    let runningActionIDs: Set<String>
+    let executionErrors: [String: String]
 
     var body: some View {
         GroupBox("Next Actions") {
@@ -35,6 +38,10 @@ struct RunReviewNextActionList: View {
                                     action: action,
                                     suggestedAction: suggestedAction
                                 )
+                                let executionID = executionID(
+                                    action: action,
+                                    suggestedAction: suggestedAction
+                                )
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 6) {
                                         Text(suggestedAction.readiness.rawValue)
@@ -57,17 +64,38 @@ struct RunReviewNextActionList: View {
                                                 .background(Color.accentColor.opacity(0.14), in: Capsule())
                                                 .foregroundStyle(Color.accentColor)
                                         }
-                                        Button {
-                                            recordSelection(action, suggestedAction)
-                                        } label: {
-                                            Label("Record", systemImage: "bookmark")
+                                        if suggestedAction.readiness == .ready {
+                                            Button {
+                                                runAction(action, suggestedAction)
+                                            } label: {
+                                                if runningActionIDs.contains(executionID) {
+                                                    ProgressView()
+                                                        .controlSize(.small)
+                                                } else {
+                                                    Label("Run", systemImage: "play.fill")
+                                                }
+                                            }
+                                            .buttonStyle(.borderedProminent)
+                                            .disabled(runningActionIDs.contains(executionID))
+                                        } else {
+                                            Button {
+                                                recordSelection(action, suggestedAction)
+                                            } label: {
+                                                Label("Record", systemImage: "bookmark")
+                                            }
+                                            .buttonStyle(.bordered)
                                         }
-                                        .buttonStyle(.bordered)
                                     }
                                     Text(String(describing: suggestedAction.operation))
                                         .font(.caption.monospaced())
                                         .foregroundStyle(.secondary)
                                         .lineLimit(4)
+                                    if let executionError = executionErrors[executionID] {
+                                        Text(executionError)
+                                            .font(.caption2)
+                                            .foregroundStyle(.red)
+                                            .lineLimit(4)
+                                    }
                                 }
                                 .padding(.top, 2)
                             }
@@ -77,6 +105,13 @@ struct RunReviewNextActionList: View {
                 }
             }
         }
+    }
+
+    private func executionID(
+        action: FlowRunNextAction,
+        suggestedAction: FlowRunSuggestedAction
+    ) -> String {
+        "\(action.actionID)::\(suggestedAction.id)"
     }
 
     private func selectedAction(

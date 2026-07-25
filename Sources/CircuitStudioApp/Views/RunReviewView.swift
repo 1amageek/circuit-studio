@@ -54,6 +54,8 @@ public struct RunReviewView: View {
     @State private var signoffRepairCandidateCycleInFlight: Set<String> = []
     @State private var signoffRepairCandidateCycleErrors: [String: String] = [:]
     @State private var signoffRepairCandidateCycleResults: [String: RunReviewSignoffRepairCandidateCycleResult] = [:]
+    @State private var suggestedActionExecutionsInFlight: Set<String> = []
+    @State private var suggestedActionExecutionErrors: [String: String] = [:]
     @State private var loadError: String?
 
     private let service = RunReviewService()
@@ -227,7 +229,16 @@ public struct RunReviewView: View {
                         suggestedAction: suggestedAction,
                         runID: review.runID
                     )
-                }
+                },
+                runAction: { action, suggestedAction in
+                    runSuggestedAction(
+                        action,
+                        suggestedAction: suggestedAction,
+                        runID: review.runID
+                    )
+                },
+                runningActionIDs: suggestedActionExecutionsInFlight,
+                executionErrors: suggestedActionExecutionErrors
             )
         }
         if review.planning.hasContent {
@@ -1046,6 +1057,34 @@ public struct RunReviewView: View {
                 reloadReview()
             } catch {
                 loadError = error.localizedDescription
+            }
+        }
+    }
+
+    private func runSuggestedAction(
+        _ action: FlowRunNextAction,
+        suggestedAction: FlowRunSuggestedAction,
+        runID: String
+    ) {
+        let executionID = "\(action.actionID)::\(suggestedAction.id)"
+        suggestedActionExecutionsInFlight.insert(executionID)
+        suggestedActionExecutionErrors[executionID] = nil
+        Task {
+            defer {
+                suggestedActionExecutionsInFlight.remove(executionID)
+            }
+            do {
+                _ = try await service.runSuggestedAction(
+                    runID: runID,
+                    nextActionID: action.actionID,
+                    actionID: suggestedAction.id,
+                    reviewer: reviewer,
+                    projectRoot: projectRoot
+                )
+                reloadReview()
+            } catch {
+                suggestedActionExecutionErrors[executionID] = error.localizedDescription
+                reloadReview()
             }
         }
     }

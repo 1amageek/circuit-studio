@@ -51,6 +51,22 @@ public struct LiveSignoffService: Sendable {
         schematicNetlist: URL,
         artifactDirectory: URL
     ) async throws -> ExternalSignoffReview {
+        try await execute(
+            layoutGDS: layoutGDS,
+            topCell: topCell,
+            schematicNetlist: schematicNetlist,
+            artifactDirectory: artifactDirectory
+        ).review
+    }
+
+    /// Executes both canonical engines and retains their typed results so callers
+    /// can persist exact tool provenance and engine-owned summary projections.
+    public func execute(
+        layoutGDS: URL,
+        topCell: String,
+        schematicNetlist: URL,
+        artifactDirectory: URL
+    ) async throws -> LiveSignoffExecutionResult {
         try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
 
         let drcExecution = try await drc.run(
@@ -81,11 +97,16 @@ public struct LiveSignoffService: Sendable {
             )
         )
 
-        return ExternalSignoffReview(
+        let review = ExternalSignoffReview(
             reports: [
                 ExternalSignoffToolReport(drcResult: drcExecution.result),
                 ExternalSignoffToolReport(lvsResult: lvsExecution.result),
             ]
+        )
+        return LiveSignoffExecutionResult(
+            drc: drcExecution,
+            lvs: lvsExecution,
+            review: review
         )
     }
 }

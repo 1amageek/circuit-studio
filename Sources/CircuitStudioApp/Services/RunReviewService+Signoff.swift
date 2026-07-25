@@ -14,40 +14,63 @@ extension RunReviewService {
     ) throws -> RunReviewSignoffSummary {
         var cards: [RunReviewSignoffCard] = []
         var decodeIssues: [RunReviewArtifactDecodeIssue] = []
+        let artifactIndex = RunReviewSignoffArtifactIndex(artifacts: bundle.artifacts)
+        let actionDomainCatalog = try signoffActionDomainCatalog(
+            bundle: bundle,
+            projectRoot: projectRoot
+        )
 
         for artifact in bundle.artifacts where artifact.reference.locator.format == .json {
             switch signoffArtifactKind(for: artifact) {
             case .drc:
                 appendDecodedCard(
                     artifact: artifact,
-                    allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
-                    makeCard: drcCard
+                    makeCard: {
+                        drcCard(
+                            document: $0,
+                            artifact: $1,
+                            actionDomainCatalog: actionDomainCatalog
+                        )
+                    }
                 )
             case .lvs:
                 appendDecodedCard(
                     artifact: artifact,
-                    allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
-                    makeCard: lvsCard
+                    makeCard: {
+                        lvsCard(
+                            document: $0,
+                            artifact: $1,
+                            actionDomainCatalog: actionDomainCatalog
+                        )
+                    }
                 )
             case .pex:
                 appendDecodedCard(
                     artifact: artifact,
-                    allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
-                    makeCard: pexCard
+                    makeCard: {
+                        pexCard(
+                            document: $0,
+                            artifact: $1,
+                            actionDomainCatalog: actionDomainCatalog
+                        )
+                    }
                 )
             case .generatedLayoutSignoffCorpus:
                 appendDecodedCard(
                     artifact: artifact,
-                    allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
@@ -56,7 +79,7 @@ extension RunReviewService {
             case .retainedSignoffReport:
                 appendDecodedCard(
                     artifact: artifact,
-                    allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
@@ -65,16 +88,22 @@ extension RunReviewService {
             case .simulationMetric:
                 appendDecodedCard(
                     artifact: artifact,
-                    allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
-                    makeCard: simulationMetricCard
+                    makeCard: {
+                        simulationMetricCard(
+                            document: $0,
+                            artifact: $1,
+                            actionDomainCatalog: actionDomainCatalog
+                        )
+                    }
                 )
             case .simulationMeasurement:
                 appendDecodedCard(
                     artifact: artifact,
-                    allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
@@ -83,16 +112,23 @@ extension RunReviewService {
             case .postLayoutComparison:
                 appendDecodedCard(
                     artifact: artifact,
-                    allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
-                    makeCard: postLayoutComparisonCard
+                    makeCard: {
+                        postLayoutComparisonCard(
+                            document: $0,
+                            artifact: $1,
+                            actionDomainCatalog: actionDomainCatalog
+                        )
+                    }
                 )
             case .signoffBundle:
                 appendReleaseSignoffBundleCards(
                     artifact: artifact,
                     allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards
@@ -101,6 +137,7 @@ extension RunReviewService {
                 appendReleaseAuthorizationCard(
                     artifact: artifact,
                     allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards
@@ -109,6 +146,7 @@ extension RunReviewService {
                 appendTapeoutCard(
                     artifact: artifact,
                     allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards
@@ -117,6 +155,7 @@ extension RunReviewService {
                 appendFoundryHandoffCard(
                     artifact: artifact,
                     allArtifacts: bundle.artifacts,
+                    artifactIndex: artifactIndex,
                     projectRoot: projectRoot,
                     decodeIssues: &decodeIssues,
                     cards: &cards
@@ -139,6 +178,44 @@ extension RunReviewService {
             ),
             decodeIssues: decodeIssues
         )
+    }
+
+    private func signoffActionDomainCatalog(
+        bundle: FlowRunReviewBundle,
+        projectRoot: URL
+    ) throws -> RunReviewActionDomainCatalog {
+        let retainedSnapshots = bundle.artifacts.filter {
+            $0.purpose == .planningActionDomain
+                || $0.reference.id.rawValue == XcircuitePlanningArtifactStore.actionDomainArtifactID
+        }
+        guard retainedSnapshots.count <= 1 else {
+            throw RunReviewServiceError.invalidActionDomainSnapshot(
+                runID: bundle.runID,
+                message: "Multiple planning action-domain snapshots are retained."
+            )
+        }
+        guard let retainedSnapshot = retainedSnapshots.first else {
+            return try RunReviewActionDomainCatalog.canonical(runID: bundle.runID)
+        }
+
+        try validateSignoffArtifactIntegrity(retainedSnapshot, projectRoot: projectRoot)
+        let snapshot = try JSONDecoder().decode(
+            XcircuitePlanningActionDomainSnapshot.self,
+            from: Data(contentsOf: artifactURL(for: retainedSnapshot, projectRoot: projectRoot))
+        )
+        guard snapshot.schemaVersion == 1 else {
+            throw RunReviewServiceError.invalidActionDomainSnapshot(
+                runID: bundle.runID,
+                message: "Expected schema version 1, found \(snapshot.schemaVersion)."
+            )
+        }
+        guard snapshot.runID == bundle.runID else {
+            throw RunReviewServiceError.invalidActionDomainSnapshot(
+                runID: bundle.runID,
+                message: "Snapshot run ID \(snapshot.runID) does not match the review bundle."
+            )
+        }
+        return RunReviewActionDomainCatalog(snapshot: snapshot)
     }
 
     private func signoffRepairCandidateCycles(
@@ -170,7 +247,7 @@ extension RunReviewService {
 
     private func appendDecodedCard<Document: Decodable>(
         artifact: FlowRunReviewArtifact,
-        allArtifacts: [FlowRunReviewArtifact],
+        artifactIndex: RunReviewSignoffArtifactIndex,
         projectRoot: URL,
         decodeIssues: inout [RunReviewArtifactDecodeIssue],
         cards: inout [RunReviewSignoffCard],
@@ -182,10 +259,9 @@ extension RunReviewService {
             let document = try JSONDecoder().decode(Document.self, from: data)
             let artifactKind = signoffArtifactKind(for: artifact)
             var card = makeCard(document, artifact)
-            let relatedArtifacts = relatedArtifacts(
+            let relatedArtifacts = artifactIndex.relatedArtifacts(
                 for: artifact,
-                artifactKind: artifactKind,
-                allArtifacts: allArtifacts
+                artifactKind: artifactKind
             )
             let evaluationProjection = artifactEvaluationProjection(
                 for: artifact,
@@ -228,6 +304,7 @@ extension RunReviewService {
     private func appendReleaseSignoffBundleCards(
         artifact: FlowRunReviewArtifact,
         allArtifacts: [FlowRunReviewArtifact],
+        artifactIndex: RunReviewSignoffArtifactIndex,
         projectRoot: URL,
         decodeIssues: inout [RunReviewArtifactDecodeIssue],
         cards: inout [RunReviewSignoffCard]
@@ -258,10 +335,9 @@ extension RunReviewService {
                     document: "signoff evidence"
                 )
             }
-            let related = relatedArtifacts(
+            let related = artifactIndex.relatedArtifacts(
                 for: artifact,
-                artifactKind: .signoffBundle,
-                allArtifacts: allArtifacts
+                artifactKind: .signoffBundle
             )
             cards.append(signoffBundleOverviewCard(bundle, artifact: artifact, relatedArtifacts: related))
             cards.append(contentsOf: bundle.axisResults.map {
@@ -275,6 +351,7 @@ extension RunReviewService {
     private func appendReleaseAuthorizationCard(
         artifact: FlowRunReviewArtifact,
         allArtifacts: [FlowRunReviewArtifact],
+        artifactIndex: RunReviewSignoffArtifactIndex,
         projectRoot: URL,
         decodeIssues: inout [RunReviewArtifactDecodeIssue],
         cards: inout [RunReviewSignoffCard]
@@ -288,10 +365,9 @@ extension RunReviewService {
                 allArtifacts: allArtifacts,
                 projectRoot: projectRoot
             )
-            let related = relatedArtifacts(
+            let related = artifactIndex.relatedArtifacts(
                 for: artifact,
-                artifactKind: .releaseAuthorization,
-                allArtifacts: allArtifacts
+                artifactKind: .releaseAuthorization
             )
             cards.append(releaseAuthorizationCard(result, artifact: artifact, relatedArtifacts: related))
         } catch {
@@ -302,6 +378,7 @@ extension RunReviewService {
     private func appendTapeoutCard(
         artifact: FlowRunReviewArtifact,
         allArtifacts: [FlowRunReviewArtifact],
+        artifactIndex: RunReviewSignoffArtifactIndex,
         projectRoot: URL,
         decodeIssues: inout [RunReviewArtifactDecodeIssue],
         cards: inout [RunReviewSignoffCard]
@@ -315,10 +392,9 @@ extension RunReviewService {
                 allArtifacts: allArtifacts,
                 projectRoot: projectRoot
             )
-            let related = relatedArtifacts(
+            let related = artifactIndex.relatedArtifacts(
                 for: artifact,
-                artifactKind: .tapeoutResult,
-                allArtifacts: allArtifacts
+                artifactKind: .tapeoutResult
             )
             cards.append(tapeoutCard(result, artifact: artifact, relatedArtifacts: related))
         } catch {
@@ -329,6 +405,7 @@ extension RunReviewService {
     private func appendFoundryHandoffCard(
         artifact: FlowRunReviewArtifact,
         allArtifacts: [FlowRunReviewArtifact],
+        artifactIndex: RunReviewSignoffArtifactIndex,
         projectRoot: URL,
         decodeIssues: inout [RunReviewArtifactDecodeIssue],
         cards: inout [RunReviewSignoffCard]
@@ -351,10 +428,9 @@ extension RunReviewService {
                     document: "foundry handoff evidence"
                 )
             }
-            let related = relatedArtifacts(
+            let related = artifactIndex.relatedArtifacts(
                 for: artifact,
-                artifactKind: .foundryHandoff,
-                allArtifacts: allArtifacts
+                artifactKind: .foundryHandoff
             )
             cards.append(foundryHandoffCard(manifest, artifact: artifact, relatedArtifacts: related))
         } catch {
@@ -629,7 +705,8 @@ extension RunReviewService {
 
     private func drcCard(
         document: DRCReviewDocument,
-        artifact: FlowRunReviewArtifact
+        artifact: FlowRunReviewArtifact,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> RunReviewSignoffCard {
         let summary = document.summary
         let activeBuckets = summary.violationBuckets
@@ -660,7 +737,10 @@ extension RunReviewService {
                     count: bucket.activeCount,
                     message: drcBucketMessage(bucket),
                     suggestedFixes: bucket.suggestedFixes,
-                    repairActionHints: drcRepairActionHints(bucket),
+                    repairActionHints: drcRepairActionHints(
+                        bucket,
+                        actionDomainCatalog: actionDomainCatalog
+                    ),
                     detailRows: drcIssueDetailRows(bucket)
                 )
             }
@@ -669,7 +749,8 @@ extension RunReviewService {
 
     private func lvsCard(
         document: LVSReviewDocument,
-        artifact: FlowRunReviewArtifact
+        artifact: FlowRunReviewArtifact,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> RunReviewSignoffCard {
         let summary = document.summary
         let projection = LVSSignoffProjection(document: document)
@@ -724,7 +805,10 @@ extension RunReviewService {
                     count: bucket.activeCount,
                     message: lvsBucketMessage(bucket),
                     suggestedFixes: bucket.suggestedFixes,
-                    repairActionHints: lvsRepairActionHints(bucket),
+                    repairActionHints: lvsRepairActionHints(
+                        bucket,
+                        actionDomainCatalog: actionDomainCatalog
+                    ),
                     detailRows: lvsIssueDetailRows(bucket)
                 )
             }
@@ -754,7 +838,8 @@ extension RunReviewService {
 
     private func pexCard(
         document: PEXReviewDocument,
-        artifact: FlowRunReviewArtifact
+        artifact: FlowRunReviewArtifact,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> RunReviewSignoffCard {
         let summary = document.summary
         let failedCorners = summary.corners.filter { !isPassingStatus($0.status) }
@@ -766,7 +851,8 @@ extension RunReviewService {
                     message: diagnostic.message,
                     repairActionHints: pexRepairActionHints(
                         corner: corner,
-                        diagnostic: diagnostic
+                        diagnostic: diagnostic,
+                        actionDomainCatalog: actionDomainCatalog
                     ),
                     detailRows: pexDiagnosticDetailRows(
                         corner: corner,
@@ -781,7 +867,11 @@ extension RunReviewService {
                     severity: "info",
                     label: "\(corner.cornerID):\(net.name)",
                     message: "C=\(formatted(net.groundCapF + net.couplingCapF))F R=\(formatted(net.resistanceOhm))ohm nodes=\(net.nodeCount)",
-                    repairActionHints: pexNetRepairActionHints(corner: corner, net: net),
+                    repairActionHints: pexNetRepairActionHints(
+                        corner: corner,
+                        net: net,
+                        actionDomainCatalog: actionDomainCatalog
+                    ),
                     detailRows: pexTopNetDetailRows(corner: corner, net: net)
                 )
             }
@@ -809,7 +899,8 @@ extension RunReviewService {
 
     private func simulationMetricCard(
         document: XcircuiteSimulationMetricReport,
-        artifact: FlowRunReviewArtifact
+        artifact: FlowRunReviewArtifact,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> RunReviewSignoffCard {
         let failedVerdicts = document.verdicts.filter { !isPassingStatus($0.status) }
         let diagnosticIssues = document.diagnostics
@@ -819,7 +910,10 @@ extension RunReviewService {
                     severity: $0.severity,
                     label: $0.code,
                     message: $0.message,
-                    repairActionHints: simulationRepairActionHints(reason: $0.message),
+                    repairActionHints: simulationRepairActionHints(
+                        reason: $0.message,
+                        actionDomainCatalog: actionDomainCatalog
+                    ),
                     detailRows: simulationDiagnosticDetailRows($0)
                 )
             }
@@ -829,7 +923,8 @@ extension RunReviewService {
                 label: verdict.name,
                 message: "value=\(optionalFormatted(verdict.value)) target=\(formatted(verdict.target)) tolerance=\(formatted(verdict.tolerance))",
                 repairActionHints: simulationRepairActionHints(
-                    reason: "Improve simulation metric \(verdict.name) toward target \(formatted(verdict.target))."
+                    reason: "Improve simulation metric \(verdict.name) toward target \(formatted(verdict.target)).",
+                    actionDomainCatalog: actionDomainCatalog
                 ),
                 detailRows: simulationVerdictDetailRows(verdict)
             )
@@ -872,21 +967,28 @@ extension RunReviewService {
 
     private func postLayoutComparisonCard(
         document: PostLayoutComparisonReport,
-        artifact: FlowRunReviewArtifact
+        artifact: FlowRunReviewArtifact,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> RunReviewSignoffCard {
         let issues = document.gateViolations.map {
             RunReviewSignoffIssue(
                 severity: "error",
                 label: "gate",
                 message: $0,
-                repairActionHints: postLayoutRepairActionHints(reason: $0)
+                repairActionHints: postLayoutRepairActionHints(
+                    reason: $0,
+                    actionDomainCatalog: actionDomainCatalog
+                )
             )
         } + document.diagnostics.map {
             RunReviewSignoffIssue(
                 severity: "warning",
                 label: "diagnostic",
                 message: $0,
-                repairActionHints: postLayoutRepairActionHints(reason: $0)
+                repairActionHints: postLayoutRepairActionHints(
+                    reason: $0,
+                    actionDomainCatalog: actionDomainCatalog
+                )
             )
         }
         return RunReviewSignoffCard(
@@ -1198,154 +1300,119 @@ extension RunReviewService {
     }
 
     private func drcRepairActionHints(
-        _ bucket: DRCReviewBucket
+        _ bucket: DRCReviewBucket,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> [RunReviewSignoffRepairActionHint] {
         let operationID = drcLayoutOperationID(for: bucket)
-        return [
-            RunReviewSignoffRepairActionHint(
-                domainID: "layout-edit",
-                operationID: operationID,
-                maturity: operationID == "layout-command-replay" ? "planned" : "implemented",
-                reason: "Generate a DRC repair candidate for \(drcBucketLabel(bucket)) through the planning problem builder.",
-                requiredInputRefs: ["layout-ref"],
-                verificationGates: ["artifact-integrity", "native-drc", "native-lvs"]
-            ),
-        ]
+        return actionDomainCatalog.repairHint(
+            domainID: "layout-edit",
+            operationID: operationID,
+            reason: "Generate a DRC repair candidate for \(drcBucketLabel(bucket)) through the planning problem builder."
+        ).map { [$0] } ?? []
     }
 
     private func lvsRepairActionHints(
-        _ bucket: LVSReviewBucket
+        _ bucket: LVSReviewBucket,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> [RunReviewSignoffRepairActionHint] {
         var hints: [RunReviewSignoffRepairActionHint] = []
         if isLVSPortMismatch(bucket) {
-            hints.append(
-                RunReviewSignoffRepairActionHint(
-                    domainID: "layout-edit",
-                    operationID: "layout.add-label",
-                    maturity: "implemented",
-                    reason: "Create or correct layout labels so extracted ports can match the schematic.",
-                    requiredInputRefs: ["layout-ref"],
-                    verificationGates: ["artifact-integrity", "native-lvs", "native-drc"]
-                )
-            )
-            hints.append(
-                RunReviewSignoffRepairActionHint(
-                    domainID: "layout-edit",
-                    operationID: "layout.add-net",
-                    maturity: "implemented",
-                    reason: "Create a missing layout net before labeling or reconnecting LVS-visible ports.",
-                    requiredInputRefs: ["layout-ref"],
-                    verificationGates: ["artifact-integrity", "native-lvs", "native-drc"]
-                )
-            )
+            if let hint = actionDomainCatalog.repairHint(
+                domainID: "layout-edit",
+                operationID: "layout.add-label",
+                reason: "Create or correct layout labels so extracted ports can match the schematic."
+            ) {
+                hints.append(hint)
+            }
+            if let hint = actionDomainCatalog.repairHint(
+                domainID: "layout-edit",
+                operationID: "layout.add-net",
+                reason: "Create a missing layout net before labeling or reconnecting LVS-visible ports."
+            ) {
+                hints.append(hint)
+            }
         }
         if requiresLVSPolicyRepair(bucket) {
-            hints.append(
-                RunReviewSignoffRepairActionHint(
-                    domainID: "lvs-signoff",
-                    operationID: "lvs.policy-repair",
-                    maturity: "implemented",
-                    reason: "Review an auditable model or terminal equivalence policy update.",
-                    requiredInputRefs: ["lvs-summary", "schematic-netlist-ref"],
-                    verificationGates: ["approval-gate", "native-lvs", "artifact-integrity"]
-                )
-            )
+            if let hint = actionDomainCatalog.repairHint(
+                domainID: "lvs-signoff",
+                operationID: "lvs.policy-repair",
+                reason: "Review an auditable model or terminal equivalence policy update."
+            ) {
+                hints.append(hint)
+            }
         }
         if isLVSParameterMismatch(bucket) {
-            hints.append(
-                RunReviewSignoffRepairActionHint(
-                    domainID: "simulation-analysis",
-                    operationID: "simulation.set-netlist-parameters",
-                    maturity: "implemented",
-                    reason: "Edit schematic or extracted netlist parameters and verify the LVS metric again.",
-                    requiredInputRefs: ["layout-netlist-ref", "schematic-netlist-ref"],
-                    verificationGates: ["artifact-integrity", "native-lvs"]
-                )
-            )
+            if let hint = actionDomainCatalog.repairHint(
+                domainID: "simulation-analysis",
+                operationID: "simulation.set-netlist-parameters",
+                reason: "Edit schematic or extracted netlist parameters and verify the LVS metric again."
+            ) {
+                hints.append(hint)
+            }
         }
         if hints.isEmpty {
-            hints.append(
-                RunReviewSignoffRepairActionHint(
-                    domainID: "layout-edit",
-                    operationID: "layout-command-replay",
-                    maturity: "planned",
-                    reason: "Generate a replayable layout edit after resolving the mismatch geometry.",
-                    requiredInputRefs: ["layout-ref"],
-                    verificationGates: ["artifact-integrity", "native-lvs", "native-drc"]
-                )
-            )
+            if let hint = actionDomainCatalog.repairHint(
+                domainID: "layout-edit",
+                operationID: "layout-command-replay",
+                reason: "Generate a replayable layout edit after resolving the mismatch geometry."
+            ) {
+                hints.append(hint)
+            }
         }
         return hints
     }
 
     private func pexRepairActionHints(
         corner: PEXReviewCorner,
-        diagnostic: PEXReviewDiagnostic
+        diagnostic: PEXReviewDiagnostic,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> [RunReviewSignoffRepairActionHint] {
         [
-            RunReviewSignoffRepairActionHint(
-                domainID: "pex-signoff",
+            actionDomainCatalog.repairHint(
+                domainID: "pex-extraction",
                 operationID: "pex.metric-recovery-objective",
-                maturity: "planned",
-                reason: "Recover PEX evidence for \(corner.cornerID) after \(diagnostic.code).",
-                requiredInputRefs: ["pex-summary", "source-netlist-ref", "pex-technology-ref"],
-                verificationGates: ["artifact-integrity", "pex-summary-gate"]
+                reason: "Recover PEX evidence for \(corner.cornerID) after \(diagnostic.code)."
             ),
-            RunReviewSignoffRepairActionHint(
+            actionDomainCatalog.repairHint(
                 domainID: "layout-edit",
                 operationID: "layout-command-replay",
-                maturity: "implemented",
-                reason: "Replay layout edits after resolving the extracted parasitic hotspot.",
-                requiredInputRefs: ["layout-ref", "source-netlist-ref", "pex-technology-ref"],
-                verificationGates: ["artifact-integrity", "native-drc", "native-lvs", "pex-summary-gate"]
+                reason: "Replay layout edits after resolving the extracted parasitic hotspot."
             ),
-        ]
+        ].compactMap { $0 }
     }
 
     private func pexNetRepairActionHints(
         corner: PEXReviewCorner,
-        net: PEXReviewNet
+        net: PEXReviewNet,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> [RunReviewSignoffRepairActionHint] {
-        [
-            RunReviewSignoffRepairActionHint(
-                domainID: "pex-signoff",
-                operationID: "pex.metric-recovery-objective",
-                maturity: "planned",
-                reason: "Investigate \(net.name) in \(corner.cornerID) as a parasitic hotspot.",
-                requiredInputRefs: ["pex-summary", "source-netlist-ref", "pex-technology-ref"],
-                verificationGates: ["artifact-integrity", "pex-summary-gate"]
-            ),
-        ]
+        actionDomainCatalog.repairHint(
+            domainID: "pex-extraction",
+            operationID: "pex.metric-recovery-objective",
+            reason: "Investigate \(net.name) in \(corner.cornerID) as a parasitic hotspot."
+        ).map { [$0] } ?? []
     }
 
     private func simulationRepairActionHints(
-        reason: String
+        reason: String,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> [RunReviewSignoffRepairActionHint] {
-        [
-            RunReviewSignoffRepairActionHint(
-                domainID: "simulation-analysis",
-                operationID: "simulation.metric-improvement-objective",
-                maturity: "planned",
-                reason: reason,
-                requiredInputRefs: ["post-layout-metric-report", "source-netlist-ref"],
-                verificationGates: ["schema-validation", "simulation-metric-gate"]
-            ),
-        ]
+        actionDomainCatalog.repairHint(
+            domainID: "simulation-analysis",
+            operationID: "simulation.metric-improvement-objective",
+            reason: reason
+        ).map { [$0] } ?? []
     }
 
     private func postLayoutRepairActionHints(
-        reason: String
+        reason: String,
+        actionDomainCatalog: RunReviewActionDomainCatalog
     ) -> [RunReviewSignoffRepairActionHint] {
-        [
-            RunReviewSignoffRepairActionHint(
-                domainID: "pex-signoff",
-                operationID: "pex.metric-recovery-objective",
-                maturity: "planned",
-                reason: reason,
-                requiredInputRefs: ["pex-summary", "post-layout-comparison", "source-netlist-ref"],
-                verificationGates: ["artifact-integrity", "pex-summary-gate", "simulation-metric-gate"]
-            ),
-        ]
+        actionDomainCatalog.repairHint(
+            domainID: "pex-extraction",
+            operationID: "pex.metric-recovery-objective",
+            reason: reason
+        ).map { [$0] } ?? []
     }
 
     private func sourceURLValue(_ url: URL) -> String {
@@ -1802,26 +1869,6 @@ extension RunReviewService {
         return nil
     }
 
-    private func relatedArtifacts(
-        for artifact: FlowRunReviewArtifact,
-        artifactKind: SignoffArtifactKind?,
-        allArtifacts: [FlowRunReviewArtifact]
-    ) -> [FlowRunReviewArtifact] {
-        var seenPaths = Set<String>()
-        return allArtifacts
-            .filter { candidate in
-                candidate.reference.locator.location.value != artifact.reference.locator.location.value
-                    && seenPaths.insert(candidate.reference.locator.location.value).inserted
-                    && isRelatedArtifact(candidate, to: artifact, artifactKind: artifactKind)
-            }
-            .sorted { left, right in
-                if left.purpose != right.purpose {
-                    return left.purpose.rawValue < right.purpose.rawValue
-                }
-                return left.reference.locator.location.value < right.reference.locator.location.value
-            }
-    }
-
     private func issueEvidenceArtifacts(
         primary: FlowRunReviewArtifact,
         relatedArtifacts: [FlowRunReviewArtifact]
@@ -1829,71 +1876,6 @@ extension RunReviewService {
         var seenPaths = Set<String>()
         return ([primary] + relatedArtifacts).filter { artifact in
             seenPaths.insert(artifact.reference.locator.location.value).inserted
-        }
-    }
-
-    private func isRelatedArtifact(
-        _ candidate: FlowRunReviewArtifact,
-        to artifact: FlowRunReviewArtifact,
-        artifactKind: SignoffArtifactKind?
-    ) -> Bool {
-        if candidate.stageID == artifact.stageID && candidate.purpose == .stageResult {
-            return true
-        }
-        guard let artifactKind else {
-            return false
-        }
-        let searchable = [
-            candidate.reference.id.rawValue,
-            candidate.purpose.rawValue,
-            candidate.reference.locator.location.value,
-            candidate.reference.locator.kind.rawValue,
-            candidate.reference.locator.format.rawValue,
-        ]
-        .map { $0.lowercased() }
-        .joined(separator: " ")
-
-        switch artifactKind {
-        case .drc:
-            return searchable.contains("drc")
-        case .lvs:
-            return searchable.contains("lvs")
-        case .pex:
-            return searchable.contains("pex") || searchable.contains("spef")
-        case .generatedLayoutSignoffCorpus:
-            return searchable.contains("generated-layout-signoff")
-                || searchable.contains("oracle")
-                || searchable.contains("corpus")
-                || searchable.contains("retained-signoff")
-        case .retainedSignoffReport:
-            return searchable.contains("retained-signoff")
-                || searchable.contains("oracle")
-                || searchable.contains("generated-layout-signoff")
-        case .simulationMetric, .simulationMeasurement:
-            return searchable.contains("simulation")
-                || searchable.contains("measurement")
-                || searchable.contains("waveform")
-        case .postLayoutComparison:
-            return searchable.contains("comparison")
-                || searchable.contains("pre-layout")
-                || searchable.contains("post-layout")
-                || searchable.contains("waveform")
-        case .signoffBundle:
-            return searchable.contains("signoff")
-                || searchable.contains("evidence")
-                || searchable.contains("qualification")
-                || searchable.contains("waiver")
-        case .releaseAuthorization:
-            return searchable.contains("authorization")
-                || searchable.contains("approval")
-                || searchable.contains("signoff")
-        case .tapeoutResult, .foundryHandoff:
-            return searchable.contains("tapeout")
-                || searchable.contains("handoff")
-                || searchable.contains("stream")
-                || searchable.contains("xor")
-                || searchable.contains("authorization")
-                || searchable.contains("signoff")
         }
     }
 

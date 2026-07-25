@@ -4,12 +4,22 @@ import CoreSpiceWaveform
 
 /// Orchestrates external simulation for netlists requiring advanced models.
 public struct ExternalSpiceSimulator: Sendable {
-    private let detector = ExternalModelDetector()
-    private let preprocessor = ExternalSpicePreprocessor()
-    private let runner = NgspiceRunner()
-    private let parser = NgspiceRawParser()
+    private let detector: ExternalModelDetector
+    private let preprocessor: ExternalSpicePreprocessor
+    private let runner: NgspiceRunner
+    private let parser: NgspiceRawParser
 
-    public init() {}
+    public init(
+        detector: ExternalModelDetector = ExternalModelDetector(),
+        preprocessor: ExternalSpicePreprocessor = ExternalSpicePreprocessor(),
+        runner: NgspiceRunner = NgspiceRunner(),
+        parser: NgspiceRawParser = NgspiceRawParser()
+    ) {
+        self.detector = detector
+        self.preprocessor = preprocessor
+        self.runner = runner
+        self.parser = parser
+    }
 
     public func requiresExternalSimulation(
         source: String,
