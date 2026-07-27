@@ -1,5 +1,5 @@
 {
-  "originHash" : "bc7c2661983bc38c7ada5d60c73f7ace40de3e09c62d1ce564f25bf1031a6515",
+  "originHash" : "1efe04acc45efc5b315b304dae3aa533f4d330d1c8131fadeecd46c190524e49",
   "pins" : [
     {
       "identity" : "beautiful-mermaid-swift",
@@ -194,8 +194,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",
       "state" : {
-        "revision" : "1b6b2e274e85105bfa155183145a1dcfd63331f1",
-        "version" : "4.5.0"
+        "revision" : "47d3869a7291f085c1fb9fb1e6d3b97a793f45c6",
+        "version" : "4.5.1"
       }
     },
     {

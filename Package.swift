@@ -46,11 +46,11 @@ let package = Package(
     dependencies: [
         workspaceDependency(
             named: "Xcircuite",
-            revision: "62bf4ea335e0c63d26b1b25fd185f1469e17aebd"
+            revision: "6d6b4c9a8d4fb9947fdfcd4818ab4b05c49ef015"
         ),
         workspaceDependency(
             named: "CircuiteFoundation",
-            revision: "7abcac83517935c9b9f7553d7016d62cffde259d"
+            revision: "1dd75ecf2b8758c54c4e008ff5fd59e263cce0e6"
         ),
         workspaceDependency(
             named: "DesignFlowKernel",
@@ -62,7 +62,7 @@ let package = Package(
         ),
         workspaceDependency(
             named: "CoreSpice",
-            revision: "dec08bf9dc955b0845800765be0b6172d64b1609"
+            revision: "a59c6906d09b03f23ec8266f3a742d221734519e"
         ),
         workspaceDependency(
             named: "semiconductor-layout",
@@ -70,23 +70,23 @@ let package = Package(
         ),
         workspaceDependency(
             named: "PEXEngine",
-            revision: "ba10c1fe0b847d5816faef4eae67c64a19d61e1e"
+            revision: "91ace83fa8031311b20352c4ee2038a203c5d6ec"
         ),
         workspaceDependency(
             named: "DRCEngine",
-            revision: "e6a0fa2c5b64de1b4ef81e651bd1bb77ecc77299"
+            revision: "e8feb43bb20932bd4991346ac8cae09b5dc07b2f"
         ),
         workspaceDependency(
             named: "LVSEngine",
-            revision: "f79b52da83146c108e0a122f4581fe93fae59527"
+            revision: "6a0251534cf9a191fdfaa6ec469bec14a0a49cd9"
         ),
         workspaceDependency(
             named: "TimingEngine",
-            revision: "2b8f0df3e359fca274edc8ede176457de40e1648"
+            revision: "9f58f40b03ab5098bd93658798ce410090f3d380"
         ),
         workspaceDependency(
             named: "ReleaseEngine",
-            revision: "be52779216b055914fe02063862941c88a227498"
+            revision: "fec08a135e4e67d894e0c6957890ed23477defc6"
         ),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
@@ -94,7 +94,7 @@ let package = Package(
         ),
         workspaceDependency(
             named: "swift-openvaf",
-            revision: "9d2cb7607b825d36b1be92565d4dc6caedea0999"
+            revision: "5dad13c480fe8ad727b9cdee5663ce00cf63459d"
         ),
         .package(
             url: "https://github.com/1amageek/mac-component.git",
