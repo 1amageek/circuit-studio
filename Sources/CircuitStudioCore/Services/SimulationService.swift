@@ -6,13 +6,18 @@ import CoreSpiceWaveform
 
 /// CoreSpice bridge that parses, compiles, binds, and runs simulations.
 public final class SimulationService: SimulationRunning, Sendable {
-    private let jobs: Mutex<[UUID: SimulationJob]> = Mutex([:])
-    private let continuations: Mutex<[UUID: AsyncStream<SimulationEvent>.Continuation]> = Mutex([:])
-    private let _activeJobID: Mutex<UUID?> = Mutex(nil)
+    private struct State: Sendable {
+        var jobs: [UUID: SimulationJob] = [:]
+        var continuations: [UUID: AsyncStream<SimulationEvent>.Continuation] = [:]
+        var activeJobID: UUID?
+        var isClosed = false
+    }
+
+    private let state = Mutex(State())
     private let externalSimulator = ExternalSpiceSimulator()
 
     /// The currently running job ID, if any. Used by UI to cancel.
-    public var activeJobID: UUID? { _activeJobID.withLock { $0 } }
+    public var activeJobID: UUID? { state.withLock { $0.activeJobID } }
 
     public init() {}
 
@@ -34,11 +39,10 @@ public final class SimulationService: SimulationRunning, Sendable {
             status: .running,
             cancellationToken: token
         )
-        jobs.withLock { $0[jobID] = job }
-        _activeJobID.withLock { $0 = jobID }
+        try register(job)
         emit(jobID: jobID, event: .started)
 
-        defer { _activeJobID.withLock { $0 = nil } }
+        defer { clearActiveJob(jobID) }
 
         do {
             if externalSimulator.requiresExternalSimulation(
@@ -62,7 +66,6 @@ public final class SimulationService: SimulationRunning, Sendable {
                     waveform: waveform
                 )
 
-                jobs.withLock { $0[jobID]?.status = .completed }
                 emit(jobID: jobID, event: .completed)
                 return result
             }
@@ -91,15 +94,12 @@ public final class SimulationService: SimulationRunning, Sendable {
                 waveform: waveform
             )
 
-            jobs.withLock { $0[jobID]?.status = .completed }
             emit(jobID: jobID, event: .completed)
             return result
         } catch let error as StudioError where error == .cancelled {
-            jobs.withLock { $0[jobID]?.status = .cancelled }
             emit(jobID: jobID, event: .cancelled)
             throw error
         } catch {
-            jobs.withLock { $0[jobID]?.status = .failed }
             emit(jobID: jobID, event: .failed(error.localizedDescription))
             throw error
         }
@@ -123,11 +123,10 @@ public final class SimulationService: SimulationRunning, Sendable {
             status: .running,
             cancellationToken: token
         )
-        jobs.withLock { $0[jobID] = job }
-        _activeJobID.withLock { $0 = jobID }
+        try register(job)
         emit(jobID: jobID, event: .started)
 
-        defer { _activeJobID.withLock { $0 = nil } }
+        defer { clearActiveJob(jobID) }
 
         do {
             try validate(command: command, nativeBackend: false)
@@ -151,7 +150,6 @@ public final class SimulationService: SimulationRunning, Sendable {
                     waveform: waveform
                 )
 
-                jobs.withLock { $0[jobID]?.status = .completed }
                 emit(jobID: jobID, event: .completed)
                 return result
             }
@@ -175,62 +173,67 @@ public final class SimulationService: SimulationRunning, Sendable {
                 waveform: waveform
             )
 
-            jobs.withLock { $0[jobID]?.status = .completed }
             emit(jobID: jobID, event: .completed)
             return result
         } catch let error as StudioError where error == .cancelled {
-            jobs.withLock { $0[jobID]?.status = .cancelled }
             emit(jobID: jobID, event: .cancelled)
             throw error
         } catch {
-            jobs.withLock { $0[jobID]?.status = .failed }
             emit(jobID: jobID, event: .failed(error.localizedDescription))
             throw error
         }
     }
 
     public func cancel(jobID: UUID) {
-        jobs.withLock { state in
-            if let job = state[jobID] {
-                job.cancellationToken.cancel()
-                state[jobID]?.status = .cancelled
+        let cancellation = state.withLock { state -> (
+            CancellationToken?, AsyncStream<SimulationEvent>.Continuation?
+        ) in
+            if state.jobs[jobID] != nil {
+                state.jobs[jobID]?.status = .cancelled
             }
+            return (state.jobs[jobID]?.cancellationToken, state.continuations.removeValue(forKey: jobID))
         }
-        emit(jobID: jobID, event: .cancelled)
+        cancellation.0?.cancel()
+        cancellation.1?.yield(.cancelled)
+        cancellation.1?.finish()
     }
 
     public func events(jobID: UUID) -> AsyncStream<SimulationEvent> {
         AsyncStream { continuation in
-            continuations.withLock { $0[jobID] = continuation }
+            let shouldFinish = state.withLock { state -> Bool in
+                guard !state.isClosed else { return true }
+                guard state.jobs[jobID]?.status.isTerminal != true else { return true }
+                state.continuations[jobID] = continuation
+                return false
+            }
             continuation.onTermination = { [weak self] _ in
-                _ = self?.continuations.withLock { $0.removeValue(forKey: jobID) }
+                _ = self?.state.withLock { $0.continuations.removeValue(forKey: jobID) }
             }
-            if isTerminalJob(jobID: jobID) {
-                finishEvents(jobID: jobID)
-            }
+            if shouldFinish { continuation.finish() }
         }
     }
 
     public func shutdown() {
-        let tokens = jobs.withLock { jobs in
-            let tokens = jobs.values.map(\.cancellationToken)
-            for jobID in jobs.keys {
-                jobs[jobID]?.status = .cancelled
+        let resources = state.withLock { state -> (
+            [CancellationToken], [AsyncStream<SimulationEvent>.Continuation]
+        ) in
+            guard !state.isClosed else { return ([], []) }
+            state.isClosed = true
+            let tokens = state.jobs.values.map(\.cancellationToken)
+            for jobID in state.jobs.keys {
+                state.jobs[jobID]?.status = .cancelled
             }
-            return tokens
+            let continuations = Array(state.continuations.values)
+            state.continuations.removeAll(keepingCapacity: false)
+            state.activeJobID = nil
+            return (tokens, continuations)
         }
-        for token in tokens {
+        for token in resources.0 {
             token.cancel()
         }
-        let activeContinuations = continuations.withLock { continuations in
-            let activeContinuations = Array(continuations.values)
-            continuations.removeAll()
-            return activeContinuations
-        }
-        for continuation in activeContinuations {
+        for continuation in resources.1 {
             continuation.finish()
         }
-        _activeJobID.withLock { $0 = nil }
     }
 
     // MARK: - Internal Pipeline
@@ -1108,28 +1111,47 @@ public final class SimulationService: SimulationRunning, Sendable {
 
     // MARK: - Event Emission
 
+    private func register(_ job: SimulationJob) throws {
+        try state.withLock { state in
+            guard !state.isClosed else { throw StudioError.simulationServiceClosed }
+            guard state.activeJobID == nil else {
+                throw StudioError.simulationAlreadyRunning
+            }
+            state.jobs[job.id] = job
+            state.activeJobID = job.id
+        }
+    }
+
+    private func clearActiveJob(_ jobID: UUID) {
+        state.withLock { state in
+            if state.activeJobID == jobID {
+                state.activeJobID = nil
+            }
+        }
+    }
+
     private func emit(jobID: UUID, event: SimulationEvent) {
-        let continuation = continuations.withLock { continuations in
-            continuations[jobID]
+        let continuation = state.withLock { state -> AsyncStream<SimulationEvent>.Continuation? in
+            guard !state.isClosed else { return nil }
+            if event.isTerminal {
+                switch event {
+                case .completed:
+                    state.jobs[jobID]?.status = .completed
+                case .failed:
+                    state.jobs[jobID]?.status = .failed
+                case .cancelled:
+                    state.jobs[jobID]?.status = .cancelled
+                case .started, .progress, .waveformUpdate:
+                    break
+                }
+                return state.continuations.removeValue(forKey: jobID)
+            }
+            return state.continuations[jobID]
         }
         continuation?.yield(event)
 
         if event.isTerminal {
-            finishEvents(jobID: jobID)
-        }
-    }
-
-    private func finishEvents(jobID: UUID) {
-        let continuation = continuations.withLock { continuations in
-            continuations.removeValue(forKey: jobID)
-        }
-        continuation?.finish()
-    }
-
-    private func isTerminalJob(jobID: UUID) -> Bool {
-        jobs.withLock { jobs in
-            guard let status = jobs[jobID]?.status else { return false }
-            return status.isTerminal
+            continuation?.finish()
         }
     }
 }
@@ -1240,6 +1262,8 @@ extension StudioError: Equatable {
     public static func == (lhs: StudioError, rhs: StudioError) -> Bool {
         switch (lhs, rhs) {
         case (.cancelled, .cancelled): return true
+        case (.simulationAlreadyRunning, .simulationAlreadyRunning): return true
+        case (.simulationServiceClosed, .simulationServiceClosed): return true
         case (.parseFailure(let a), .parseFailure(let b)): return a == b
         case (.loweringFailure(let a), .loweringFailure(let b)): return a == b
         case (.compilationFailure(let a), .compilationFailure(let b)): return a == b

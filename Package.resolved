@@ -1,5 +1,5 @@
 {
-  "originHash" : "9d811fa7a28f042b959781736876c9840a5ac83ee0c565a6de64a8aae53466fa",
+  "originHash" : "db1649c11d70960c949731d2126cd2a2d98bfa4b0ffa78294d94e9b7a030fe02",
   "pins" : [
     {
       "identity" : "beautiful-mermaid-swift",
@@ -8,6 +8,24 @@
       "state" : {
         "revision" : "6a23a29e91af8f5b3e9fc09945332ca193bd69ec",
         "version" : "1.0.4"
+      }
+    },
+    {
+      "identity" : "circuitdesigndatabaseintegration",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/CircuitDesignDatabaseIntegration.git",
+      "state" : {
+        "revision" : "b18b4e12875c5df3c0e1608bb5e2213a939a222f",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "circuitefoundation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/CircuiteFoundation.git",
+      "state" : {
+        "revision" : "f1ec3ea234ad9d147c954425476b18c9297dfd0d",
+        "version" : "26.812.0"
       }
     },
     {
@@ -47,6 +65,15 @@
       }
     },
     {
+      "identity" : "corespice",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/CoreSpice.git",
+      "state" : {
+        "revision" : "c607dcc64b984975c2661668c4c152998020bb94",
+        "version" : "26.812.0"
+      }
+    },
+    {
       "identity" : "database-framework",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/database-framework.git",
@@ -74,6 +101,69 @@
       }
     },
     {
+      "identity" : "designdatabase",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/DesignDatabase.git",
+      "state" : {
+        "revision" : "d77d45917d4d21ae0eef87fcfacd63264c7cf117",
+        "version" : "26.812.1"
+      }
+    },
+    {
+      "identity" : "designflowkernel",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/DesignFlowKernel.git",
+      "state" : {
+        "revision" : "0e6f74f884230585b137d54ef03ed446e926f80c",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "dftdesigndatabaseintegration",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/DFTDesignDatabaseIntegration.git",
+      "state" : {
+        "revision" : "4986fcd7e6b8b0664f3a07316a2f7196a73bb03c",
+        "version" : "26.812.1"
+      }
+    },
+    {
+      "identity" : "dftengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/DFTEngine.git",
+      "state" : {
+        "revision" : "b5a2edb59e91a9b1a4387ccd5259993459d66a18",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "drcengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/DRCEngine.git",
+      "state" : {
+        "revision" : "bd7f560b014ba761ab27b1e1e4f220ac982f9236",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "edainteroperability",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/EDAInteroperability.git",
+      "state" : {
+        "revision" : "2dd756b67a1f24c678fa9b8914598a6b38635625",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "electricalsignoffengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/ElectricalSignoffEngine.git",
+      "state" : {
+        "revision" : "a8876794d1581c4ff7726be250d475f3576d83cd",
+        "version" : "26.812.0"
+      }
+    },
+    {
       "identity" : "elk-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/lukilabs/elk-swift",
@@ -92,11 +182,111 @@
       }
     },
     {
+      "identity" : "layoutdesigndatabaseintegration",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/LayoutDesignDatabaseIntegration.git",
+      "state" : {
+        "revision" : "8830f5b3fb924134a7ff339f7a3b2e0ba363c9a1",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "logicdesign",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/LogicDesign.git",
+      "state" : {
+        "revision" : "60ddc27c5c69ef4f42183eef6fdb67c902f78eb8",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "logicdesigndatabaseintegration",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/LogicDesignDatabaseIntegration.git",
+      "state" : {
+        "revision" : "5c99d3276e09f56f31a55d759d1643bebb80686f",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "logicengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/LogicEngine.git",
+      "state" : {
+        "revision" : "449abf375b30499f57585d3bd7e81d4a40ba1929",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "lvsengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/LVSEngine.git",
+      "state" : {
+        "revision" : "c67c8845a73e3c6cc0afb3cb79634357015dd241",
+        "version" : "26.812.0"
+      }
+    },
+    {
       "identity" : "mac-component",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/mac-component.git",
       "state" : {
-        "revision" : "d3aee65b8dd73a838bcfba124e7c1afe520b97bb"
+        "revision" : "d3aee65b8dd73a838bcfba124e7c1afe520b97bb",
+        "version" : "0.1.0"
+      }
+    },
+    {
+      "identity" : "parasiticdesigndatabaseintegration",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/ParasiticDesignDatabaseIntegration.git",
+      "state" : {
+        "revision" : "7728bfcba92adb2cb9b9e8e11c2a0d0e5a7b4cf2",
+        "version" : "26.812.1"
+      }
+    },
+    {
+      "identity" : "pdkdesigndatabaseintegration",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/PDKDesignDatabaseIntegration.git",
+      "state" : {
+        "revision" : "5db4cddf8697a071a8fcd764f3f653d8adda5c0f",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "pdkkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/PDKKit.git",
+      "state" : {
+        "revision" : "45eecc9ef75d041b6821a9765ea327f8a440aa98",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "pexengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/PEXEngine.git",
+      "state" : {
+        "revision" : "bb466ef5b469f221aa3c011935bb178876e73cd2",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "physicaldesigndatabaseintegration",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/PhysicalDesignDatabaseIntegration.git",
+      "state" : {
+        "revision" : "d10c19a20bfd09dea9504c4adbfc95be86823a08",
+        "version" : "26.812.1"
+      }
+    },
+    {
+      "identity" : "physicaldesignengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/PhysicalDesignEngine.git",
+      "state" : {
+        "revision" : "f95730551e1240b95e34235cd830250a385c7add",
+        "version" : "26.812.0"
       }
     },
     {
@@ -115,6 +305,51 @@
       "state" : {
         "revision" : "4de8be41dba304192e87dc0a11e0aa39e72aa2e8",
         "version" : "2.1.1"
+      }
+    },
+    {
+      "identity" : "releaseengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/ReleaseEngine.git",
+      "state" : {
+        "revision" : "5b0340d9d143ac3629f13024c99ad6d90892e937",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "rtlverificationengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/RTLVerificationEngine.git",
+      "state" : {
+        "revision" : "c4fe78885b6b92f97f39b4201bbee4e33d2b64f6",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "semiconductor-layout",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/semiconductor-layout.git",
+      "state" : {
+        "revision" : "76408d5b4a57a8bf93fad08fa9c14b9a43ab9fcb",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "signofftoolsupport",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/SignoffToolSupport.git",
+      "state" : {
+        "revision" : "5220613a31c472a29eb687211f7f7e9330c9b582",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "standardcelllibrarydesigndatabaseintegration",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/StandardCellLibraryDesignDatabaseIntegration.git",
+      "state" : {
+        "revision" : "79c661e37d50582dcd59caa35b75f4e39fdd7fe6",
+        "version" : "26.812.0"
       }
     },
     {
@@ -235,6 +470,15 @@
       }
     },
     {
+      "identity" : "swift-mask-data",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/swift-mask-data.git",
+      "state" : {
+        "revision" : "ae843334773ea285c5885bf969cbdf07e5d892ae",
+        "version" : "26.812.0"
+      }
+    },
+    {
       "identity" : "swift-metrics",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-metrics.git",
@@ -268,6 +512,15 @@
       "state" : {
         "revision" : "67787bb645a5e67d2edcdfbe48a216cc549222d5",
         "version" : "1.28.0"
+      }
+    },
+    {
+      "identity" : "swift-openvaf",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/swift-openvaf.git",
+      "state" : {
+        "revision" : "d18698823106dc98c2c6150f9036aa9deb462c97",
+        "version" : "26.812.0"
       }
     },
     {
@@ -334,12 +587,48 @@
       }
     },
     {
+      "identity" : "timingdesigndatabaseintegration",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/TimingDesignDatabaseIntegration.git",
+      "state" : {
+        "revision" : "604259fb11d4da9ed75048a01b959bdf7983a093",
+        "version" : "26.812.1"
+      }
+    },
+    {
+      "identity" : "timingengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/TimingEngine.git",
+      "state" : {
+        "revision" : "00aba1fefe275b5749d3ba2f3ef807a34792c3e3",
+        "version" : "26.812.0"
+      }
+    },
+    {
+      "identity" : "toolqualification",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/ToolQualification.git",
+      "state" : {
+        "revision" : "1f7783bd5ef377b503bfc21b06217f9172237215",
+        "version" : "26.812.0"
+      }
+    },
+    {
       "identity" : "tree-sitter",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tree-sitter/tree-sitter",
       "state" : {
         "revision" : "da6fe9beb4f7f67beb75914ca8e0d48ae48d6406",
         "version" : "0.25.10"
+      }
+    },
+    {
+      "identity" : "xcircuite",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/Xcircuite.git",
+      "state" : {
+        "revision" : "bfa62dad95c132294b08b417db59b630b8c96a5c",
+        "version" : "26.812.0"
       }
     }
   ],

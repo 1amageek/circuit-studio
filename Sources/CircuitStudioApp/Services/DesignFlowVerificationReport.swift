@@ -11,9 +11,9 @@ public struct DesignFlowVerificationReport: Sendable, Hashable, Codable {
 
     public init(
         report: PhysicalVerificationReport,
-        layoutTrust: LayoutTrustReport? = nil
+        layoutTrust: LayoutTrustReport?
     ) {
-        self.readyForPEX = report.isReadyForPEX && (layoutTrust?.passed ?? true)
+        self.readyForPEX = report.isReadyForPEX && layoutTrust?.passed == true
         self.status = self.readyForPEX ? "passed" : "failed"
         self.layoutTrust = layoutTrust
         self.drc = DesignFlowDRCVerificationSummary(report: report.drc)

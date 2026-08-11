@@ -1,4 +1,5 @@
 import PEXEngine
+import CircuitPhysicalDesign
 import CircuitSignoff
 import CircuiteFoundation
 import CircuiteFoundationFileSystem
@@ -759,6 +760,49 @@ struct HeadlessRoundTripServiceTests {
 
     @Test(.timeLimit(.minutes(2)))
     @MainActor
+    func layoutTrustEvaluationFailureStopsBeforeSignoffAndPEX() async throws {
+        let root = try makeTemporaryRoot("layout-trust-failure")
+        defer { removeTemporaryRoot(root) }
+        let runID = "layout-trust-failure"
+        let configuration = makeConfiguration(
+            projectRoot: root,
+            runID: runID,
+            title: "Layout trust failure",
+            testbench: Testbench(name: "Operating Point", analysisCommands: [.op]),
+            postLayoutCommand: .op,
+            pexIR: smallPEXIR(),
+            externalSignoffCommands: try makeSignoffCommands(in: root)
+        )
+
+        do {
+            _ = try await HeadlessRoundTripService(
+                layoutTrustEvaluator: FailingLayoutTrustEvaluator()
+            ).run(
+                schematic: SchematicPreview.voltageDividerViewModel().document,
+                configuration: configuration
+            )
+            Issue.record("Expected layout trust evaluation to fail.")
+        } catch FailingLayoutTrustEvaluator.Failure.evaluationFailed {
+        } catch {
+            Issue.record("Expected the layout trust evaluation failure, got \(error).")
+        }
+
+        let manifest = try loadManifest(projectRoot: root, runID: runID)
+        assertFailureManifest(
+            manifest,
+            failedStage: "layout-trust",
+            skippedStages: ["external-signoff", "pre-pex-verification", "pex-injection"],
+            isReadyForPEX: false
+        )
+        #expect(!manifest.artifacts.contains { $0.kind == "physical-verification-report" })
+        let ledger = try await XcircuiteWorkspaceStore(projectRoot: root)
+            .loadRunLedger(runID: runID)
+        #expect(ledger.stages.first { $0.stageID == "layout-trust" }?.status == .failed)
+        #expect(!ledger.stages.contains { $0.stageID == "external-signoff" && $0.status == .succeeded })
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
     func prePEXGateFailureWritesManifest() async throws {
         let root = try makeTemporaryRoot("pre-pex-failure")
         defer { removeTemporaryRoot(root) }
@@ -1173,6 +1217,20 @@ struct HeadlessRoundTripServiceTests {
         var projectRoot: URL
     }
 
+    private struct FailingLayoutTrustEvaluator: LayoutTrustEvaluating {
+        enum Failure: Error {
+            case evaluationFailed
+        }
+
+        func evaluate(
+            document: LayoutDocument,
+            tech: LayoutTechDatabase,
+            policy: LayoutOwnershipPolicy
+        ) throws -> LayoutTrustReport {
+            throw Failure.evaluationFailed
+        }
+    }
+
     private struct TestPostLayoutOracle: PostLayoutOracleChecking {
         enum Outcome: Sendable {
             case unavailable
@@ -1288,6 +1346,7 @@ struct HeadlessRoundTripServiceTests {
             "netlist-generation",
             "pre-layout-simulation",
             "auto-layout",
+            "layout-trust",
             "pre-pex-verification",
             "pex-injection",
             "post-layout-simulation",
@@ -1310,6 +1369,8 @@ struct HeadlessRoundTripServiceTests {
         #expect(artifactPaths.contains { $0.contains("drc-mock-drc-") && $0.hasSuffix(".log") })
         #expect(artifactPaths.contains { $0.contains("lvs-mock-lvs-") && $0.hasSuffix(".log") })
         #expect(artifactPaths.contains { $0.hasSuffix("external-signoff-review.json") })
+        #expect(artifactPaths.contains { $0.hasSuffix("layout-trust/layout-trust-report.json") })
+        #expect(result.manifest.artifacts.contains { $0.kind == LayoutTrustReport.artifactKind })
         #expect(result.manifest.artifacts.contains {
             $0.kind == "external-signoff-review"
                 && $0.sourcePath?.hasSuffix(".xcircuite/signoff/external-signoff-review.json") == true
@@ -1370,6 +1431,9 @@ struct HeadlessRoundTripServiceTests {
         #expect(canonicalLedger.artifacts.contains {
             $0.availabilityDescription.contains("external-signoff") && $0.role == .output
         })
+        #expect(canonicalLedger.stages.first { $0.stageID == "layout-trust" }?.artifacts.contains {
+            $0.logicalID.hasPrefix("layout-trust-report-")
+        } == true)
         #expect(canonicalLedger.evidence?.provenance.inputs == canonicalLedger.artifacts.filter {
             $0.role == .input
         }.map(\.reference))

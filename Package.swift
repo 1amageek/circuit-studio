@@ -1,30 +1,10 @@
 // swift-tools-version: 6.3
 import PackageDescription
-import Foundation
 
-let workspaceRoot = URL(fileURLWithPath: #filePath)
-    .deletingLastPathComponent()
-    .deletingLastPathComponent()
-let isLSIWorkspace = FileManager.default.fileExists(
-    atPath: workspaceRoot
-        .appendingPathComponent("docs")
-        .appendingPathComponent("workspace-packages.json")
-        .path
-)
-
-func workspaceDependency(named name: String, revision: String) -> Package.Dependency {
-    let siblingManifest = workspaceRoot
-        .appendingPathComponent(name)
-        .appendingPathComponent("Package.swift")
-
-    if isLSIWorkspace,
-       FileManager.default.fileExists(atPath: siblingManifest.path) {
-        return .package(path: "../\(name)")
-    }
-
-    return .package(
+func releasedDependency(named name: String, exactVersion: Version) -> Package.Dependency {
+    .package(
         url: "https://github.com/1amageek/\(name).git",
-        revision: revision
+        exact: exactVersion
     )
 }
 
@@ -44,61 +24,61 @@ let package = Package(
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
-        workspaceDependency(
+        releasedDependency(
             named: "Xcircuite",
-            revision: "6d6b4c9a8d4fb9947fdfcd4818ab4b05c49ef015"
+            exactVersion: "26.812.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "CircuiteFoundation",
-            revision: "1dd75ecf2b8758c54c4e008ff5fd59e263cce0e6"
+            exactVersion: "26.812.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "DesignFlowKernel",
-            revision: "6bbe1a24bc7e0a983da747844d8b2db1c80fefd4"
+            exactVersion: "26.812.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "SignoffToolSupport",
-            revision: "6bf675eecb27e3bd3440c5ce8a85c85c510fc3cb"
+            exactVersion: "26.812.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "CoreSpice",
-            revision: "a59c6906d09b03f23ec8266f3a742d221734519e"
+            exactVersion: "26.812.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "semiconductor-layout",
-            revision: "692a056d21b6e292c29215f76c3ae225215d03c2"
+            exactVersion: "26.812.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "PEXEngine",
-            revision: "91ace83fa8031311b20352c4ee2038a203c5d6ec"
+            exactVersion: "26.812.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "DRCEngine",
-            revision: "e8feb43bb20932bd4991346ac8cae09b5dc07b2f"
+            exactVersion: "26.812.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "LVSEngine",
-            revision: "6a0251534cf9a191fdfaa6ec469bec14a0a49cd9"
+            exactVersion: "26.812.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "TimingEngine",
-            revision: "9f58f40b03ab5098bd93658798ce410090f3d380"
+            exactVersion: "26.812.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "ReleaseEngine",
-            revision: "fec08a135e4e67d894e0c6957890ed23477defc6"
+            exactVersion: "26.812.0"
         ),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
             exact: "0.17.0"
         ),
-        workspaceDependency(
+        releasedDependency(
             named: "swift-openvaf",
-            revision: "5dad13c480fe8ad727b9cdee5663ce00cf63459d"
+            exactVersion: "26.812.0"
         ),
         .package(
             url: "https://github.com/1amageek/mac-component.git",
-            revision: "d3aee65b8dd73a838bcfba124e7c1afe520b97bb"
+            exact: "0.1.0"
         ),
         .package(
             url: "https://github.com/1amageek/database-framework.git",

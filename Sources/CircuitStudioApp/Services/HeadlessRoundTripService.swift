@@ -21,6 +21,7 @@ public final class HeadlessRoundTripService {
         "netlist-generation",
         "pre-layout-simulation",
         "auto-layout",
+        "layout-trust",
         "external-signoff",
         "pre-pex-verification",
         "pex-injection",
@@ -33,11 +34,15 @@ public final class HeadlessRoundTripService {
     private let workspaceStoreFactory: @Sendable (URL) throws -> XcircuiteWorkspaceStore
     private let signoffCommandRunner: any SignoffCommandRunning
     private let postLayoutOracle: any PostLayoutOracleChecking
+    private let layoutTrustEvaluator: any LayoutTrustEvaluating
+    private let layoutTrustArtifactWriter: any LayoutTrustArtifactWriting
 
     public init(
         layoutEngineCatalog: any LayoutEngineCataloging = CircuitPhysicalDesignDefaults.layoutEngineCatalog(),
         signoffCommandRunner: any SignoffCommandRunning = ExternalSignoffCommandRunner(),
         postLayoutOracle: any PostLayoutOracleChecking = PostLayoutOracleService(),
+        layoutTrustEvaluator: any LayoutTrustEvaluating = LayoutTrustEvaluationService(),
+        layoutTrustArtifactWriter: any LayoutTrustArtifactWriting = LayoutTrustArtifactWriter(),
         workspaceStoreFactory: @escaping @Sendable (URL) throws -> XcircuiteWorkspaceStore = {
             try XcircuiteWorkspaceStore(projectRoot: $0)
         }
@@ -45,6 +50,8 @@ public final class HeadlessRoundTripService {
         self.layoutEngineCatalog = layoutEngineCatalog
         self.signoffCommandRunner = signoffCommandRunner
         self.postLayoutOracle = postLayoutOracle
+        self.layoutTrustEvaluator = layoutTrustEvaluator
+        self.layoutTrustArtifactWriter = layoutTrustArtifactWriter
         self.workspaceStoreFactory = workspaceStoreFactory
     }
 
@@ -372,6 +379,54 @@ public final class HeadlessRoundTripService {
             )
         }
 
+        let layoutTrustStartedAt = Date()
+        let layoutTrustReport: LayoutTrustReport
+        do {
+            layoutTrustReport = try layoutTrustEvaluator.evaluate(
+                document: layoutOutput.document,
+                tech: layoutOutput.tech,
+                policy: LayoutOwnershipPolicy()
+            )
+            let published = try layoutTrustArtifactWriter.write(
+                document: layoutOutput.document,
+                report: layoutTrustReport,
+                to: runDirectory.appending(path: "layout-trust")
+            )
+            artifacts.append(contentsOf: try layoutTrustArtifacts(
+                published,
+                runDirectory: runDirectory
+            ))
+            stages.append(Stage(
+                name: "layout-trust",
+                status: layoutTrustReport.passed ? .passed : .failed,
+                message: layoutTrustReport.passed ? nil : layoutTrustReport.summary,
+                durationSeconds: duration(since: layoutTrustStartedAt)
+            ))
+        } catch {
+            stages.append(Stage(
+                name: "layout-trust",
+                status: .failed,
+                message: error.localizedDescription,
+                durationSeconds: duration(since: layoutTrustStartedAt)
+            ))
+            try await failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: error
+            )
+        }
+        guard layoutTrustReport.passed else {
+            try await failRun(
+                configuration: configuration,
+                runDirectory: runDirectory,
+                stages: &stages,
+                artifacts: artifacts,
+                error: StudioError.invalidDesign(layoutTrustReport.summary)
+            )
+        }
+
         let externalSignoffExecution: (
             review: ExternalSignoffReview,
             supportingTools: [ProducerIdentity],
@@ -510,10 +565,14 @@ public final class HeadlessRoundTripService {
             catalog: configuration.catalog,
             externalSignoff: externalSignoff
         )
+        let verificationReport = DesignFlowVerificationReport(
+            report: verification,
+            layoutTrust: layoutTrustReport
+        )
         reconcileLayoutSynthesisStage(stages: &stages, verification: verification)
         do {
             try persistPrePEXVerificationArtifact(
-                verification,
+                verificationReport,
                 runDirectory: runDirectory,
                 artifacts: &artifacts
             )
@@ -527,7 +586,7 @@ public final class HeadlessRoundTripService {
             try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
-                isReadyForPEX: verification.isReadyForPEX,
+                isReadyForPEX: verificationReport.readyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
                 externallyExecutedTools: externalSignoffSupportingTools,
@@ -536,15 +595,15 @@ public final class HeadlessRoundTripService {
         }
         stages.append(Stage(
             name: "pre-pex-verification",
-            status: verification.isReadyForPEX ? .passed : .failed,
-            message: verification.isReadyForPEX ? nil : prePEXFailureMessage(verification),
+            status: verificationReport.readyForPEX ? .passed : .failed,
+            message: verificationReport.readyForPEX ? nil : prePEXFailureMessage(verification),
             durationSeconds: duration(since: prePEXVerificationStartedAt)
         ))
-        if !verification.isReadyForPEX {
+        if !verificationReport.readyForPEX {
             try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
-                isReadyForPEX: verification.isReadyForPEX,
+                isReadyForPEX: verificationReport.readyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
                 externallyExecutedTools: externalSignoffSupportingTools,
@@ -584,7 +643,7 @@ public final class HeadlessRoundTripService {
             try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
-                isReadyForPEX: verification.isReadyForPEX,
+                isReadyForPEX: verificationReport.readyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
                 externallyExecutedTools: externalSignoffSupportingTools,
@@ -595,7 +654,7 @@ public final class HeadlessRoundTripService {
             try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
-                isReadyForPEX: verification.isReadyForPEX,
+                isReadyForPEX: verificationReport.readyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
                 externallyExecutedTools: externalSignoffSupportingTools,
@@ -622,7 +681,7 @@ public final class HeadlessRoundTripService {
             try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
-                isReadyForPEX: verification.isReadyForPEX,
+                isReadyForPEX: verificationReport.readyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
                 externallyExecutedTools: externalSignoffSupportingTools,
@@ -646,7 +705,7 @@ public final class HeadlessRoundTripService {
             try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
-                isReadyForPEX: verification.isReadyForPEX,
+                isReadyForPEX: verificationReport.readyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
                 externallyExecutedTools: externalSignoffSupportingTools,
@@ -657,7 +716,7 @@ public final class HeadlessRoundTripService {
             try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
-                isReadyForPEX: verification.isReadyForPEX,
+                isReadyForPEX: verificationReport.readyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
                 externallyExecutedTools: externalSignoffSupportingTools,
@@ -682,7 +741,7 @@ public final class HeadlessRoundTripService {
                 try await failRun(
                     configuration: configuration,
                     runDirectory: runDirectory,
-                    isReadyForPEX: verification.isReadyForPEX,
+                    isReadyForPEX: verificationReport.readyForPEX,
                     stages: &stages,
                     artifacts: artifacts,
                     externallyExecutedTools: externalSignoffSupportingTools,
@@ -716,7 +775,7 @@ public final class HeadlessRoundTripService {
                 try await failRun(
                     configuration: configuration,
                     runDirectory: runDirectory,
-                    isReadyForPEX: verification.isReadyForPEX,
+                    isReadyForPEX: verificationReport.readyForPEX,
                     stages: &stages,
                     artifacts: artifacts,
                     externallyExecutedTools: externalSignoffSupportingTools,
@@ -738,7 +797,7 @@ public final class HeadlessRoundTripService {
                 try await failRun(
                     configuration: configuration,
                     runDirectory: runDirectory,
-                    isReadyForPEX: verification.isReadyForPEX,
+                    isReadyForPEX: verificationReport.readyForPEX,
                     stages: &stages,
                     artifacts: artifacts,
                     externallyExecutedTools: externalSignoffSupportingTools,
@@ -771,7 +830,7 @@ public final class HeadlessRoundTripService {
             try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
-                isReadyForPEX: verification.isReadyForPEX,
+                isReadyForPEX: verificationReport.readyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
                 externallyExecutedTools: externalSignoffSupportingTools,
@@ -792,7 +851,7 @@ public final class HeadlessRoundTripService {
             try await failRun(
                 configuration: configuration,
                 runDirectory: runDirectory,
-                isReadyForPEX: verification.isReadyForPEX,
+                isReadyForPEX: verificationReport.readyForPEX,
                 stages: &stages,
                 artifacts: artifacts,
                 externallyExecutedTools: externalSignoffSupportingTools,
@@ -812,7 +871,7 @@ public final class HeadlessRoundTripService {
             configuration: configuration,
             runDirectory: runDirectory,
             isRoundTripComplete: isRoundTripComplete,
-            isReadyForPEX: verification.isReadyForPEX,
+            isReadyForPEX: verificationReport.readyForPEX,
             stages: stages,
             artifacts: artifacts
         )
@@ -1191,6 +1250,13 @@ public final class HeadlessRoundTripService {
         case "netlist-generation": ["pre-layout-netlist"]
         case "pre-layout-simulation": ["pre-layout-simulation-report", "pre-layout-waveform"]
         case "auto-layout": ["layout-document", "design-unit"]
+        case "layout-trust": [
+            "layout-trust-canonical-layout",
+            "layout-ownership-map",
+            "net-aware-layout-report",
+            "layout-trust-report",
+            "layout-trust-artifact-manifest",
+        ]
         case "external-signoff": [
             "external-signoff-log",
             "external-signoff-review",
@@ -1227,7 +1293,7 @@ public final class HeadlessRoundTripService {
         case "net-extraction": "circuit-studio-net-extractor"
         case "netlist-generation": "circuit-studio-netlist-generator"
         case "pre-layout-simulation", "post-layout-simulation": "corespice"
-        case "auto-layout": "semiconductor-layout"
+        case "auto-layout", "layout-trust": "semiconductor-layout"
         case "external-signoff": "circuit-signoff"
         case "pre-pex-verification": "circuit-studio-local-preflight"
         case "pex-injection": "circuit-studio-pex-injection"
@@ -1633,13 +1699,49 @@ public final class HeadlessRoundTripService {
         artifacts.append(try artifact(kind: "design-unit", url: designUnitURL, runDirectory: runDirectory))
     }
 
+    private func layoutTrustArtifacts(
+        _ published: LayoutTrustArtifactWriter.WriteResult,
+        runDirectory: URL
+    ) throws -> [Artifact] {
+        var artifacts = [
+            try artifact(
+                kind: "layout-trust-canonical-layout",
+                url: URL(filePath: published.canonicalLayoutPath),
+                runDirectory: runDirectory
+            ),
+            try artifact(
+                kind: "layout-ownership-map",
+                url: URL(filePath: published.ownershipMapPath),
+                runDirectory: runDirectory
+            ),
+            try artifact(
+                kind: "net-aware-layout-report",
+                url: URL(filePath: published.netAwareReportPath),
+                runDirectory: runDirectory
+            ),
+            try artifact(
+                kind: LayoutTrustReport.artifactKind,
+                url: URL(filePath: published.layoutTrustReportPath),
+                runDirectory: runDirectory
+            ),
+        ]
+        if let manifestPath = published.layoutArtifactManifestPath {
+            artifacts.append(try artifact(
+                kind: "layout-trust-artifact-manifest",
+                url: URL(filePath: manifestPath),
+                runDirectory: runDirectory
+            ))
+        }
+        return artifacts
+    }
+
     private func persistPrePEXVerificationArtifact(
-        _ report: PhysicalVerificationReport,
+        _ report: DesignFlowVerificationReport,
         runDirectory: URL,
         artifacts: inout [Artifact]
     ) throws {
         let reportURL = runDirectory.appending(path: "physical-verification.json")
-        try writeJSON(DesignFlowVerificationReport(report: report), to: reportURL)
+        try writeJSON(report, to: reportURL)
         artifacts.append(try artifact(kind: "physical-verification-report", url: reportURL, runDirectory: runDirectory))
     }
 

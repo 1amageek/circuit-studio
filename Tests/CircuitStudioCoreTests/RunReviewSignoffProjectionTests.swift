@@ -800,6 +800,7 @@ struct RunReviewSignoffProjectionTests {
         #expect(rejectedPlan.failedStepIDs == ["apply-waiver-edit-remove-obsolete-drc-waiver"])
         #expect(rejectedPlan.failedGateIDs == [
             "post-waiver-edit-drc",
+            "post-waiver-edit-layout-trust",
             "post-waiver-edit-ready-for-pex",
         ])
         let failedVerificationBinding = try #require(
@@ -830,10 +831,12 @@ struct RunReviewSignoffProjectionTests {
         #expect(rejectedPlanVerificationPath.hasSuffix("/plan-verification.json"))
         #expect(rejectedPlan.diagnostics.map(\.code) == [
             "DRC_POST_WAIVER_EDIT_FAILED",
+            "LAYOUT_TRUST_POST_WAIVER_EDIT_MISSING",
             "POST_WAIVER_EDIT_READY_FOR_PEX_FAILED",
         ])
         #expect(rejectedPlan.nextActions == [
             "repair-verification-gate:post-waiver-edit-drc",
+            "repair-verification-gate:post-waiver-edit-layout-trust",
             "repair-verification-gate:post-waiver-edit-ready-for-pex",
         ])
 

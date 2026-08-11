@@ -705,6 +705,21 @@ struct SimulationServiceTests {
         #expect(await first.next() == nil)
         #expect(await second.next() == nil)
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func shutdownClosesFutureRunsAndEventStreams() async {
+        let service = SimulationService()
+        service.shutdown()
+
+        await #expect(throws: StudioError.simulationServiceClosed) {
+            _ = try await service.runSPICE(
+                source: "Voltage divider\nV1 in 0 1\nR1 in 0 1k\n.op\n.end",
+                fileName: nil
+            )
+        }
+        var iterator = service.events(jobID: UUID()).makeAsyncIterator()
+        #expect(await iterator.next() == nil)
+    }
 }
 
 @Suite("SchematicViewModel Tests")

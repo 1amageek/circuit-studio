@@ -990,13 +990,17 @@ extension RunReviewService {
             XcircuitePlanVerificationGateResult(
                 gateID: "post-waiver-edit-layout-trust",
                 required: true,
-                status: (report.layoutTrust?.passed ?? true) ? "passed" : "failed",
+                status: report.layoutTrust?.passed == true ? "passed" : "failed",
                 sourceStepIDs: [sourceStepID],
-                diagnostics: (report.layoutTrust?.passed ?? true) ? [] : [
+                diagnostics: report.layoutTrust?.passed == true ? [] : [
                     XcircuitePlanVerificationDiagnostic(
                         severity: "error",
-                        code: "LAYOUT_TRUST_POST_WAIVER_EDIT_FAILED",
-                        message: "Layout trust failed after waiver source edit.",
+                        code: report.layoutTrust == nil
+                            ? "LAYOUT_TRUST_POST_WAIVER_EDIT_MISSING"
+                            : "LAYOUT_TRUST_POST_WAIVER_EDIT_FAILED",
+                        message: report.layoutTrust == nil
+                            ? "Layout trust evidence is missing after waiver source edit."
+                            : "Layout trust failed after waiver source edit.",
                         gateID: "post-waiver-edit-layout-trust"
                     ),
                 ]

@@ -14,6 +14,8 @@ public enum StudioError: Error, Sendable {
     case simulationFailure(String)
     case convergenceFailure(String)
     case cancelled
+    case simulationAlreadyRunning
+    case simulationServiceClosed
 
     // Design
     case designNotFound(UUID)
@@ -41,6 +43,8 @@ extension StudioError: LocalizedError {
         case .simulationFailure(let msg): return "Simulation error: \(msg)"
         case .convergenceFailure(let msg): return "Convergence failure: \(msg)"
         case .cancelled: return "Simulation cancelled"
+        case .simulationAlreadyRunning: return "A simulation is already running"
+        case .simulationServiceClosed: return "The simulation service is closed"
         case .designNotFound(let id): return "Design not found: \(id)"
         case .testbenchNotFound(let id): return "Testbench not found: \(id)"
         case .experimentNotFound(let id): return "Experiment not found: \(id)"
