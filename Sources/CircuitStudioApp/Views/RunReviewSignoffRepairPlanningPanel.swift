@@ -3,92 +3,20 @@ import SwiftUI
 
 struct RunReviewSignoffRepairPlanningPanel: View {
     let signoff: RunReviewSignoffSummary
-    let runID: String
-    let planningInFlight: Bool
-    let candidateCycleInFlight: Bool
-    let planningResult: RunReviewSignoffRepairPlanningResult?
-    let candidateCycleResult: RunReviewSignoffRepairCandidateCycleResult?
-    let planningError: String?
-    let candidateCycleError: String?
-    let formulateRepairPlanning: () -> Void
-    let runCandidateCycle: () -> Void
 
     var body: some View {
         let repairHintCount = signoffRepairHintArtifacts(signoff).count
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Button {
-                    formulateRepairPlanning()
-                } label: {
-                    Label("Generate Repair Plan", systemImage: "wand.and.stars")
-                }
-                .font(.caption)
-                .disabled(repairHintCount == 0 || planningInFlight)
-
-                Button {
-                    runCandidateCycle()
-                } label: {
-                    Label("Run Candidate Cycle", systemImage: "play.circle")
-                }
-                .font(.caption)
-                .disabled(repairHintCount == 0 || candidateCycleInFlight)
-
-                if planningInFlight {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-
-                if candidateCycleInFlight {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-
                 Text("\(repairHintCount) hint reports")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
+                Text("Planning uses the registered Xcircuite runtime")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
 
-            planningResultRow(planningResult)
-            candidateCycleResultRow(candidateCycleResult)
             candidateCycleHistory(signoff.repairCandidateCycles)
-            errorRow(planningError)
-            errorRow(candidateCycleError)
-        }
-    }
-
-    @ViewBuilder
-    private func planningResultRow(
-        _ result: RunReviewSignoffRepairPlanningResult?
-    ) -> some View {
-        if let result {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                Text(result.problemID)
-                    .font(.caption2.monospaced())
-                Text(result.planningProblemArtifact.path)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func candidateCycleResultRow(
-        _ result: RunReviewSignoffRepairCandidateCycleResult?
-    ) -> some View {
-        if let result {
-            HStack(spacing: 6) {
-                Image(systemName: result.candidateVerification.accepted ? "checkmark.seal.fill" : "pause.circle.fill")
-                    .foregroundStyle(result.candidateVerification.accepted ? .green : .orange)
-                Text(result.candidateVerification.status)
-                    .font(.caption2.monospaced())
-                Text(result.candidateVerification.planVerificationArtifact.path)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
         }
     }
 
@@ -203,20 +131,6 @@ struct RunReviewSignoffRepairPlanningPanel: View {
         }
     }
 
-    @ViewBuilder
-    private func errorRow(_ error: String?) -> some View {
-        if let error {
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                Text(error)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-            }
-        }
-    }
-
     private func signoffRepairHintArtifacts(
         _ signoff: RunReviewSignoffSummary
     ) -> [FlowRunReviewArtifact] {
@@ -224,7 +138,7 @@ struct RunReviewSignoffRepairPlanningPanel: View {
         var artifacts: [FlowRunReviewArtifact] = []
         for card in signoff.cards {
             for artifact in [card.artifact] + card.relatedArtifacts where isSignoffRepairHintArtifact(artifact) {
-                guard seenPaths.insert(artifact.reference.locator.location.value).inserted else {
+                guard seenPaths.insert(artifact.binding.circuitStudioPresentationPath).inserted else {
                     continue
                 }
                 artifacts.append(artifact)
@@ -232,21 +146,21 @@ struct RunReviewSignoffRepairPlanningPanel: View {
         }
         return artifacts.sorted { left, right in
             if left.reference.id != right.reference.id {
-                return left.reference.id.rawValue < right.reference.id.rawValue
+                return left.binding.logicalID < right.binding.logicalID
             }
-            return left.reference.locator.location.value < right.reference.locator.location.value
+            return left.binding.circuitStudioPresentationPath < right.binding.circuitStudioPresentationPath
         }
     }
 
     private func isSignoffRepairHintArtifact(_ artifact: FlowRunReviewArtifact) -> Bool {
-        let artifactID = artifact.reference.id.rawValue
+        let artifactID = artifact.binding.logicalID
         if artifactID == "drc-repair-hints" || artifactID == "lvs-repair-hints" {
             return true
         }
         let searchable = [
             artifactID,
             artifact.purpose.rawValue,
-            artifact.reference.locator.location.value,
+            artifact.binding.circuitStudioPresentationPath,
         ]
         .map { $0.lowercased() }
         .joined(separator: " ")

@@ -189,20 +189,33 @@ extension HeadlessRoundTripService {
     }
 
     public struct Artifact: Sendable, Hashable, Codable {
-        public let reference: ArtifactReference
+        public let binding: FlowArtifactBinding
         public let sourcePath: String?
 
         public init(
-            reference: ArtifactReference,
+            binding: FlowArtifactBinding,
             sourcePath: String? = nil
         ) {
-            self.reference = reference
+            self.binding = binding
             self.sourcePath = sourcePath
         }
 
-        public var kind: String { reference.locator.kind.rawValue }
-        public var path: String { reference.locator.location.value }
+        public var reference: ArtifactReference { binding.reference }
+        public var relativePath: ArtifactRelativePath {
+            get throws {
+                try binding.requireLocalRelativePath()
+            }
+        }
+        public var kind: String { binding.kind.rawValue }
+        public var path: String {
+            switch binding.availability {
+            case .local(_, _, let relativePath):
+                relativePath.stringValue
+            case .service:
+                binding.availabilityDescription
+            }
+        }
         public var sha256: String { reference.digest.hexadecimalValue }
-        public var byteCount: Int64 { Int64(reference.byteCount) }
+        public var byteCount: UInt64 { reference.byteCount }
     }
 }

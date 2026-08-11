@@ -416,13 +416,13 @@ public struct ExternalSpicePreprocessor: Sendable {
             includeRootDirectory: source.deletingLastPathComponent()
           )
         )
-        guard let outputArtifact = result.outputArtifact else {
+        guard let outputBinding = result.outputBinding else {
           throw StudioError.simulationFailure(
             "OpenVAF completed without an OSDI output artifact for \(source.path)"
           )
         }
         do {
-          outputs.append(try outputArtifact.locator.location.resolvedFileURL())
+          outputs.append(try outputBinding.localFileURL())
         } catch {
           throw StudioError.simulationFailure(
             "OpenVAF produced an invalid output artifact for \(source.path): "

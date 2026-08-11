@@ -40,7 +40,8 @@ struct RunReviewSignoffFixture {
     @MainActor
     static func make(
         includeSymlinkEscape: Bool = false,
-        additionalArtifacts: [ArtifactReference] = [],
+        includeDefaultActionDomainSnapshot: Bool = true,
+        additionalArtifacts: [FlowArtifactBinding] = [],
         additionalArtifactPayloads: [String: Data] = [:]
     ) async throws -> Self {
         let root = FileManager.default.temporaryDirectory
@@ -105,63 +106,63 @@ struct RunReviewSignoffFixture {
         ))
 
         var artifacts = [
-            try RunReviewTestSupport.artifactReference(artifactID: "drc-summary", path: drcPath, kind: .report, format: .json),
-            try RunReviewTestSupport.artifactReference(artifactID: "drc-raw-log", path: drcLogPath, kind: .report, format: .text),
-            try RunReviewTestSupport.artifactReference(artifactID: "drc-repair-hints", path: drcRepairHintPath, kind: .report, format: .json),
-            try RunReviewTestSupport.artifactReference(
+            try RunReviewTestSupport.artifactBinding(artifactID: "drc-summary", path: drcPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactBinding(artifactID: "drc-raw-log", path: drcLogPath, kind: .report, format: .text),
+            try RunReviewTestSupport.artifactBinding(artifactID: "drc-repair-hints", path: drcRepairHintPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactBinding(
                 artifactID: "evidence-drc-summary-review",
                 path: drcEnvelopePath,
                 kind: .report,
                 format: .json
             ),
-            try RunReviewTestSupport.artifactReference(artifactID: "lvs-summary", path: lvsPath, kind: .report, format: .json),
-            try RunReviewTestSupport.artifactReference(artifactID: "lvs-raw-log", path: lvsLogPath, kind: .report, format: .text),
-            try RunReviewTestSupport.artifactReference(artifactID: "lvs-repair-hints", path: lvsRepairHintPath, kind: .report, format: .json),
-            try RunReviewTestSupport.artifactReference(artifactID: "pex-summary", path: pexPath, kind: .report, format: .json),
-            try RunReviewTestSupport.artifactReference(
+            try RunReviewTestSupport.artifactBinding(artifactID: "lvs-summary", path: lvsPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactBinding(artifactID: "lvs-raw-log", path: lvsLogPath, kind: .report, format: .text),
+            try RunReviewTestSupport.artifactBinding(artifactID: "lvs-repair-hints", path: lvsRepairHintPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactBinding(artifactID: "pex-summary", path: pexPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactBinding(
                 artifactID: "planning-simulation-summary",
                 path: simulationSummaryPath,
                 kind: .report,
                 format: .json
             ),
-            try RunReviewTestSupport.artifactReference(
+            try RunReviewTestSupport.artifactBinding(
                 artifactID: "pre-layout-waveform",
                 path: preLayoutWaveformPath,
                 payload: preLayoutWaveformData,
                 kind: .waveform,
                 format: .csv
             ),
-            try RunReviewTestSupport.artifactReference(
+            try RunReviewTestSupport.artifactBinding(
                 artifactID: "post-layout-waveform",
                 path: postLayoutWaveformPath,
                 payload: postLayoutWaveformData,
                 kind: .waveform,
                 format: .csv
             ),
-            try RunReviewTestSupport.artifactReference(
+            try RunReviewTestSupport.artifactBinding(
                 artifactID: "symlink-escape",
                 path: symlinkEscapePath,
                 kind: .report,
                 format: .text
             ),
-            try RunReviewTestSupport.artifactReference(artifactID: "measurements", path: measurementsPath, kind: .measurement, format: .json),
-            try RunReviewTestSupport.artifactReference(artifactID: "post-layout-comparison", path: comparisonPath, kind: .report, format: .json),
-            try RunReviewTestSupport.artifactReference(artifactID: "design-spec", path: designSpecPath, kind: .other, format: .json),
-            try RunReviewTestSupport.artifactReference(artifactID: "layout-document", path: layoutDocumentPath, kind: .layout, format: .json),
-            try RunReviewTestSupport.artifactReference(artifactID: "design-unit", path: designUnitPath, kind: .other, format: .json),
-            try RunReviewTestSupport.artifactReference(
+            try RunReviewTestSupport.artifactBinding(artifactID: "measurements", path: measurementsPath, kind: .measurement, format: .json),
+            try RunReviewTestSupport.artifactBinding(artifactID: "post-layout-comparison", path: comparisonPath, kind: .report, format: .json),
+            try RunReviewTestSupport.artifactBinding(artifactID: "design-spec", path: designSpecPath, kind: .other, format: .json),
+            try RunReviewTestSupport.artifactBinding(artifactID: "layout-document", path: layoutDocumentPath, kind: .layout, format: .json),
+            try RunReviewTestSupport.artifactBinding(artifactID: "design-unit", path: designUnitPath, kind: .other, format: .json),
+            try RunReviewTestSupport.artifactBinding(
                 artifactID: "generated-layout-signoff-ready-oracle-corpus-report",
                 path: generatedLayoutCorpusPath,
                 kind: .report,
                 format: .json
             ),
-            try RunReviewTestSupport.artifactReference(
+            try RunReviewTestSupport.artifactBinding(
                 artifactID: "retained-signoff-report",
                 path: retainedSignoffReportPath,
                 kind: .report,
                 format: .json
             ),
-            try RunReviewTestSupport.artifactReference(
+            try RunReviewTestSupport.artifactBinding(
                 artifactID: "drc-external-oracle-report",
                 path: drcOracleLaneReportPath,
                 kind: .report,
@@ -169,7 +170,7 @@ struct RunReviewSignoffFixture {
             ),
         ]
         let comparisonInputs = artifacts.filter {
-            $0.id.rawValue == "pre-layout-waveform" || $0.id.rawValue == "post-layout-waveform"
+            $0.logicalID == "pre-layout-waveform" || $0.logicalID == "post-layout-waveform"
         }
         let comparisonTimestamp = Date(timeIntervalSince1970: 1_700_000_000)
         let comparisonReportData = try JSONEncoder().encode(PostLayoutComparisonReport(
@@ -201,7 +202,7 @@ struct RunReviewSignoffFixture {
                     identifier: "post-layout-comparison",
                     version: "1.0.0"
                 ),
-                inputs: comparisonInputs,
+                inputs: comparisonInputs.map(\.reference),
                 invocation: .inProcess(entryPoint: "RunReviewSignoffFixture.postLayoutComparison"),
                 environment: ExecutionEnvironmentFingerprint(
                     platform: "test",
@@ -258,6 +259,83 @@ struct RunReviewSignoffFixture {
               }
             }
             """.utf8
+        )
+        let drcOracleLaneReportData = Data(
+            """
+            {
+              "status": "passed",
+              "backendID": "magic",
+              "caseCount": 4
+            }
+            """.utf8
+        )
+        let drcOracleLaneReportBinding = try RunReviewTestSupport.artifactBinding(
+            artifactID: "drc-external-oracle-report",
+            path: drcOracleLaneReportPath,
+            payload: drcOracleLaneReportData,
+            kind: .report,
+            format: .json
+        )
+        let retainedSignoffReport = XcircuiteRetainedSignoffReport(
+            schemaVersion: 1,
+            kind: "retained-signoff-report",
+            suiteID: "generated-layout-signoff-ladder",
+            status: "partial",
+            summary: XcircuiteRetainedSignoffReport.Summary(
+                dashboardStatus: "needs-review",
+                externalOracleStatus: "partial",
+                externalOracleAssessmentStatus: "partial",
+                externalOracleLaneCount: 2,
+                passedExternalOracleLaneCount: 1,
+                blockedExternalOracleLaneCount: 0,
+                failedExternalOracleLaneCount: 1
+            ),
+            externalOracleResults: [
+                XcircuiteRetainedSignoffReport.ExternalOracleResult(
+                    domain: "drc",
+                    status: "passed",
+                    oracleBackendID: "magic",
+                    assessmentPassed: true,
+                    caseCount: 4,
+                    passedCaseCount: 4,
+                    failedCaseCount: 0,
+                    passRate: 1,
+                    oracleAgreementRate: 1,
+                    readinessFailureCount: 0,
+                    requiredProbeIDs: ["drc-clean"],
+                    report: drcOracleLaneReportBinding
+                ),
+                XcircuiteRetainedSignoffReport.ExternalOracleResult(
+                    domain: "lvs",
+                    status: "failed",
+                    oracleBackendID: "netgen",
+                    assessmentPassed: false,
+                    caseCount: 3,
+                    passedCaseCount: 2,
+                    failedCaseCount: 1,
+                    passRate: 0.667,
+                    oracleAgreementRate: 0.8,
+                    readinessFailureCount: 1,
+                    requiredProbeIDs: ["ports", "devices"]
+                ),
+            ],
+            failures: [
+                XcircuiteRetainedSignoffReport.Failure(
+                    code: "lvs-oracle-disagreement",
+                    message: "LVS oracle disagrees on device count.",
+                    reason: "case-level mismatch"
+                ),
+            ]
+        )
+        let retainedSignoffReportData = try RunReviewTestSupport.encodedJSONData(
+            retainedSignoffReport
+        )
+        let retainedSignoffReportBinding = try RunReviewTestSupport.artifactBinding(
+            artifactID: "retained-signoff-report",
+            path: retainedSignoffReportPath,
+            payload: retainedSignoffReportData,
+            kind: .report,
+            format: .json
         )
         var payloads: [String: Data] = [
             drcPath: Data(
@@ -326,7 +404,7 @@ struct RunReviewSignoffFixture {
                 artifactID: "drc-summary",
                 role: "drc-summary",
                 stageID: stageID,
-                reference: try RunReviewTestSupport.artifactReference(
+                binding: try RunReviewTestSupport.artifactBinding(
                     artifactID: "drc-summary",
                     path: drcPath
                 ),
@@ -626,16 +704,16 @@ struct RunReviewSignoffFixture {
                               "path": "\(retainedSignoffReportPath)",
                               "kind": "report",
                               "format": "JSON",
-                              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                              "byteCount": 512
+                              "sha256": "\(retainedSignoffReportBinding.reference.digest.hexadecimalValue)",
+                              "byteCount": \(retainedSignoffReportBinding.reference.byteCount)
                             },
                             {
                               "role": "drc-external-oracle-report",
                               "path": "\(drcOracleLaneReportPath)",
                               "kind": "report",
                               "format": "JSON",
-                              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                              "byteCount": 128
+                              "sha256": "\(drcOracleLaneReportBinding.reference.digest.hexadecimalValue)",
+                              "byteCount": \(drcOracleLaneReportBinding.reference.byteCount)
                             }
                           ]
                         },
@@ -650,8 +728,8 @@ struct RunReviewSignoffFixture {
                               "path": "\(retainedSignoffReportPath)",
                               "kind": "report",
                               "format": "JSON",
-                              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                              "byteCount": 512
+                              "sha256": "\(retainedSignoffReportBinding.reference.digest.hexadecimalValue)",
+                              "byteCount": \(retainedSignoffReportBinding.reference.byteCount)
                             }
                           ]
                         }
@@ -687,44 +765,8 @@ struct RunReviewSignoffFixture {
                           "diagnostics": []
                         }
                       ],
-                      "sourceArtifactRefs": [
-                        {
-                          "id": "layout-gds",
-                          "locator": {
-                            "location": {
-                              "storage": "workspaceRelative",
-                              "value": "\(rawPrefix)/layout.gds"
-                            },
-                            "role": "output",
-                            "kind": "layout",
-                            "format": "gds"
-                          },
-                          "digest": {
-                            "algorithm": "sha256",
-                            "hexadecimalValue": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-                          },
-                          "byteCount": 1024
-                        }
-                      ],
-                      "signoffArtifactRefs": [
-                        {
-                          "id": "drc-summary",
-                          "locator": {
-                            "location": {
-                              "storage": "workspaceRelative",
-                              "value": "\(drcPath)"
-                            },
-                            "role": "output",
-                            "kind": "report",
-                            "format": "json"
-                          },
-                          "digest": {
-                            "algorithm": "sha256",
-                            "hexadecimalValue": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-                          },
-                          "byteCount": 256
-                        }
-                      ],
+                      "sourceArtifactRefs": [],
+                      "signoffArtifactRefs": [],
                       "diagnostics": []
                     },
                     {
@@ -795,25 +837,7 @@ struct RunReviewSignoffFixture {
                         }
                       ],
                       "sourceArtifactRefs": [],
-                      "signoffArtifactRefs": [
-                        {
-                          "id": "lvs-summary",
-                          "locator": {
-                            "location": {
-                              "storage": "workspaceRelative",
-                              "value": "\(lvsPath)"
-                            },
-                            "role": "output",
-                            "kind": "report",
-                            "format": "json"
-                          },
-                          "digest": {
-                            "algorithm": "sha256",
-                            "hexadecimalValue": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-                          },
-                          "byteCount": 256
-                        }
-                      ],
+                      "signoffArtifactRefs": [],
                       "diagnostics": [
                         {
                           "severity": "error",
@@ -828,91 +852,30 @@ struct RunReviewSignoffFixture {
                 }
                 """.utf8
             ),
-            retainedSignoffReportPath: Data(
-                """
-                {
-                  "schemaVersion": 1,
-                  "kind": "retained-signoff-report",
-                  "suiteID": "generated-layout-signoff-ladder",
-                  "status": "partial",
-                  "summary": {
-                    "dashboardStatus": "needs-review",
-                    "externalOracleStatus": "partial",
-                    "externalOracleAssessmentStatus": "partial",
-                    "externalOracleLaneCount": 2,
-                    "passedExternalOracleLaneCount": 1,
-                    "blockedExternalOracleLaneCount": 0,
-                    "failedExternalOracleLaneCount": 1
-                  },
-                  "externalOracleResults": [
-                    {
-                      "domain": "drc",
-                      "status": "passed",
-                      "oracleBackendID": "magic",
-                      "assessmentPassed": true,
-                      "caseCount": 4,
-                      "passedCaseCount": 4,
-                      "failedCaseCount": 0,
-                      "passRate": 1,
-                      "oracleAgreementRate": 1,
-                      "readinessFailureCount": 0,
-                      "requiredProbeIDs": ["drc-clean"],
-                      "report": {
-                        "id": "drc-external-oracle-report",
-                        "locator": {
-                          "location": {
-                            "storage": "workspaceRelative",
-                            "value": "\(drcOracleLaneReportPath)"
-                          },
-                          "role": "drc-external-oracle-report",
-                          "kind": "report",
-                          "format": "json"
-                        },
-                        "digest": {
-                          "algorithm": "sha256",
-                          "hexadecimalValue": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-                        },
-                        "byteCount": 128
-                      }
-                    },
-                    {
-                      "domain": "lvs",
-                      "status": "failed",
-                      "oracleBackendID": "netgen",
-                      "assessmentPassed": false,
-                      "caseCount": 3,
-                      "passedCaseCount": 2,
-                      "failedCaseCount": 1,
-                      "passRate": 0.667,
-                      "oracleAgreementRate": 0.8,
-                      "readinessFailureCount": 1,
-                      "requiredProbeIDs": ["ports", "devices"],
-                      "report": null
-                    }
-                  ],
-                  "failures": [
-                    {
-                      "code": "lvs-oracle-disagreement",
-                      "message": "LVS oracle disagrees on device count.",
-                      "reason": "case-level mismatch"
-                    }
-                  ]
-                }
-                """.utf8
-            ),
-            drcOracleLaneReportPath: Data(
-                """
-                {
-                  "status": "passed",
-                  "backendID": "magic",
-                  "caseCount": 4
-                }
-                """.utf8
-            ),
+            retainedSignoffReportPath: retainedSignoffReportData,
+            drcOracleLaneReportPath: drcOracleLaneReportData,
         ]
 
+        let hasRetainedActionDomainSnapshot = additionalArtifacts.contains {
+            $0.logicalID == XcircuitePlanningArtifactStore.actionDomainArtifactID
+        }
+        if includeDefaultActionDomainSnapshot && !hasRetainedActionDomainSnapshot {
+            let snapshotPath = ".xcircuite/runs/\(runID)/planning/action-domain-snapshot.json"
+            let snapshotData = try JSONEncoder().encode(
+                executableActionDomainSnapshot(runID: runID)
+            )
+            artifacts.append(try RunReviewTestSupport.artifactBinding(
+                artifactID: XcircuitePlanningArtifactStore.actionDomainArtifactID,
+                path: snapshotPath,
+                payload: snapshotData,
+                kind: .other,
+                format: .json
+            ))
+            payloads[snapshotPath] = snapshotData
+        }
+
         for artifact in additionalArtifacts {
-            let path = artifact.locator.location.value
+            let path = try artifact.requireLocalRelativePath().stringValue
             guard let payload = additionalArtifactPayloads[path] else {
                 throw RunReviewTestSupportError.missingArtifactPayload(path: path)
             }
@@ -983,5 +946,38 @@ struct RunReviewSignoffFixture {
             service: service,
             review: review
         )
+    }
+
+    private static func executableActionDomainSnapshot(
+        runID: String
+    ) throws -> XcircuitePlanningActionDomainSnapshot {
+        let executableOperationKeys = Set([
+            "layout-edit/layout.resize-shape",
+            "layout-edit/layout.add-label",
+            "layout-edit/layout.add-net",
+            "layout-edit/layout-command-replay",
+            "lvs-signoff/lvs.policy-repair",
+            "simulation-analysis/simulation.set-netlist-parameters",
+            "simulation-analysis/simulation.metric-improvement-objective",
+            "pex-extraction/pex.metric-recovery-objective",
+        ])
+        var snapshot = try XcircuiteActionDomainSnapshotBuilder().snapshot(
+            runID: runID,
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        for domainIndex in snapshot.domains.indices {
+            for operationIndex in snapshot.domains[domainIndex].operations.indices {
+                let operationKey = "\(snapshot.domains[domainIndex].domainID)/\(snapshot.domains[domainIndex].operations[operationIndex].operationID)"
+                guard executableOperationKeys.contains(operationKey) else {
+                    continue
+                }
+                snapshot.domains[domainIndex].operations[operationIndex].readinessState = .registered
+                snapshot.domains[domainIndex].operations[operationIndex].registrationKind = .mutation
+                snapshot.domains[domainIndex].operations[operationIndex].handlerVersion = "fixture-v1"
+                snapshot.domains[domainIndex].operations[operationIndex].handlerIdentity = "fixture.\(operationKey)"
+                snapshot.domains[domainIndex].operations[operationIndex].candidateMutationExecutable = true
+            }
+        }
+        return snapshot
     }
 }

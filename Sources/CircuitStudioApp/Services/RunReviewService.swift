@@ -20,9 +20,8 @@ public struct RunReviewService: Sendable {
         public let updatedAt: Date
         public let startedAt: Date?
         public let finishedAt: Date?
-        /// Canonical Foundation artifact references projected from the run
-        /// manifest at the storage boundary.
-        public let artifacts: [ArtifactReference]
+        /// Canonical identity-to-availability bindings projected from the run manifest.
+        public let artifacts: [FlowArtifactBinding]
         public let stages: [StageReview]
         public let approvals: [FlowApprovalRecord]
         public let suggestedActionSelections: [FlowRunSuggestedActionSelection]
@@ -39,7 +38,7 @@ public struct RunReviewService: Sendable {
     public struct PlanningReview: Sendable, Hashable {
         public let candidatePlanArtifact: FlowRunReviewArtifact?
         public let planVerificationArtifact: FlowRunReviewArtifact?
-        public let candidatePlan: XcircuiteCandidatePlan?
+        public let candidatePlan: XcircuitePlanningCandidateDraft?
         public let planVerification: XcircuitePlanVerification?
         public let designDiff: DesignDiff?
         public let designDiffSummary: RunReviewDesignDiffSummary?
@@ -143,10 +142,11 @@ public struct RunReviewService: Sendable {
         let loader = configuredReviewLedgerLoader(store: store)
         let bundler = configuredReviewBundler(store: store, loader: loader)
         let ledger = try await loader.loadRunLedgerForReview(runID: runID)
-        let bundle = try await bundler.makeReviewBundle(
+        let rawBundle = try await bundler.makeReviewBundle(
             runID: runID,
             workspaceID: try await workspaceID(store: store)
         )
+        let bundle = circuitStudioPresentationBundle(rawBundle)
         let approvals = bundle.approvals
         let suggestedActionSelections = try suggestedActionSelections(from: ledger.actions)
         let approvalsByStage = Dictionary(
@@ -160,22 +160,22 @@ public struct RunReviewService: Sendable {
                 approval: approvalsByStage[result.stageID]
             )
         }
-        let planning = planningReview(
+        let planning = await planningReview(
             bundle: bundle,
-            projectRoot: projectRoot,
+            artifactReader: store,
             approvals: approvals,
             designDiff: ledger.designDiff,
             suggestedActionSelections: suggestedActionSelections
         )
-        let signoff = try signoffReview(
+        let signoff = try await signoffReview(
             bundle: bundle,
             actions: ledger.actions,
-            projectRoot: projectRoot
+            artifactReader: store
         )
-        let waivers = try waiverReview(
+        let waivers = try await waiverReview(
             bundle: bundle,
             actions: ledger.actions,
-            projectRoot: projectRoot
+            artifactReader: store
         )
         let failureStates = failureStateSummary(
             bundle: bundle,
@@ -403,11 +403,11 @@ public struct RunReviewService: Sendable {
 
     private func planningReview(
         bundle: FlowRunReviewBundle,
-        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         approvals: [FlowApprovalRecord],
         designDiff: DesignDiff?,
         suggestedActionSelections: [FlowRunSuggestedActionSelection]
-    ) -> PlanningReview {
+    ) async -> PlanningReview {
         let candidatePlanArtifact = latestArtifact(
             role: "planning-candidate-plan",
             in: bundle.artifacts
@@ -417,18 +417,18 @@ public struct RunReviewService: Sendable {
             in: bundle.artifacts
         )
         var decodeIssues: [PlanningArtifactDecodeIssue] = []
-        let candidatePlan = decodedPlanningArtifact(
-            XcircuiteCandidatePlan.self,
+        let candidatePlan = await decodedPlanningArtifact(
+            XcircuitePlanningCandidateDraft.self,
             role: "planning-candidate-plan",
             artifact: candidatePlanArtifact,
-            projectRoot: projectRoot,
+            artifactReader: artifactReader,
             decodeIssues: &decodeIssues
         )
-        var planVerification = decodedPlanningArtifact(
+        var planVerification = await decodedPlanningArtifact(
             XcircuitePlanVerification.self,
             role: "planning-plan-verification",
             artifact: planVerificationArtifact,
-            projectRoot: projectRoot,
+            artifactReader: artifactReader,
             decodeIssues: &decodeIssues
         )
         if let candidatePlan {
@@ -452,22 +452,22 @@ public struct RunReviewService: Sendable {
         _ type: T.Type,
         role: String,
         artifact: FlowRunReviewArtifact?,
-        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         decodeIssues: inout [PlanningArtifactDecodeIssue]
-    ) -> T? {
+    ) async -> T? {
         guard let artifact else {
             return nil
         }
 
         do {
             try validatePlanningArtifactIntegrity(artifact)
-            let data = try Data(contentsOf: artifactURL(for: artifact, projectRoot: projectRoot))
+            let data = try await artifactReader.loadArtifactContent(for: artifact.binding)
             return try JSONDecoder().decode(type, from: data)
         } catch {
             decodeIssues.append(
                 PlanningArtifactDecodeIssue(
                     artifactRole: role,
-                    artifactPath: artifact.reference.locator.location.value,
+                    artifactPath: artifact.binding.circuitStudioPresentationPath,
                     message: error.localizedDescription
                 )
             )
@@ -478,14 +478,14 @@ public struct RunReviewService: Sendable {
     private func validatePlanningArtifactIntegrity(_ artifact: FlowRunReviewArtifact) throws {
         guard let integrity = artifact.integrity else {
             throw RunReviewServiceError.planningArtifactIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 status: "missing",
                 message: "Artifact integrity was not recorded."
             )
         }
         guard integrity.status == .verified else {
             throw RunReviewServiceError.planningArtifactIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 status: integrity.status.rawValue,
                 message: integrity.message
             )
@@ -493,7 +493,7 @@ public struct RunReviewService: Sendable {
     }
 
     private func riskReviews(
-        for plan: XcircuiteCandidatePlan,
+        for plan: XcircuitePlanningCandidateDraft,
         approvals: [FlowApprovalRecord]
     ) -> [XcircuitePlanRiskReview] {
         let approvalsByID = Dictionary(uniqueKeysWithValues: approvals.map { ($0.stageID, $0) })
@@ -556,7 +556,7 @@ public struct RunReviewService: Sendable {
 
     private func affectedStepIDs(
         for risk: XcircuitePlanningRiskClassification,
-        plan: XcircuiteCandidatePlan
+        plan: XcircuitePlanningCandidateDraft
     ) -> [String] {
         let affectedActionIDs = Set(risk.affectedActionIDs)
         let affectedObjectiveIDs = Set(risk.affectedObjectiveIDs)
@@ -582,10 +582,10 @@ public struct RunReviewService: Sendable {
     }
 
     private func artifactURL(for artifact: FlowRunReviewArtifact, projectRoot: URL) -> URL {
-        if artifact.reference.locator.location.value.hasPrefix("/") {
-            URL(filePath: artifact.reference.locator.location.value)
+        if artifact.binding.circuitStudioPresentationPath.hasPrefix("/") {
+            URL(filePath: artifact.binding.circuitStudioPresentationPath)
         } else {
-            projectRoot.appending(path: artifact.reference.locator.location.value)
+            projectRoot.appending(path: artifact.binding.circuitStudioPresentationPath)
         }
     }
 }

@@ -24,12 +24,12 @@ struct RunReviewActionDomainCatalog: Sendable {
         operationsByKey = indexed
     }
 
-    static func canonical(runID: String) throws -> Self {
-        let snapshot = try XcircuiteActionDomainSnapshotBuilder().snapshot(
-            runID: runID,
-            generatedAt: "run-review-projection"
-        )
-        return Self(snapshot: snapshot)
+    static var empty: Self {
+        Self(snapshot: XcircuitePlanningActionDomainSnapshot(
+            runID: "run-review",
+            generatedAt: "run-review-projection",
+            domains: []
+        ))
     }
 
     func repairHint(
@@ -39,13 +39,13 @@ struct RunReviewActionDomainCatalog: Sendable {
     ) -> RunReviewSignoffRepairActionHint? {
         guard let operation = operationsByKey[
             OperationKey(domainID: domainID, operationID: operationID)
-        ] else {
+        ], operation.candidateMutationExecutable else {
             return nil
         }
         return RunReviewSignoffRepairActionHint(
             domainID: domainID,
             operationID: operation.operationID,
-            maturity: operation.maturity.rawValue,
+            readinessState: operation.readinessState,
             reason: reason,
             requiredInputRefs: operation.inputRefs,
             verificationGates: operation.verificationGates

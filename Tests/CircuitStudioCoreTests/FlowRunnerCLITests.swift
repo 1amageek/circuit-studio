@@ -1,5 +1,6 @@
 import Foundation
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import LayoutCore
 import Testing
 import Xcircuite
@@ -483,11 +484,11 @@ struct FlowRunnerCLITests {
             projectRootPath: "/tmp/flow-output",
             signoffRepairCandidateCycleHistoryIndex: history,
             signoffRepairCandidateCycleHistoryAssessment: report,
-            signoffRepairCandidateCycleHistoryAssessmentArtifact: try artifactReference(
+            signoffRepairCandidateCycleHistoryAssessmentArtifact: try artifactBinding(
                 artifactID: SignoffRepairHistoryAssessor.reportArtifactID,
                 path: ".xcircuite/retained/history-assessment.json",
                 byteCount: 456
-            ),
+            ).reference,
             signoffRepairCandidateCycleHistoryAssessmentPath:
                 "/tmp/flow-output/.xcircuite/retained/history-assessment.json"
         )
@@ -589,25 +590,16 @@ struct FlowRunnerCLITests {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let store = try XcircuiteWorkspaceStore(projectRoot: root)
         let summaryContent = try encoder.encode(summary)
-        let summaryReference = ArtifactReference(
-            id: try ArtifactID(rawValue: "planning-candidate-cycle-history-summary-1"),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(
-                    workspaceRelativePath: ".xcircuite/runs/run-1/planning/candidate-cycle-history/history-1.json"
-                ),
-                role: .output,
-                kind: .other,
-                format: .json
-            ),
-            digest: try SHA256ContentDigester().digest(
-                data: summaryContent,
-                using: .sha256
-            ),
-            byteCount: UInt64(summaryContent.count)
+        let summaryBinding = try RunReviewTestSupport.artifactBinding(
+            artifactID: "planning-candidate-cycle-history-summary-1",
+            path: ".xcircuite/runs/run-1/planning/candidate-cycle-history/history-1.json",
+            payload: summaryContent,
+            kind: .other,
+            format: .json
         )
         _ = try await store.appendActionArtifacts(
             [XcircuitePreparedArtifact(
-                reference: summaryReference,
+                binding: summaryBinding,
                 content: summaryContent
             )],
             action: FlowRunActionRecord(
@@ -616,7 +608,7 @@ struct FlowRunnerCLITests {
                 actor: FlowRunActor(kind: .cli, identifier: "circuit-studio-tests"),
                 actionKind: "planning.retain-candidate-cycle-history",
                 status: .succeeded,
-                outputs: [summaryReference]
+                outputs: [summaryBinding.reference]
             )
         )
 
@@ -690,15 +682,14 @@ struct FlowRunnerCLITests {
         #expect(persistedReport.recommendations == resultReport.recommendations)
         #expect(persistedReport.artifactReference == nil)
         let assessmentArtifact = try #require(result.signoffRepairCandidateCycleHistoryAssessmentArtifact)
-        #expect(assessmentArtifact.artifactID == SignoffRepairHistoryAssessor.reportArtifactID)
-        #expect(assessmentArtifact.path == ".xcircuite/retained/history-assessment.json")
+        #expect(assessmentPath.hasSuffix("/.xcircuite/retained/history-assessment.json"))
         #expect(!assessmentArtifact.digest.hexadecimalValue.isEmpty)
         #expect(assessmentArtifact.byteCount > 0)
 
         let manifest = try await XcircuiteWorkspaceStore(projectRoot: root).loadManifest()
         #expect(manifest.files.contains { file in
             file.artifactID == SignoffRepairHistoryAssessor.reportArtifactID
-                && file.path == assessmentArtifact.path
+                && file.path == ".xcircuite/retained/history-assessment.json"
                 && file.digest == assessmentArtifact.digest
                 && file.byteCount == assessmentArtifact.byteCount
         })
@@ -859,576 +850,6 @@ struct FlowRunnerCLITests {
         #expect(keys["action_id"] == "waiver-edit-proposal-application-1")
     }
 
-    @Test("signoff repair planning arguments construct the planning command", .timeLimit(.minutes(1)))
-    func signoffRepairPlanningArgumentsConstructCommand() throws {
-        let options = try FlowRunnerCommandOptions(arguments: [
-            "--formulate-signoff-repair-planning",
-            "--output", "/tmp/flow-output",
-            "--run-id", "run-1",
-            "--reviewer", "agent-1",
-            "--actor-kind", "agent",
-            "--approval-note", "Plan DRC and LVS repair.",
-            "--drc-repair-hints", ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json",
-            "--lvs-repair-hints", ".xcircuite/runs/run-1/stages/001/raw/lvs-repair-hints.json",
-            "--formulation-id", "signoff-repair-formulation-run-1",
-            "--intent-id", "repair-signoff-run-1",
-            "--intent", "Repair signoff diagnostics.",
-            "--problem-id", "signoff-repair-problem-run-1",
-        ])
-        let command = options.makeCommand()
-
-        #expect(options.mode == .formulateSignoffRepairPlanningProblem)
-        #expect(command.kind == .formulateSignoffRepairPlanningProblem)
-        #expect(command.projectRootPath == "/tmp/flow-output")
-        #expect(command.runID == "run-1")
-        #expect(command.approvalReviewer == "agent-1")
-        #expect(command.actionActorKind == .agent)
-        #expect(command.approvalNote == "Plan DRC and LVS repair.")
-        #expect(command.drcRepairHintPath == ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json")
-        #expect(command.lvsRepairHintPath == ".xcircuite/runs/run-1/stages/001/raw/lvs-repair-hints.json")
-        #expect(command.planningFormulationID == "signoff-repair-formulation-run-1")
-        #expect(command.planningIntentID == "repair-signoff-run-1")
-        #expect(command.planningIntent == "Repair signoff diagnostics.")
-        #expect(command.planningProblemID == "signoff-repair-problem-run-1")
-    }
-
-    @Test("signoff repair candidate cycle arguments construct the dispatch command", .timeLimit(.minutes(1)))
-    func signoffRepairCandidateCycleArgumentsConstructCommand() throws {
-        let options = try FlowRunnerCommandOptions(arguments: [
-            "--run-signoff-repair-candidate-cycle",
-            "--output", "/tmp/flow-output",
-            "--run-id", "run-1",
-            "--reviewer", "agent-1",
-            "--actor-kind", "agent",
-            "--approval-note", "Dispatch signoff repair.",
-            "--drc-repair-hints", ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json",
-            "--candidate-strategy", "first-ready-action-per-objective",
-            "--candidate-verification-mode", "post-execution",
-        ])
-        let command = options.makeCommand()
-
-        #expect(options.mode == .runSignoffRepairCandidateCycle)
-        #expect(command.kind == .runSignoffRepairCandidateCycle)
-        #expect(command.projectRootPath == "/tmp/flow-output")
-        #expect(command.runID == "run-1")
-        #expect(command.approvalReviewer == "agent-1")
-        #expect(command.actionActorKind == .agent)
-        #expect(command.approvalNote == "Dispatch signoff repair.")
-        #expect(command.drcRepairHintPath == ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json")
-        #expect(command.candidateStrategy == "first-ready-action-per-objective")
-        #expect(command.candidateVerificationMode == "post-execution")
-    }
-
-    @Test("signoff repair planning output exposes planner artifacts", .timeLimit(.minutes(1)))
-    func signoffRepairPlanningOutputIncludesPlannerArtifacts() throws {
-        let actionRecord = FlowRunActionRecord(
-            actionID: "signoff-repair-planning-1",
-            runID: "run-1",
-            actor: FlowRunActor(kind: .agent, identifier: "agent-1"),
-            actionKind: "review.formulateSignoffRepairPlanningProblem",
-            status: .succeeded
-        )
-        let planningResult = RunReviewSignoffRepairPlanningResult(
-            runID: "run-1",
-            formulationID: "signoff-repair-formulation-run-1",
-            problemID: "signoff-repair-problem-run-1",
-            drcRepairHintPath: ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json",
-            lvsRepairHintPath: ".xcircuite/runs/run-1/stages/001/raw/lvs-repair-hints.json",
-            actionDomainArtifact: try RunReviewTestSupport.artifactReference(
-                artifactID: "planning-action-domain-snapshot",
-                path: ".xcircuite/runs/run-1/planning/action-domain-snapshot.json"
-            ),
-            repairFormulationArtifact: try RunReviewTestSupport.artifactReference(
-                artifactID: "planning-repair-plan-formulation",
-                path: ".xcircuite/runs/run-1/planning/repair-formulation.json"
-            ),
-            planningProblemArtifact: try RunReviewTestSupport.artifactReference(
-                artifactID: "planning-problem",
-                path: ".xcircuite/runs/run-1/planning/problem.json"
-            ),
-            sourceReports: [],
-            actionRecord: actionRecord
-        )
-        let result = DesignFlowCommandResult(
-            kind: .formulateSignoffRepairPlanningProblem,
-            runID: "run-1",
-            projectRootPath: "/tmp/flow-output",
-            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            signoffRepairPlanningResult: planningResult,
-            actionDomainPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/action-domain-snapshot.json",
-            repairFormulationPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/repair-formulation.json",
-            planningProblemPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/problem.json",
-            message: "signoff-repair-planning-1"
-        )
-        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
-        let keys = keyValueOutput(output)
-
-        #expect(keys["signoff_repair_planning"] == "generated")
-        #expect(keys["run_id"] == "run-1")
-        #expect(keys["project_root"] == "/tmp/flow-output")
-        #expect(keys["actions"] == "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl")
-        #expect(keys["action_id"] == "signoff-repair-planning-1")
-        #expect(keys["formulation_id"] == "signoff-repair-formulation-run-1")
-        #expect(keys["problem_id"] == "signoff-repair-problem-run-1")
-        #expect(keys["action_domain"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/action-domain-snapshot.json")
-        #expect(keys["repair_formulation"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/repair-formulation.json")
-        #expect(keys["planning_problem"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/problem.json")
-        #expect(keys["drc_repair_hints"] == ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json")
-        #expect(keys["lvs_repair_hints"] == ".xcircuite/runs/run-1/stages/001/raw/lvs-repair-hints.json")
-    }
-
-    @Test("signoff repair candidate cycle output exposes candidate artifacts", .timeLimit(.minutes(1)))
-    func signoffRepairCandidateCycleOutputIncludesCandidateArtifacts() throws {
-        let actionRecord = FlowRunActionRecord(
-            actionID: "signoff-repair-planning-1",
-            runID: "run-1",
-            actor: FlowRunActor(kind: .agent, identifier: "agent-1"),
-            actionKind: "review.formulateSignoffRepairPlanningProblem",
-            status: .succeeded
-        )
-        let planningResult = RunReviewSignoffRepairPlanningResult(
-            runID: "run-1",
-            formulationID: "signoff-repair-formulation-run-1",
-            problemID: "signoff-repair-problem-run-1",
-            drcRepairHintPath: ".xcircuite/runs/run-1/stages/001/raw/drc-repair-hints.json",
-            lvsRepairHintPath: nil,
-            actionDomainArtifact: try RunReviewTestSupport.artifactReference(
-                artifactID: "planning-action-domain-snapshot",
-                path: ".xcircuite/runs/run-1/planning/action-domain-snapshot.json"
-            ),
-            repairFormulationArtifact: try RunReviewTestSupport.artifactReference(
-                artifactID: "planning-repair-plan-formulation",
-                path: ".xcircuite/runs/run-1/planning/repair-formulation.json"
-            ),
-            planningProblemArtifact: try RunReviewTestSupport.artifactReference(
-                artifactID: "planning-problem",
-                path: ".xcircuite/runs/run-1/planning/problem.json"
-            ),
-            sourceReports: [],
-            actionRecord: actionRecord
-        )
-        let generation = XcircuiteCandidatePlanGenerationResult(
-            status: "generated",
-            runID: "run-1",
-            problemID: "signoff-repair-problem-run-1",
-            planID: "candidate-plan-1",
-            executionReadiness: "ready",
-            problemPath: ".xcircuite/runs/run-1/planning/problem.json",
-            candidatePlanArtifact: try artifactReference(
-                artifactID: "planning-candidate-plan",
-                path: ".xcircuite/runs/run-1/planning/candidate-plan.json",
-            ),
-            symbolicPlannerTrace: XcircuiteSymbolicPlannerTrace(
-                runID: "run-1",
-                problemID: "signoff-repair-problem-run-1",
-                strategy: "first-ready-action-per-objective",
-                problemPath: ".xcircuite/runs/run-1/planning/problem.json",
-                rejectedPlansPath: ".xcircuite/runs/run-1/planning/rejected-plans.jsonl",
-                rejectedPlanFeedbackRecordCount: 2,
-                globalRejectedPlanFeedbackCount: 1,
-                generatedPlanID: "candidate-plan-1",
-                selectedActionIDs: ["repair-action-1"],
-                unresolvedObjectiveIDs: [],
-                objectiveTraces: [
-                    XcircuiteSymbolicPlannerObjectiveTrace(
-                        objectiveID: "repair-objective-1",
-                        selectedActionID: "repair-action-1",
-                        candidateActions: [
-                            XcircuiteSymbolicPlannerActionTrace(
-                                rank: 1,
-                                actionID: "repair-action-1",
-                                domainID: "layout-edit",
-                                operationID: "layout.add-label",
-                                maturity: "implemented",
-                                score: 12,
-                                scoreBeforeRejectedFeedback: 12,
-                                rejectedFeedbackScoreDelta: 0,
-                                rankBeforeRejectedFeedback: 2,
-                                rejectedFeedbackRankDelta: -1,
-                                scoreComponents: [
-                                    XcircuiteSymbolicPlannerScoreComponent(
-                                        termID: "goal.coverage",
-                                        contribution: 12,
-                                        reason: "Action covers the repair objective."
-                                    ),
-                                ],
-                                requiredInputRefs: [],
-                                missingInputRefs: [],
-                                verificationGates: ["native-lvs"],
-                                actionDomainSupported: true,
-                                operationSupported: true,
-                                selected: true,
-                                blockedReasons: [],
-                                reason: "Selected by feedback-aware ranking."
-                            ),
-                            XcircuiteSymbolicPlannerActionTrace(
-                                rank: 2,
-                                actionID: "repair-action-0",
-                                domainID: "layout-edit",
-                                operationID: "layout.resize-shape",
-                                maturity: "implemented",
-                                score: 4,
-                                scoreBeforeRejectedFeedback: 10,
-                                rejectedFeedbackScoreDelta: -6,
-                                rankBeforeRejectedFeedback: 1,
-                                rejectedFeedbackRankDelta: 1,
-                                scoreComponents: [
-                                    XcircuiteSymbolicPlannerScoreComponent(
-                                        termID: "goal.coverage",
-                                        contribution: 10,
-                                        reason: "Action covers the repair objective."
-                                    ),
-                                    XcircuiteSymbolicPlannerScoreComponent(
-                                        termID: "feedback.global.failed-gate",
-                                        contribution: -6,
-                                        reason: "Rejected feedback matches native DRC."
-                                    ),
-                                ],
-                                requiredInputRefs: [],
-                                missingInputRefs: [],
-                                verificationGates: ["native-drc"],
-                                actionDomainSupported: true,
-                                operationSupported: true,
-                                selected: false,
-                                blockedReasons: [],
-                                reason: "Penalized by rejected feedback."
-                            ),
-                        ]
-                    ),
-                ]
-            )
-        )
-        let execution = XcircuiteCandidatePlanExecutionResult(
-            status: "executed",
-            runID: "run-1",
-            problemID: "signoff-repair-problem-run-1",
-            planID: "candidate-plan-1",
-            candidatePlanPath: ".xcircuite/runs/run-1/planning/candidate-plan.json",
-            planExecutionArtifact: try artifactReference(
-                artifactID: "planning-plan-execution",
-                path: ".xcircuite/runs/run-1/planning/plan-execution.json",
-            ),
-            designDiffArtifact: try artifactReference(
-                artifactID: "design-diff",
-                path: ".xcircuite/runs/run-1/design-diff.json",
-            ),
-            producedArtifacts: [],
-            nextActions: []
-        )
-        let verification = XcircuiteCandidatePlanVerificationResult(
-            status: "accepted",
-            runID: "run-1",
-            problemID: "signoff-repair-problem-run-1",
-            planID: "candidate-plan-1",
-            accepted: true,
-            candidatePlanPath: ".xcircuite/runs/run-1/planning/candidate-plan.json",
-            planVerificationArtifact: try artifactReference(
-                artifactID: "planning-plan-verification",
-                path: ".xcircuite/runs/run-1/planning/plan-verification.json",
-            ),
-            nextActions: []
-        )
-        let cycleRecord = FlowRunActionRecord(
-            actionID: "signoff-repair-candidate-cycle-1",
-            runID: "run-1",
-            actor: FlowRunActor(kind: .agent, identifier: "agent-1"),
-            actionKind: "review.runSignoffRepairCandidateCycle",
-            status: .succeeded
-        )
-        let cycleResult = RunReviewSignoffRepairCandidateCycleResult(
-            runID: "run-1",
-            cycleIndex: 3,
-            strategy: "first-ready-action-per-objective",
-            verificationMode: "post-execution",
-            planningResult: planningResult,
-            candidateGeneration: generation,
-            candidateExecution: execution,
-            candidateVerification: verification,
-            cycleActionRecord: cycleRecord
-        )
-        let cycleHistorySummary = RunReviewSignoffRepairCandidateCycleHistorySummary(cycles: [
-            RunReviewSignoffRepairCandidateCycleHistoryItem(
-                actionID: "signoff-repair-candidate-cycle-0",
-                cycleIndex: 2,
-                status: .blocked,
-                planID: "candidate-plan-0",
-                generationStatus: "generated",
-                executionStatus: "executed",
-                verificationStatus: "rejected",
-                accepted: false,
-                rejectedPlansPath: ".xcircuite/runs/run-1/planning/rejected-plans.jsonl",
-                rejectedPlanFeedbackRecordCount: 1,
-                globalRejectedPlanFeedbackCount: 1,
-                selectedActionIDs: ["repair-action-0"],
-                selectedActionDomainIDs: ["lvs-signoff"],
-                selectedObjectiveDomainIDs: ["lvs"],
-                feedbackPenalizedActionIDs: [],
-                feedbackRankChanges: [],
-                feedbackScoreDeltas: [],
-                candidatePlanArtifact: nil,
-                planExecutionArtifact: nil,
-                planVerificationArtifact: nil,
-                rejectedPlansArtifact: nil,
-                designDiffArtifact: nil,
-                createdAt: Date(timeIntervalSince1970: 1_700_000_000)
-            ),
-            RunReviewSignoffRepairCandidateCycleHistoryItem(
-                actionID: "signoff-repair-candidate-cycle-1",
-                cycleIndex: 3,
-                status: .succeeded,
-                planID: "candidate-plan-1",
-                generationStatus: "generated",
-                executionStatus: "executed",
-                verificationStatus: "accepted",
-                accepted: true,
-                rejectedPlansPath: ".xcircuite/runs/run-1/planning/rejected-plans.jsonl",
-                rejectedPlanFeedbackRecordCount: 2,
-                globalRejectedPlanFeedbackCount: 3,
-                selectedActionIDs: ["repair-action-1"],
-                selectedActionDomainIDs: ["layout-edit"],
-                selectedObjectiveDomainIDs: ["drc"],
-                feedbackPenalizedActionIDs: ["repair-action-0"],
-                feedbackRankChanges: [
-                    "repair-action-1:2->1",
-                    "repair-action-0:1->2",
-                ],
-                feedbackScoreDeltas: ["repair-action-0:-6"],
-                candidatePlanArtifact: nil,
-                planExecutionArtifact: nil,
-                planVerificationArtifact: nil,
-                rejectedPlansArtifact: nil,
-                designDiffArtifact: nil,
-                createdAt: Date(timeIntervalSince1970: 1_700_000_001)
-            ),
-        ])
-        let result = DesignFlowCommandResult(
-            kind: .runSignoffRepairCandidateCycle,
-            runID: "run-1",
-            projectRootPath: "/tmp/flow-output",
-            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            designDiffPath: "/tmp/flow-output/.xcircuite/runs/run-1/design-diff.json",
-            signoffRepairPlanningResult: planningResult,
-            signoffRepairCandidateCycleResult: cycleResult,
-            signoffRepairCandidateCycleHistorySummary: cycleHistorySummary,
-            actionDomainPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/action-domain-snapshot.json",
-            repairFormulationPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/repair-formulation.json",
-            planningProblemPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/problem.json",
-            candidatePlanPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/candidate-plan.json",
-            planExecutionPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/plan-execution.json",
-            planVerificationPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/plan-verification.json",
-            candidateCycleHistorySummaryPath: "/tmp/flow-output/.xcircuite/runs/run-1/planning/candidate-cycle-history/history-3.json",
-            candidateAccepted: true,
-            message: "signoff-repair-candidate-cycle-1"
-        )
-        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
-        let keys = keyValueOutput(output)
-
-        #expect(keys["signoff_repair_candidate_cycle"] == "accepted")
-        #expect(keys["cycle_action_id"] == "signoff-repair-candidate-cycle-1")
-        #expect(keys["planning_action_id"] == "signoff-repair-planning-1")
-        #expect(keys["cycle_index"] == "3")
-        #expect(keys["strategy"] == "first-ready-action-per-objective")
-        #expect(keys["verification_mode"] == "post-execution")
-        #expect(keys["generation_status"] == "generated")
-        #expect(keys["execution_status"] == "executed")
-        #expect(keys["verification_status"] == "accepted")
-        #expect(keys["accepted"] == "true")
-        #expect(keys["feedback_rejected_plans"] == ".xcircuite/runs/run-1/planning/rejected-plans.jsonl")
-        #expect(keys["rejected_feedback_count"] == "2")
-        #expect(keys["global_rejected_feedback_count"] == "1")
-        #expect(keys["selected_actions"] == "repair-action-1")
-        #expect(keys["selected_action_domains"] == "layout-edit")
-        #expect(keys["feedback_penalized_actions"] == "repair-action-0")
-        #expect(keys["feedback_penalty_terms"] == "repair-action-0:feedback.global.failed-gate")
-        #expect(keys["feedback_rank_changes"] == "repair-action-1:2->1,repair-action-0:1->2")
-        #expect(keys["feedback_score_deltas"] == "repair-action-0:-6")
-        #expect(keys["cycle_history_count"] == "2")
-        #expect(keys["cycle_history_accepted_count"] == "1")
-        #expect(keys["cycle_history_not_accepted_count"] == "1")
-        #expect(keys["cycle_history_latest_index"] == "3")
-        #expect(keys["cycle_history_latest_accepted"] == "true")
-        #expect(keys["cycle_history_consumed_rejected_feedback_count"] == "3")
-        #expect(keys["cycle_history_max_global_rejected_feedback_count"] == "3")
-        #expect(keys["cycle_history_selected_actions"] == "repair-action-0,repair-action-1")
-        #expect(keys["cycle_history_selected_action_domains"] == "lvs-signoff,layout-edit")
-        #expect(keys["cycle_history_selected_objective_domains"] == "lvs,drc")
-        #expect(output.contains("cycle_history_objective_domain=lvs,cycles=1,accepted=0,not_accepted=1,acceptance_rate=0.0,rank_changes=0,score_deltas=0,actions=repair-action-0,action_domains=lvs-signoff"))
-        #expect(output.contains("cycle_history_objective_domain=drc,cycles=1,accepted=1,not_accepted=0,acceptance_rate=1.0,rank_changes=2,score_deltas=1,actions=repair-action-1,action_domains=layout-edit"))
-        #expect(keys["cycle_history_feedback_penalized_actions"] == "repair-action-0")
-        #expect(keys["cycle_history_feedback_rank_change_count"] == "2")
-        #expect(keys["cycle_history_feedback_rank_changed_actions"] == "repair-action-1,repair-action-0")
-        #expect(keys["cycle_history_feedback_score_delta_count"] == "1")
-        #expect(keys["cycle_history_feedback_score_delta_actions"] == "repair-action-0")
-        #expect(keys["candidate_plan"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/candidate-plan.json")
-        #expect(keys["plan_execution"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/plan-execution.json")
-        #expect(keys["design_diff"] == "/tmp/flow-output/.xcircuite/runs/run-1/design-diff.json")
-        #expect(keys["plan_verification"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/plan-verification.json")
-        #expect(keys["cycle_history_summary"] == "/tmp/flow-output/.xcircuite/runs/run-1/planning/candidate-cycle-history/history-3.json")
-    }
-
-    @Test("apply-waiver-edit-and-verify arguments construct the combined command", .timeLimit(.minutes(1)))
-    func applyWaiverEditAndVerifyArgumentsConstructCommand() throws {
-        let options = try FlowRunnerCommandOptions(arguments: [
-            "--apply-waiver-edit-and-verify",
-            "--fixture", "voltage-divider",
-            "--output", "/tmp/flow-output",
-            "--run-id", "run-1",
-            "--reviewer", "agent-1",
-            "--approval-note", "Apply and verify waiver cleanup.",
-            "--layout-document", "/tmp/layout.json",
-            "--design-unit", "/tmp/design-unit.json",
-            "--waiver-review", "drc-waiver:.xcircuite/runs/run-1/stages/001/raw/drc-summary.json",
-            "--waiver-proposal", "remove-obsolete-drc-waiver",
-        ])
-        let command = options.makeCommand()
-
-        #expect(options.mode == .applyWaiverEditProposalAndRunPostVerification)
-        #expect(command.kind == .applyWaiverEditProposalAndRunPostVerification)
-        #expect(command.fixtureName == "voltage-divider")
-        #expect(command.projectRootPath == "/tmp/flow-output")
-        #expect(command.runID == "run-1")
-        #expect(command.approvalReviewer == "agent-1")
-        #expect(command.approvalNote == "Apply and verify waiver cleanup.")
-        #expect(command.layoutDocumentPath == "/tmp/layout.json")
-        #expect(command.designUnitPath == "/tmp/design-unit.json")
-        #expect(command.waiverReviewID == "drc-waiver:.xcircuite/runs/run-1/stages/001/raw/drc-summary.json")
-        #expect(command.waiverProposalID == "remove-obsolete-drc-waiver")
-    }
-
-    @Test("apply-waiver-edit-and-verify output records both action IDs", .timeLimit(.minutes(1)))
-    func applyWaiverEditAndVerifyOutputIncludesBothActionIDs() {
-        let result = DesignFlowCommandResult(
-            kind: .applyWaiverEditProposalAndRunPostVerification,
-            runID: "run-1",
-            projectRootPath: "/tmp/flow-output",
-            readyForPEX: true,
-            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            verificationReportPath: "/tmp/flow-output/.xcircuite/runs/run-1/reports/physical-verification.json",
-            actionRecordIDs: [
-                "waiver-edit-proposal-application-1",
-                "waiver-edit-proposal-verification-1",
-            ],
-            message: "waiver-edit-proposal-verification-1"
-        )
-        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
-        let keys = keyValueOutput(output)
-
-        #expect(keys["waiver_edit"] == "applied")
-        #expect(keys["waiver_edit_verification"] == "")
-        #expect(keys["run_id"] == "run-1")
-        #expect(keys["project_root"] == "/tmp/flow-output")
-        #expect(keys["ready_for_pex"] == "true")
-        #expect(keys["verification_report"] == "/tmp/flow-output/.xcircuite/runs/run-1/reports/physical-verification.json")
-        #expect(keys["actions"] == "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl")
-        #expect(keys["application_action_id"] == "waiver-edit-proposal-application-1")
-        #expect(keys["verification_action_id"] == "waiver-edit-proposal-verification-1")
-        #expect(keys["action_id"] == "waiver-edit-proposal-verification-1")
-    }
-
-    @Test("apply-waiver-edit-and-verify leaves verification_action_id empty when the ledger did not record one", .timeLimit(.minutes(1)))
-    func applyWaiverEditAndVerifyOutputDoesNotInventVerificationActionID() {
-        let result = DesignFlowCommandResult(
-            kind: .applyWaiverEditProposalAndRunPostVerification,
-            runID: "run-1",
-            projectRootPath: "/tmp/flow-output",
-            readyForPEX: false,
-            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            verificationReportPath: "/tmp/flow-output/.xcircuite/runs/run-1/reports/physical-verification.json",
-            actionRecordIDs: [
-                "waiver-edit-proposal-application-1",
-            ],
-            message: "waiver-edit-proposal-verification-1"
-        )
-        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
-        let keys = keyValueOutput(output)
-
-        #expect(keys["application_action_id"] == "waiver-edit-proposal-application-1")
-        #expect(keys["verification_action_id"] == "")
-        #expect(keys["action_id"] == "waiver-edit-proposal-application-1")
-    }
-
-    @Test("apply-waiver-edit output prefers recorded action IDs over message fallback", .timeLimit(.minutes(1)))
-    func applyWaiverEditOutputPrefersRecordedActionID() {
-        let result = DesignFlowCommandResult(
-            kind: .applyWaiverEditProposal,
-            runID: "run-1",
-            projectRootPath: "/tmp/flow-output",
-            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            actionRecordIDs: ["waiver-edit-proposal-application-1"]
-        )
-        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
-        let keys = keyValueOutput(output)
-
-        #expect(keys["action_id"] == "waiver-edit-proposal-application-1")
-    }
-
-    @Test("post-waiver-edit verification output prefers recorded action IDs over message fallback", .timeLimit(.minutes(1)))
-    func postWaiverEditVerificationOutputPrefersRecordedActionID() {
-        let result = DesignFlowCommandResult(
-            kind: .runPostWaiverEditVerification,
-            runID: "run-1",
-            projectRootPath: "/tmp/flow-output",
-            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            actionRecordIDs: ["waiver-edit-proposal-verification-1"]
-        )
-        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
-        let keys = keyValueOutput(output)
-
-        #expect(keys["action_id"] == "waiver-edit-proposal-verification-1")
-    }
-
-    @Test("planning output prefers recorded action IDs over message fallback", .timeLimit(.minutes(1)))
-    func planningOutputPrefersRecordedActionID() {
-        let result = DesignFlowCommandResult(
-            kind: .formulateSignoffRepairPlanningProblem,
-            runID: "run-1",
-            projectRootPath: "/tmp/flow-output",
-            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            actionRecordIDs: ["signoff-repair-planning-1"]
-        )
-        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
-        let keys = keyValueOutput(output)
-
-        #expect(keys["action_id"] == "signoff-repair-planning-1")
-    }
-
-    @Test("candidate-cycle output does not invent cycle_action_id when the cycle result is absent", .timeLimit(.minutes(1)))
-    func candidateCycleOutputDoesNotInventCycleActionID() {
-        let result = DesignFlowCommandResult(
-            kind: .runSignoffRepairCandidateCycle,
-            runID: "run-1",
-            projectRootPath: "/tmp/flow-output",
-            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            message: "signoff-repair-candidate-cycle-1"
-        )
-        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
-        let keys = keyValueOutput(output)
-
-        #expect(keys["cycle_action_id"] == "")
-        #expect(keys["action_id"] == nil || keys["action_id"] == "")
-    }
-
-    @Test("candidate-cycle output falls back to recorded action IDs when the cycle result is absent", .timeLimit(.minutes(1)))
-    func candidateCycleOutputFallsBackToRecordedActionIDs() {
-        let result = DesignFlowCommandResult(
-            kind: .runSignoffRepairCandidateCycle,
-            runID: "run-1",
-            projectRootPath: "/tmp/flow-output",
-            actionLogPath: "/tmp/flow-output/.xcircuite/runs/run-1/actions.jsonl",
-            actionRecordIDs: [
-                "signoff-repair-planning-1",
-                "candidate-plan-1-execution",
-                "candidate-plan-1-verification",
-                "signoff-repair-candidate-cycle-1",
-            ]
-        )
-        let output = FlowRunnerKeyValueFormatter.lines(for: result).joined(separator: "\n")
-        let keys = keyValueOutput(output)
-
-        #expect(keys["planning_action_id"] == "signoff-repair-planning-1")
-        #expect(keys["cycle_action_id"] == "signoff-repair-candidate-cycle-1")
-    }
-
     @Test("post-waiver-edit verification arguments construct the verification command", .timeLimit(.minutes(1)))
     func postWaiverEditVerificationArgumentsConstructCommand() throws {
         let options = try FlowRunnerCommandOptions(arguments: [
@@ -1485,6 +906,18 @@ struct FlowRunnerCLITests {
     func conflictingRunnerModesAreRejected() {
         #expect(throws: FlowRunnerCommandOptions.ParseError.conflictingModes) {
             _ = try FlowRunnerCommandOptions(arguments: ["--run-layout-trust", "--run-verification"])
+        }
+    }
+
+    @Test("removed file-backed planning modes are rejected", .timeLimit(.minutes(1)))
+    func removedFileBackedPlanningModesAreRejected() {
+        for option in [
+            "--formulate-signoff-repair-planning",
+            "--run-signoff-repair-candidate-cycle",
+        ] {
+            #expect(throws: FlowRunnerCommandOptions.ParseError.invalidArgument(option)) {
+                _ = try FlowRunnerCommandOptions(arguments: [option])
+            }
         }
     }
 
@@ -1546,26 +979,16 @@ struct FlowRunnerCLITests {
         try encoder.encode(layout).write(to: url, options: .atomic)
     }
 
-    private func artifactReference(
+    private func artifactBinding(
         artifactID: String,
         path: String,
         byteCount: UInt64 = 0
-    ) throws -> ArtifactReference {
-        let location = try ArtifactLocation(workspaceRelativePath: path)
-        let locator = ArtifactLocator(
-            location: location,
-            role: .output,
+    ) throws -> FlowArtifactBinding {
+        try RunReviewTestSupport.artifactBinding(
+            artifactID: artifactID,
+            path: path,
             kind: .other,
-            format: .json
-        )
-        let digest = try ContentDigest(
-            algorithm: .sha256,
-            hexadecimalValue: String(repeating: "0", count: 64)
-        )
-        return ArtifactReference(
-            id: try ArtifactID(rawValue: artifactID),
-            locator: locator,
-            digest: digest,
+            format: .json,
             byteCount: byteCount
         )
     }

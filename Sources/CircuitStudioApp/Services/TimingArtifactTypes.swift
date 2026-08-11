@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import DesignFlowKernel
 import Foundation
 
 public enum TimingArtifactStatus: String, Sendable, Hashable, Codable {
@@ -87,13 +88,13 @@ public struct TimingArtifactRecord: Sendable, Hashable, Codable {
     public let kind: TimingArtifactKind
 
     public init(
-        reference: ArtifactReference,
+        binding: FlowArtifactBinding,
         kind: TimingArtifactKind,
         createdAt: Date = Date(),
         sourcePath: String? = nil
-    ) {
-        publication = ArtifactPublicationRecord(
-            reference: reference,
+    ) throws {
+        publication = try ArtifactPublicationRecord(
+            binding: binding,
             createdAt: createdAt,
             sourcePath: sourcePath
         )
@@ -101,16 +102,18 @@ public struct TimingArtifactRecord: Sendable, Hashable, Codable {
     }
 
     public init(
-        id: ArtifactID,
-        locator: ArtifactLocator,
+        logicalID: String,
+        descriptor: ArtifactDescriptor,
+        relativePath: ArtifactRelativePath,
         kind: TimingArtifactKind,
         status: TimingArtifactStatus,
         createdAt: Date = Date(),
         sourcePath: String? = nil
     ) throws {
         publication = try ArtifactPublicationRecord(
-            id: id,
-            locator: locator,
+            logicalID: logicalID,
+            descriptor: descriptor,
+            relativePath: relativePath,
             status: ArtifactPublicationStatus(timingStatus: status),
             createdAt: createdAt,
             sourcePath: sourcePath
@@ -126,10 +129,10 @@ public struct TimingArtifactRecord: Sendable, Hashable, Codable {
     public var id: String { publication.id }
     public var path: String { publication.path }
     public var status: TimingArtifactStatus { TimingArtifactStatus(publicationStatus: publication.status) }
+    public var binding: FlowArtifactBinding? { publication.binding }
     public var reference: ArtifactReference? { publication.reference }
-    public var locator: ArtifactLocator { publication.locator }
     public var sha256: String? { reference?.digest.hexadecimalValue }
-    public var byteCount: Int64? { reference.map { Int64($0.byteCount) } }
+    public var byteCount: UInt64? { reference?.byteCount }
     public var createdAt: Date { publication.createdAt }
 }
 

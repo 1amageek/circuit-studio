@@ -93,11 +93,11 @@ extension DesignFlowService {
     }
 
     func absolutePath(
-        for reference: ArtifactReference,
+        for binding: FlowArtifactBinding,
         projectRoot: URL
     ) throws -> String {
         try XcircuiteWorkspaceLayout(projectRoot: projectRoot)
-            .url(forProjectRelativePath: reference.path)
+            .url(forProjectRelativePath: binding.requireLocalRelativePath().stringValue)
             .path(percentEncoded: false)
     }
 

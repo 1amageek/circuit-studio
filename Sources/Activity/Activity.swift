@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import DesignFlowKernel
 import Foundation
 
 public struct Activity: Sendable, Hashable, Codable, Identifiable {
@@ -35,6 +36,7 @@ public struct Activity: Sendable, Hashable, Codable, Identifiable {
 
     public struct Artifact: Sendable, Hashable, Codable {
         public let reference: CircuiteFoundation.ArtifactReference
+        public let binding: FlowArtifactBinding?
         public let direction: ArtifactDirection
 
         public init(
@@ -42,7 +44,48 @@ public struct Activity: Sendable, Hashable, Codable, Identifiable {
             direction: ArtifactDirection
         ) {
             self.reference = reference
+            self.binding = nil
             self.direction = direction
+        }
+
+        public init(
+            binding: FlowArtifactBinding,
+            direction: ArtifactDirection
+        ) {
+            self.reference = binding.reference
+            self.binding = binding
+            self.direction = direction
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case reference
+            case binding
+            case direction
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let reference = try container.decode(
+                CircuiteFoundation.ArtifactReference.self,
+                forKey: .reference
+            )
+            let binding = try container.decodeIfPresent(
+                FlowArtifactBinding.self,
+                forKey: .binding
+            )
+            guard binding?.reference == reference || binding == nil else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .binding,
+                    in: container,
+                    debugDescription: "Activity artifact binding does not match its content reference."
+                )
+            }
+            self.reference = reference
+            self.binding = binding
+            self.direction = try container.decode(
+                ArtifactDirection.self,
+                forKey: .direction
+            )
         }
     }
 

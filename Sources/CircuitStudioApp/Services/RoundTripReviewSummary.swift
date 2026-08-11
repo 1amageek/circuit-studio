@@ -166,9 +166,9 @@ public struct RoundTripReviewArtifactSummary: Sendable, Hashable, Codable {
     public let exists: Bool
     public let isCapturedCopy: Bool
     public let manifestSHA256: String?
-    public let manifestByteCount: Int64?
+    public let manifestByteCount: UInt64?
     public let actualSHA256: String?
-    public let actualByteCount: Int64?
+    public let actualByteCount: UInt64?
     public let integrityStatus: RoundTripArtifactIntegrityStatus
 
     public init(
@@ -178,9 +178,9 @@ public struct RoundTripReviewArtifactSummary: Sendable, Hashable, Codable {
         exists: Bool,
         isCapturedCopy: Bool,
         manifestSHA256: String? = nil,
-        manifestByteCount: Int64? = nil,
+        manifestByteCount: UInt64? = nil,
         actualSHA256: String? = nil,
-        actualByteCount: Int64? = nil,
+        actualByteCount: UInt64? = nil,
         integrityStatus: RoundTripArtifactIntegrityStatus = .unresolved
     ) {
         self.kind = kind
@@ -229,9 +229,9 @@ extension RoundTripReviewArtifactSummary {
             exists: exists,
             isCapturedCopy: try container.decode(Bool.self, forKey: .isCapturedCopy),
             manifestSHA256: try container.decodeIfPresent(String.self, forKey: .manifestSHA256),
-            manifestByteCount: try container.decodeIfPresent(Int64.self, forKey: .manifestByteCount),
+            manifestByteCount: try container.decodeIfPresent(UInt64.self, forKey: .manifestByteCount),
             actualSHA256: try container.decodeIfPresent(String.self, forKey: .actualSHA256),
-            actualByteCount: try container.decodeIfPresent(Int64.self, forKey: .actualByteCount),
+            actualByteCount: try container.decodeIfPresent(UInt64.self, forKey: .actualByteCount),
             integrityStatus: try container.decodeIfPresent(
                 RoundTripArtifactIntegrityStatus.self,
                 forKey: .integrityStatus

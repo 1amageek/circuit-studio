@@ -1,4 +1,6 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
+import DesignFlowKernel
 import Foundation
 import ReleaseCore
 import ToolQualification
@@ -6,6 +8,7 @@ import ToolQualification
 struct ReleaseReviewXORFixture {
     let result: LayoutXORResult
     let retainedArtifacts: [ArtifactReference]
+    let retainedBindings: [FlowArtifactBinding]
     let artifactPayloads: [String: Data]
     let pdkDigest: String
 
@@ -43,6 +46,8 @@ struct ReleaseReviewXORFixture {
         )
 
         var payloads: [ArtifactID: Data] = [:]
+        var payloadsByLogicalID: [String: Data] = [:]
+        var bindingsByLogicalID: [String: FlowArtifactBinding] = [:]
         func artifact(
             id: String,
             name: String,
@@ -58,6 +63,13 @@ struct ReleaseReviewXORFixture {
                 producer: producer
             )
             payloads[reference.id] = payload
+            payloadsByLogicalID[id] = payload
+            bindingsByLogicalID[id] = try RunReviewTestSupport.artifactBinding(
+                reference: reference,
+                artifactID: id,
+                path: "\(prefix)/qualification/\(name)",
+                producer: producer
+            )
             return reference
         }
 
@@ -120,7 +132,9 @@ struct ReleaseReviewXORFixture {
         let oracleOutput = try artifact(
             id: "xor-oracle-output",
             name: "oracle-report.json",
-            payload: Data("{\"differenceCount\":0}".utf8),
+            payload: Data(
+                "{\"differenceCount\":0,\"producer\":\"independent-layout-xor\"}".utf8
+            ),
             kind: .report,
             producer: oracleProducer
         )
@@ -248,14 +262,30 @@ struct ReleaseReviewXORFixture {
             startedAt: evaluatedAt,
             completedAt: evaluatedAt
         )
+        guard let reportFlowBinding = bindingsByLogicalID["xor-report"] else {
+            throw ReleaseReviewQualificationArtifactReaderError.missingBinding("xor-report")
+        }
+        let reportBinding = try ReleaseArtifactBinding(
+            logicalID: reportFlowBinding.logicalID,
+            reference: reportFlowBinding.reference,
+            availability: reportFlowBinding.availability
+        )
+        let qualificationBindings = try bindingsByLogicalID.values.map {
+            try ReleaseArtifactBinding(
+                logicalID: $0.logicalID,
+                reference: $0.reference,
+                availability: $0.availability
+            )
+        }
         let result = LayoutXORResult(
             status: .passed,
             method: .geometricXOR,
             sourceDigest: input.digest.hexadecimalValue,
             streamedDigest: streamed.digest.hexadecimalValue,
             message: "Qualified geometric XOR found no differences.",
-            evidenceArtifact: report,
+            evidenceBinding: reportBinding,
             processQualification: qualification,
+            qualificationBindings: qualificationBindings,
             executionStatus: .completed,
             exitCode: 0,
             differenceCount: 0,
@@ -270,15 +300,19 @@ struct ReleaseReviewXORFixture {
                 + qualification.outputArtifacts
                 + [report, input, streamed]
         ))
-        let retainedPayloads = try Dictionary(uniqueKeysWithValues: retained.map { reference in
-            guard let payload = payloads[reference.id] else {
-                throw ReleaseReviewQualificationArtifactReaderError.missingPayload(reference.id)
+        let retainedBindings = bindingsByLogicalID.values.sorted {
+            $0.logicalID < $1.logicalID
+        }
+        let retainedPayloads = try Dictionary(uniqueKeysWithValues: retainedBindings.map { binding in
+            guard let payload = payloadsByLogicalID[binding.logicalID] else {
+                throw ReleaseReviewQualificationArtifactReaderError.missingPayload(binding.reference.id)
             }
-            return (reference.path, payload)
+            return (try binding.requireLocalRelativePath().stringValue, payload)
         })
         return Self(
             result: result,
             retainedArtifacts: retained,
+            retainedBindings: retainedBindings,
             artifactPayloads: retainedPayloads,
             pdkDigest: pdk.digest.hexadecimalValue
         )
@@ -288,6 +322,7 @@ struct ReleaseReviewXORFixture {
 private enum ReleaseReviewQualificationArtifactReaderError: Error {
     case missingPayload(ArtifactID)
     case digestMismatch(ArtifactID)
+    case missingBinding(String)
 }
 
 private struct ReleaseReviewQualificationArtifactReader: ToolQualificationArtifactReading {

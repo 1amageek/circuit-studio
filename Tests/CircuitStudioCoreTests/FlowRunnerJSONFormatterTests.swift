@@ -35,7 +35,7 @@ struct FlowRunnerJSONFormatterTests {
             ),
         ])
         let result = DesignFlowCommandResult(
-            kind: .runSignoffRepairCandidateCycle,
+            kind: .summarizeSignoffRepairCandidateCycles,
             runID: "run-1",
             signoffRepairCandidateCycleHistorySummary: summary
         )
@@ -44,7 +44,7 @@ struct FlowRunnerJSONFormatterTests {
         let decoded = try JSONDecoder().decode(DesignFlowCommandResult.self, from: data)
         let decodedSummary = try #require(decoded.signoffRepairCandidateCycleHistorySummary)
 
-        #expect(decoded.kind == .runSignoffRepairCandidateCycle)
+        #expect(decoded.kind == .summarizeSignoffRepairCandidateCycles)
         #expect(decoded.runID == "run-1")
         #expect(decodedSummary.cycleCount == 1)
         #expect(decodedSummary.acceptedCount == 1)

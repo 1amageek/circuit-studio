@@ -185,7 +185,7 @@ struct RealSignoffPEXEndToEndTests {
             ]
         )
         let profileData = try RunReviewTestSupport.encodedJSONData(profile)
-        let profileReference = try RunReviewTestSupport.artifactReference(
+        let profileBinding = try RunReviewTestSupport.artifactBinding(
             artifactID: "flow-toolchain-profile",
             path: profilePath,
             payload: profileData,
@@ -194,45 +194,45 @@ struct RealSignoffPEXEndToEndTests {
         )
 
         let stageArtifacts = try [
-            RunReviewTestSupport.artifactReference(
+            RunReviewTestSupport.artifactBinding(
                 artifactID: "drc-summary",
                 path: drcSummaryPath,
                 payload: drcSummaryData,
                 producer: signoffExecution.drc.provenance.producer
             ),
-            RunReviewTestSupport.artifactReference(
+            RunReviewTestSupport.artifactBinding(
                 artifactID: "drc-real-tool-log",
                 path: drcLogPath,
                 payload: drcLogData,
                 format: .text,
                 producer: signoffExecution.drc.provenance.producer
             ),
-            RunReviewTestSupport.artifactReference(
+            RunReviewTestSupport.artifactBinding(
                 artifactID: "lvs-summary",
                 path: lvsSummaryPath,
                 payload: lvsSummaryData,
                 producer: signoffExecution.lvs.provenance.producer
             ),
-            RunReviewTestSupport.artifactReference(
+            RunReviewTestSupport.artifactBinding(
                 artifactID: "lvs-real-tool-log",
                 path: lvsLogPath,
                 payload: lvsLogData,
                 format: .text,
                 producer: signoffExecution.lvs.provenance.producer
             ),
-            RunReviewTestSupport.artifactReference(
+            RunReviewTestSupport.artifactBinding(
                 artifactID: "pex-summary",
                 path: pexSummaryPath,
                 payload: pexSummaryData,
                 producer: pexResult.provenance.producer
             ),
-            RunReviewTestSupport.artifactReference(
+            RunReviewTestSupport.artifactBinding(
                 artifactID: "planning-simulation-summary",
                 path: simulationSummaryPath,
                 payload: simulationSummaryData,
                 producer: pexResult.provenance.producer
             ),
-            RunReviewTestSupport.artifactReference(
+            RunReviewTestSupport.artifactBinding(
                 artifactID: "ngspice-oracle-agreement",
                 path: oraclePath,
                 payload: oracleData,
@@ -297,7 +297,7 @@ struct RealSignoffPEXEndToEndTests {
             executors: executors,
             artifactPreparer: RunReviewArtifactPreparer(
                 workspaceStore: store,
-                artifacts: [profileReference],
+                artifacts: [profileBinding],
                 artifactPayloads: [profilePath: profileData],
                 designDiff: designDiff
             )

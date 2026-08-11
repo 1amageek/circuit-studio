@@ -10,10 +10,10 @@ extension RunReviewService {
     func designEvidenceSignature(bundle: FlowRunReviewBundle) -> String {
         bundle.artifacts
             .filter(isDesignEvidenceArtifact)
-            .sorted { $0.reference.locator.location.value < $1.reference.locator.location.value }
+            .sorted { $0.binding.circuitStudioPresentationPath < $1.binding.circuitStudioPresentationPath }
             .map { artifact in
                 [
-                    artifact.reference.locator.location.value,
+                    artifact.binding.circuitStudioPresentationPath,
                     artifact.reference.digest.hexadecimalValue,
                     String(artifact.reference.byteCount),
                     artifact.integrity?.status.rawValue ?? "missing-integrity",
@@ -29,32 +29,32 @@ extension RunReviewService {
     ) async -> RunReviewDesignEvidence {
         let signature = designEvidenceSignature(bundle: bundle)
         let netlistArtifacts = bundle.artifacts
-            .filter { $0.reference.locator.kind == .netlist && $0.reference.locator.format == .spice }
+            .filter { $0.binding.kind == .netlist && $0.binding.format == .spice }
             .sorted(by: designPhaseOrder)
         let designSpecArtifact = bundle.artifacts
             .filter(isDesignSpecArtifact)
-            .sorted { $0.reference.locator.location.value < $1.reference.locator.location.value }
+            .sorted { $0.binding.circuitStudioPresentationPath < $1.binding.circuitStudioPresentationPath }
             .first
         let layoutArtifact = bundle.artifacts
             .filter(isLayoutDocumentArtifact)
-            .sorted { $0.reference.locator.location.value < $1.reference.locator.location.value }
+            .sorted { $0.binding.circuitStudioPresentationPath < $1.binding.circuitStudioPresentationPath }
             .first
         let waveformArtifacts = bundle.artifacts
-            .filter { $0.reference.locator.kind == .waveform && $0.reference.locator.format == .csv }
+            .filter { $0.binding.kind == .waveform && $0.binding.format == .csv }
             .sorted(by: designPhaseOrder)
 
         var issues: [RunReviewDesignEvidence.Issue] = []
         var netlists: [RunReviewDesignEvidence.NetlistEvidence] = []
         for artifact in netlistArtifacts {
             do {
-                let data = try loadVerifiedArtifactData(
+                let data = try await loadVerifiedArtifactData(
                     artifact,
                     projectRoot: projectRoot,
                     maxBytes: Self.netlistReadLimit
                 )
                 guard let text = String(data: data, encoding: .utf8) else {
                     throw RunReviewServiceError.artifactPreviewUnreadable(
-                        path: artifact.reference.locator.location.value,
+                        path: artifact.binding.circuitStudioPresentationPath,
                         message: "SPICE artifact is not valid UTF-8."
                     )
                 }
@@ -75,7 +75,7 @@ extension RunReviewService {
             projectRoot: projectRoot
         )
         issues.append(contentsOf: schematicResult.issues)
-        let layout = loadLayoutEvidence(
+        let layout = await loadLayoutEvidence(
             artifact: layoutArtifact,
             projectRoot: projectRoot,
             issues: &issues
@@ -112,7 +112,7 @@ extension RunReviewService {
             do {
                 let imported = try await SPICESchematicImporter().importTopLevel(
                     source: netlist.text,
-                    fileName: URL(filePath: netlist.artifact.reference.locator.location.value).lastPathComponent,
+                    fileName: URL(filePath: netlist.artifact.binding.circuitStudioPresentationPath).lastPathComponent,
                     topCellName: runID
                 )
                 guard let cell = imported.cells.first(where: { $0.name == imported.activeCellName })
@@ -136,7 +136,7 @@ extension RunReviewService {
             return (nil, issues)
         }
         do {
-            let data = try loadVerifiedArtifactData(
+            let data = try await loadVerifiedArtifactData(
                 designSpecArtifact,
                 projectRoot: projectRoot,
                 maxBytes: Self.visualArtifactReadLimit
@@ -160,12 +160,12 @@ extension RunReviewService {
         artifact: FlowRunReviewArtifact?,
         projectRoot: URL,
         issues: inout [RunReviewDesignEvidence.Issue]
-    ) -> RunReviewDesignEvidence.LayoutEvidence? {
+    ) async -> RunReviewDesignEvidence.LayoutEvidence? {
         guard let artifact else {
             return nil
         }
         do {
-            let data = try loadVerifiedArtifactData(
+            let data = try await loadVerifiedArtifactData(
                 artifact,
                 projectRoot: projectRoot,
                 maxBytes: Self.visualArtifactReadLimit
@@ -207,7 +207,7 @@ extension RunReviewService {
                 )
                 guard let waveform = preview.waveformPreview else {
                     issues.append(RunReviewDesignEvidence.Issue(
-                        artifactPath: artifact.reference.locator.location.value,
+                        artifactPath: artifact.binding.circuitStudioPresentationPath,
                         message: preview.parseIssue ?? "Waveform artifact could not be projected."
                     ))
                     continue
@@ -225,16 +225,16 @@ extension RunReviewService {
     }
 
     private func isDesignEvidenceArtifact(_ artifact: FlowRunReviewArtifact) -> Bool {
-        artifact.reference.locator.kind == .netlist
-            || artifact.reference.locator.kind == .waveform
+        artifact.binding.kind == .netlist
+            || artifact.binding.kind == .waveform
             || isDesignSpecArtifact(artifact)
             || isLayoutDocumentArtifact(artifact)
     }
 
     private func isDesignSpecArtifact(_ artifact: FlowRunReviewArtifact) -> Bool {
-        guard artifact.reference.locator.format == .json else { return false }
-        let identifier = artifact.reference.id.rawValue.lowercased()
-        let path = artifact.reference.locator.location.value.lowercased()
+        guard artifact.binding.format == .json else { return false }
+        let identifier = artifact.binding.logicalID.lowercased()
+        let path = artifact.binding.circuitStudioPresentationPath.lowercased()
         return identifier == "design-spec"
             || identifier.hasPrefix("design-spec-")
             || path.hasSuffix("design-spec.json")
@@ -242,9 +242,9 @@ extension RunReviewService {
     }
 
     private func isLayoutDocumentArtifact(_ artifact: FlowRunReviewArtifact) -> Bool {
-        guard artifact.reference.locator.kind == .layout, artifact.reference.locator.format == .json else { return false }
-        let identifier = artifact.reference.id.rawValue.lowercased()
-        let path = artifact.reference.locator.location.value.lowercased()
+        guard artifact.binding.kind == .layout, artifact.binding.format == .json else { return false }
+        let identifier = artifact.binding.logicalID.lowercased()
+        let path = artifact.binding.circuitStudioPresentationPath.lowercased()
         return identifier == "layout-document"
             || identifier.hasPrefix("layout-document-")
             || path.hasSuffix("layout-document.json")
@@ -259,7 +259,7 @@ extension RunReviewService {
         if leftRank != rightRank {
             return leftRank < rightRank
         }
-        return left.reference.locator.location.value < right.reference.locator.location.value
+        return left.binding.circuitStudioPresentationPath < right.binding.circuitStudioPresentationPath
     }
 
     private func designPhaseRank(for artifact: FlowRunReviewArtifact) -> Int {
@@ -273,7 +273,7 @@ extension RunReviewService {
     private func designPhase(
         for artifact: FlowRunReviewArtifact
     ) -> RunReviewDesignEvidence.WaveformPhase {
-        let searchable = "\(artifact.reference.id.rawValue) \(artifact.purpose.rawValue) \(artifact.reference.locator.location.value)".lowercased()
+        let searchable = "\(artifact.binding.logicalID) \(artifact.purpose.rawValue) \(artifact.binding.circuitStudioPresentationPath)".lowercased()
         if searchable.contains("pre-layout") || searchable.contains("prelayout") {
             return .preLayout
         }
@@ -288,7 +288,7 @@ extension RunReviewService {
         error: Error
     ) -> RunReviewDesignEvidence.Issue {
         RunReviewDesignEvidence.Issue(
-            artifactPath: artifact.reference.locator.location.value,
+            artifactPath: artifact.binding.circuitStudioPresentationPath,
             message: error.localizedDescription
         )
     }

@@ -1,6 +1,7 @@
 import DesignFlowKernel
 import Foundation
 import CircuiteFoundation
+import Xcircuite
 
 extension RunReviewService {
     public func loadArtifactPreview(
@@ -19,15 +20,16 @@ extension RunReviewService {
                 runID: runID,
                 workspaceID: try await workspaceID(store: store)
             )
-        guard let artifact = bundle.artifacts.first(where: { $0.reference.locator.location.value == artifactPath }) else {
+        guard let artifact = bundle.artifacts.first(where: { $0.binding.circuitStudioPresentationPath == artifactPath }) else {
             throw RunReviewServiceError.artifactPreviewNotFound(
                 runID: runID,
                 artifactPath: artifactPath
             )
         }
-        return try makeArtifactPreview(
+        return try await makeArtifactPreview(
             artifact: artifact,
             projectRoot: projectRoot,
+            artifactReader: store,
             maxBytes: maxBytes
         )
     }
@@ -51,12 +53,13 @@ extension RunReviewService {
         guard let resolvedArtifact = bundle.artifacts.first(where: { isSameArtifact($0, as: artifact) }) else {
             throw RunReviewServiceError.artifactPreviewNotFound(
                 runID: runID,
-                artifactPath: artifact.reference.locator.location.value
+                artifactPath: artifact.binding.circuitStudioPresentationPath
             )
         }
-        return try makeArtifactPreview(
+        return try await makeArtifactPreview(
             artifact: resolvedArtifact,
             projectRoot: projectRoot,
+            artifactReader: store,
             maxBytes: maxBytes
         )
     }
@@ -64,30 +67,26 @@ extension RunReviewService {
     private func makeArtifactPreview(
         artifact: FlowRunReviewArtifact,
         projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         maxBytes: Int
-    ) throws -> RunReviewArtifactPreview {
+    ) async throws -> RunReviewArtifactPreview {
         let url = try verifiedArtifactURL(for: artifact, projectRoot: projectRoot)
         try validateArtifactIntegrity(artifact)
-        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
-            throw RunReviewServiceError.artifactPreviewInputMissing(path: artifact.reference.locator.location.value)
-        }
-        let result = try previewData(
-            at: url,
-            artifactPath: artifact.reference.locator.location.value,
-            maxBytes: maxBytes
-        )
-        let text = String(data: result.data, encoding: .utf8)
+        let verifiedData = try await artifactReader.loadArtifactContent(for: artifact.binding)
+        let truncated = verifiedData.count > maxBytes
+        let data = truncated ? Data(verifiedData.prefix(maxBytes)) : verifiedData
+        let text = String(data: data, encoding: .utf8)
         let structured = structuredPreview(
-            data: result.data,
+            data: data,
             artifact: artifact,
-            truncated: result.truncated
+            truncated: truncated
         )
         return RunReviewArtifactPreview(
             artifact: artifact,
             resolvedPath: url.path(percentEncoded: false),
             byteCount: artifact.reference.byteCount,
-            previewByteCount: result.data.count,
-            truncated: result.truncated,
+            previewByteCount: data.count,
+            truncated: truncated,
             isText: text != nil,
             text: text ?? "",
             lineCount: text.map(lineCount) ?? 0,
@@ -101,12 +100,12 @@ extension RunReviewService {
         _ candidate: FlowRunReviewArtifact,
         as artifact: FlowRunReviewArtifact
     ) -> Bool {
-        candidate.reference.locator.location.value == artifact.reference.locator.location.value
+        candidate.binding.circuitStudioPresentationPath == artifact.binding.circuitStudioPresentationPath
             && candidate.purpose == artifact.purpose
             && candidate.reference.id == artifact.reference.id
             && candidate.stageID == artifact.stageID
-            && candidate.reference.locator.kind == artifact.reference.locator.kind
-            && candidate.reference.locator.format == artifact.reference.locator.format
+            && candidate.binding.kind == artifact.binding.kind
+            && candidate.binding.format == artifact.binding.format
     }
 
     func validateArtifactIntegrity(
@@ -114,14 +113,14 @@ extension RunReviewService {
     ) throws {
         guard let integrity = artifact.integrity else {
             throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 status: "missing",
                 message: "No recorded artifact integrity state is available."
             )
         }
         guard integrity.status == .verified else {
             throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 status: integrity.status.rawValue,
                 message: integrity.message
             )
@@ -135,10 +134,12 @@ extension RunReviewService {
         let rootPath = (projectRoot.path(percentEncoded: false) as NSString).standardizingPath
         let artifactURL: URL
         do {
-            artifactURL = try artifact.reference.locator.location.resolvedFileURL(relativeTo: projectRoot)
+            artifactURL = projectRoot.appending(
+                path: try artifact.binding.requireLocalRelativePath().stringValue
+            )
         } catch {
             throw RunReviewServiceError.artifactPreviewEscapesProject(
-                path: artifact.reference.locator.location.value
+                path: artifact.binding.circuitStudioPresentationPath
             )
         }
         let canonicalRootPath = URL(filePath: rootPath)
@@ -150,7 +151,7 @@ extension RunReviewService {
             .standardizedFileURL
             .path(percentEncoded: false)
         guard isContained(path: canonicalArtifactPath, byRootPath: canonicalRootPath) else {
-            throw RunReviewServiceError.artifactPreviewEscapesProject(path: artifact.reference.locator.location.value)
+            throw RunReviewServiceError.artifactPreviewEscapesProject(path: artifact.binding.circuitStudioPresentationPath)
         }
         return URL(filePath: canonicalArtifactPath)
     }
@@ -159,59 +160,37 @@ extension RunReviewService {
         _ artifact: FlowRunReviewArtifact,
         projectRoot: URL,
         maxBytes: Int
-    ) throws -> Data {
+    ) async throws -> Data {
         guard maxBytes > 0 else {
             throw RunReviewServiceError.artifactPreviewInvalidLimit(limit: maxBytes)
         }
         try validateArtifactIntegrity(artifact)
-        let url = try verifiedArtifactURL(for: artifact, projectRoot: projectRoot)
-        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
-            throw RunReviewServiceError.artifactPreviewInputMissing(path: artifact.reference.locator.location.value)
-        }
-        let attributes: [FileAttributeKey: Any]
-        do {
-            attributes = try FileManager.default.attributesOfItem(
-                atPath: url.path(percentEncoded: false)
-            )
-        } catch {
-            throw RunReviewServiceError.artifactPreviewUnreadable(
-                path: artifact.reference.locator.location.value,
-                message: error.localizedDescription
-            )
-        }
-        let byteCount = (attributes[.size] as? NSNumber)?.uint64Value ?? artifact.reference.byteCount
+        _ = try verifiedArtifactURL(for: artifact, projectRoot: projectRoot)
+        let byteCount = artifact.reference.byteCount
         guard byteCount <= UInt64(maxBytes) else {
             throw RunReviewServiceError.artifactPreviewTooLarge(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 byteCount: byteCount,
                 limit: maxBytes
             )
         }
         do {
-            let data = try Data(contentsOf: url, options: [.mappedIfSafe])
-            let expectedByteCount = artifact.reference.byteCount
-            if UInt64(data.count) != expectedByteCount {
-                throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
-                    path: artifact.reference.locator.location.value,
-                    status: FlowRunReviewArtifactIntegrityStatus.byteCountMismatch.rawValue,
-                    message: "Recorded byte count \(expectedByteCount) does not match \(data.count)."
-                )
-            }
-            let expectedSHA256 = artifact.reference.digest.hexadecimalValue
-            let actualSHA256 = try SHA256ContentDigester().digest(data: data).hexadecimalValue
-            guard actualSHA256 == expectedSHA256 else {
-                throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
-                    path: artifact.reference.locator.location.value,
-                    status: FlowRunReviewArtifactIntegrityStatus.sha256Mismatch.rawValue,
-                    message: "Recorded SHA-256 does not match the current artifact."
-                )
-            }
-            return data
+            return try await workspaceStore(projectRoot: projectRoot)
+                .loadArtifactContent(for: artifact.binding)
+        } catch XcircuiteWorkspaceStoreError.artifactIntegrityFailed(_, let issues) {
+            let message = issues.contains { $0.code == .digestMismatch }
+                ? "Recorded SHA-256 does not match the current artifact."
+                : issues.map(\.code.rawValue).joined(separator: ", ")
+            throw RunReviewServiceError.artifactPreviewIntegrityUnverified(
+                path: artifact.binding.circuitStudioPresentationPath,
+                status: issues.first?.code.rawValue ?? "integrity-failure",
+                message: message
+            )
         } catch let error as RunReviewServiceError {
             throw error
         } catch {
             throw RunReviewServiceError.artifactPreviewUnreadable(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 message: error.localizedDescription
             )
         }
@@ -221,62 +200,16 @@ extension RunReviewService {
         path == rootPath || path.hasPrefix(rootPath + "/")
     }
 
-    private func previewData(
-        at url: URL,
-        artifactPath: String,
-        maxBytes: Int
-    ) throws -> (data: Data, truncated: Bool) {
-        let readLimit = maxBytes + 1
-        let handle: FileHandle
-        do {
-            handle = try FileHandle(forReadingFrom: url)
-        } catch {
-            throw RunReviewServiceError.artifactPreviewUnreadable(
-                path: artifactPath,
-                message: error.localizedDescription
-            )
-        }
-
-        let readResult: Result<Data, Error>
-        do {
-            readResult = .success(try handle.read(upToCount: readLimit) ?? Data())
-        } catch {
-            readResult = .failure(error)
-        }
-
-        do {
-            try handle.close()
-        } catch {
-            throw RunReviewServiceError.artifactPreviewUnreadable(
-                path: artifactPath,
-                message: error.localizedDescription
-            )
-        }
-
-        switch readResult {
-        case .success(let data):
-            if data.count > maxBytes {
-                return (Data(data.prefix(maxBytes)), true)
-            }
-            return (data, false)
-        case .failure(let error):
-            throw RunReviewServiceError.artifactPreviewUnreadable(
-                path: artifactPath,
-                message: error.localizedDescription
-            )
-        }
-    }
-
     private func structuredPreview(
         data: Data,
         artifact: FlowRunReviewArtifact,
         truncated: Bool
     ) -> (preview: String?, issue: String?, waveform: RunReviewWaveformPreview?) {
-        if artifact.reference.locator.format == .json {
+        if artifact.binding.format == .json {
             let preview = jsonStructuredPreview(data: data, truncated: truncated)
             return (preview.preview, preview.issue, nil)
         }
-        if artifact.reference.locator.format == .csv || artifact.reference.locator.kind == .waveform {
+        if artifact.binding.format == .csv || artifact.binding.kind == .waveform {
             return csvStructuredPreview(
                 data: data,
                 artifact: artifact,
@@ -325,7 +258,7 @@ extension RunReviewService {
             return (
                 "CSV rows=\(dataRows.count) columns=\(header.count) [\(visibleColumns)\(suffix)]",
                 nil,
-                artifact.reference.locator.kind == .waveform
+                artifact.binding.kind == .waveform
                     ? waveformPreview(header: header, dataRows: Array(dataRows))
                     : nil
             )

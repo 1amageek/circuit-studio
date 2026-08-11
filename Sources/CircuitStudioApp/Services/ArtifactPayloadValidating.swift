@@ -18,5 +18,5 @@ public protocol ArtifactIntegrityChecking: Sendable {
     func verifiedData(
         for record: any ArtifactIntegrityRecord,
         in runDirectory: URL
-    ) throws -> Data
+    ) async throws -> Data
 }

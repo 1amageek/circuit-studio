@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import DesignFlowKernel
 import Foundation
 
 public enum ArtifactPublicationStatus: String, Sendable, Hashable, Codable {
@@ -8,13 +9,19 @@ public enum ArtifactPublicationStatus: String, Sendable, Hashable, Codable {
 }
 
 public enum ArtifactPublicationRecordValidationError: Error, LocalizedError, Equatable {
+    case invalidLogicalID(String)
     case unavailableStatusRequired
+    case localAvailabilityRequired(String)
     case payloadStatusMismatch
 
     public var errorDescription: String? {
         switch self {
+        case .invalidLogicalID(let logicalID):
+            return "Artifact logical ID is invalid: \(logicalID)"
         case .unavailableStatusRequired:
             return "An unavailable artifact declaration must be omitted or missing."
+        case .localAvailabilityRequired(let logicalID):
+            return "Artifact publication requires local availability: \(logicalID)"
         case .payloadStatusMismatch:
             return "Artifact publication payload does not match its status."
         }
@@ -23,8 +30,12 @@ public enum ArtifactPublicationRecordValidationError: Error, LocalizedError, Equ
 
 public struct ArtifactPublicationRecord: Sendable, Hashable, Codable {
     public enum Payload: Sendable, Hashable, Codable {
-        case available(ArtifactReference)
-        case unavailable(id: ArtifactID, locator: ArtifactLocator)
+        case available(FlowArtifactBinding)
+        case unavailable(
+            logicalID: String,
+            descriptor: ArtifactDescriptor,
+            relativePath: ArtifactRelativePath
+        )
     }
 
     public let payload: Payload
@@ -33,28 +44,41 @@ public struct ArtifactPublicationRecord: Sendable, Hashable, Codable {
     public let sourcePath: String?
 
     public init(
-        reference: ArtifactReference,
+        binding: FlowArtifactBinding,
         createdAt: Date = Date(),
         sourcePath: String? = nil
-    ) {
-        payload = .available(reference)
+    ) throws {
+        guard case .local = binding.availability else {
+            throw ArtifactPublicationRecordValidationError.localAvailabilityRequired(binding.logicalID)
+        }
+        payload = .available(binding)
         status = .available
         self.createdAt = createdAt
         self.sourcePath = sourcePath
     }
 
     public init(
-        id: ArtifactID,
-        locator: ArtifactLocator,
+        logicalID: String,
+        descriptor: ArtifactDescriptor,
+        relativePath: ArtifactRelativePath,
         status: ArtifactPublicationStatus,
         createdAt: Date = Date(),
         sourcePath: String? = nil
     ) throws {
+        do {
+            try FlowIdentifierValidator().validate(logicalID, kind: .artifactID)
+        } catch {
+            throw ArtifactPublicationRecordValidationError.invalidLogicalID(logicalID)
+        }
         switch status {
         case .available:
             throw ArtifactPublicationRecordValidationError.unavailableStatusRequired
         case .omitted, .missing:
-            payload = .unavailable(id: id, locator: locator)
+            payload = .unavailable(
+                logicalID: logicalID,
+                descriptor: descriptor,
+                relativePath: relativePath
+            )
         }
         self.status = status
         self.createdAt = createdAt
@@ -62,32 +86,48 @@ public struct ArtifactPublicationRecord: Sendable, Hashable, Codable {
     }
 
     public var reference: ArtifactReference? {
-        guard case .available(let reference) = payload else { return nil }
-        return reference
+        binding?.reference
+    }
+
+    public var binding: FlowArtifactBinding? {
+        guard case .available(let binding) = payload else { return nil }
+        return binding
     }
 
     public var id: String {
         switch payload {
-        case .available(let reference):
-            return reference.id.rawValue
-        case .unavailable(let id, _):
-            return id.rawValue
+        case .available(let binding):
+            return binding.logicalID
+        case .unavailable(let logicalID, _, _):
+            return logicalID
         }
     }
 
-    public var locator: ArtifactLocator {
+    public var descriptor: ArtifactDescriptor {
         switch payload {
-        case .available(let reference):
-            return reference.locator
-        case .unavailable(_, let locator):
-            return locator
+        case .available(let binding):
+            return binding.descriptor
+        case .unavailable(_, let descriptor, _):
+            return descriptor
         }
     }
 
-    public var kind: String { locator.kind.rawValue }
-    public var path: String { locator.path }
+    public var relativePath: ArtifactRelativePath {
+        switch payload {
+        case .available(let binding):
+            guard case .local(_, _, let relativePath) = binding.availability else {
+                preconditionFailure("ArtifactPublicationRecord validated local availability at initialization.")
+            }
+            return relativePath
+        case .unavailable(_, _, let relativePath):
+            return relativePath
+        }
+    }
+
+    public var kind: String { descriptor.kind.rawValue }
+    public var path: String { relativePath.stringValue }
     public var sha256: String? { reference?.digest.hexadecimalValue }
-    public var byteCount: Int64? { reference.map { Int64($0.byteCount) } }
+    public var byteCount: UInt64? { reference?.byteCount }
 
     private enum CodingKeys: String, CodingKey {
         case payload
@@ -133,8 +173,17 @@ public struct ArtifactPublicationRecord: Sendable, Hashable, Codable {
 
     private static func matches(payload: Payload, status: ArtifactPublicationStatus) -> Bool {
         switch (payload, status) {
-        case (.available, .available), (.unavailable, .omitted), (.unavailable, .missing):
+        case (.available(let binding), .available):
+            guard case .local = binding.availability else { return false }
             return true
+        case (.unavailable(let logicalID, _, _), .omitted),
+             (.unavailable(let logicalID, _, _), .missing):
+            do {
+                try FlowIdentifierValidator().validate(logicalID, kind: .artifactID)
+                return true
+            } catch {
+                return false
+            }
         default:
             return false
         }

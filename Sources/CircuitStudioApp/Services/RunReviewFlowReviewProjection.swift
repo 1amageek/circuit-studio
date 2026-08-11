@@ -137,7 +137,7 @@ public struct RunReviewFlowReviewProjection: Sendable, Hashable {
         return artifacts
             .filter { $0.integrity?.status != .verified }
             .filter { artifact in
-                let key = "\(artifact.purpose.rawValue)\u{0}\(artifact.reference.locator.location.value)"
+                let key = "\(artifact.purpose.rawValue)\u{0}\(artifact.binding.availabilityDescription)"
                 guard !seen.contains(key) else {
                     return false
                 }
@@ -189,7 +189,7 @@ public struct RunReviewFlowReviewProjection: Sendable, Hashable {
         if left.purpose != right.purpose {
             return left.purpose.rawValue < right.purpose.rawValue
         }
-        return left.reference.locator.location.value < right.reference.locator.location.value
+        return left.binding.availabilityDescription < right.binding.availabilityDescription
     }
 
     private static func itemSort(

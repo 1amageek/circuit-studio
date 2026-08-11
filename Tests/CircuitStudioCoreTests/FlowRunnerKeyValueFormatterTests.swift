@@ -46,12 +46,12 @@ struct FlowRunnerKeyValueFormatterTests {
     @Test("Round-trip review output exposes toolchain trust and artifact integrity")
     func reviewOutputExposesToolchainTrust() throws {
         let path = ".xcircuite/runs/run-1/toolchain.json"
-        let reference = try RunReviewTestSupport.artifactReference(
+        let binding = try RunReviewTestSupport.artifactBinding(
             artifactID: "toolchain-manifest",
             path: path
         )
         let artifact = FlowRunReviewArtifact(
-            reference: reference,
+            binding: binding,
             purpose: .toolchain,
             integrity: FlowRunReviewArtifactIntegrity(
                 status: .verified,

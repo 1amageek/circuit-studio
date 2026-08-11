@@ -145,87 +145,38 @@ Current output keys related to these gates:
 | `external_signoff` | Signoff source. |
 | `signoff_approved` | Whether imported signoff evidence was explicitly approved. |
 
-## Signoff Repair Planning
+## Signoff Repair Review
 
-The signoff repair path is a typed planning contract. The CLI does not ask an
-Agent to run arbitrary shell commands; it dispatches through `DesignFlowCommand`
-and writes the same run ledger used by the cockpit.
+Planning and mutation are Xcircuite responsibilities. circuit-studio reads the
+same retained planning, candidate, verification, approval, and history artifacts
+for human review; it does not translate diagnostics or create candidate actions.
 
 ```mermaid
 flowchart LR
-  Hints["DRC/LVS repair hints"] --> Formulate["--formulate-signoff-repair-planning"]
-  Formulate --> Problem["planning/problem.json"]
-  Problem --> Cycle["--run-signoff-repair-candidate-cycle"]
-  Cycle --> Plan["candidate-plan.json"]
-  Cycle --> Execute["plan-execution.json"]
-  Cycle --> Verify["plan-verification.json"]
+  Hints["typed diagnostic artifacts"] --> Translate["Xcircuite generate-planning-problem"]
+  Translate --> Problem["planning/problem.json"]
+  Problem --> Registry["Xcircuite operation registry"]
+  Registry --> Plan["generate-candidate-plan"]
+  Plan --> Execute["execute-candidate-plan"]
+  Execute --> Verify["verify-candidate-plan"]
   Verify --> Ledger["actions.jsonl"]
   Ledger --> History["--summarize-signoff-repair-cycles"]
   History --> Assess["--assess-signoff-repair-cycles"]
 ```
 
-`--formulate-signoff-repair-planning --output <project-root> --run-id <run-id>
---approval-reviewer <reviewer>` compiles repair hint reports into
-`planning/action-domain-snapshot.json`, `planning/repair-formulation.json`, and
-`planning/problem.json`.
+The external Agent uses Xcircuite's translator-registry-backed
+`generate-planning-problem`, followed by the registered, database-bound
+`generate-candidate-plan`, `execute-candidate-plan`, and
+`verify-candidate-plan` surfaces. Execution requires an exact candidate binding,
+one target database and base revision, a registered handler version, an injected
+database host, and typed verification requirements. Circuit-studio remains the
+human review and approval projection and does not synthesize a workspace-file
+candidate or bypass Xcircuite's operation registry.
 
-Current output keys:
-
-| Key | Value |
-|---|---|
-| `signoff_repair_planning` | Planning formulation status. |
-| `action_domain` | Persisted action-domain snapshot path. |
-| `repair_formulation` | Persisted repair formulation path. |
-| `planning_problem` | Persisted planning problem path. |
-| `source_report_count` | Count of source repair-hint reports used. |
-
-`--run-signoff-repair-candidate-cycle --output <project-root> --run-id <run-id>
---approval-reviewer <reviewer>` formulates the planning problem, generates one
-candidate plan, executes it through Xcircuite, verifies it, and appends a
-summary action record. `--candidate-strategy <strategy>` and
-`--candidate-verification-mode <mode>` select the generation and verification
-policies.
-
-Current output keys:
-
-| Key | Value |
-|---|---|
-| `signoff_repair_candidate_cycle` | Candidate verification status. |
-| `cycle_action_id` | Summary run action ID written by circuit-studio. |
-| `planning_action_id` | Planning-formulation run action ID. |
-| `cycle_index` | One-based candidate-cycle index within the run ledger. |
-| `feedback_rejected_plans` | Rejected-plan feedback path consumed during candidate generation, when present. |
-| `rejected_feedback_count` | Count of rejected-plan records consumed by candidate generation. |
-| `global_rejected_feedback_count` | Count of global rejected feedback items consumed by candidate generation. |
-| `selected_actions` | Comma-separated planner action IDs selected in the symbolic trace. |
-| `selected_action_domains` | Comma-separated action-domain IDs for selected symbolic planner actions. |
-| `feedback_penalized_actions` | Comma-separated candidate action IDs that received negative feedback score components. |
-| `feedback_penalty_terms` | Comma-separated `<actionID>:<termID>` feedback penalty terms applied during ranking. |
-| `feedback_rank_changes` | Comma-separated `<actionID>:<rankBeforeRejectedFeedback>-><rank>` changes that prove rejected feedback changed ranking. |
-| `feedback_score_deltas` | Comma-separated `<actionID>:<rejectedFeedbackScoreDelta>` values for actions directly scored by rejected feedback. |
-| `cycle_history_count` | Count of candidate cycles projected from the shared run ledger after this command. |
-| `cycle_history_accepted_count` | Count of accepted candidate cycles in the projected history. |
-| `cycle_history_not_accepted_count` | Count of non-accepted candidate cycles in the projected history. |
-| `cycle_history_latest_index` | Latest candidate-cycle index in the projected history. |
-| `cycle_history_latest_accepted` | Whether the latest candidate cycle was accepted. |
-| `cycle_history_consumed_rejected_feedback_count` | Total rejected-plan feedback records consumed across projected candidate cycles. |
-| `cycle_history_max_global_rejected_feedback_count` | Maximum global rejected-feedback count observed across projected candidate cycles. |
-| `cycle_history_selected_actions` | Unique selected action IDs across projected candidate cycles. |
-| `cycle_history_selected_action_domains` | Unique selected action-domain IDs across projected candidate cycles. |
-| `cycle_history_selected_objective_domains` | Unique selected objective-domain IDs across projected candidate cycles, such as DRC/LVS/PEX/simulation. |
-| `cycle_history_feedback_penalized_actions` | Unique feedback-penalized action IDs across projected candidate cycles. |
-| `cycle_history_feedback_rank_change_count` | Count of rejected-feedback rank changes across projected candidate cycles. |
-| `cycle_history_feedback_rank_changed_actions` | Unique action IDs whose rank changed because of rejected feedback. |
-| `cycle_history_feedback_score_delta_count` | Count of rejected-feedback score deltas across projected candidate cycles. |
-| `cycle_history_feedback_score_delta_actions` | Unique action IDs whose score changed because of rejected feedback. |
-| `cycle_history_objective_domain` | One line per selected objective-domain with cycle count, accepted count, acceptance rate, feedback impact counts, selected actions, and action domains. |
-| `candidate_plan` | Persisted candidate plan path. |
-| `plan_execution` | Persisted execution artifact path. |
-| `design_diff` | Persisted design diff path when produced. |
-| `plan_verification` | Persisted verification artifact path. |
-| `rejected_plans` | Persisted rejected-plan feedback path when produced. |
-| `cycle_history_summary` | Persisted candidate-cycle history summary JSON path. |
-| `accepted` | Whether verification accepted the candidate. |
+The review projection continues to recognize retained
+`review.runSignoffRepairCandidateCycle` history records created by earlier or
+external DB-bound runs. That compatibility is read-only and does not restore the
+removed file-backed mutation command.
 
 `--summarize-signoff-repair-cycles --output <project-root>` reads persisted
 `.xcircuite/runs/*/planning/candidate-cycle-history/history-<cycle>.json` artifacts and

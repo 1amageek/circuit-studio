@@ -39,21 +39,17 @@ struct ActivityStoreTests {
     @Test("Store round-trips the canonical artifact reference unchanged")
     func storesCanonicalArtifactReference() async throws {
         let store = SQLiteActivityStore(location: .inMemory)
-        let reference = ArtifactReference(
-            id: try ArtifactID(rawValue: "canonical-report"),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(
-                    workspaceRelativePath: ".xcircuite/runs/run-canonical/report.json"
-                ),
-                role: .output,
-                kind: .report,
-                format: .json
-            ),
-            digest: try ContentDigest(
+        let reference = try ArtifactReference(
+            digest: ContentDigest(
                 algorithm: .sha256,
                 hexadecimalValue: String(repeating: "b", count: 64)
             ),
-            byteCount: 19
+            byteCount: 19,
+            descriptor: ArtifactDescriptor(
+                role: .output,
+                kind: .report,
+                format: .json
+            )
         )
         let activity = Activity(
             id: "project-1|run|canonical-artifact",
@@ -144,6 +140,19 @@ struct ActivityStoreTests {
     @Test("Projector projects complete artifacts through Foundation")
     func projectorProjectsCompleteArtifactsThroughFoundation() throws {
         var ledger = try makeLedger(runID: "run-artifact")
+        let digest = try ContentDigest(
+            algorithm: .sha256,
+            hexadecimalValue: String(repeating: "a", count: 64)
+        )
+        let reference = try ArtifactReference(
+            digest: digest,
+            byteCount: 7,
+            descriptor: ArtifactDescriptor(
+                role: .output,
+                kind: .report,
+                format: .json
+            )
+        )
         ledger.actions = [
             FlowRunActionRecord(
                 actionID: "action-artifact",
@@ -151,24 +160,7 @@ struct ActivityStoreTests {
                 actor: FlowRunActor(kind: .system, identifier: "test"),
                 actionKind: "artifact.capture",
                 status: .succeeded,
-                outputs: [
-                    ArtifactReference(
-                        id: try ArtifactID(rawValue: "captured-report"),
-                        locator: ArtifactLocator(
-                            location: try ArtifactLocation(
-                                workspaceRelativePath: ".xcircuite/runs/run-artifact/report.json"
-                            ),
-                            role: .output,
-                            kind: .report,
-                            format: .json
-                        ),
-                        digest: try ContentDigest(
-                            algorithm: .sha256,
-                            hexadecimalValue: String(repeating: "a", count: 64)
-                        ),
-                        byteCount: 7
-                    )
-                ]
+                outputs: [reference]
             )
         ]
 
@@ -179,13 +171,70 @@ struct ActivityStoreTests {
         let action = try #require(activities.first(where: { $0.kind == "artifact.capture" }))
         let artifact = try #require(action.artifacts.first)
 
-        #expect(artifact.reference.id.rawValue == "captured-report")
-        #expect(artifact.reference.locator.role == .output)
-        #expect(artifact.reference.kind == .report)
-        #expect(artifact.reference.format == .json)
+        #expect(artifact.reference.id == reference.id)
+        #expect(artifact.reference.descriptor.role == .output)
+        #expect(artifact.reference.descriptor.kind == .report)
+        #expect(artifact.reference.descriptor.format == .json)
         #expect(artifact.reference.digest.hexadecimalValue == String(repeating: "a", count: 64))
         #expect(artifact.reference.byteCount == 7)
         #expect(artifact.direction == .output)
+    }
+
+    @Test("Projector preserves exact design diff artifact bindings")
+    func projectorPreservesExactDesignDiffArtifactBindings() throws {
+        var ledger = try makeLedger(runID: "run-design-diff-binding")
+        let digest = try ContentDigest(
+            algorithm: .sha256,
+            hexadecimalValue: String(repeating: "b", count: 64)
+        )
+        let reference = try ArtifactReference(
+            digest: digest,
+            byteCount: 11,
+            descriptor: ArtifactDescriptor(
+                role: .output,
+                kind: .designDiff,
+                format: .json
+            )
+        )
+        let binding = try FlowArtifactBinding(
+            logicalID: "candidate-design-diff",
+            reference: reference,
+            availability: .local(
+                artifactID: reference.id,
+                rootID: try ArtifactRootID(rawValue: "activity-project"),
+                relativePath: try ArtifactRelativePath(
+                    segments: [".xcircuite", "runs", ledger.runID, "design-diff.json"]
+                )
+            )
+        )
+        ledger.designDiff = DesignDiff(
+            runID: ledger.runID,
+            title: "Candidate diff",
+            actor: "agent",
+            changes: [
+                DesignDiffChange(
+                    changeID: "change-1",
+                    domain: .layout,
+                    operation: .replace,
+                    path: "/layout/top",
+                    artifacts: [binding],
+                    summary: "Replace the candidate layout."
+                ),
+            ]
+        )
+
+        let activities = FlowRunActivityProjector().project(
+            projectID: "project-1",
+            ledger: ledger
+        )
+        let designDiffActivity = try #require(
+            activities.first { $0.kind == "design.diff" }
+        )
+        let artifact = try #require(designDiffActivity.artifacts.first)
+
+        #expect(artifact.reference == reference)
+        #expect(artifact.binding == binding)
+        #expect(artifact.direction == .related)
     }
 
     private func makeLedger(runID: String) throws -> FlowRunLedger {

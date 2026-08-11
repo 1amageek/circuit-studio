@@ -67,7 +67,7 @@ struct LayoutTrustEvaluationServiceTests {
     }
 
     @Test("Unowned evaluated routing geometry fails but still writes evidence artifacts")
-    func unownedRoutingShapeFailsAndWritesArtifacts() throws {
+    func unownedRoutingShapeFailsAndWritesArtifacts() async throws {
         let root = try temporaryDirectory()
         defer { removeTemporaryDirectory(root) }
         let document = document(shapes: [
@@ -103,7 +103,10 @@ struct LayoutTrustEvaluationServiceTests {
         ])
         let checker = ArtifactIntegrityChecker()
         for record in manifest.records {
-            _ = try checker.verifiedData(for: record, in: root.appending(path: "layout-trust"))
+            _ = try await checker.verifiedData(
+                for: record,
+                in: root.appending(path: "layout-trust")
+            )
         }
     }
 

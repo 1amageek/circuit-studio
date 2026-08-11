@@ -1,5 +1,6 @@
 import CircuitSignoff
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Foundation
 import CircuitStudioCore
 import DesignFlowKernel
@@ -49,13 +50,13 @@ public struct RoundTripReviewService: Sendable {
             )
         }
 
-        let signoff = loadSignoffSummary(
+        let signoff = await loadSignoffSummary(
             from: manifest.artifacts,
             resolver: resolver,
             diagnostics: &diagnostics,
             warnings: &warnings
         )
-        let comparison = loadComparisonSummary(
+        let comparison = await loadComparisonSummary(
             from: manifest.artifacts,
             resolver: resolver,
             diagnostics: &diagnostics,
@@ -208,7 +209,6 @@ public struct RoundTripReviewService: Sendable {
         let actualReference: ArtifactReference
         do {
             actualReference = try ArtifactReference.circuitStudioReference(
-                id: artifact.reference.id.rawValue,
                 kind: artifact.kind,
                 relativePath: artifact.path,
                 fileURL: url
@@ -242,7 +242,7 @@ public struct RoundTripReviewService: Sendable {
             manifestSHA256: artifact.sha256,
             manifestByteCount: artifact.byteCount,
             actualSHA256: actualReference.digest.hexadecimalValue,
-            actualByteCount: Int64(actualReference.byteCount),
+            actualByteCount: actualReference.byteCount,
             integrityStatus: integrityStatus
         )
     }
@@ -273,11 +273,11 @@ public struct RoundTripReviewService: Sendable {
         resolver: RoundTripArtifactResolver,
         diagnostics: inout [String],
         warnings: inout [String]
-    ) -> RoundTripReviewSignoffSummary? {
+    ) async -> RoundTripReviewSignoffSummary? {
         guard let artifact = artifacts.first(where: { $0.kind == "external-signoff-review" }) else {
             return nil
         }
-        guard let url = resolveVerifiedArtifactURL(
+        guard let verified = await resolveVerifiedArtifact(
             artifact,
             resolver: resolver,
             diagnostics: &diagnostics,
@@ -287,7 +287,12 @@ public struct RoundTripReviewService: Sendable {
         }
 
         do {
-            let review = try readJSON(ExternalSignoffReview.self, from: url, context: "external signoff review")
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let review = try decoder.decode(
+                ExternalSignoffReview.self,
+                from: verified.data
+            )
             return RoundTripReviewSignoffSummary(
                 passed: review.passed,
                 approved: review.isApproved,
@@ -319,11 +324,11 @@ public struct RoundTripReviewService: Sendable {
         resolver: RoundTripArtifactResolver,
         diagnostics: inout [String],
         warnings: inout [String]
-    ) -> RoundTripReviewComparisonSummary? {
+    ) async -> RoundTripReviewComparisonSummary? {
         guard let artifact = artifacts.first(where: { $0.kind == "post-layout-comparison" }) else {
             return nil
         }
-        guard let url = resolveVerifiedArtifactURL(
+        guard let verified = await resolveVerifiedArtifact(
             artifact,
             resolver: resolver,
             diagnostics: &diagnostics,
@@ -333,10 +338,11 @@ public struct RoundTripReviewService: Sendable {
         }
 
         do {
-            let report = try readJSON(
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let report = try decoder.decode(
                 PostLayoutComparisonReport.self,
-                from: url,
-                context: "post-layout comparison"
+                from: verified.data
             )
             return RoundTripReviewComparisonSummary(
                 status: report.status,
@@ -471,19 +477,19 @@ public struct RoundTripReviewService: Sendable {
         try SHA256ContentDigester().digest(fileAt: url, using: .sha256).hexadecimalValue
     }
 
-    private func resolveVerifiedArtifactURL(
+    private func resolveVerifiedArtifact(
         _ artifact: HeadlessRoundTripService.Artifact,
         resolver: RoundTripArtifactResolver,
         diagnostics: inout [String],
         warnings: inout [String]
-    ) -> URL? {
+    ) async -> VerifiedArtifact? {
         do {
-            _ = try resolver.resolve(artifact)
-            let verified = try ArtifactIntegrityChecker().verifiedArtifact(
+            let resolution = try resolver.resolve(artifact)
+            appendUnique(resolution.warnings, to: &warnings)
+            return try await ArtifactIntegrityChecker().verifiedArtifact(
                 for: artifact,
                 in: resolver.runDirectory
             )
-            return verified.url
         } catch {
             appendUnique([error.localizedDescription], to: &diagnostics)
             return nil

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import DesignFlowKernel
 import ToolQualification
 import Xcircuite
@@ -93,7 +94,7 @@ struct RunReviewPlanningProjectionTests {
             )
         )
         let planningProblemPayload = try encoder.encode(planningProblem)
-        let planningProblemReference = try RunReviewTestSupport.artifactReference(
+        let planningProblemBinding = try RunReviewTestSupport.artifactBinding(
             artifactID: "planning-problem",
             path: planningProblemPath,
             payload: planningProblemPayload,
@@ -101,7 +102,7 @@ struct RunReviewPlanningProjectionTests {
             format: .json
         )
         let candidatePlanPath = ".xcircuite/runs/run-planning/planning/candidate-plan.json"
-        let candidatePlan = XcircuiteCandidatePlan(
+        let candidatePlan = XcircuitePlanningCandidateDraft(
             planID: "plan-1",
             problemID: "problem-1",
             runID: "run-planning",
@@ -167,13 +168,14 @@ struct RunReviewPlanningProjectionTests {
             blockers: ["approval-required"]
         )
         let candidatePlanPayload = try encoder.encode(candidatePlan)
-        let candidatePlanReference = try RunReviewTestSupport.artifactReference(
+        let candidatePlanBinding = try RunReviewTestSupport.artifactBinding(
             artifactID: "planning-candidate-plan",
             path: candidatePlanPath,
             payload: candidatePlanPayload,
             kind: .other,
             format: .json
         )
+        let candidatePlanReference = candidatePlanBinding.reference
 
         let planVerificationPath = ".xcircuite/runs/run-planning/planning/plan-verification.json"
         let planVerification = XcircuitePlanVerification(
@@ -256,7 +258,7 @@ struct RunReviewPlanningProjectionTests {
                     mitigationActions: ["approval-gate", "native-lvs"]
                 ),
             ],
-            artifactRefs: [candidatePlanReference],
+            artifactBindings: [candidatePlanBinding],
             diagnostics: [],
             accepted: false,
             nextActions: [
@@ -265,13 +267,14 @@ struct RunReviewPlanningProjectionTests {
             ]
         )
         let payload = try encoder.encode(planVerification)
-        let planVerificationReference = try RunReviewTestSupport.artifactReference(
+        let planVerificationBinding = try RunReviewTestSupport.artifactBinding(
             artifactID: "planning-plan-verification",
             path: planVerificationPath,
             payload: payload,
             kind: .other,
             format: .json
         )
+        let planVerificationReference = planVerificationBinding.reference
         let designDiff = DesignDiff(
             runID: "run-planning",
             title: "Planning edit proposal",
@@ -316,7 +319,7 @@ struct RunReviewPlanningProjectionTests {
                             "net": .string("VDD"),
                             "width": .number(0.20),
                         ]),
-                        artifacts: [candidatePlanReference],
+                        artifacts: [candidatePlanBinding],
                         summary: "Widen the rail before post-execution signoff."
                     ),
                     DesignDiffChange(
@@ -356,7 +359,7 @@ struct RunReviewPlanningProjectionTests {
                             ]),
                             "net": .string("VSS"),
                         ]),
-                        artifacts: [candidatePlanReference],
+                        artifacts: [candidatePlanBinding],
                         summary: "Stretch the upper strap in the same native layout canvas."
                     ),
                     DesignDiffChange(
@@ -385,9 +388,9 @@ struct RunReviewPlanningProjectionTests {
             artifactPreparer: RunReviewArtifactPreparer(
                 workspaceStore: store,
                 artifacts: [
-                    planningProblemReference,
-                    candidatePlanReference,
-                    planVerificationReference,
+                    planningProblemBinding,
+                    candidatePlanBinding,
+                    planVerificationBinding,
                 ],
                 artifactPayloads: [
                     planningProblemPath: planningProblemPayload,
@@ -410,10 +413,10 @@ struct RunReviewPlanningProjectionTests {
         let service = RunReviewService()
         let review = try await service.loadRun(runID: "run-planning", projectRoot: root)
         #expect(review.planning.hasContent)
-        #expect(review.planning.candidatePlanArtifact?.reference.artifactID == "planning-candidate-plan")
-        #expect(review.planning.candidatePlanArtifact?.reference.path == candidatePlanPath)
-        #expect(review.planning.planVerificationArtifact?.reference.artifactID == "planning-plan-verification")
-        #expect(review.planning.planVerificationArtifact?.reference.path == planVerificationPath)
+        #expect(review.planning.candidatePlanArtifact?.binding.logicalID == "planning-candidate-plan")
+        #expect(review.planning.candidatePlanArtifact?.binding.circuitStudioPresentationPath == candidatePlanPath)
+        #expect(review.planning.planVerificationArtifact?.binding.logicalID == "planning-plan-verification")
+        #expect(review.planning.planVerificationArtifact?.binding.circuitStudioPresentationPath == planVerificationPath)
         #expect(review.planning.decodeIssues.isEmpty)
         #expect(review.planning.candidatePlan?.steps.first?.operationID == "lvs.policy-repair")
         #expect(review.planning.candidatePlan?.riskClassifications.first?.requiredApprovals == [
@@ -765,7 +768,7 @@ struct RunReviewPlanningProjectionTests {
                 && $0.actionID == "verify-candidate-plan:post-execution"
         })
         let suggestedAction = try #require(action.suggestedActions.first)
-        #expect(suggestedAction.readiness == .ready)
+        #expect(suggestedAction.readiness == .requiresInput)
         #expect(suggestedAction.id == "verify-candidate-plan.post-execution")
         #expect(suggestedAction.operation == .verifyCandidatePlan(scope: .postExecution))
         #expect(suggestedAction.runID == "run-planning")
@@ -788,6 +791,9 @@ struct RunReviewPlanningProjectionTests {
             $0.actionKind == "review.selectSuggestedAction"
                 && $0.context.suggestedAction?.action.id == suggestedAction.id
         })
+        let verificationActionCountBeforeExecution = actions.filter {
+            $0.actionKind == "planning.verify-candidate-plan"
+        }.count
         let selections = try await service.loadSuggestedActionSelections(
             runID: "run-planning",
             projectRoot: root
@@ -803,24 +809,27 @@ struct RunReviewPlanningProjectionTests {
         #expect(reloadedReview.suggestedActionSelections == selections)
         #expect(reloadedReview.planning.selectedActions == selections)
 
-        let execution = try await service.runSuggestedAction(
-            runID: "run-planning",
-            nextActionID: action.actionID,
-            actionID: suggestedAction.id,
-            reviewer: "reviewer-1",
-            projectRoot: root
-        )
-        #expect(execution.resolvedAction.command == .verifyCandidatePlan)
-        #expect(execution.resolvedAction.selection.action == suggestedAction)
-        #expect(!execution.commandOutput.isEmpty)
+        await #expect(
+            throws: XcircuiteSelectedSuggestedActionResolutionError.actionRequiresInput(
+                actionID: suggestedAction.id
+            )
+        ) {
+            _ = try await service.runSuggestedAction(
+                runID: "run-planning",
+                nextActionID: action.actionID,
+                actionID: suggestedAction.id,
+                reviewer: "reviewer-1",
+                projectRoot: root
+            )
+        }
         let actionsAfterExecution = try await store.loadRunActions(runID: "run-planning")
         #expect(actionsAfterExecution.filter {
             $0.actionKind == "review.selectSuggestedAction"
                 && $0.context.suggestedAction?.action.id == suggestedAction.id
         }.count == 1)
-        #expect(actionsAfterExecution.contains {
+        #expect(actionsAfterExecution.filter {
             $0.actionKind == "planning.verify-candidate-plan"
-        })
+        }.count == verificationActionCountBeforeExecution)
         await #expect(
             throws: XcircuiteSelectedSuggestedActionResolutionError.noSelection(
                 runID: "run-planning",
@@ -877,7 +886,7 @@ struct RunReviewPlanningProjectionTests {
 
         let runID = "run-planning-integrity"
         let candidatePlanPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
-        let candidatePlan = XcircuiteCandidatePlan(
+        let candidatePlan = XcircuitePlanningCandidateDraft(
             planID: "plan-integrity",
             problemID: "problem-integrity",
             runID: runID,
@@ -899,19 +908,17 @@ struct RunReviewPlanningProjectionTests {
             withIntermediateDirectories: true
         )
         try payload.write(to: root.appending(path: candidatePlanPath), options: .atomic)
-        let reference = ArtifactReference(
-            id: try ArtifactID(rawValue: "planning-candidate-plan"),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: candidatePlanPath),
-                role: .output,
-                kind: .other,
-                format: .json
-            ),
+        let reference = try ArtifactReference(
             digest: try SHA256ContentDigester().digest(data: payload, using: .sha256),
-            byteCount: UInt64(payload.count)
+            byteCount: UInt64(payload.count),
+            descriptor: ArtifactDescriptor(role: .output, kind: .other, format: .json)
         )
         let artifact = FlowRunReviewArtifact(
-            reference: reference,
+            binding: try RunReviewTestSupport.artifactBinding(
+                reference: reference,
+                artifactID: "planning-candidate-plan",
+                path: candidatePlanPath
+            ),
             purpose: .planningCandidatePlan,
             integrity: FlowRunReviewArtifactIntegrity(
                 status: .sha256Mismatch,
@@ -932,7 +939,7 @@ struct RunReviewPlanningProjectionTests {
                 updatedAt: Date(timeIntervalSince1970: 1_020),
                 startedAt: Date(timeIntervalSince1970: 1_010),
                 finishedAt: Date(timeIntervalSince1970: 1_020),
-                artifacts: [reference]
+                artifacts: [artifact.binding]
             ),
             stages: []
         )
@@ -955,7 +962,7 @@ struct RunReviewPlanningProjectionTests {
 
         let review = try await service.loadRun(runID: runID, projectRoot: root)
 
-        #expect(review.planning.candidatePlanArtifact?.reference.path == candidatePlanPath)
+        #expect(review.planning.candidatePlanArtifact?.binding.circuitStudioPresentationPath == candidatePlanPath)
         #expect(review.planning.candidatePlan == nil)
         #expect(review.planning.decodeIssues.contains {
             $0.artifactPath == candidatePlanPath

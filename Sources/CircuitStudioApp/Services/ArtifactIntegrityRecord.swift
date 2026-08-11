@@ -1,31 +1,34 @@
 import CircuiteFoundation
+import DesignFlowKernel
 
 public protocol ArtifactIntegrityRecord: Sendable {
-    var artifactLocator: ArtifactLocator { get }
-    var artifactReference: ArtifactReference? { get }
+    var artifactLogicalID: String { get }
+    var artifactDescriptor: ArtifactDescriptor { get }
+    var artifactRelativePath: ArtifactRelativePath { get throws }
+    var artifactBinding: FlowArtifactBinding? { get }
     var artifactIsAvailable: Bool { get }
 }
 
 extension ArtifactPublicationRecord: ArtifactIntegrityRecord {
-    public var artifactLocator: ArtifactLocator { locator }
-    public var artifactReference: ArtifactReference? { reference }
+    public var artifactLogicalID: String { id }
+    public var artifactDescriptor: ArtifactDescriptor { descriptor }
+    public var artifactRelativePath: ArtifactRelativePath { relativePath }
+    public var artifactBinding: FlowArtifactBinding? { binding }
     public var artifactIsAvailable: Bool { status == .available }
 }
 
-extension ArtifactReference: ArtifactIntegrityRecord {
-    public var artifactLocator: ArtifactLocator { locator }
-    public var artifactReference: ArtifactReference? { self }
-    public var artifactIsAvailable: Bool { true }
-}
-
 extension HeadlessRoundTripService.Artifact: ArtifactIntegrityRecord {
-    public var artifactLocator: ArtifactLocator { reference.locator }
-    public var artifactReference: ArtifactReference? { reference }
+    public var artifactLogicalID: String { binding.logicalID }
+    public var artifactDescriptor: ArtifactDescriptor { binding.descriptor }
+    public var artifactRelativePath: ArtifactRelativePath { get throws { try relativePath } }
+    public var artifactBinding: FlowArtifactBinding? { binding }
     public var artifactIsAvailable: Bool { true }
 }
 
 extension TimingArtifactRecord: ArtifactIntegrityRecord {
-    public var artifactLocator: ArtifactLocator { locator }
-    public var artifactReference: ArtifactReference? { reference }
+    public var artifactLogicalID: String { id }
+    public var artifactDescriptor: ArtifactDescriptor { publication.descriptor }
+    public var artifactRelativePath: ArtifactRelativePath { publication.relativePath }
+    public var artifactBinding: FlowArtifactBinding? { publication.binding }
     public var artifactIsAvailable: Bool { status == .available }
 }

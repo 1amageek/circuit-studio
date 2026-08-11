@@ -104,6 +104,17 @@ struct RunReviewReleaseProjectionTests {
             path: "\(prefix)/plan.json",
             payload: Data("{}".utf8)
         )
+        let planBinding = try RunReviewTestSupport.artifactBinding(
+            reference: planArtifact,
+            artifactID: "release-plan",
+            path: "\(prefix)/plan.json"
+        )
+        let bundleFlowBinding = try RunReviewTestSupport.artifactBinding(
+            reference: bundleArtifact,
+            artifactID: "canonical-signoff-bundle",
+            path: bundlePath,
+            producer: releaseProducer
+        )
         let blockedDiagnostic = DesignDiagnostic(
             code: .trusted("RELEASE_BLOCKED_FOR_TEST"),
             severity: .error,
@@ -117,9 +128,10 @@ struct RunReviewReleaseProjectionTests {
             startedAt: timestamp,
             completedAt: timestamp
         )
-        let authorization = ReleaseAuthorizationResult(
+        let authorization = try ReleaseAuthorizationResult(
             status: .blocked,
             signoffBundle: nil,
+            exactReleaseBundle: nil,
             approval: FlowApprovalRecord(
                 runID: "run-signoff",
                 stageID: "release.authorization",
@@ -128,8 +140,8 @@ struct RunReviewReleaseProjectionTests {
                 reviewerKind: .human,
                 createdAt: timestamp,
                 evidence: FlowApprovalEvidenceBinding(
-                    plan: planArtifact,
-                    stageResult: bundleArtifact
+                    plan: planBinding,
+                    stageResult: bundleFlowBinding
                 )
             ),
             diagnostics: [blockedDiagnostic],
@@ -155,9 +167,9 @@ struct RunReviewReleaseProjectionTests {
             runID: "run-signoff",
             status: .blocked,
             diagnostics: [blockedDiagnostic],
-            artifacts: [],
+            artifactBindings: [],
             metadata: tapeoutProvenance,
-            payload: TapeoutPayload(handoffArtifact: nil, checksum: nil)
+            payload: TapeoutPayload(handoffBinding: nil, checksum: nil)
         )
         let tapeoutData = try releaseJSONData(tapeout)
         let tapeoutArtifact = try RunReviewTestSupport.artifactReference(
@@ -201,15 +213,41 @@ struct RunReviewReleaseProjectionTests {
             kind: .release,
             producer: tapeoutProducer
         )
+        let releaseBindings = try [
+            RunReviewTestSupport.artifactBinding(
+                reference: evidenceArtifact,
+                artifactID: "qualified-release-evidence",
+                path: evidencePath,
+                producer: evidenceProducer
+            ),
+            RunReviewTestSupport.artifactBinding(
+                reference: bundleArtifact,
+                artifactID: "canonical-signoff-bundle",
+                path: bundlePath,
+                producer: releaseProducer
+            ),
+            RunReviewTestSupport.artifactBinding(
+                reference: authorizationArtifact,
+                artifactID: "release-authorization-result",
+                path: authorizationPath,
+                producer: authorizationProducer
+            ),
+            RunReviewTestSupport.artifactBinding(
+                reference: tapeoutArtifact,
+                artifactID: "release-tapeout-result",
+                path: tapeoutPath,
+                producer: tapeoutProducer
+            ),
+            RunReviewTestSupport.artifactBinding(
+                reference: handoffArtifact,
+                artifactID: "foundry-handoff-manifest",
+                path: handoffPath,
+                producer: tapeoutProducer
+            ),
+        ]
 
         let fixture = try await RunReviewSignoffFixture.make(
-            additionalArtifacts: [
-                evidenceArtifact,
-                bundleArtifact,
-                authorizationArtifact,
-                tapeoutArtifact,
-                handoffArtifact,
-            ] + xorFixture.retainedArtifacts,
+            additionalArtifacts: releaseBindings + xorFixture.retainedBindings,
             additionalArtifactPayloads: xorFixture.artifactPayloads.merging([
                 evidencePath: evidenceData,
                 bundlePath: bundleData,
@@ -272,7 +310,7 @@ struct RunReviewReleaseProjectionTests {
             version: "2.0.0",
             build: String(repeating: "b", count: 64)
         )
-        let artifact = try RunReviewTestSupport.artifactReference(
+        let artifact = try RunReviewTestSupport.artifactBinding(
             artifactID: "release-authorization-result",
             path: path,
             payload: payload,

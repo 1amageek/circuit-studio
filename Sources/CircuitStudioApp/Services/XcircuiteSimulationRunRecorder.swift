@@ -1,6 +1,7 @@
 import Foundation
 import CircuitStudioCore
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import DesignFlowKernel
 import Xcircuite
 
@@ -53,7 +54,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
             startedAt: startedAt
         )
 
-        var setupArtifacts: [ArtifactReference] = []
+        var setupArtifacts: [FlowArtifactBinding] = []
         do {
             setupArtifacts.append(try await writeRequest(
                 intent: intent,
@@ -101,7 +102,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         records: [AnalysisRunRecord]
     ) async throws {
         let store = try workspaceStoreFactory(context.projectRoot)
-        var references: [ArtifactReference] = []
+        var bindings: [FlowArtifactBinding] = []
         try await requireRunning(
             context: context,
             requestedStatus: canonicalStatus(records),
@@ -110,28 +111,28 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         do {
             let existing = try await store.loadRunManifest(runID: context.runID)
             if let source,
-               !existing.artifacts.contains(where: { $0.artifactID == "simulation-input-netlist" }) {
-                references.append(try await writeInputNetlist(
+               !existing.artifacts.contains(where: { $0.logicalID == "simulation-input-netlist" }) {
+                bindings.append(try await writeInputNetlist(
                     source,
                     context: context
                 ))
             }
 
             let waveformPaths = try await writeWaveforms(records: records, context: context)
-            references.append(contentsOf: waveformPaths.map(\.reference))
+            bindings.append(contentsOf: waveformPaths.map(\.binding))
             let summary = SimulationSummary(
                 runID: context.runID,
                 startedAt: context.startedAt,
                 records: records.enumerated().map { index, record in
                     SimulationRecordSummary(
                         record: record,
-                        waveformPath: waveformPaths.first { $0.index == index }?.reference.path
+                        waveformPath: waveformPaths.first { $0.index == index }?.binding.path
                     )
                 }
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            references.append(try await persistImmutableArtifact(
+            bindings.append(try await persistImmutableArtifact(
                 encoder.encode(summary),
                 path: "simulation-summary.json",
                 artifactID: "simulation-summary",
@@ -154,16 +155,16 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
                 stage: try simulationStage(
                     status: status,
                     records: records,
-                    artifacts: references.filter { $0.locator.role == .output }
+                    artifacts: bindings.filter { $0.role == .output }
                 ),
-                registering: references
+                registering: bindings
             )
         } catch {
             do {
                 try await finalizeFailure(
                     context: context,
                     reason: error.localizedDescription,
-                    registering: references
+                    registering: bindings
                 )
             } catch let lifecycleError {
                 throw XcircuiteWorkspaceStoreError.writeFailed(
@@ -184,7 +185,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
     private func finalizeFailure(
         context: SimulationRunContext,
         reason: String,
-        registering retainedArtifacts: [ArtifactReference]
+        registering retainedArtifacts: [FlowArtifactBinding]
     ) async throws {
         let store = try workspaceStoreFactory(context.projectRoot)
         try await requireRunning(
@@ -225,7 +226,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
                     ),
                 ],
                 artifacts: (retainedArtifacts + [reference]).filter {
-                    $0.locator.role == .output
+                    $0.role == .output
                 }
             ),
             registering: retainedArtifacts + [reference]
@@ -236,11 +237,11 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         context: SimulationRunContext,
         status: FlowRunStatus,
         stage: FlowStageResult,
-        registering references: [ArtifactReference]
+        registering bindings: [FlowArtifactBinding]
     ) async throws {
         let store = try workspaceStoreFactory(context.projectRoot)
         let ledger = try await store.loadRunLedger(runID: context.runID)
-        let artifacts = try Self.mergeArtifacts(ledger.artifacts + references)
+        let artifacts = try Self.mergeArtifacts(ledger.artifacts + bindings)
         let completedAt = Date()
         let producer = try await CircuitStudioExecutionEnvironment.producerIdentity(
             kind: .engine,
@@ -248,7 +249,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         )
         let provenance = try ExecutionProvenance(
             producer: producer,
-            inputs: artifacts.filter { $0.locator.role == .input },
+            inputs: artifacts.filter { $0.role == .input }.map(\.reference),
             invocation: try .inProcess(entryPoint: "SimulationService.runSPICE"),
             environment: try await CircuitStudioExecutionEnvironment.current(),
             startedAt: context.startedAt,
@@ -267,7 +268,11 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
                     ),
                 ]
             ),
-            evidence: EvidenceManifest(provenance: provenance, artifacts: artifacts),
+            evidence: try EvidenceManifest.contentAddressed(
+                provenance: provenance,
+                artifacts: artifacts.map(\.reference),
+                digester: SHA256ContentDigester()
+            ),
             artifacts: artifacts,
             at: completedAt
         )
@@ -276,7 +281,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
     private func simulationStage(
         status: FlowRunStatus,
         records: [AnalysisRunRecord],
-        artifacts: [ArtifactReference]
+        artifacts: [FlowArtifactBinding]
     ) throws -> FlowStageResult {
         switch status {
         case .succeeded:
@@ -320,37 +325,25 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         }
     }
 
-    static func mergeArtifacts(_ artifacts: [ArtifactReference]) throws -> [ArtifactReference] {
-        var byLocator: [ArtifactLocator: ArtifactReference] = [:]
+    static func mergeArtifacts(
+        _ artifacts: [FlowArtifactBinding]
+    ) throws -> [FlowArtifactBinding] {
+        var byLogicalID: [String: FlowArtifactBinding] = [:]
         for artifact in artifacts {
-            if let existing = byLocator[artifact.locator], existing != artifact {
+            if let existing = byLogicalID[artifact.logicalID], existing != artifact {
                 throw XcircuiteWorkspaceStoreError.writeFailed(
-                    "Conflicting simulation artifact metadata for \(artifact.locator.location.value) "
-                        + "with role \(artifact.locator.role.rawValue)."
+                    "Conflicting simulation artifact binding for logical ID \(artifact.logicalID)."
                 )
             }
-            byLocator[artifact.locator] = artifact
+            byLogicalID[artifact.logicalID] = artifact
         }
-        return Array(byLocator.values).sorted { (lhs: ArtifactReference, rhs: ArtifactReference) in
-            let left = lhs.locator
-            let right = rhs.locator
-            if left.location.value != right.location.value {
-                return left.location.value < right.location.value
-            }
-            if left.role.rawValue != right.role.rawValue {
-                return left.role.rawValue < right.role.rawValue
-            }
-            if left.kind.rawValue != right.kind.rawValue {
-                return left.kind.rawValue < right.kind.rawValue
-            }
-            return left.format.rawValue < right.format.rawValue
-        }
+        return byLogicalID.values.sorted { $0.logicalID < $1.logicalID }
     }
 
     private func writeInputNetlist(
         _ source: String,
         context: SimulationRunContext
-    ) async throws -> ArtifactReference {
+    ) async throws -> FlowArtifactBinding {
         let store = try workspaceStoreFactory(context.projectRoot)
         return try await persistImmutableArtifact(
             Data(source.utf8),
@@ -369,7 +362,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         fileName: String?,
         startedAt: Date,
         context: SimulationRunContext
-    ) async throws -> ArtifactReference {
+    ) async throws -> FlowArtifactBinding {
         let store = try workspaceStoreFactory(context.projectRoot)
         let request = SimulationRequest(
             intent: intent,
@@ -393,9 +386,9 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
     private func writeWaveforms(
         records: [AnalysisRunRecord],
         context: SimulationRunContext
-    ) async throws -> [(index: Int, reference: ArtifactReference)] {
+    ) async throws -> [(index: Int, binding: FlowArtifactBinding)] {
         let store = try workspaceStoreFactory(context.projectRoot)
-        var references: [(index: Int, reference: ArtifactReference)] = []
+        var bindings: [(index: Int, binding: FlowArtifactBinding)] = []
         for (index, record) in records.enumerated() {
             guard let waveform = record.result?.waveform else {
                 continue
@@ -423,7 +416,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
                     message
                 )
             }
-            let reference = try await persistImmutableArtifact(
+            let binding = try await persistImmutableArtifact(
                 data,
                 path: "waveforms/\(name)",
                 artifactID: "simulation-waveform-\(index)",
@@ -433,9 +426,9 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
                 context: context,
                 store: store
             )
-            references.append((index, reference))
+            bindings.append((index, binding))
         }
-        return references
+        return bindings
     }
 
     private func persistImmutableArtifact(
@@ -447,15 +440,17 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         format: ArtifactFormat,
         context: SimulationRunContext,
         store: XcircuiteWorkspaceStore
-    ) async throws -> ArtifactReference {
+    ) async throws -> FlowArtifactBinding {
         do {
             return try await store.persistArtifact(
                 content: content,
-                id: try ArtifactID(rawValue: artifactID),
-                locator: ArtifactLocator(
-                    location: try ArtifactLocation(
-                        workspaceRelativePath: runRelativePath(path, context: context)
-                    ),
+                logicalID: artifactID,
+                relativePath: ArtifactRelativePath(
+                    segments: runRelativePath(path, context: context)
+                        .split(separator: "/")
+                        .map(String.init)
+                ),
+                descriptor: ArtifactDescriptor(
                     role: role,
                     kind: kind,
                     format: format

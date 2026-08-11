@@ -390,11 +390,15 @@ public struct TimingArtifactWriter: Sendable {
             ("timing-waveform-csv", .waveformCSV, "timing/characterization/waveforms"),
         ]
         return try declarations.map { id, kind, path in
-            try TimingArtifactRecord(
-                id: ArtifactID(rawValue: id),
-                locator: ArtifactReference.circuitStudioLocator(
-                    kind: kind.rawValue,
-                    relativePath: path
+            let locator = try ArtifactReference.circuitStudioLocator(
+                kind: kind.rawValue,
+                relativePath: path
+            )
+            return try TimingArtifactRecord(
+                logicalID: id,
+                descriptor: locator.descriptor,
+                relativePath: ArtifactRelativePath(
+                    segments: path.split(separator: "/").map(String.init)
                 ),
                 kind: kind,
                 status: .omitted

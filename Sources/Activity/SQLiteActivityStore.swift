@@ -33,7 +33,7 @@ public actor SQLiteActivityStore: ActivityRecording, ActivityQuerying {
 
         for record in records {
             let existing = try await context.fetch(ActivityRecord.self)
-                .where(\.id == record.id)
+                .where(ActivityRecord.fields.id == record.id)
                 .execute()
                 .first
             if let existing {
@@ -42,7 +42,7 @@ public actor SQLiteActivityStore: ActivityRecording, ActivityQuerying {
                 }
                 continue
             }
-            context.insert(record)
+            try context.insert(record)
             insertedCount += 1
         }
 
@@ -54,26 +54,26 @@ public actor SQLiteActivityStore: ActivityRecording, ActivityQuerying {
         let container = try await preparedContainer()
         var request = container.newContext().fetch(ActivityRecord.self)
         if let projectID = query.projectID {
-            request = request.where(\.projectID == projectID)
+            request = request.where(ActivityRecord.fields.projectID == projectID)
         }
         if let runID = query.runID {
-            request = request.where(\.runID == runID)
+            request = request.where(ActivityRecord.fields.runID == runID)
         }
         if let stageID = query.stageID {
-            request = request.where(\.stageID == stageID)
+            request = request.where(ActivityRecord.fields.stageID == stageID)
         }
         if let kind = query.kind {
-            request = request.where(\.kind == kind)
+            request = request.where(ActivityRecord.fields.kind == kind)
         }
         if let status = query.status {
-            request = request.where(\.status == status.rawValue)
+            request = request.where(ActivityRecord.fields.status == status.rawValue)
         }
         if let actorKind = query.actorKind {
-            request = request.where(\.actorKind == actorKind.rawValue)
+            request = request.where(ActivityRecord.fields.actorKind == actorKind.rawValue)
         }
 
         let records = try await request
-            .orderBy(\.occurredAt, .descending)
+            .orderBy(ActivityRecord.fields.occurredAt, .descending)
             .execute()
         return try records.prefix(query.limit).map { try $0.activity() }
     }
@@ -127,10 +127,15 @@ public actor SQLiteActivityStore: ActivityRecording, ActivityQuerying {
             configuration = .inMemory
         }
 
-        let newContainer = try await DBContainer(
+        let newContainer = try await DBContainer.open(
             for: ActivitySchemaV1.self,
             migrationPlan: ActivityMigrationPlan.self,
             configuration: configuration,
+            monotonicClock: ActivityDatabaseMonotonicClock(),
+            wallClock: ActivityDatabaseWallClock(),
+            runtimeConfiguration: try DatabaseFrameworkRuntime.configuration(
+                entityRuntimes: [try DatabaseFrameworkRuntime.entity(ActivityRecord.self)]
+            ),
             security: .disabled
         )
         try await newContainer.migrateIfNeeded()

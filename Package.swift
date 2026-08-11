@@ -102,8 +102,12 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/1amageek/database-framework.git",
-            exact: "26.0629.0",
+            exact: "26.0809.1",
             traits: ["SQLite"]
+        ),
+        .package(
+            url: "https://github.com/1amageek/database-kit.git",
+            exact: "26.0809.4"
         ),
     ],
     targets: [
@@ -156,6 +160,7 @@ let package = Package(
             name: "Activity",
             dependencies: [
                 .product(name: "Database", package: "database-framework"),
+                .product(name: "DatabaseKitFoundation", package: "database-kit"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
@@ -166,6 +171,7 @@ let package = Package(
             dependencies: [
                 "CircuitStudioCore",
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
+                .product(name: "CircuiteFoundationCrypto", package: "CircuiteFoundation"),
                 .product(name: "DRCAdapters", package: "DRCEngine"),
                 .product(name: "DRCCore", package: "DRCEngine"),
                 .product(name: "DRCPersistence", package: "DRCEngine"),
@@ -187,6 +193,9 @@ let package = Package(
                 "Activity",
                 "CircuitSignoff",
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
+                .product(name: "CircuiteFoundationFoundation", package: "CircuiteFoundation"),
+                .product(name: "CircuiteFoundationCrypto", package: "CircuiteFoundation"),
+                .product(name: "CircuiteFoundationFileSystem", package: "CircuiteFoundation"),
                 .product(name: "Xcircuite", package: "Xcircuite"),
                 .product(name: "XcircuiteFlowCLISupport", package: "Xcircuite"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
@@ -288,6 +297,9 @@ let package = Package(
                 .product(name: "LayoutCore", package: "semiconductor-layout"),
                 .product(name: "LayoutEngine", package: "semiconductor-layout"),
                 .product(name: "CircuiteFoundation", package: "CircuiteFoundation"),
+                .product(name: "CircuiteFoundationFoundation", package: "CircuiteFoundation"),
+                .product(name: "CircuiteFoundationCrypto", package: "CircuiteFoundation"),
+                .product(name: "CircuiteFoundationFileSystem", package: "CircuiteFoundation"),
                 .product(name: "DesignFlowKernel", package: "DesignFlowKernel"),
                 .product(name: "DRCAdapters", package: "DRCEngine"),
                 .product(name: "DRCCore", package: "DRCEngine"),

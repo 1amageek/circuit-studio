@@ -93,7 +93,7 @@ struct RunReviewFlowReviewProjectionCard: View {
                             Text(artifact.purpose.rawValue)
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
-                            Text(artifact.reference.locator.location.value)
+                            Text(artifact.binding.circuitStudioPresentationPath)
                                 .font(.caption2)
                                 .lineLimit(1)
                             Text(artifact.integrity?.status.rawValue ?? "untracked")

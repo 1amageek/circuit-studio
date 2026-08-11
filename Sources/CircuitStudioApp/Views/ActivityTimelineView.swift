@@ -589,8 +589,8 @@ private struct ActivityGroupDetailView: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text(artifact.direction.title)
-                    Text(artifact.reference.kind.rawValue)
-                    Text(artifact.reference.format.rawValue)
+                    Text(artifact.reference.descriptor.kind.rawValue)
+                    Text(artifact.reference.descriptor.format.rawValue)
                     Text(ByteCountFormatter.string(
                         fromByteCount: Int64(clamping: artifact.reference.byteCount),
                         countStyle: .file
@@ -598,7 +598,7 @@ private struct ActivityGroupDetailView: View {
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                Text(artifact.reference.path)
+                Text(artifact.reference.id.description)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
                     .lineLimit(2)
@@ -847,8 +847,7 @@ private extension Activity.Status {
 
 private extension Activity.Artifact {
     var displayName: String {
-        let name = URL(filePath: reference.path).lastPathComponent
-        return name.isEmpty ? reference.path : name
+        "\(reference.descriptor.kind.rawValue)-\(reference.digest.hexadecimalValue.prefix(12))"
     }
 }
 

@@ -24,11 +24,11 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryItem: Sendable, Hashabl
     public let feedbackPenalizedActionIDs: [String]
     public let feedbackRankChanges: [String]
     public let feedbackScoreDeltas: [String]
-    public let candidatePlanArtifact: ArtifactReference?
-    public let planExecutionArtifact: ArtifactReference?
-    public let planVerificationArtifact: ArtifactReference?
-    public let rejectedPlansArtifact: ArtifactReference?
-    public let designDiffArtifact: ArtifactReference?
+    public let candidatePlanArtifact: FlowArtifactBinding?
+    public let planExecutionArtifact: FlowArtifactBinding?
+    public let planVerificationArtifact: FlowArtifactBinding?
+    public let rejectedPlansArtifact: FlowArtifactBinding?
+    public let designDiffArtifact: FlowArtifactBinding?
     public let createdAt: Date
 
     public init(
@@ -49,11 +49,11 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryItem: Sendable, Hashabl
         feedbackPenalizedActionIDs: [String],
         feedbackRankChanges: [String] = [],
         feedbackScoreDeltas: [String] = [],
-        candidatePlanArtifact: ArtifactReference?,
-        planExecutionArtifact: ArtifactReference?,
-        planVerificationArtifact: ArtifactReference?,
-        rejectedPlansArtifact: ArtifactReference?,
-        designDiffArtifact: ArtifactReference?,
+        candidatePlanArtifact: FlowArtifactBinding?,
+        planExecutionArtifact: FlowArtifactBinding?,
+        planVerificationArtifact: FlowArtifactBinding?,
+        rejectedPlansArtifact: FlowArtifactBinding?,
+        designDiffArtifact: FlowArtifactBinding?,
         createdAt: Date
     ) {
         self.actionID = actionID

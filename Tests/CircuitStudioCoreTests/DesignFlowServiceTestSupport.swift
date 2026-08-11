@@ -1,5 +1,7 @@
 import CircuitSignoff
 import CircuiteFoundation
+import CircuiteFoundationCrypto
+import CircuiteFoundationFoundation
 import Foundation
 import DesignFlowKernel
 import Testing
@@ -43,7 +45,7 @@ enum DesignFlowServiceTestSupport {
                 ),
             ]
         )
-        let evidence = EvidenceManifest(
+        let evidence = try EvidenceManifest.contentAddressed(
             provenance: try ExecutionProvenance(
                 producer: ProducerIdentity(
                     kind: .library,
@@ -53,7 +55,8 @@ enum DesignFlowServiceTestSupport {
                 startedAt: timestamp,
                 completedAt: timestamp
             ),
-            artifacts: []
+            artifacts: [],
+            digester: SHA256ContentDigester()
         )
         _ = try await store.saveRunLedger(FlowRunLedger(
             runID: runID,
@@ -149,24 +152,38 @@ enum DesignFlowServiceTestSupport {
             format: ArtifactFormat,
             data: Data
         ) throws -> PEXArtifactRecord {
-            let locator = ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: relativePath),
+            let descriptor = ArtifactDescriptor(
                 role: .output,
                 kind: try ArtifactKind(rawValue: kind.foundationRawValue),
                 format: format
             )
-            let reference = ArtifactReference(
-                id: try ArtifactID(rawValue: id),
-                locator: locator,
+            let path = try ArtifactRelativePath(
+                segments: relativePath.split(separator: "/").map(String.init)
+            )
+            let reference = try ArtifactReference(
                 digest: try ContentDigest(
                     algorithm: .sha256,
                     hexadecimalValue: PEXRequestHash.compute(from: data).value
                 ),
                 byteCount: UInt64(data.count),
+                descriptor: descriptor
+            )
+            let available = try PEXAvailableArtifact(
+                reference: reference,
+                availability: .local(
+                    artifactID: reference.id,
+                    rootID: ArtifactRootID(rawValue: "pex-test-run"),
+                    relativePath: path
+                ),
                 producer: producer
             )
-            return PEXArtifactRecord(
-                payload: .available(reference),
+            return try PEXArtifactRecord(
+                declaration: PEXArtifactDeclaration(
+                    id: try PEXArtifactRecordID(rawValue: id),
+                    descriptor: descriptor,
+                    relativePath: path
+                ),
+                payload: .available(available),
                 stage: stage,
                 cornerID: cornerID,
                 createdAt: createdAt
@@ -202,29 +219,42 @@ enum DesignFlowServiceTestSupport {
         guard let runUUID = UUID(uuidString: "00000000-0000-0000-0000-000000000300") else {
             throw StudioError.projectLoadFailed("Invalid PEX fixture run ID")
         }
-        let inputArtifact = ArtifactReference(
-            id: try ArtifactID(rawValue: "layout-input"),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: "inputs/layout.json"),
+        let inputArtifact = try ArtifactReference(
+            digest: try SHA256ContentDigester().digest(data: inputData),
+            byteCount: UInt64(inputData.count),
+            descriptor: ArtifactDescriptor(
                 role: .input,
                 kind: .layout,
                 format: .json
-            ),
-            digest: try SHA256ContentDigester().digest(data: inputData),
-            byteCount: UInt64(inputData.count),
-            producer: try ProducerIdentity(
-                kind: .library,
-                identifier: "circuit-studio-pex-fixture",
-                version: "1.0.0"
             )
         )
-        let manifest = PEXArtifactManifest(
+        let finishedAt = createdAt.addingTimeInterval(1)
+        let provenance = try ExecutionProvenance(
+            producer: producer,
+            inputs: [inputArtifact],
+            invocation: try .inProcess(
+                entryPoint: "CircuitStudioTests.DesignFlowServiceTestSupport.writePEXArtifacts"
+            ),
+            environment: try ExecutionEnvironmentFingerprint(
+                platform: "macos",
+                architecture: "arm64",
+                toolchain: "mock-pexengine"
+            ),
+            startedAt: createdAt,
+            completedAt: finishedAt
+        )
+        let evidence = try EvidenceManifest.contentAddressed(
+            provenance: provenance,
+            artifacts: artifacts.compactMap(\.reference),
+            digester: SHA256ContentDigester()
+        )
+        let manifest = try PEXArtifactManifest(
             runID: PEXRunID(runUUID),
             requestHash: PEXRequestHash("fixture"),
             backendID: "mock-pexengine",
             status: .success,
             startedAt: createdAt,
-            finishedAt: createdAt.addingTimeInterval(1),
+            finishedAt: finishedAt,
             corners: [
                 PEXArtifactCorner(
                     cornerID: cornerID,
@@ -234,20 +264,8 @@ enum DesignFlowServiceTestSupport {
             ],
             artifacts: artifacts,
             warnings: [],
-            provenance: try ExecutionProvenance(
-                producer: producer,
-                inputs: [inputArtifact],
-                invocation: try .inProcess(
-                    entryPoint: "CircuitStudioTests.DesignFlowServiceTestSupport.writePEXArtifacts"
-                ),
-                environment: try ExecutionEnvironmentFingerprint(
-                    platform: "macos",
-                    architecture: "arm64",
-                    toolchain: "mock-pexengine"
-                ),
-                startedAt: createdAt,
-                completedAt: createdAt.addingTimeInterval(1)
-            )
+            provenance: provenance,
+            evidence: evidence
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -387,14 +405,14 @@ enum DesignFlowServiceTestSupport {
         path: String? = nil
     ) throws -> HeadlessRoundTripService.Artifact {
         let relativePath = path ?? url.lastPathComponent
-        let reference = try ArtifactReference.circuitStudioReference(
-            id: "\(kind)-\(relativePath)",
+        let binding = try FlowArtifactBinding.circuitStudioBinding(
+            logicalID: "\(kind)-\(relativePath)",
             kind: kind,
             relativePath: relativePath,
             fileURL: url
         )
         return HeadlessRoundTripService.Artifact(
-            reference: reference
+            binding: binding
         )
     }
     

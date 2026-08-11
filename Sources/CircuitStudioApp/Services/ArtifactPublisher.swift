@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import DesignFlowKernel
 import Foundation
 
 public enum ArtifactPublisherError: Error, LocalizedError, Equatable {
@@ -88,13 +89,13 @@ public struct ArtifactPublisher: ArtifactPublishing {
             throw ArtifactPublisherError.writeFailed(path: stagingPath, reason: error.localizedDescription)
         }
 
-        let reference: ArtifactReference
+        let binding: FlowArtifactBinding
         do {
-            reference = try ArtifactReference.circuitStudioReference(
-                id: id,
+            binding = try FlowArtifactBinding.circuitStudioBinding(
+                logicalID: id,
                 kind: kind,
                 relativePath: artifactPath.value,
-                fileURL: stagingURL
+                data: data
             )
         } catch {
             try cleanupAndThrow(stagingURL, error: error)
@@ -113,8 +114,8 @@ public struct ArtifactPublisher: ArtifactPublishing {
             )
         }
 
-        return ArtifactPublicationRecord(
-            reference: reference,
+        return try ArtifactPublicationRecord(
+            binding: binding,
             sourcePath: sourcePath
         )
     }

@@ -74,7 +74,7 @@ struct RunReviewArtifactBrowser: View {
                   resource.artifact == artifact {
             ArtifactCanvas(
                 url: resource.url,
-                type: typeResolver.artifactType(kind: artifact.reference.locator.kind, format: artifact.reference.locator.format),
+                type: typeResolver.artifactType(kind: artifact.binding.kind, format: artifact.binding.format),
                 title: artifactTitle(artifact)
             )
             .artifactContentMaxHeight(nil)
@@ -97,13 +97,13 @@ struct RunReviewArtifactBrowser: View {
                 Text(artifactTitle(artifact))
                     .font(.callout)
                     .lineLimit(1)
-                Text(artifact.reference.locator.location.value)
+                Text(artifact.binding.circuitStudioPresentationPath)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 HStack(spacing: 6) {
                     Text(artifact.purpose.rawValue)
-                    Text(artifact.reference.locator.format.rawValue)
+                    Text(artifact.binding.format.rawValue)
                     Text(formattedByteCount(artifact.reference.byteCount))
                 }
                 .font(.caption2)
@@ -118,16 +118,16 @@ struct RunReviewArtifactBrowser: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(artifactTitle(artifact))
                     .font(.headline)
-                Text(artifact.reference.locator.location.value)
+                Text(artifact.binding.circuitStudioPresentationPath)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
             Spacer()
-            Text(artifact.reference.locator.kind.rawValue)
+            Text(artifact.binding.kind.rawValue)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text(artifact.reference.locator.format.rawValue)
+            Text(artifact.binding.format.rawValue)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -142,11 +142,11 @@ struct RunReviewArtifactBrowser: View {
     }
 
     private func artifactTitle(_ artifact: FlowRunReviewArtifact) -> String {
-        let artifactID = artifact.reference.id.rawValue
+        let artifactID = artifact.binding.logicalID
         if !artifactID.isEmpty {
             return artifactID
         }
-        return URL(filePath: artifact.reference.locator.location.value).lastPathComponent
+        return URL(filePath: artifact.binding.circuitStudioPresentationPath).lastPathComponent
     }
 
     private func formattedByteCount(_ byteCount: UInt64) -> String {

@@ -1,4 +1,5 @@
 import DesignFlowKernel
+import CircuiteFoundation
 import Foundation
 import Xcircuite
 
@@ -54,7 +55,8 @@ extension RunReviewService {
     }
 
     func waiverEditApplicationsByReviewID(
-        from actions: [FlowRunActionRecord]
+        from actions: [FlowRunActionRecord],
+        artifacts: [FlowRunReviewArtifact]
     ) throws -> [String: [RunReviewWaiverEditApplication]] {
         var applications: [String: [RunReviewWaiverEditApplication]] = [:]
         for action in actions where action.actionKind == RunReviewWaiverEditApplication.actionKind {
@@ -68,15 +70,19 @@ extension RunReviewService {
                   action.outputs.count == 2
             else {
                 throw RunReviewServiceError.invalidArtifactReference(
-                    path: action.outputs.first?.path ?? action.inputs.last?.path ?? action.actionID,
+                    path: action.outputs.first?.id.description
+                        ?? action.inputs.last?.id.description
+                        ?? action.actionID,
                     message: "Waiver edit action has an invalid typed artifact-edit contract."
                 )
             }
             let before = action.outputs[0]
             let after = action.outputs[1]
-            guard before.locator.role == .output,
-                  after.locator.role == .output,
+            guard before.descriptor.role == .output,
+                  after.descriptor.role == .output,
                   before.digest != after.digest,
+                  try exactReviewBinding(for: before, in: artifacts).descriptor == before.descriptor,
+                  try exactReviewBinding(for: after, in: artifacts).descriptor == after.descriptor,
                   decision.targetPath == edit.proposalID,
                   decision.decision == edit.operation else {
                 throw RunReviewServiceError.invalidArtifactReference(
@@ -105,21 +111,36 @@ extension RunReviewService {
 
     func waiverEditVerificationsByReviewID(
         from actions: [FlowRunActionRecord],
-        projectRoot: URL
-    ) throws -> [String: [RunReviewWaiverEditVerification]] {
+        artifacts: [FlowRunReviewArtifact],
+        artifactReader: any XcircuiteArtifactBindingReading
+    ) async throws -> [String: [RunReviewWaiverEditVerification]] {
         var verifications: [String: [RunReviewWaiverEditVerification]] = [:]
         for action in actions where action.actionKind == RunReviewWaiverEditVerification.actionKind {
+            let outputReferences = Set(action.outputs)
+            let outputBindings = Array(Set(
+                artifacts
+                    .filter { outputReferences.contains($0.reference) }
+                    .map(\.binding)
+            ))
+            guard outputReferences.allSatisfy({ reference in
+                outputBindings.contains { $0.reference == reference }
+            }) else {
+                throw RunReviewServiceError.invalidArtifactReference(
+                    path: action.outputs.first?.id.description ?? action.actionID,
+                    message: "Waiver edit verification output availability is missing from the review bundle."
+                )
+            }
             guard let context = action.context.reviewDecision,
                   context.kind == .waiver,
                   let edit = action.context.artifactEdit,
                   context.targetPath == edit.proposalID,
                   let applicationActionID = action.context.iterationID,
-                  let verificationArtifact = action.outputs.first(where: {
-                      $0.artifactID.hasPrefix("post-waiver-edit-physical-verification-")
+                  let verificationArtifact = try uniqueBinding(in: outputBindings, where: {
+                      $0.logicalID.hasPrefix("post-waiver-edit-physical-verification-")
                   })
             else {
                 throw RunReviewServiceError.invalidArtifactReference(
-                    path: action.outputs.first?.path ?? action.actionID,
+                    path: action.outputs.first?.id.description ?? action.actionID,
                     message: "Waiver edit verification action has an invalid typed artifact-edit contract."
                 )
             }
@@ -135,17 +156,17 @@ extension RunReviewService {
                     message: "Waiver edit verification is not bound to its exact application output."
                 )
             }
-            let reportURL = projectRoot.appending(path: verificationArtifact.path)
+            let verificationPath = try verificationArtifact.requireLocalRelativePath().stringValue
             let report = try JSONDecoder().decode(
                 DesignFlowVerificationReport.self,
-                from: Data(contentsOf: reportURL)
+                from: try await artifactReader.loadArtifactContent(for: verificationArtifact)
             )
-            let layoutTrustPath = action.outputs.first(where: {
-                $0.artifactID.hasPrefix("post-waiver-edit-layout-trust-")
-            })?.path
-            let rejectedPlansPath = action.outputs.first {
-                $0.artifactID == XcircuitePlanningArtifactStore.rejectedPlansArtifactID
-            }?.path
+            let layoutTrustPath = try uniqueBinding(in: outputBindings, where: {
+                $0.logicalID.hasPrefix("post-waiver-edit-layout-trust-")
+            }).map { try $0.requireLocalRelativePath().stringValue }
+            let rejectedPlansPath = try uniqueBinding(in: outputBindings, where: {
+                $0.logicalID == XcircuitePlanningArtifactStore.rejectedPlansArtifactID
+            }).map { try $0.requireLocalRelativePath().stringValue }
             verifications[context.targetID, default: []].append(
                 RunReviewWaiverEditVerification(
                     actionRecordID: action.actionID,
@@ -154,7 +175,7 @@ extension RunReviewService {
                     waiverReviewID: context.targetID,
                     proposalID: edit.proposalID,
                     applicationActionID: applicationActionID,
-                    verificationReportPath: verificationArtifact.path,
+                    verificationReportPath: verificationPath,
                     layoutTrustReportPath: layoutTrustPath,
                     status: report.status,
                     readyForPEX: report.readyForPEX,
@@ -170,6 +191,40 @@ extension RunReviewService {
             )
         }
         return verifications
+    }
+
+    private func exactReviewBinding(
+        for reference: ArtifactReference,
+        in artifacts: [FlowRunReviewArtifact]
+    ) throws -> FlowArtifactBinding {
+        let bindings = Set(
+            artifacts
+                .filter { $0.reference == reference }
+                .map(\.binding)
+        )
+        guard bindings.count == 1, let binding = bindings.first else {
+            throw RunReviewServiceError.invalidArtifactReference(
+                path: reference.id.description,
+                message: bindings.isEmpty
+                    ? "Action artifact availability is missing from the review bundle."
+                    : "Action artifact identity resolves to multiple availability bindings."
+            )
+        }
+        return binding
+    }
+
+    private func uniqueBinding(
+        in bindings: [FlowArtifactBinding],
+        where predicate: (FlowArtifactBinding) -> Bool
+    ) throws -> FlowArtifactBinding? {
+        let matches = bindings.filter(predicate)
+        guard matches.count <= 1 else {
+            throw RunReviewServiceError.invalidArtifactReference(
+                path: matches.first?.reference.id.description ?? "unknown-artifact",
+                message: "Action output role resolves to multiple availability bindings."
+            )
+        }
+        return matches.first
     }
 
     func waiverEditVerificationReportSummary(

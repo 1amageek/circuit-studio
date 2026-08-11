@@ -1,4 +1,5 @@
 import Foundation
+import CircuiteFoundation
 
 public enum RoundTripArtifactResolverError: Error, LocalizedError, Equatable {
     case invalidRelativePath(String, String)
@@ -26,13 +27,13 @@ public struct RoundTripArtifactResolver: Sendable {
     }
 
     public func resolve(_ artifact: HeadlessRoundTripService.Artifact) throws -> RoundTripArtifactResolution {
-        guard artifact.reference.locator.location.storage == .workspaceRelative else {
+        guard case .local(_, _, let relativePath) = artifact.binding.availability else {
             throw RoundTripArtifactResolverError.invalidRelativePath(
                 artifact.path,
                 "round-trip artifacts must use a run-directory relative location"
             )
         }
-        return try resolve(path: artifact.path, kind: artifact.kind)
+        return try resolve(path: relativePath.stringValue, kind: artifact.kind)
     }
 
     public func resolve(path rawPath: String, kind: String) throws -> RoundTripArtifactResolution {

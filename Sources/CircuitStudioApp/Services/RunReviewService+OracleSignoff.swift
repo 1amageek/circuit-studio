@@ -251,7 +251,7 @@ extension RunReviewService {
         let rows = cases.flatMap { caseResult in
             (caseResult.sourceArtifactRefs + caseResult.signoffArtifactRefs).map { reference in
                 RunReviewSignoffDetailRow(
-                    label: "\(caseResult.caseID):\(reference.locator.role.rawValue)",
+                    label: "\(caseResult.caseID):\(reference.role.rawValue)",
                     metrics: artifactReferenceMetrics(reference)
                 )
             }
@@ -455,7 +455,7 @@ extension RunReviewService {
                 label: lane.domain,
                 metrics: oracleCompactMetrics([
                     ("Status", lane.status),
-                    ("Path", report.locator.location.value),
+                    ("Path", report.path),
                     ("SHA", report.digest.hexadecimalValue),
                     ("Bytes", String(report.byteCount)),
                 ])
@@ -536,11 +536,11 @@ extension RunReviewService {
     }
 
     private func artifactReferenceMetrics(
-        _ reference: ArtifactReference
+        _ reference: FlowArtifactBinding
     ) -> [RunReviewSignoffMetric] {
         oracleCompactMetrics([
             ("Artifact", reference.artifactID),
-            ("Role", reference.locator.role.rawValue),
+            ("Role", reference.role.rawValue),
             ("Path", reference.path),
             ("Kind", reference.kind.rawValue),
             ("Format", reference.format.rawValue),

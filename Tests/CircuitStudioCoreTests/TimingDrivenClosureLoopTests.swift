@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Foundation
 import STAEngine
 import Testing
@@ -94,23 +95,30 @@ struct TimingDrivenClosureLoopTests {
 
     private func request() throws -> STARequest {
         let data = Data("{}".utf8)
-        let reference = ArtifactReference(
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: "fixture.json"),
+        let reference = try ArtifactReference(
+            digest: try SHA256ContentDigester().digest(data: data, using: .sha256),
+            byteCount: UInt64(data.count),
+            descriptor: ArtifactDescriptor(
                 role: .input,
                 kind: .netlist,
                 format: .json
-            ),
-            digest: try SHA256ContentDigester().digest(data: data, using: .sha256),
-            byteCount: UInt64(data.count)
+            )
         )
-        return STARequest(
+        let binding = try TimingArtifactBinding(
+            reference: reference,
+            availability: .local(
+                artifactID: reference.id,
+                rootID: ArtifactRootID(rawValue: TimingArtifactBinding.workspaceRootIdentifier),
+                relativePath: ArtifactRelativePath(segments: ["fixture.json"])
+            )
+        )
+        return try STARequest(
             runID: "unit",
-            design: reference,
+            design: binding,
             topDesignName: "unit",
             libraries: [],
-            constraints: reference,
-            pdkManifest: reference,
+            constraints: binding,
+            pdkManifest: binding,
             processID: "test",
             pdkVersion: "1"
         )
@@ -152,7 +160,7 @@ struct TimingDrivenClosureLoopTests {
             paths = []
         }
         let timestamp = Date(timeIntervalSince1970: 1)
-        return STAExecutionResult(
+        return try STAExecutionResult(
             runID: "unit",
             status: status,
             payload: STAPayload(

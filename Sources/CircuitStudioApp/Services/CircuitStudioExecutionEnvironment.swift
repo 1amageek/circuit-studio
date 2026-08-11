@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Darwin
 import Foundation
 import SignoffToolSupport
@@ -7,7 +8,11 @@ enum CircuitStudioExecutionEnvironmentError: Error, LocalizedError, Equatable {
     case currentExecutableUnavailable
     case executableIsNotARegularFile(String)
     case executableIsNotExecutable(String)
+    case executableOpenFailed(path: String, reason: String)
     case executableMetadataUnavailable(path: String, reason: String)
+    case executableChangedDuringFingerprint(String)
+    case executableCloseFailed(path: String, reason: String)
+    case executableCleanupFailed(path: String, primary: String, closeReason: String)
     case architectureUnavailable(Int32)
     case commandLaunchFailed(executable: String, reason: String)
     case commandFailed(executable: String, status: Int32, diagnostic: String)
@@ -21,8 +26,16 @@ enum CircuitStudioExecutionEnvironmentError: Error, LocalizedError, Equatable {
             "The provenance executable is not a regular file: \(path)"
         case .executableIsNotExecutable(let path):
             "The provenance executable does not have execute permission: \(path)"
+        case .executableOpenFailed(let path, let reason):
+            "The provenance executable could not be opened at \(path): \(reason)"
         case .executableMetadataUnavailable(let path, let reason):
             "The provenance executable metadata could not be read for \(path): \(reason)"
+        case .executableChangedDuringFingerprint(let path):
+            "The provenance executable changed while it was being fingerprinted: \(path)"
+        case .executableCloseFailed(let path, let reason):
+            "The provenance executable could not be closed at \(path): \(reason)"
+        case .executableCleanupFailed(let path, let primary, let closeReason):
+            "The provenance executable fingerprint failed at \(path) with '\(primary)', and cleanup also failed: \(closeReason)"
         case .architectureUnavailable(let code):
             "The runtime architecture could not be measured with uname (errno \(code))."
         case .commandLaunchFailed(let executable, let reason):
@@ -82,36 +95,142 @@ enum CircuitStudioExecutionEnvironment {
         executableURL: URL
     ) throws -> ProducerIdentity {
         let path = executableURL.standardizedFileURL.path(percentEncoded: false)
-        var isDirectory = ObjCBool(false)
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
-              !isDirectory.boolValue else {
-            throw CircuitStudioExecutionEnvironmentError.executableIsNotARegularFile(path)
-        }
-        let resourceValues: URLResourceValues
-        do {
-            resourceValues = try executableURL.resourceValues(forKeys: [.isRegularFileKey])
-        } catch {
-            throw CircuitStudioExecutionEnvironmentError.executableMetadataUnavailable(
+        let descriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            throw CircuitStudioExecutionEnvironmentError.executableOpenFailed(
                 path: path,
-                reason: error.localizedDescription
+                reason: currentPOSIXErrorDescription()
             )
         }
-        guard resourceValues.isRegularFile == true else {
-            throw CircuitStudioExecutionEnvironmentError.executableIsNotARegularFile(path)
+
+        let measuredVersion: String
+        do {
+            let initialSnapshot = try executableSnapshot(
+                descriptor: descriptor,
+                path: path
+            )
+            guard initialSnapshot.isRegularFile else {
+                throw CircuitStudioExecutionEnvironmentError.executableIsNotARegularFile(path)
+            }
+            guard initialSnapshot.hasExecutePermission else {
+                throw CircuitStudioExecutionEnvironmentError.executableIsNotExecutable(path)
+            }
+            let digest = try executableDigest(
+                descriptor: descriptor,
+                byteCount: initialSnapshot.byteCount
+            )
+            let finalSnapshot = try executableSnapshot(
+                descriptor: descriptor,
+                path: path
+            )
+            guard finalSnapshot == initialSnapshot else {
+                throw CircuitStudioExecutionEnvironmentError.executableChangedDuringFingerprint(path)
+            }
+            measuredVersion = "sha256-\(digest.hexadecimalValue)"
+        } catch {
+            let primary = error
+            guard Darwin.close(descriptor) == 0 else {
+                throw CircuitStudioExecutionEnvironmentError.executableCleanupFailed(
+                    path: path,
+                    primary: String(describing: primary),
+                    closeReason: currentPOSIXErrorDescription()
+                )
+            }
+            throw primary
         }
-        guard FileManager.default.isExecutableFile(atPath: path) else {
-            throw CircuitStudioExecutionEnvironmentError.executableIsNotExecutable(path)
+        guard Darwin.close(descriptor) == 0 else {
+            throw CircuitStudioExecutionEnvironmentError.executableCloseFailed(
+                path: path,
+                reason: currentPOSIXErrorDescription()
+            )
         }
-        let digest = try SHA256ContentDigester()
-            .digest(fileAt: executableURL, using: .sha256)
-            .hexadecimalValue
-        let measuredVersion = "sha256-\(digest)"
         return try ProducerIdentity(
             kind: kind,
             identifier: identifier,
             version: measuredVersion,
             build: measuredVersion
         )
+    }
+
+    private static func executableSnapshot(
+        descriptor: Int32,
+        path: String
+    ) throws -> ExecutableSnapshot {
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0 else {
+            throw CircuitStudioExecutionEnvironmentError.executableMetadataUnavailable(
+                path: path,
+                reason: currentPOSIXErrorDescription()
+            )
+        }
+        guard metadata.st_size >= 0 else {
+            throw CircuitStudioExecutionEnvironmentError.executableMetadataUnavailable(
+                path: path,
+                reason: "The executable has a negative byte count."
+            )
+        }
+        return ExecutableSnapshot(metadata: metadata)
+    }
+
+    private static func executableDigest(
+        descriptor: Int32,
+        byteCount: UInt64
+    ) throws -> ContentDigest {
+        let maximumChunkByteCount: UInt64 = 1_048_576
+        let updateCount = byteCount == 0
+            ? 0
+            : (byteCount - 1) / maximumChunkByteCount + 1
+        let limits = try ContentDigestSessionLimits(
+            maximumChunkByteCount: maximumChunkByteCount,
+            maximumTotalByteCount: max(byteCount, 1),
+            maximumUpdateCount: max(updateCount, 1)
+        )
+        return try SHA256ContentDigester().digest(
+            using: .sha256,
+            limits: limits
+        ) { (lease: borrowing ContentDigestUpdateLease) throws(ContentDigestError) in
+            var offset: UInt64 = 0
+            while offset < byteCount {
+                let requestedByteCount = min(
+                    maximumChunkByteCount,
+                    byteCount - offset
+                )
+                guard requestedByteCount <= UInt64(Int.max),
+                      offset <= UInt64(Int64.max) else {
+                    throw ContentDigestError.backendUpdateFailed(
+                        reason: "The executable exceeds the platform read range."
+                    )
+                }
+                var bytes = [UInt8](
+                    repeating: 0,
+                    count: Int(requestedByteCount)
+                )
+                let readByteCount = bytes.withUnsafeMutableBytes { buffer in
+                    Darwin.pread(
+                        descriptor,
+                        buffer.baseAddress,
+                        buffer.count,
+                        off_t(offset)
+                    )
+                }
+                guard readByteCount >= 0 else {
+                    throw ContentDigestError.backendUpdateFailed(
+                        reason: currentPOSIXErrorDescription()
+                    )
+                }
+                guard readByteCount == bytes.count else {
+                    throw ContentDigestError.backendUpdateFailed(
+                        reason: "The executable produced a short read: expected \(bytes.count), received \(readByteCount)."
+                    )
+                }
+                try lease.update(bytes)
+                offset += requestedByteCount
+            }
+        }.digest
+    }
+
+    private static func currentPOSIXErrorDescription() -> String {
+        String(cString: strerror(errno))
     }
 
     private static func currentExecutableURL() throws -> URL {
@@ -194,5 +313,35 @@ enum CircuitStudioExecutionEnvironment {
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
         return normalized.isEmpty ? nil : normalized
+    }
+}
+
+private struct ExecutableSnapshot: Equatable {
+    let device: dev_t
+    let inode: ino_t
+    let byteCount: UInt64
+    let mode: mode_t
+    let modifiedSeconds: Int
+    let modifiedNanoseconds: Int
+    let changedSeconds: Int
+    let changedNanoseconds: Int
+
+    var isRegularFile: Bool {
+        mode & mode_t(S_IFMT) == mode_t(S_IFREG)
+    }
+
+    var hasExecutePermission: Bool {
+        mode & mode_t(S_IXUSR | S_IXGRP | S_IXOTH) != 0
+    }
+
+    init(metadata: stat) {
+        device = metadata.st_dev
+        inode = metadata.st_ino
+        byteCount = UInt64(metadata.st_size)
+        mode = metadata.st_mode
+        modifiedSeconds = metadata.st_mtimespec.tv_sec
+        modifiedNanoseconds = metadata.st_mtimespec.tv_nsec
+        changedSeconds = metadata.st_ctimespec.tv_sec
+        changedNanoseconds = metadata.st_ctimespec.tv_nsec
     }
 }

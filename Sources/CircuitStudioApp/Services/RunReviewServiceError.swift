@@ -33,8 +33,6 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
     case planningArtifactIntegrityUnverified(path: String, status: String, message: String)
     case signoffArtifactIntegrityUnverified(path: String, status: String, message: String)
     case invalidActionDomainSnapshot(runID: String, message: String)
-    case signoffRepairHintNotFound(runID: String)
-    case signoffRepairHintIntegrityUnverified(path: String, status: String, message: String)
     case artifactEvaluationEnvelopeIntegrityUnverified(path: String, status: String, message: String)
     case invalidArtifactReference(path: String, message: String)
 
@@ -104,10 +102,6 @@ public enum RunReviewServiceError: Error, LocalizedError, Equatable {
             "Signoff artifact integrity must be verified before projection: \(path) status=\(status) \(message)"
         case .invalidActionDomainSnapshot(let runID, let message):
             "Run \(runID) has an invalid planning action-domain snapshot: \(message)"
-        case .signoffRepairHintNotFound(let runID):
-            "Run \(runID) does not expose DRC or LVS repair hint reports for signoff repair planning."
-        case .signoffRepairHintIntegrityUnverified(let path, let status, let message):
-            "Signoff repair hint requires verified artifact integrity before planning: \(path) status=\(status) \(message)"
         case .artifactEvaluationEnvelopeIntegrityUnverified(let path, let status, let message):
             "Artifact evaluation envelope requires verified artifact integrity: \(path) status=\(status) \(message)"
         case .invalidArtifactReference(let path, let message):

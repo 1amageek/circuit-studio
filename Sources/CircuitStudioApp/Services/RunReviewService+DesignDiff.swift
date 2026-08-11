@@ -69,13 +69,13 @@ extension RunReviewService {
     }
 
     private func designDiffArtifactSummary(
-        _ reference: ArtifactReference
+        _ binding: FlowArtifactBinding
     ) -> RunReviewDesignDiffArtifactSummary {
         RunReviewDesignDiffArtifactSummary(
-            artifactID: reference.id.rawValue,
-            path: reference.path,
-            sha256: reference.digest.hexadecimalValue,
-            byteCount: reference.byteCount
+            artifactID: binding.logicalID,
+            path: binding.circuitStudioPresentationPath,
+            sha256: binding.reference.digest.hexadecimalValue,
+            byteCount: binding.reference.byteCount
         )
     }
 

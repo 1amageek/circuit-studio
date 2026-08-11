@@ -31,8 +31,6 @@ public struct FlowRunnerCommandOptions: Sendable {
         case applyWaiverEditProposal
         case runPostWaiverEditVerification
         case applyWaiverEditProposalAndRunPostVerification
-        case formulateSignoffRepairPlanningProblem
-        case runSignoffRepairCandidateCycle
         case runGoalLayoutAgent
         case scaffoldDesignSpec
 
@@ -82,10 +80,6 @@ public struct FlowRunnerCommandOptions: Sendable {
                 return .runPostWaiverEditVerification
             case .applyWaiverEditProposalAndRunPostVerification:
                 return .applyWaiverEditProposalAndRunPostVerification
-            case .formulateSignoffRepairPlanningProblem:
-                return .formulateSignoffRepairPlanningProblem
-            case .runSignoffRepairCandidateCycle:
-                return .runSignoffRepairCandidateCycle
             case .runGoalLayoutAgent:
                 return .runGoalLayoutAgent
             case .scaffoldDesignSpec:
@@ -159,14 +153,6 @@ public struct FlowRunnerCommandOptions: Sendable {
     public var waiverReviewID: String?
     public var waiverProposalID: String?
     public var actionActorKind: FlowRunActor.Kind?
-    public var drcRepairHintPath: String?
-    public var lvsRepairHintPath: String?
-    public var planningFormulationID: String?
-    public var planningIntentID: String?
-    public var planningIntent: String?
-    public var planningProblemID: String?
-    public var candidateStrategy: String?
-    public var candidateVerificationMode: String?
     public var signoffRepairHistoryAssessmentProfileURL: URL?
     public var signoffRepairHistoryMinimumRunCount: Int?
     public var signoffRepairHistoryMinimumCycleCount: Int?
@@ -243,10 +229,6 @@ public struct FlowRunnerCommandOptions: Sendable {
                 try selectMode(.runPostWaiverEditVerification)
             case "--verify-waiver-edit":
                 try selectMode(.runPostWaiverEditVerification)
-            case "--formulate-signoff-repair-planning":
-                try selectMode(.formulateSignoffRepairPlanningProblem)
-            case "--run-signoff-repair-candidate-cycle":
-                try selectMode(.runSignoffRepairCandidateCycle)
             case "--run-goal-layout-agent":
                 try selectMode(.runGoalLayoutAgent)
             case "--scaffold-design-spec":
@@ -309,22 +291,6 @@ public struct FlowRunnerCommandOptions: Sendable {
                 waiverProposalID = try Self.value(after: argument, in: arguments, index: &index)
             case "--actor-kind":
                 actionActorKind = try Self.actorKind(after: argument, in: arguments, index: &index)
-            case "--drc-repair-hints":
-                drcRepairHintPath = try Self.value(after: argument, in: arguments, index: &index)
-            case "--lvs-repair-hints":
-                lvsRepairHintPath = try Self.value(after: argument, in: arguments, index: &index)
-            case "--formulation-id":
-                planningFormulationID = try Self.value(after: argument, in: arguments, index: &index)
-            case "--intent-id":
-                planningIntentID = try Self.value(after: argument, in: arguments, index: &index)
-            case "--intent":
-                planningIntent = try Self.value(after: argument, in: arguments, index: &index)
-            case "--problem-id":
-                planningProblemID = try Self.value(after: argument, in: arguments, index: &index)
-            case "--candidate-strategy":
-                candidateStrategy = try Self.value(after: argument, in: arguments, index: &index)
-            case "--candidate-verification-mode":
-                candidateVerificationMode = try Self.value(after: argument, in: arguments, index: &index)
             case "--history-assessment-profile":
                 signoffRepairHistoryAssessmentProfileURL = URL(
                     filePath: try Self.value(after: argument, in: arguments, index: &index)
@@ -437,7 +403,7 @@ public struct FlowRunnerCommandOptions: Sendable {
         case .applyDesignEdit, .applyLayoutEdit, .runLayoutTrust, .runVerification, .approveGate, .reviewRoundTrip,
              .selectFailureSuggestedAction, .applyWaiverEditProposal, .runPostWaiverEditVerification,
              .applyWaiverEditProposalAndRunPostVerification, .runSelectedSuggestedAction,
-             .formulateSignoffRepairPlanningProblem, .runSignoffRepairCandidateCycle, .runGoalLayoutAgent:
+             .runGoalLayoutAgent:
             return outputURL?.path(percentEncoded: false)
         case .runRoundTrip, .summarizeBottlenecks, .summarizeSignoffRepairCandidateCycles,
              .assessSignoffRepairCandidateCycles:
@@ -485,14 +451,6 @@ public struct FlowRunnerCommandOptions: Sendable {
             waiverReviewID: waiverReviewID,
             waiverProposalID: waiverProposalID,
             actionActorKind: actionActorKind,
-            drcRepairHintPath: drcRepairHintPath,
-            lvsRepairHintPath: lvsRepairHintPath,
-            planningFormulationID: planningFormulationID,
-            planningIntentID: planningIntentID,
-            planningIntent: planningIntent,
-            planningProblemID: planningProblemID,
-            candidateStrategy: candidateStrategy,
-            candidateVerificationMode: candidateVerificationMode,
             signoffRepairHistoryAssessmentProfilePath:
                 signoffRepairHistoryAssessmentProfileURL?.path(percentEncoded: false),
             signoffRepairHistoryMinimumRunCount: signoffRepairHistoryMinimumRunCount,

@@ -1,5 +1,5 @@
 {
-  "originHash" : "1efe04acc45efc5b315b304dae3aa533f4d330d1c8131fadeecd46c190524e49",
+  "originHash" : "9d811fa7a28f042b959781736876c9840a5ac83ee0c565a6de64a8aae53466fa",
   "pins" : [
     {
       "identity" : "beautiful-mermaid-swift",
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/database-framework.git",
       "state" : {
-        "revision" : "cb882a4ae1819f767d8b1fe0f91b68fdebfbe9fe",
-        "version" : "26.629.0"
+        "revision" : "be27247ebe88a7e0e11fd992e97344488bca5de2",
+        "version" : "26.809.1"
       }
     },
     {
@@ -60,8 +60,17 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/database-kit.git",
       "state" : {
-        "revision" : "ef59c525196672fcddcda8eb2ea82238bf9a9911",
-        "version" : "26.629.0"
+        "revision" : "fb38c3a7f1a72de3e52190cf9e34a6ce11e551f2",
+        "version" : "26.809.4"
+      }
+    },
+    {
+      "identity" : "database-types",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/database-types.git",
+      "state" : {
+        "revision" : "4b0c81a9c322cbfa5628e411ee1fa931c2890e5d",
+        "version" : "26.730.0"
       }
     },
     {
@@ -78,8 +87,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/fdb-swift-bindings.git",
       "state" : {
-        "revision" : "cfa638d6801ebf1853278b5884564949c40be4fa",
-        "version" : "0.1.0"
+        "revision" : "47e6b4215d331661e5cf030eac4ff206c932d6bf",
+        "version" : "0.3.3"
       }
     },
     {
@@ -113,17 +122,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/storage-kit.git",
       "state" : {
-        "revision" : "40256cca471a64435d61248f30b80d659dcd3feb",
-        "version" : "26.629.0"
-      }
-    },
-    {
-      "identity" : "swift-argument-parser",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-argument-parser.git",
-      "state" : {
-        "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
-        "version" : "1.8.2"
+        "revision" : "8ee5376c3df7526ed21921a3e3d418fc5150a51f",
+        "version" : "26.807.0"
       }
     },
     {
@@ -181,15 +181,6 @@
       }
     },
     {
-      "identity" : "swift-configuration",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-configuration.git",
-      "state" : {
-        "revision" : "be76c4ad929eb6c4bcaf3351799f2adf9e6848a9",
-        "version" : "1.2.0"
-      }
-    },
-    {
       "identity" : "swift-crypto",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",
@@ -203,8 +194,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/swift-hnsw.git",
       "state" : {
-        "revision" : "aa00e8b4fe494003a33d835b31293861b7862095",
-        "version" : "1.0.0"
+        "revision" : "e427a41eeb6a8190b188ebb695694ba719f3e0e8",
+        "version" : "1.1.4"
       }
     },
     {
@@ -293,8 +284,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-syntax.git",
       "state" : {
-        "revision" : "4799286537280063c85a32f09884cfbca301b1a1",
-        "version" : "602.0.0"
+        "revision" : "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1",
+        "version" : "603.0.2"
       }
     },
     {
@@ -304,15 +295,6 @@
       "state" : {
         "revision" : "b5544ba79a70a0cb3563e75bf26dc198d6b40ed3",
         "version" : "1.7.4"
-      }
-    },
-    {
-      "identity" : "swift-yaml",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/1amageek/swift-yaml.git",
-      "state" : {
-        "revision" : "8a33d36bca390d9518d5f7e483cbbaa011da5f76",
-        "version" : "1.0.1"
       }
     },
     {

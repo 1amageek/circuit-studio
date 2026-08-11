@@ -18,7 +18,7 @@ struct RunReviewServiceTests {
         let toolchainPath = ".xcircuite/runs/run-toolchain/toolchain.json"
         let profilePath = ".xcircuite/runs/run-toolchain/toolchain-profile.json"
         let toolchainArtifact = FlowRunReviewArtifact(
-            reference: try RunReviewTestSupport.artifactReference(
+            binding: try RunReviewTestSupport.artifactBinding(
                 artifactID: "toolchain-manifest",
                 path: toolchainPath
             ),
@@ -29,7 +29,7 @@ struct RunReviewServiceTests {
             )
         )
         let profileArtifact = FlowRunReviewArtifact(
-            reference: try RunReviewTestSupport.artifactReference(
+            binding: try RunReviewTestSupport.artifactBinding(
                 artifactID: "flow-toolchain-profile",
                 path: profilePath
             ),
@@ -69,7 +69,7 @@ struct RunReviewServiceTests {
         #expect(projection.summary?.profileID == "sky130-signoff")
         #expect(projection.summary?.pdkID == "sky130")
         #expect(projection.summary?.technologyCatalogID == "sky130-catalog")
-        #expect(projection.artifacts.map(\.reference.locator.location.value) == [toolchainPath, profilePath])
+        #expect(try projection.artifacts.map { try $0.binding.requireLocalRelativePath().stringValue } == [toolchainPath, profilePath])
         #expect(projection.hasUnverifiedArtifacts)
     }
 
@@ -120,7 +120,7 @@ struct RunReviewServiceTests {
             RunReviewPassingExecutor(
                 stageID: "001-drc",
                 artifacts: [
-                    try RunReviewTestSupport.artifactReference(
+                    try RunReviewTestSupport.artifactBinding(
                         artifactID: "drc-summary",
                         path: summaryPath,
                         kind: .report,
@@ -157,12 +157,12 @@ struct RunReviewServiceTests {
         })
         #expect(review.bundle.artifacts.contains {
             $0.purpose.rawValue == "stage-result"
-                && $0.reference.locator.location.value == ".xcircuite/runs/run-review/stages/001-drc/result.json"
+                && $0.binding.circuitStudioPresentationPath == ".xcircuite/runs/run-review/stages/001-drc/result.json"
         })
         #expect(review.bundle.artifacts.contains {
             $0.purpose.rawValue == "stage-summary"
-                && $0.reference.id.rawValue == "drc-summary"
-                && $0.reference.locator.location.value == summaryPath
+                && $0.binding.logicalID == "drc-summary"
+                && $0.binding.circuitStudioPresentationPath == summaryPath
                 && $0.integrity?.status == .verified
                 && $0.integrity?.actualByteCount == UInt64(summaryPayload.count)
         })
@@ -237,35 +237,35 @@ struct RunReviewServiceTests {
         let planningPayload = Data(#"{"schemaVersion":1,"planID":"plan-1","steps":[]}"#.utf8)
         let retainedPayload = Data(#"{"schemaVersion":1,"status":"failed","failures":[{"code":"retained_ci_regression_budget_evidence_stale"}]}"#.utf8)
         let waiverPayload = Data(#"{"schemaVersion":1,"waiverID":"waiver-1","status":"accepted"}"#.utf8)
-        let summaryReference = try RunReviewTestSupport.artifactReference(
+        let summaryBinding = try RunReviewTestSupport.artifactBinding(
             artifactID: "drc-summary",
             path: summaryPath,
             payload: summaryPayload,
             kind: .report,
             format: .json
         )
-        let ladderReference = try RunReviewTestSupport.artifactReference(
+        let ladderBinding = try RunReviewTestSupport.artifactBinding(
             artifactID: "review-stage-artifact-ladder",
             path: ladderPath,
             payload: ladderPayload,
             kind: .other,
             format: .json
         )
-        let planningReference = try RunReviewTestSupport.artifactReference(
+        let planningBinding = try RunReviewTestSupport.artifactBinding(
             artifactID: "planning-candidate-plan",
             path: planningPath,
             payload: planningPayload,
             kind: .other,
             format: .json
         )
-        let retainedReference = try RunReviewTestSupport.artifactReference(
+        let retainedBinding = try RunReviewTestSupport.artifactBinding(
             artifactID: "retained-ci-regression-budget",
             path: retainedPath,
             payload: retainedPayload,
             kind: .other,
             format: .json
         )
-        let waiverRef = try RunReviewTestSupport.artifactReference(
+        let waiverBinding = try RunReviewTestSupport.artifactBinding(
             artifactID: "waiver-review",
             path: waiverPath,
             payload: waiverPayload,
@@ -286,13 +286,13 @@ struct RunReviewServiceTests {
             executors: [
                 RunReviewPassingExecutor(
                     stageID: stageID,
-                    artifacts: [summaryReference],
+                    artifacts: [summaryBinding],
                     artifactPayloads: [summaryPath: summaryPayload]
                 ),
             ],
             artifactPreparer: RunReviewArtifactPreparer(
                 workspaceStore: try XcircuiteWorkspaceStore(projectRoot: root),
-                artifacts: [ladderReference, planningReference, retainedReference, waiverRef],
+                artifacts: [ladderBinding, planningBinding, retainedBinding, waiverBinding],
                 artifactPayloads: [
                     ladderPath: ladderPayload,
                     planningPath: planningPayload,
@@ -324,7 +324,7 @@ struct RunReviewServiceTests {
                 targetID: "waiver-1",
                 targetPath: waiverPath,
                 reason: "Reviewed waiver is accepted.",
-                outputs: [waiverRef]
+                outputs: [waiverBinding.reference]
             )
         )
         try await store.appendReviewDecisionAction(
@@ -342,13 +342,13 @@ struct RunReviewServiceTests {
         let review = try await service.loadRun(runID: runID, projectRoot: root)
         #expect(review.flowReview.hasContent)
         #expect(review.flowReview.signoffLadderArtifacts.contains {
-            $0.purpose.rawValue == "stage-artifact-ladder" && $0.reference.locator.location.value == ladderPath
+            $0.purpose.rawValue == "stage-artifact-ladder" && $0.binding.circuitStudioPresentationPath == ladderPath
         })
         #expect(review.flowReview.planningArtifacts.contains {
-            $0.purpose.rawValue == "planning-candidate-plan" && $0.reference.locator.location.value == planningPath
+            $0.purpose.rawValue == "planning-candidate-plan" && $0.binding.circuitStudioPresentationPath == planningPath
         })
         #expect(review.flowReview.retainedHistoryArtifacts.contains {
-            $0.purpose.rawValue == "retained-ci-regression-budget" && $0.reference.locator.location.value == retainedPath
+            $0.purpose.rawValue == "retained-ci-regression-budget" && $0.binding.circuitStudioPresentationPath == retainedPath
         })
         #expect(review.flowReview.approvalActions.map(\.decision) == ["approved"])
         #expect(review.flowReview.waiverActions.map(\.targetID) == ["waiver-1"])
@@ -387,36 +387,36 @@ struct RunReviewServiceTests {
         #expect(review.retainedDashboard.decisionSummaries.map(\.targetID).contains(runID))
         #expect(review.retainedDashboard.diagnosticCodes.contains("retained_ci_regression_budget_evidence_stale"))
 
-        let dashboardRef = try await service.persistRetainedDashboardProjection(
+        let dashboardBinding = try await service.persistRetainedDashboardProjection(
             runID: runID,
             projectRoot: root
         )
-        #expect(dashboardRef.artifactID.hasPrefix("retained-dashboard-projection-"))
-        #expect(dashboardRef.path.hasPrefix(".xcircuite/runs/\(runID)/review/retained-dashboard/"))
-        #expect(dashboardRef.path.hasSuffix(".json"))
-        #expect(!dashboardRef.digest.hexadecimalValue.isEmpty)
-        #expect(dashboardRef.byteCount > 0)
+        #expect(dashboardBinding.artifactID.hasPrefix("retained-dashboard-projection-"))
+        #expect(dashboardBinding.path.hasPrefix(".xcircuite/runs/\(runID)/review/retained-dashboard/"))
+        #expect(dashboardBinding.path.hasSuffix(".json"))
+        #expect(!dashboardBinding.digest.hexadecimalValue.isEmpty)
+        #expect(dashboardBinding.byteCount > 0)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let persistedProjection = try decoder.decode(
             RunReviewRetainedDashboardProjection.self,
-            from: Data(contentsOf: root.appending(path: dashboardRef.path))
+            from: Data(contentsOf: root.appending(path: dashboardBinding.path))
         )
         #expect(persistedProjection.status == .needsRepair)
         #expect(persistedProjection.artifactStates.contains { $0.path == retainedPath })
         let updatedLedger = try await store.loadRunLedger(runID: runID)
         #expect(!updatedLedger.runManifest.artifacts.contains {
-            $0.path == dashboardRef.path
+            $0.path == dashboardBinding.path
         })
         #expect(updatedLedger.actions.contains {
             $0.actionKind == "review.persist-retained-dashboard"
-                && $0.outputs == [dashboardRef]
+                && $0.outputs == [dashboardBinding.reference]
         })
-        let repeatedDashboardRef = try await service.persistRetainedDashboardProjection(
+        let repeatedDashboardBinding = try await service.persistRetainedDashboardProjection(
             runID: runID,
             projectRoot: root
         )
-        #expect(repeatedDashboardRef == dashboardRef)
+        #expect(repeatedDashboardBinding == dashboardBinding)
         let repeatedLedger = try await store.loadRunLedger(runID: runID)
         #expect(repeatedLedger.actions.filter {
             $0.actionKind == "review.persist-retained-dashboard"
@@ -433,7 +433,7 @@ struct RunReviewServiceTests {
         let stageID = "001-plan"
         let planningPath = ".xcircuite/runs/\(runID)/planning/candidate-plan.json"
         let planningPayload = Data(#"{"schemaVersion":1,"planID":"plan-1","steps":[]}"#.utf8)
-        let planningReference = try RunReviewTestSupport.artifactReference(
+        let planningBinding = try RunReviewTestSupport.artifactBinding(
             artifactID: "planning-candidate-plan",
             path: planningPath,
             payload: planningPayload,
@@ -456,7 +456,7 @@ struct RunReviewServiceTests {
             ],
             artifactPreparer: RunReviewArtifactPreparer(
                 workspaceStore: try XcircuiteWorkspaceStore(projectRoot: root),
-                artifacts: [planningReference],
+                artifacts: [planningBinding],
                 artifactPayloads: [planningPath: planningPayload]
             )
         )
@@ -465,9 +465,9 @@ struct RunReviewServiceTests {
             .write(to: root.appending(path: planningPath), options: .atomic)
 
         let review = try await RunReviewService().loadRun(runID: runID, projectRoot: root)
-        #expect(!review.flowReview.planningArtifacts.contains { $0.reference.locator.location.value == planningPath })
+        #expect(!review.flowReview.planningArtifacts.contains { $0.binding.circuitStudioPresentationPath == planningPath })
         #expect(review.flowReview.integrityIssueArtifacts.contains {
-            $0.reference.locator.location.value == planningPath && $0.integrity?.status == .sha256Mismatch
+            $0.binding.circuitStudioPresentationPath == planningPath && $0.integrity?.status == .sha256Mismatch
         })
         let planningDomain = try #require(review.flowReview.coverageDomains.first {
             $0.domain == "planning"
@@ -562,19 +562,19 @@ struct RunReviewServiceTests {
                 RunReviewPassingExecutor(
                     stageID: stageID,
                     artifacts: [
-                        try RunReviewTestSupport.artifactReference(
+                        try RunReviewTestSupport.artifactBinding(
                             artifactID: "missing-report",
                             path: missingPath,
                             kind: .report,
                             format: .json
                         ),
-                        try RunReviewTestSupport.artifactReference(
+                        try RunReviewTestSupport.artifactBinding(
                             artifactID: "mismatch-report",
                             path: mismatchPath,
                             kind: .report,
                             format: .json
                         ),
-                        try RunReviewTestSupport.artifactReference(
+                        try RunReviewTestSupport.artifactBinding(
                             artifactID: "stale-report",
                             path: stalePath,
                             kind: .report,
@@ -697,7 +697,7 @@ struct RunReviewServiceTests {
                 RunReviewPassingExecutor(
                     stageID: stageID,
                     artifacts: [
-                        try RunReviewTestSupport.artifactReference(
+                        try RunReviewTestSupport.artifactBinding(
                             artifactID: "design-spec",
                             path: designSpecPath,
                             kind: .other,
@@ -723,7 +723,7 @@ struct RunReviewServiceTests {
         // already-succeeded run lifecycle or replaying its stage evidence.
         let store = try XcircuiteWorkspaceStore(projectRoot: root)
         var ledger = try await store.loadRunLedger(runID: runID)
-        let missingLayoutArtifact = try RunReviewTestSupport.artifactReference(
+        let missingLayoutArtifact = try RunReviewTestSupport.artifactBinding(
             artifactID: "layout-document",
             path: layoutDocumentPath,
             kind: .layout,

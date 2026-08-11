@@ -21,12 +21,12 @@ struct RunReviewDesignEvidenceTests {
 
         let schematic = try #require(evidence.schematic)
         #expect(schematic.sourceKind == .designSpec)
-        #expect(schematic.artifact.reference.locator.location.value == fixture.designSpecPath)
+        #expect(try schematic.artifact.binding.requireLocalRelativePath().stringValue == fixture.designSpecPath)
         #expect(!schematic.document.components.isEmpty)
         #expect(!schematic.document.wires.isEmpty)
 
         let layout = try #require(evidence.layout)
-        #expect(layout.artifact.reference.locator.location.value == fixture.layoutDocumentPath)
+        #expect(try layout.artifact.binding.requireLocalRelativePath().stringValue == fixture.layoutDocumentPath)
         #expect(!layout.document.cells.isEmpty)
         #expect(layout.document.cells.contains { !$0.shapes.isEmpty })
 
@@ -44,7 +44,7 @@ struct RunReviewDesignEvidenceTests {
             "\(index),\(index.isMultiple(of: 2) ? 0 : 1)"
         }
         let data = Data((["time,V(out)"] + rows).joined(separator: "\n").utf8)
-        let reference = try RunReviewTestSupport.artifactReference(
+        let binding = try RunReviewTestSupport.artifactBinding(
             artifactID: "analysis-waveform",
             path: path,
             payload: data,
@@ -52,7 +52,7 @@ struct RunReviewDesignEvidenceTests {
             format: .csv
         )
         let fixture = try await RunReviewSignoffFixture.make(
-            additionalArtifacts: [reference],
+            additionalArtifacts: [binding],
             additionalArtifactPayloads: [path: data]
         )
         defer { RunReviewTestSupport.removeTemporaryRoot(fixture.root) }
@@ -68,7 +68,7 @@ struct RunReviewDesignEvidenceTests {
             projectRoot: fixture.root
         )
         let waveform = try #require(evidence.waveforms.first {
-            $0.artifact.reference.id.rawValue == "analysis-waveform"
+            $0.artifact.binding.logicalID == "analysis-waveform"
         })
         let signal = try #require(waveform.preview.signals.first)
 

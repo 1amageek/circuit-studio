@@ -3,6 +3,7 @@ import Foundation
 public enum ActivityStoreError: Error, LocalizedError, Equatable, Sendable {
     case immutableConflict(id: String)
     case invalidStoredRecord(id: String, reason: String)
+    case numericValueOutOfRange(field: String, value: String)
     case invalidJSON(field: String, reason: String)
     case databaseUnavailable
     case databasePathCreationFailed(String)
@@ -14,6 +15,8 @@ public enum ActivityStoreError: Error, LocalizedError, Equatable, Sendable {
             return "Activity record '\(id)' already exists with different content."
         case .invalidStoredRecord(let id, let reason):
             return "Activity record '\(id)' is invalid: \(reason)"
+        case .numericValueOutOfRange(let field, let value):
+            return "Activity field '\(field)' value '\(value)' is outside its persisted numeric range."
         case .invalidJSON(let field, let reason):
             return "Activity field '\(field)' contains invalid JSON: \(reason)"
         case .databaseUnavailable:

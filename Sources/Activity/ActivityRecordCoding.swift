@@ -26,6 +26,24 @@ extension ActivityRecord {
     }
 
     init(activity: Activity) throws {
+        guard let sourceRevision = Int64(exactly: activity.sourceRevision) else {
+            throw ActivityStoreError.numericValueOutOfRange(
+                field: "sourceRevision",
+                value: String(activity.sourceRevision)
+            )
+        }
+        guard let omittedArtifactCount = Int64(exactly: activity.omittedArtifactCount) else {
+            throw ActivityStoreError.numericValueOutOfRange(
+                field: "omittedArtifactCount",
+                value: String(activity.omittedArtifactCount)
+            )
+        }
+        guard let omittedDiagnosticCount = Int64(exactly: activity.omittedDiagnosticCount) else {
+            throw ActivityStoreError.numericValueOutOfRange(
+                field: "omittedDiagnosticCount",
+                value: String(activity.omittedDiagnosticCount)
+            )
+        }
         self.init(
             id: activity.id,
             projectID: activity.projectID,
@@ -33,7 +51,7 @@ extension ActivityRecord {
             parentOperationID: activity.parentOperationID ?? "",
             sourceKind: activity.sourceKind.rawValue,
             sourceID: activity.sourceID,
-            sourceRevision: activity.sourceRevision,
+            sourceRevision: sourceRevision,
             runID: activity.runID ?? "",
             stageID: activity.stageID ?? "",
             actorKind: activity.actorKind.rawValue,
@@ -44,9 +62,9 @@ extension ActivityRecord {
             summary: activity.summary,
             commandJSON: try Self.encode(activity.command, field: "commandJSON"),
             artifactsJSON: try Self.encode(activity.artifacts, field: "artifactsJSON"),
-            omittedArtifactCount: activity.omittedArtifactCount,
+            omittedArtifactCount: omittedArtifactCount,
             diagnosticsJSON: try Self.encode(activity.diagnostics, field: "diagnosticsJSON"),
-            omittedDiagnosticCount: activity.omittedDiagnosticCount,
+            omittedDiagnosticCount: omittedDiagnosticCount,
             occurredAt: activity.occurredAt,
             indexedAt: activity.indexedAt
         )
@@ -69,6 +87,24 @@ extension ActivityRecord {
             throw ActivityStoreError.invalidStoredRecord(
                 id: id,
                 reason: "unknown status '\(status)'"
+            )
+        }
+        guard let sourceRevision = Int(exactly: sourceRevision) else {
+            throw ActivityStoreError.numericValueOutOfRange(
+                field: "sourceRevision",
+                value: String(self.sourceRevision)
+            )
+        }
+        guard let omittedArtifactCount = Int(exactly: omittedArtifactCount) else {
+            throw ActivityStoreError.numericValueOutOfRange(
+                field: "omittedArtifactCount",
+                value: String(self.omittedArtifactCount)
+            )
+        }
+        guard let omittedDiagnosticCount = Int(exactly: omittedDiagnosticCount) else {
+            throw ActivityStoreError.numericValueOutOfRange(
+                field: "omittedDiagnosticCount",
+                value: String(self.omittedDiagnosticCount)
             )
         }
 

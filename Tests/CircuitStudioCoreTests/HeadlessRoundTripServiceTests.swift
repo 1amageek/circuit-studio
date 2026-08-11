@@ -1,6 +1,7 @@
 import PEXEngine
 import CircuitSignoff
 import CircuiteFoundation
+import CircuiteFoundationFileSystem
 import Foundation
 import Testing
 import LayoutCore
@@ -699,7 +700,7 @@ struct HeadlessRoundTripServiceTests {
         #expect(canonicalLedger.stages.first {
             $0.stageID == "input-artifact-capture"
         }?.status == .failed)
-        #expect(canonicalLedger.evidence?.artifacts == canonicalLedger.artifacts)
+        #expect(canonicalLedger.evidence?.artifacts == canonicalLedger.artifacts.map(\.reference))
         #expect(canonicalLedger.evidence?.provenance.environment != nil)
     }
 
@@ -812,7 +813,7 @@ struct HeadlessRoundTripServiceTests {
             $0.kind == "external-signoff-review"
                 && $0.sourcePath?.hasSuffix(".xcircuite/signoff/external-signoff-review.json") == true
                 && $0.path.contains("generated-artifacts/signoff/")
-                && $0.reference.locator.role == .output
+                && $0.binding.role == .output
         })
         #expect(manifest.artifacts.contains {
             $0.kind == "pre-layout-simulation-report"
@@ -856,11 +857,11 @@ struct HeadlessRoundTripServiceTests {
             .loadRunLedger(runID: "pre-pex-failure")
         #expect(canonicalLedger.runManifest.status == .failed)
         #expect(canonicalLedger.artifacts.contains {
-            $0.path.contains("external-signoff") && $0.locator.role == .output
+            $0.availabilityDescription.contains("external-signoff") && $0.role == .output
         })
         #expect(canonicalLedger.evidence?.provenance.inputs == canonicalLedger.artifacts.filter {
-            $0.locator.role == .input
-        })
+            $0.role == .input
+        }.map(\.reference))
         #expect(canonicalLedger.stages.first { $0.stageID == "external-signoff" }?.artifacts.isEmpty == false)
         #expect(canonicalLedger.toolchain?.stages.count == canonicalLedger.stages.count)
         let provenance = try #require(canonicalLedger.evidence?.provenance)
@@ -1313,11 +1314,16 @@ struct HeadlessRoundTripServiceTests {
             $0.kind == "external-signoff-review"
                 && $0.sourcePath?.hasSuffix(".xcircuite/signoff/external-signoff-review.json") == true
                 && $0.path.contains("generated-artifacts/signoff/")
-                && $0.reference.locator.role == .output
+                && $0.binding.role == .output
         })
         for artifact in result.manifest.artifacts {
             let integrity = LocalArtifactVerifier().verify(
                 artifact.reference,
+                at: try ArtifactReference.circuitStudioLocator(
+                    kind: artifact.kind,
+                    relativePath: artifact.path,
+                    role: artifact.binding.role
+                ),
                 relativeTo: result.manifestURL.deletingLastPathComponent()
             )
             #expect(integrity.isVerified)
@@ -1360,13 +1366,13 @@ struct HeadlessRoundTripServiceTests {
         let canonicalLedger = try await canonicalStore.loadRunLedger(runID: result.manifest.runID)
         #expect(!canonicalLedger.stages.isEmpty)
         #expect(canonicalLedger.stages.allSatisfy { $0.status == .succeeded })
-        #expect(canonicalLedger.evidence?.artifacts == canonicalLedger.artifacts)
+        #expect(canonicalLedger.evidence?.artifacts == canonicalLedger.artifacts.map(\.reference))
         #expect(canonicalLedger.artifacts.contains {
-            $0.path.contains("external-signoff") && $0.locator.role == .output
+            $0.availabilityDescription.contains("external-signoff") && $0.role == .output
         })
         #expect(canonicalLedger.evidence?.provenance.inputs == canonicalLedger.artifacts.filter {
-            $0.locator.role == .input
-        })
+            $0.role == .input
+        }.map(\.reference))
         #expect(canonicalLedger.toolchain?.stages.count == canonicalLedger.stages.count)
         #expect(canonicalLedger.evidence?.provenance.environment != nil)
 

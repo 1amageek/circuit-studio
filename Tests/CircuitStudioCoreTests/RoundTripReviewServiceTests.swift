@@ -1,5 +1,6 @@
 import CircuitSignoff
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Foundation
 import DesignFlowKernel
 import Testing
@@ -323,8 +324,8 @@ struct RoundTripReviewServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     func escapingReviewArtifactCannotBeRepresented() {
-        #expect(throws: ArtifactLocationError.self) {
-            _ = try ArtifactLocation(workspaceRelativePath: "../outside-comparison.json")
+        #expect(throws: ArtifactRelativePathError.self) {
+            _ = try ArtifactRelativePath(segments: ["..", "outside-comparison.json"])
         }
     }
 
@@ -359,17 +360,26 @@ struct RoundTripReviewServiceTests {
             signoffURL: signoffURL
         )
         let comparisonData = try Data(contentsOf: externalComparisonURL)
-        let maliciousLocator = ArtifactLocator(
-            location: try ArtifactLocation(workspaceRelativePath: linkedComparisonURL.lastPathComponent),
+        let descriptor = ArtifactDescriptor(
             role: .output,
             kind: try ArtifactKind(rawValue: "post-layout-comparison"),
             format: .json
         )
-        let maliciousReference = ArtifactReference(
-            id: try ArtifactID(rawValue: "post-layout-comparison-linked"),
-            locator: maliciousLocator,
+        let maliciousReference = try ArtifactReference(
             digest: try SHA256ContentDigester().digest(data: comparisonData, using: .sha256),
-            byteCount: UInt64(comparisonData.count)
+            byteCount: UInt64(comparisonData.count),
+            descriptor: descriptor
+        )
+        let maliciousBinding = try FlowArtifactBinding(
+            logicalID: "post-layout-comparison-linked",
+            reference: maliciousReference,
+            availability: .local(
+                artifactID: maliciousReference.id,
+                rootID: ArtifactRootID(rawValue: "circuit-studio-run-directory"),
+                relativePath: try ArtifactRelativePath(
+                    segments: [linkedComparisonURL.lastPathComponent]
+                )
+            )
         )
         let manifest = HeadlessRoundTripService.Manifest(
             runID: baseManifest.runID,
@@ -380,7 +390,7 @@ struct RoundTripReviewServiceTests {
             stages: baseManifest.stages,
             artifacts: [
                 baseManifest.artifacts[0],
-                HeadlessRoundTripService.Artifact(reference: maliciousReference),
+                HeadlessRoundTripService.Artifact(binding: maliciousBinding),
             ],
             bottleneckSummary: baseManifest.bottleneckSummary
         )
@@ -394,52 +404,12 @@ struct RoundTripReviewServiceTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func absoluteArtifactPathIsDiagnosticAndIsNotRead() async throws {
-        let root = try makeTemporaryRoot("review-absolute-artifact")
-        defer { removeTemporaryRoot(root) }
-
-        let runDirectory = root
-            .appending(path: ".xcircuite")
-            .appending(path: "runs")
-            .appending(path: "review-run")
-        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
-
-        let comparisonURL = runDirectory.appending(path: "post-layout-comparison.json")
-        try writeJSON(makeComparisonReport(), to: comparisonURL)
-
-        let signoffURL = runDirectory.appending(path: "external-signoff-review.json")
-        try writeJSON(makeApprovedSignoffReview(), to: signoffURL)
-
-        let manifestURL = runDirectory.appending(path: "round-trip-manifest.json")
-        var manifest = try makeManifest(comparisonURL: comparisonURL, signoffURL: signoffURL)
-        let absoluteLocator = ArtifactLocator(
-            location: try ArtifactLocation(fileURL: comparisonURL),
-            role: .output,
-            kind: try ArtifactKind(rawValue: "post-layout-comparison"),
-            format: .json
-        )
-        let absoluteReference = try LocalArtifactReferencer().reference(absoluteLocator)
-        manifest = HeadlessRoundTripService.Manifest(
-            runID: manifest.runID,
-            title: manifest.title,
-            createdAt: manifest.createdAt,
-            isRoundTripComplete: manifest.isRoundTripComplete,
-            isReadyForPEX: manifest.isReadyForPEX,
-            stages: manifest.stages,
-            artifacts: [
-                manifest.artifacts[0],
-                HeadlessRoundTripService.Artifact(reference: absoluteReference),
-            ],
-            bottleneckSummary: manifest.bottleneckSummary
-        )
-        try writeJSON(manifest, to: manifestURL)
-
-        let summary = try await RoundTripReviewService().loadReview(manifestURL: manifestURL)
-
-        #expect(summary.status == .incomplete)
-        #expect(summary.postLayoutComparison == nil)
-        #expect(summary.diagnostics.contains { $0.contains("absolute") })
-        #expect(summary.warnings.isEmpty)
+    func absoluteArtifactPathCannotBeRepresented() {
+        #expect(throws: ArtifactRelativePathError.self) {
+            _ = try ArtifactRelativePath(
+                segments: ["", "tmp", "post-layout-comparison.json"]
+            )
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -611,14 +581,14 @@ struct RoundTripReviewServiceTests {
         sourcePath: String? = nil
     ) throws -> HeadlessRoundTripService.Artifact {
         let path = url.lastPathComponent
-        let reference = try ArtifactReference.circuitStudioReference(
-            id: "\(kind)-\(path)",
+        let binding = try FlowArtifactBinding.circuitStudioBinding(
+            logicalID: "\(kind)-\(path)",
             kind: kind,
             relativePath: path,
             fileURL: url
         )
         return HeadlessRoundTripService.Artifact(
-            reference: reference,
+            binding: binding,
             sourcePath: sourcePath
         )
     }

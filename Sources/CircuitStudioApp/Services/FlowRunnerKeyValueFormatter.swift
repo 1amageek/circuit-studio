@@ -197,8 +197,8 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("stage=\(result.approvalRecord?.stageID ?? "")")
             lines.append("reviewer=\(result.approvalRecord?.reviewer ?? "")")
             lines.append("run_id=\(result.approvalRecord?.runID ?? "")")
-            lines.append("plan_artifact=\(result.approvalRecord?.evidence.plan.id.rawValue ?? "")")
-            lines.append("stage_result_artifact=\(result.approvalRecord?.evidence.stageResult.id.rawValue ?? "")")
+            lines.append("plan_artifact=\(result.approvalRecord?.evidence.plan.logicalID ?? "")")
+            lines.append("stage_result_artifact=\(result.approvalRecord?.evidence.stageResult.logicalID ?? "")")
         case .reviewRoundTrip:
             appendRoundTripReview(result: result, to: &lines)
         case .selectFailureSuggestedAction:
@@ -250,76 +250,6 @@ public enum FlowRunnerKeyValueFormatter {
             lines.append("application_action_id=\(actionRecordIDs.first ?? "")")
             lines.append("verification_action_id=\(actionRecordIDs.dropFirst().first ?? "")")
             lines.append("action_id=\(lastActionRecordID(from: result) ?? result.message ?? "")")
-        case .formulateSignoffRepairPlanningProblem:
-            lines.append("signoff_repair_planning=generated")
-            lines.append("run_id=\(result.runID ?? "")")
-            lines.append("project_root=\(result.projectRootPath ?? "")")
-            lines.append("actions=\(result.actionLogPath ?? "")")
-            lines.append("action_id=\(firstActionRecordID(from: result) ?? result.message ?? "")")
-            lines.append("formulation_id=\(result.signoffRepairPlanningResult?.formulationID ?? "")")
-            lines.append("problem_id=\(result.signoffRepairPlanningResult?.problemID ?? "")")
-            lines.append("action_domain=\(result.actionDomainPath ?? "")")
-            lines.append("repair_formulation=\(result.repairFormulationPath ?? "")")
-            lines.append("planning_problem=\(result.planningProblemPath ?? "")")
-            lines.append("drc_repair_hints=\(result.signoffRepairPlanningResult?.drcRepairHintPath ?? "")")
-            lines.append("lvs_repair_hints=\(result.signoffRepairPlanningResult?.lvsRepairHintPath ?? "")")
-            lines.append("source_report_count=\(result.signoffRepairPlanningResult?.sourceReports.count ?? 0)")
-        case .runSignoffRepairCandidateCycle:
-            let cycle = result.signoffRepairCandidateCycleResult
-            lines.append("signoff_repair_candidate_cycle=\(cycle?.candidateVerification.status ?? "")")
-            lines.append("run_id=\(result.runID ?? "")")
-            lines.append("project_root=\(result.projectRootPath ?? "")")
-            lines.append("actions=\(result.actionLogPath ?? "")")
-            lines.append("cycle_action_id=\(cycle?.cycleActionRecord.actionID ?? actionRecordID(from: result, at: 3) ?? "")")
-            lines.append("planning_action_id=\(cycle?.planningResult.actionRecord.actionID ?? actionRecordID(from: result, at: 0) ?? "")")
-            lines.append("cycle_index=\(cycle?.cycleIndex ?? 0)")
-            lines.append("strategy=\(cycle?.strategy ?? "")")
-            lines.append("verification_mode=\(cycle?.verificationMode ?? "")")
-            lines.append("formulation_id=\(cycle?.planningResult.formulationID ?? "")")
-            lines.append("problem_id=\(cycle?.planningResult.problemID ?? "")")
-            lines.append("plan_id=\(cycle?.candidateGeneration.planID ?? "")")
-            lines.append("generation_status=\(cycle?.candidateGeneration.status ?? "")")
-            lines.append("execution_status=\(cycle?.candidateExecution.status ?? "")")
-            lines.append("verification_status=\(cycle?.candidateVerification.status ?? "")")
-            lines.append("accepted=\(result.candidateAccepted ?? false)")
-            lines.append("feedback_rejected_plans=\(cycle?.candidateGeneration.symbolicPlannerTrace?.rejectedPlansPath ?? "")")
-            lines.append(
-                "rejected_feedback_count=\(cycle?.candidateGeneration.symbolicPlannerTrace?.rejectedPlanFeedbackRecordCount ?? 0)"
-            )
-            lines.append(
-                "global_rejected_feedback_count=\(cycle?.candidateGeneration.symbolicPlannerTrace?.globalRejectedPlanFeedbackCount ?? 0)"
-            )
-            lines.append(
-                "selected_actions=\(cycle?.candidateGeneration.symbolicPlannerTrace?.selectedActionIDs.joined(separator: ",") ?? "")"
-            )
-            lines.append(
-                "selected_action_domains=\(selectedActionDomainIDs(from: cycle).joined(separator: ","))"
-            )
-            lines.append(
-                "feedback_penalized_actions=\(feedbackPenalizedActionIDs(from: cycle).joined(separator: ","))"
-            )
-            lines.append(
-                "feedback_penalty_terms=\(feedbackPenaltyTerms(from: cycle).joined(separator: ","))"
-            )
-            lines.append(
-                "feedback_rank_changes=\(feedbackRankChanges(from: cycle).joined(separator: ","))"
-            )
-            lines.append(
-                "feedback_score_deltas=\(feedbackScoreDeltas(from: cycle).joined(separator: ","))"
-            )
-            appendSignoffRepairCandidateCycleHistorySummary(
-                result.signoffRepairCandidateCycleHistorySummary,
-                to: &lines
-            )
-            lines.append("action_domain=\(result.actionDomainPath ?? "")")
-            lines.append("repair_formulation=\(result.repairFormulationPath ?? "")")
-            lines.append("planning_problem=\(result.planningProblemPath ?? "")")
-            lines.append("candidate_plan=\(result.candidatePlanPath ?? "")")
-            lines.append("plan_execution=\(result.planExecutionPath ?? "")")
-            lines.append("design_diff=\(result.designDiffPath ?? "")")
-            lines.append("plan_verification=\(result.planVerificationPath ?? "")")
-            lines.append("rejected_plans=\(result.rejectedPlansPath ?? "")")
-            lines.append("cycle_history_summary=\(result.candidateCycleHistorySummaryPath ?? "")")
         case .runGoalLayoutAgent:
             lines.append("goal_layout_agent=\(result.message ?? "")")
             lines.append("design_name=\(result.designName ?? "")")
@@ -433,83 +363,6 @@ public enum FlowRunnerKeyValueFormatter {
         for domainSummary in summary?.objectiveDomainSummaries ?? [] {
             lines.append(objectiveDomainSummaryLine(prefix: "cycle_history_objective_domain", summary: domainSummary))
         }
-    }
-
-    private static func feedbackPenalizedActionIDs(
-        from cycle: RunReviewSignoffRepairCandidateCycleResult?
-    ) -> [String] {
-        let actionIDs = cycle?.candidateGeneration.symbolicPlannerTrace?.objectiveTraces.flatMap { objectiveTrace in
-            objectiveTrace.candidateActions.compactMap { actionTrace in
-                actionTrace.scoreComponents.contains {
-                    $0.termID.hasPrefix("feedback.") && $0.contribution < 0
-                } ? actionTrace.actionID : nil
-            }
-        } ?? []
-        return uniquePreservingOrder(actionIDs)
-    }
-
-    private static func feedbackPenaltyTerms(
-        from cycle: RunReviewSignoffRepairCandidateCycleResult?
-    ) -> [String] {
-        let terms = cycle?.candidateGeneration.symbolicPlannerTrace?.objectiveTraces.flatMap { objectiveTrace in
-            objectiveTrace.candidateActions.flatMap { actionTrace in
-                actionTrace.scoreComponents.compactMap { component in
-                    component.termID.hasPrefix("feedback.") && component.contribution < 0
-                        ? "\(actionTrace.actionID):\(component.termID)"
-                        : nil
-                }
-            }
-        } ?? []
-        return uniquePreservingOrder(terms)
-    }
-
-    private static func selectedActionDomainIDs(
-        from cycle: RunReviewSignoffRepairCandidateCycleResult?
-    ) -> [String] {
-        let domainIDs = cycle?.candidateGeneration.symbolicPlannerTrace?.objectiveTraces.flatMap { objectiveTrace in
-            objectiveTrace.candidateActions.compactMap { actionTrace in
-                actionTrace.selected ? actionTrace.domainID : nil
-            }
-        } ?? []
-        return uniquePreservingOrder(domainIDs)
-    }
-
-    private static func feedbackRankChanges(
-        from cycle: RunReviewSignoffRepairCandidateCycleResult?
-    ) -> [String] {
-        let changes: [String] = cycle?.candidateGeneration.symbolicPlannerTrace?.objectiveTraces.flatMap { objectiveTrace in
-            objectiveTrace.candidateActions.compactMap { actionTrace in
-                guard actionTrace.rejectedFeedbackRankDelta != 0 else {
-                    return nil
-                }
-                return "\(actionTrace.actionID):\(actionTrace.rankBeforeRejectedFeedback)->\(actionTrace.rank)"
-            }
-        } ?? []
-        return uniquePreservingOrder(changes)
-    }
-
-    private static func feedbackScoreDeltas(
-        from cycle: RunReviewSignoffRepairCandidateCycleResult?
-    ) -> [String] {
-        let deltas: [String] = cycle?.candidateGeneration.symbolicPlannerTrace?.objectiveTraces.flatMap { objectiveTrace in
-            objectiveTrace.candidateActions.compactMap { actionTrace in
-                guard actionTrace.rejectedFeedbackScoreDelta != 0 else {
-                    return nil
-                }
-                return "\(actionTrace.actionID):\(actionTrace.rejectedFeedbackScoreDelta)"
-            }
-        } ?? []
-        return uniquePreservingOrder(deltas)
-    }
-
-    private static func uniquePreservingOrder(_ values: [String]) -> [String] {
-        var seen: Set<String> = []
-        var result: [String] = []
-        for value in values where !seen.contains(value) {
-            seen.insert(value)
-            result.append(value)
-        }
-        return result
     }
 
     private static func objectiveDomainSummaryLine(
@@ -664,7 +517,7 @@ public enum FlowRunnerKeyValueFormatter {
         lines.append("toolchain_catalog_path=\(review?.toolchain?.technologyCatalogPath ?? "")")
         lines.append("toolchain_profile_artifact_path=\(review?.toolchain?.profileArtifactPath ?? "")")
         for artifact in review?.toolchainArtifacts ?? [] {
-            lines.append("toolchain_artifact=\(artifact.reference.locator.location.value)")
+            lines.append("toolchain_artifact=\(artifact.binding.circuitStudioPresentationPath)")
             lines.append("toolchain_artifact_integrity=\(artifact.integrity?.status.rawValue ?? "untracked")")
         }
         for recommendation in review?.recommendations ?? [] {
@@ -715,11 +568,4 @@ public enum FlowRunnerKeyValueFormatter {
         result.actionRecordIDs?.last
     }
 
-    private static func actionRecordID(from result: DesignFlowCommandResult, at index: Int) -> String? {
-        guard let actionRecordIDs = result.actionRecordIDs,
-              actionRecordIDs.indices.contains(index) else {
-            return nil
-        }
-        return actionRecordIDs[index]
-    }
 }

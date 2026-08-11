@@ -49,7 +49,7 @@ struct RunReviewLayoutEvidenceView: View {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.shield.fill")
                     .foregroundStyle(.green)
-                Text(evidence.artifact.reference.locator.location.value)
+                Text(evidence.artifact.binding.circuitStudioPresentationPath)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

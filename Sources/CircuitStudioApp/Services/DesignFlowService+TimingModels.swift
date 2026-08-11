@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Foundation
 import CircuitPhysicalDesign
 import DesignFlowKernel

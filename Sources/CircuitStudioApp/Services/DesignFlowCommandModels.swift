@@ -234,8 +234,6 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         case applyWaiverEditProposal
         case runPostWaiverEditVerification
         case applyWaiverEditProposalAndRunPostVerification
-        case formulateSignoffRepairPlanningProblem
-        case runSignoffRepairCandidateCycle
         case runGoalLayoutAgent
         case scaffoldDesignSpec
     }
@@ -278,14 +276,6 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
     public let waiverReviewID: String?
     public let waiverProposalID: String?
     public let actionActorKind: FlowRunActor.Kind?
-    public let drcRepairHintPath: String?
-    public let lvsRepairHintPath: String?
-    public let planningFormulationID: String?
-    public let planningIntentID: String?
-    public let planningIntent: String?
-    public let planningProblemID: String?
-    public let candidateStrategy: String?
-    public let candidateVerificationMode: String?
     public let signoffRepairHistoryAssessmentProfilePath: String?
     public let signoffRepairHistoryMinimumRunCount: Int?
     public let signoffRepairHistoryMinimumCycleCount: Int?
@@ -340,14 +330,6 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         waiverReviewID: String? = nil,
         waiverProposalID: String? = nil,
         actionActorKind: FlowRunActor.Kind? = nil,
-        drcRepairHintPath: String? = nil,
-        lvsRepairHintPath: String? = nil,
-        planningFormulationID: String? = nil,
-        planningIntentID: String? = nil,
-        planningIntent: String? = nil,
-        planningProblemID: String? = nil,
-        candidateStrategy: String? = nil,
-        candidateVerificationMode: String? = nil,
         signoffRepairHistoryAssessmentProfilePath: String? = nil,
         signoffRepairHistoryMinimumRunCount: Int? = nil,
         signoffRepairHistoryMinimumCycleCount: Int? = nil,
@@ -398,14 +380,6 @@ public struct DesignFlowCommand: Sendable, Hashable, Codable {
         self.waiverReviewID = waiverReviewID
         self.waiverProposalID = waiverProposalID
         self.actionActorKind = actionActorKind
-        self.drcRepairHintPath = drcRepairHintPath
-        self.lvsRepairHintPath = lvsRepairHintPath
-        self.planningFormulationID = planningFormulationID
-        self.planningIntentID = planningIntentID
-        self.planningIntent = planningIntent
-        self.planningProblemID = planningProblemID
-        self.candidateStrategy = candidateStrategy
-        self.candidateVerificationMode = candidateVerificationMode
         self.signoffRepairHistoryAssessmentProfilePath = signoffRepairHistoryAssessmentProfilePath
         self.signoffRepairHistoryMinimumRunCount = signoffRepairHistoryMinimumRunCount
         self.signoffRepairHistoryMinimumCycleCount = signoffRepairHistoryMinimumCycleCount
@@ -474,18 +448,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
     public let approvalRecord: FlowApprovalRecord?
     public let roundTripReview: RoundTripReviewSummary?
     public let selectedSuggestedAction: FlowRunSuggestedActionSelection?
-    public let signoffRepairPlanningResult: RunReviewSignoffRepairPlanningResult?
-    public let signoffRepairCandidateCycleResult: RunReviewSignoffRepairCandidateCycleResult?
     public let signoffRepairCandidateCycleHistorySummary: RunReviewSignoffRepairCandidateCycleHistorySummary?
-    public let actionDomainPath: String?
-    public let repairFormulationPath: String?
-    public let planningProblemPath: String?
-    public let candidatePlanPath: String?
-    public let planExecutionPath: String?
-    public let planVerificationPath: String?
-    public let rejectedPlansPath: String?
-    public let candidateCycleHistorySummaryPath: String?
-    public let candidateAccepted: Bool?
     public let actionRecordIDs: [String]?
     /// `runGoalLayoutAgent`: whether the intent closed (wired, clean,
     /// LVS-matched, replay-deterministic).
@@ -543,18 +506,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         approvalRecord: FlowApprovalRecord? = nil,
         roundTripReview: RoundTripReviewSummary? = nil,
         selectedSuggestedAction: FlowRunSuggestedActionSelection? = nil,
-        signoffRepairPlanningResult: RunReviewSignoffRepairPlanningResult? = nil,
-        signoffRepairCandidateCycleResult: RunReviewSignoffRepairCandidateCycleResult? = nil,
         signoffRepairCandidateCycleHistorySummary: RunReviewSignoffRepairCandidateCycleHistorySummary? = nil,
-        actionDomainPath: String? = nil,
-        repairFormulationPath: String? = nil,
-        planningProblemPath: String? = nil,
-        candidatePlanPath: String? = nil,
-        planExecutionPath: String? = nil,
-        planVerificationPath: String? = nil,
-        rejectedPlansPath: String? = nil,
-        candidateCycleHistorySummaryPath: String? = nil,
-        candidateAccepted: Bool? = nil,
         actionRecordIDs: [String]? = nil,
         goalAgentClosed: Bool? = nil,
         goalAgentEvidencePath: String? = nil,
@@ -608,18 +560,7 @@ public struct DesignFlowCommandResult: Sendable, Hashable, Codable {
         self.approvalRecord = approvalRecord
         self.roundTripReview = roundTripReview
         self.selectedSuggestedAction = selectedSuggestedAction
-        self.signoffRepairPlanningResult = signoffRepairPlanningResult
-        self.signoffRepairCandidateCycleResult = signoffRepairCandidateCycleResult
         self.signoffRepairCandidateCycleHistorySummary = signoffRepairCandidateCycleHistorySummary
-        self.actionDomainPath = actionDomainPath
-        self.repairFormulationPath = repairFormulationPath
-        self.planningProblemPath = planningProblemPath
-        self.candidatePlanPath = candidatePlanPath
-        self.planExecutionPath = planExecutionPath
-        self.planVerificationPath = planVerificationPath
-        self.rejectedPlansPath = rejectedPlansPath
-        self.candidateCycleHistorySummaryPath = candidateCycleHistorySummaryPath
-        self.candidateAccepted = candidateAccepted
         self.actionRecordIDs = actionRecordIDs
         self.goalAgentClosed = goalAgentClosed
         self.goalAgentEvidencePath = goalAgentEvidencePath

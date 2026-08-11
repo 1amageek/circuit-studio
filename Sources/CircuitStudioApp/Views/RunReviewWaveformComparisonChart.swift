@@ -54,7 +54,7 @@ struct RunReviewWaveformComparisonChart: View {
             }
             .frame(height: 88)
             HStack(spacing: 8) {
-                ForEach(Array(plottedSources.enumerated()), id: \.element.artifact.reference.locator.location.value) { index, source in
+                ForEach(Array(plottedSources.enumerated()), id: \.element.artifact.binding.circuitStudioPresentationPath) { index, source in
                     HStack(spacing: 3) {
                         Circle()
                             .fill(RunReviewWaveformPresentation.chartColor(index))

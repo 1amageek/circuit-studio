@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import DesignFlowKernel
 import LayoutCore
 import ToolQualification
@@ -11,38 +12,28 @@ import Xcircuite
 struct RunReviewPassingExecutor: FlowStageExecutor {
     let stageID: String
     let toolID = "stub-tool"
-    var artifacts: [ArtifactReference] = []
+    var artifacts: [FlowArtifactBinding] = []
     var artifactPayloads: [String: Data] = [:]
 
     func execute(
         stage: FlowStageDefinition,
         context: FlowExecutionContext
     ) async throws -> FlowStageResult {
-        var resolvedArtifacts = artifacts
-        for index in resolvedArtifacts.indices {
-            let path = resolvedArtifacts[index].locator.location.value
-            guard let payload = artifactPayloads[path] else {
+        var resolvedArtifacts: [FlowArtifactBinding] = []
+        for artifact in artifacts {
+            let path = try artifact.requireLocalRelativePath()
+            guard let payload = artifactPayloads[path.stringValue] else {
                 continue
             }
-            let existing = resolvedArtifacts[index]
-            if let producer = existing.producer {
-                resolvedArtifacts[index] = try await context.infrastructure.persistArtifact(
-                    content: payload,
-                    id: existing.id,
-                    locator: existing.locator,
-                    runID: context.runID,
-                    producer: producer,
-                    mode: .replaceable
-                )
-            } else {
-                resolvedArtifacts[index] = try await context.infrastructure.persistArtifact(
-                    content: payload,
-                    id: existing.id,
-                    locator: existing.locator,
-                    runID: context.runID,
-                    mode: .replaceable
-                )
-            }
+            resolvedArtifacts.append(try await context.infrastructure.persistArtifact(
+                content: payload,
+                logicalID: artifact.logicalID,
+                relativePath: path,
+                descriptor: artifact.descriptor,
+                runID: context.runID,
+                producer: artifact.producer,
+                mode: .replaceable
+            ))
         }
 
         return FlowStageResult(
@@ -60,39 +51,30 @@ enum RunReviewTestSupportError: Error {
 
 struct RunReviewArtifactPreparer: FlowRunArtifactPreparing {
     let workspaceStore: XcircuiteWorkspaceStore
-    let artifacts: [ArtifactReference]
+    let artifacts: [FlowArtifactBinding]
     let artifactPayloads: [String: Data]
     var designDiff: DesignDiff? = nil
 
     func prepareArtifacts(
         runID: String,
         workspaceID: FlowWorkspaceID
-    ) async throws -> [ArtifactReference] {
+    ) async throws -> [FlowArtifactBinding] {
         _ = workspaceID
-        var persistedArtifacts: [ArtifactReference] = []
+        var persistedArtifacts: [FlowArtifactBinding] = []
         for artifact in artifacts {
-            let path = artifact.locator.location.value
-            guard let payload = artifactPayloads[path] else {
-                throw RunReviewTestSupportError.missingArtifactPayload(path: path)
+            let path = try artifact.requireLocalRelativePath()
+            guard let payload = artifactPayloads[path.stringValue] else {
+                throw RunReviewTestSupportError.missingArtifactPayload(path: path.stringValue)
             }
-            if let producer = artifact.producer {
-                persistedArtifacts.append(try await workspaceStore.persistArtifact(
-                    content: payload,
-                    id: artifact.id,
-                    locator: artifact.locator,
-                    runID: runID,
-                    producer: producer,
-                    mode: .replaceable
-                ))
-            } else {
-                persistedArtifacts.append(try await workspaceStore.persistArtifact(
-                    content: payload,
-                    id: artifact.id,
-                    locator: artifact.locator,
-                    runID: runID,
-                    mode: .replaceable
-                ))
-            }
+            persistedArtifacts.append(try await workspaceStore.persistArtifact(
+                content: payload,
+                logicalID: artifact.logicalID,
+                relativePath: path,
+                descriptor: artifact.descriptor,
+                runID: runID,
+                producer: artifact.producer,
+                mode: .replaceable
+            ))
         }
         if let designDiff {
             persistedArtifacts.append(try await workspaceStore.persistDesignDiff(designDiff))
@@ -109,9 +91,9 @@ enum RunReviewTestSupport {
         format: ArtifactFormat = .json,
         byteCount: UInt64 = 0
     ) throws -> ArtifactReference {
-        let location = try ArtifactLocation(workspaceRelativePath: path)
-        let locator = ArtifactLocator(
-            location: location,
+        _ = artifactID
+        _ = path
+        let descriptor = ArtifactDescriptor(
             role: .output,
             kind: kind,
             format: format
@@ -120,12 +102,10 @@ enum RunReviewTestSupport {
             algorithm: .sha256,
             hexadecimalValue: String(repeating: "0", count: 64)
         )
-        let id = try ArtifactID(rawValue: artifactID)
-        return ArtifactReference(
-            id: id,
-            locator: locator,
+        return try ArtifactReference(
             digest: digest,
-            byteCount: byteCount
+            byteCount: byteCount,
+            descriptor: descriptor
         )
     }
 
@@ -137,18 +117,83 @@ enum RunReviewTestSupport {
         format: ArtifactFormat = .json,
         producer: ProducerIdentity? = nil
     ) throws -> ArtifactReference {
+        _ = artifactID
+        _ = path
+        _ = producer
+        return try ArtifactReference(
+            digest: try SHA256ContentDigester().digest(data: payload, using: .sha256),
+            byteCount: UInt64(payload.count),
+            descriptor: ArtifactDescriptor(role: .output, kind: kind, format: format)
+        )
+    }
+
+    static func artifactBinding(
+        artifactID: String,
+        path: String,
+        kind: ArtifactKind = .report,
+        format: ArtifactFormat = .json,
+        byteCount: UInt64 = 0,
+        producer: ProducerIdentity? = nil
+    ) throws -> FlowArtifactBinding {
         let reference = try artifactReference(
             artifactID: artifactID,
             path: path,
             kind: kind,
             format: format,
-            byteCount: UInt64(payload.count)
+            byteCount: byteCount
         )
-        return ArtifactReference(
-            id: reference.id,
-            locator: reference.locator,
-            digest: try SHA256ContentDigester().digest(data: payload, using: .sha256),
-            byteCount: UInt64(payload.count),
+        return try artifactBinding(
+            reference: reference,
+            artifactID: artifactID,
+            path: path,
+            producer: producer
+        )
+    }
+
+    static func artifactBinding(
+        artifactID: String,
+        path: String,
+        payload: Data,
+        kind: ArtifactKind = .report,
+        format: ArtifactFormat = .json,
+        producer: ProducerIdentity? = nil
+    ) throws -> FlowArtifactBinding {
+        let reference = try artifactReference(
+            artifactID: artifactID,
+            path: path,
+            payload: payload,
+            kind: kind,
+            format: format,
+            producer: producer
+        )
+        return try artifactBinding(
+            reference: reference,
+            artifactID: artifactID,
+            path: path,
+            producer: producer
+        )
+    }
+
+    static func artifactBinding(
+        reference: ArtifactReference,
+        artifactID: String,
+        path: String,
+        producer: ProducerIdentity? = nil
+    ) throws -> FlowArtifactBinding {
+        let relativePath = try ArtifactRelativePath(
+            segments: path.split(
+                separator: "/",
+                omittingEmptySubsequences: false
+            ).map(String.init)
+        )
+        return try FlowArtifactBinding(
+            logicalID: artifactID,
+            reference: reference,
+            availability: .local(
+                artifactID: reference.id,
+                rootID: ArtifactRootID(rawValue: "xcircuite-project"),
+                relativePath: relativePath
+            ),
             producer: producer
         )
     }
@@ -272,17 +317,15 @@ enum RunReviewTestSupport {
         artifactID: String,
         root: URL,
         runID: String
-    ) async throws -> ArtifactReference {
+    ) async throws -> FlowArtifactBinding {
         let store = try XcircuiteWorkspaceStore(projectRoot: root)
         return try await store.persistArtifact(
             content: data,
-            id: try ArtifactID(rawValue: artifactID),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: path),
-                role: .output,
-                kind: .other,
-                format: .json
+            logicalID: artifactID,
+            relativePath: try ArtifactRelativePath(
+                segments: path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
             ),
+            descriptor: ArtifactDescriptor(role: .output, kind: .other, format: .json),
             runID: runID,
             mode: .replaceable
         )

@@ -505,10 +505,10 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
             projectRoot: projectRoot
         )
         let runSummaries = try retained.map { retained in
-            let summary = try readSummary(from: retained.url)
+            let summary = try readSummary(from: retained.content)
             return RunSummary(
                 runID: retained.runID,
-                summaryPath: retained.reference.path,
+                summaryPath: try retained.binding.requireLocalRelativePath().stringValue,
                 summary: summary
             )
         }
@@ -580,8 +580,8 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
 
     private struct RetainedSummary {
         let runID: String
-        let reference: ArtifactReference
-        let url: URL
+        let binding: FlowArtifactBinding
+        let content: Data
     }
 
     private func retainedSummaries(
@@ -605,23 +605,24 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
             let runID = runDirectory.lastPathComponent
             let ledger = try await store.loadAttestedRunLedger(runID: runID)
             let prefix = "\(XcircuitePlanningArtifactStore.candidateCycleHistorySummaryArtifactID)-"
-            let references = Set(
-                ledger.artifacts + ledger.actions.flatMap(\.outputs)
-            ).filter { $0.artifactID.hasPrefix(prefix) }
-            guard let reference = references.max(by: {
-                historySummaryCycleIndex($0.artifactID, prefix: prefix)
-                    < historySummaryCycleIndex($1.artifactID, prefix: prefix)
+            let outputReferences = Set(ledger.actions.flatMap(\.outputs))
+            let candidateBindings = Set(ledger.artifacts.filter {
+                outputReferences.contains($0.reference) && $0.logicalID.hasPrefix(prefix)
+            })
+            let groupedBindings = Dictionary(grouping: candidateBindings, by: \.logicalID)
+            guard groupedBindings.values.allSatisfy({ $0.count == 1 }) else {
+                throw StudioError.projectLoadFailed(
+                    "Candidate-cycle history summary identity resolves to multiple availability bindings."
+                )
+            }
+            guard let binding = candidateBindings.max(by: {
+                historySummaryCycleIndex($0.logicalID, prefix: prefix)
+                    < historySummaryCycleIndex($1.logicalID, prefix: prefix)
             }) else {
                 continue
             }
-            let integrity = LocalArtifactVerifier().verify(reference, relativeTo: projectRoot)
-            guard integrity.isVerified else {
-                throw StudioError.projectLoadFailed(
-                    "Candidate-cycle history summary failed integrity verification: \(reference.path)"
-                )
-            }
-            let url = try reference.locator.location.resolvedFileURL(relativeTo: projectRoot)
-            summaries.append(RetainedSummary(runID: runID, reference: reference, url: url))
+            let content = try await store.loadArtifactContent(for: binding)
+            summaries.append(RetainedSummary(runID: runID, binding: binding, content: content))
         }
         return summaries.sorted { $0.runID < $1.runID }
     }
@@ -631,15 +632,8 @@ public struct RunReviewSignoffRepairCandidateCycleHistoryIndexService: Sendable 
     }
 
     private func readSummary(
-        from url: URL
+        from data: Data
     ) throws -> RunReviewSignoffRepairCandidateCycleHistorySummary {
-        let data: Data
-        do {
-            data = try Data(contentsOf: url)
-        } catch {
-            throw StudioError.projectLoadFailed("Failed to read candidate-cycle summary: \(error.localizedDescription)")
-        }
-
         do {
             return try JSONDecoder().decode(
                 RunReviewSignoffRepairCandidateCycleHistorySummary.self,

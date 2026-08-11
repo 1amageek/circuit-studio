@@ -1,5 +1,6 @@
 import Foundation
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import DesignFlowKernel
 
 extension RunReviewService {
@@ -15,7 +16,7 @@ extension RunReviewService {
                 if left.purpose != right.purpose {
                     return left.purpose.rawValue < right.purpose.rawValue
                 }
-                return left.reference.locator.location.value < right.reference.locator.location.value
+                return left.binding.circuitStudioPresentationPath < right.binding.circuitStudioPresentationPath
             }
         let retainedItems = bundle.reviewItems
             .filter { $0.kind == .retainedHistory }
@@ -24,7 +25,7 @@ extension RunReviewService {
         let artifactStates = retainedArtifacts.map { artifact in
             Self.artifactState(
                 artifact,
-                diagnosticCodes: diagnosticsByPath[artifact.reference.locator.location.value, default: []]
+                diagnosticCodes: diagnosticsByPath[artifact.binding.circuitStudioPresentationPath, default: []]
             )
         }
         let blockers = retainedItems.map(RunReviewRetainedDashboardProjection.BlockerSummary.init)
@@ -61,7 +62,7 @@ extension RunReviewService {
     public func persistRetainedDashboardProjection(
         runID: String,
         projectRoot: URL
-    ) async throws -> ArtifactReference {
+    ) async throws -> FlowArtifactBinding {
         try FlowIdentifierValidator().validate(runID, kind: .runID)
         let store = try workspaceStore(projectRoot: projectRoot)
         let loader = configuredReviewLedgerLoader(store: store)
@@ -77,23 +78,25 @@ extension RunReviewService {
         let data = try encoder.encode(projection)
         let digest = try SHA256ContentDigester().digest(data: data, using: .sha256)
         let relativePath = ".xcircuite/runs/\(runID)/\(Self.retainedDashboardRelativePath)/\(digest.hexadecimalValue).json"
-        let reference = ArtifactReference(
-            id: try ArtifactID(rawValue: "\(Self.retainedDashboardArtifactID)-\(digest.hexadecimalValue)"),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: relativePath),
-                role: .output,
-                kind: .report,
-                format: .json
-            ),
+        let artifactRelativePath = try ArtifactRelativePath(
+            segments: relativePath.split(separator: "/").map(String.init)
+        )
+        let logicalID = "\(Self.retainedDashboardArtifactID)-\(digest.hexadecimalValue)"
+        let descriptor = ArtifactDescriptor(
+            role: .output,
+            kind: .report,
+            format: .json
+        )
+        let reference = try ArtifactReference(
             digest: digest,
-            byteCount: UInt64(data.count)
+            byteCount: UInt64(data.count),
+            descriptor: descriptor
         )
         let inputs = bundle.artifacts
             .filter { !Self.isRetainedDashboardProjectionArtifact($0) }
             .map(\.reference)
             .sorted { lhs, rhs in
-                if lhs.path != rhs.path { return lhs.path < rhs.path }
-                return lhs.artifactID < rhs.artifactID
+                lhs.id.description < rhs.id.description
             }
         let actionID = "retained-dashboard-\(digest.hexadecimalValue)"
         let ledger = try await store.loadRunLedger(runID: runID)
@@ -115,12 +118,24 @@ extension RunReviewService {
             ],
             createdAt: createdAt
         )
+        let binding = try FlowArtifactBinding(
+            logicalID: logicalID,
+            reference: reference,
+            availability: .local(
+                artifactID: reference.id,
+                rootID: store.artifactRootID,
+                relativePath: artifactRelativePath
+            )
+        )
         _ = try await store.appendActionArtifact(
             content: data,
-            reference: reference,
+            logicalID: logicalID,
+            relativePath: artifactRelativePath,
+            descriptor: descriptor,
+            producer: nil,
             action: action
         )
-        return reference
+        return binding
     }
 
     private static func isRetainedDashboardArtifact(_ artifact: FlowRunReviewArtifact) -> Bool {
@@ -142,8 +157,8 @@ extension RunReviewService {
     private static func isRetainedDashboardProjectionArtifact(
         _ artifact: FlowRunReviewArtifact
     ) -> Bool {
-        artifact.reference.artifactID.hasPrefix("\(retainedDashboardArtifactID)-")
-            || artifact.reference.path.contains("/\(retainedDashboardRelativePath)/")
+        artifact.binding.logicalID.hasPrefix("\(retainedDashboardArtifactID)-")
+            || artifact.binding.circuitStudioPresentationPath.contains("/\(retainedDashboardRelativePath)/")
     }
 
     private static func diagnosticsByArtifactPath(
@@ -164,8 +179,8 @@ extension RunReviewService {
     ) -> RunReviewRetainedDashboardProjection.ArtifactState {
         RunReviewRetainedDashboardProjection.ArtifactState(
             role: artifact.purpose.rawValue,
-            artifactID: artifact.reference.id.rawValue,
-            path: artifact.reference.locator.location.value,
+            artifactID: artifact.binding.logicalID,
+            path: artifact.binding.circuitStudioPresentationPath,
             integrityStatus: artifact.integrity?.status,
             sha256: artifact.reference.digest.hexadecimalValue,
             byteCount: artifact.reference.byteCount,

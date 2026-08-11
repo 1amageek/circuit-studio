@@ -48,12 +48,6 @@ public struct RunReviewView: View {
     @State private var artifactResourceError: String?
     @State private var waveformSignalSelections: [String: Set<String>] = [:]
     @State private var waveformComparisonSelections: [String: String] = [:]
-    @State private var signoffRepairPlanningInFlight: Set<String> = []
-    @State private var signoffRepairPlanningErrors: [String: String] = [:]
-    @State private var signoffRepairPlanningResults: [String: RunReviewSignoffRepairPlanningResult] = [:]
-    @State private var signoffRepairCandidateCycleInFlight: Set<String> = []
-    @State private var signoffRepairCandidateCycleErrors: [String: String] = [:]
-    @State private var signoffRepairCandidateCycleResults: [String: RunReviewSignoffRepairCandidateCycleResult] = [:]
     @State private var suggestedActionExecutionsInFlight: Set<String> = []
     @State private var suggestedActionExecutionErrors: [String: String] = [:]
     @State private var loadError: String?
@@ -322,20 +316,7 @@ public struct RunReviewView: View {
         GroupBox("Verification Results") {
             VStack(alignment: .leading, spacing: 10) {
                 RunReviewSignoffRepairPlanningPanel(
-                    signoff: signoff,
-                    runID: runID,
-                    planningInFlight: signoffRepairPlanningInFlight.contains(runID),
-                    candidateCycleInFlight: signoffRepairCandidateCycleInFlight.contains(runID),
-                    planningResult: signoffRepairPlanningResults[runID],
-                    candidateCycleResult: signoffRepairCandidateCycleResults[runID],
-                    planningError: signoffRepairPlanningErrors[runID],
-                    candidateCycleError: signoffRepairCandidateCycleErrors[runID],
-                    formulateRepairPlanning: {
-                        formulateSignoffRepairPlanning(runID: runID)
-                    },
-                    runCandidateCycle: {
-                        runSignoffRepairCandidateCycle(runID: runID)
-                    }
+                    signoff: signoff
                 )
                 ForEach(signoff.cards) { card in
                     VStack(alignment: .leading, spacing: 6) {
@@ -473,7 +454,7 @@ public struct RunReviewView: View {
                                     .foregroundStyle(.secondary)
                                 Text(action.operationID)
                                     .font(.caption2.monospaced())
-                                Text(action.maturity)
+                                Text(action.readinessState.rawValue)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -843,7 +824,7 @@ public struct RunReviewView: View {
                                 }
                             }
                         }
-                        Text(item.artifact.reference.locator.location.value)
+                        Text(item.artifact.binding.circuitStudioPresentationPath)
                             .font(.caption2.monospaced())
                             .foregroundStyle(integrityColor(item.artifact.integrity?.status))
                             .lineLimit(2)
@@ -893,16 +874,16 @@ public struct RunReviewView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Text(context.designSpecArtifact.reference.locator.location.value)
+                Text(context.designSpecArtifact.binding.circuitStudioPresentationPath)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(context.layoutDocumentArtifact.reference.locator.location.value)
+                Text(context.layoutDocumentArtifact.binding.circuitStudioPresentationPath)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if let designUnitArtifact = context.designUnitArtifact {
-                    Text(designUnitArtifact.reference.locator.location.value)
+                    Text(designUnitArtifact.binding.circuitStudioPresentationPath)
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -1360,57 +1341,6 @@ public struct RunReviewView: View {
                 reloadReview()
             } catch {
                 loadError = error.localizedDescription
-            }
-        }
-    }
-
-    private func formulateSignoffRepairPlanning(runID: String) {
-        signoffRepairPlanningInFlight.insert(runID)
-        Task {
-            defer {
-                signoffRepairPlanningInFlight.remove(runID)
-            }
-
-            do {
-                let result = try await service.formulateSignoffRepairPlanningProblem(
-                    runID: runID,
-                    actorKind: .human,
-                    actorIdentifier: reviewer,
-                    note: "Generated from RunReviewView.",
-                    projectRoot: projectRoot
-                )
-                signoffRepairPlanningResults[runID] = result
-                signoffRepairPlanningErrors[runID] = nil
-                reloadReview()
-            } catch {
-                signoffRepairPlanningResults[runID] = nil
-                signoffRepairPlanningErrors[runID] = error.localizedDescription
-            }
-        }
-    }
-
-    private func runSignoffRepairCandidateCycle(runID: String) {
-        signoffRepairCandidateCycleInFlight.insert(runID)
-        Task {
-            defer {
-                signoffRepairCandidateCycleInFlight.remove(runID)
-            }
-
-            do {
-                let result = try await DesignFlowService().execute(DesignFlowCommand(
-                    kind: .runSignoffRepairCandidateCycle,
-                    projectRootPath: projectRoot.path(percentEncoded: false),
-                    runID: runID,
-                    approvalReviewer: reviewer,
-                    approvalNote: "Dispatched from RunReviewView.",
-                    actionActorKind: .human
-                ))
-                signoffRepairCandidateCycleResults[runID] = result.signoffRepairCandidateCycleResult
-                signoffRepairCandidateCycleErrors[runID] = nil
-                reloadReview()
-            } catch {
-                signoffRepairCandidateCycleResults[runID] = nil
-                signoffRepairCandidateCycleErrors[runID] = error.localizedDescription
             }
         }
     }

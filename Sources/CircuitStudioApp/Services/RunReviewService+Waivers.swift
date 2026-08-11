@@ -1,6 +1,7 @@
 import DesignFlowKernel
 import Foundation
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Xcircuite
 
 extension RunReviewService {
@@ -21,10 +22,10 @@ extension RunReviewService {
             runID: runID,
             workspaceID: try await workspaceID(store: store)
         )
-        let summary = try waiverReview(
+        let summary = try await waiverReview(
             bundle: bundle,
             actions: ledger.actions,
-            projectRoot: projectRoot
+            artifactReader: store
         )
         guard let item = summary.items.first(where: { $0.waiverReviewID == waiverReviewID }) else {
             throw RunReviewServiceError.waiverReviewNotFound(waiverReviewID: waiverReviewID)
@@ -43,7 +44,7 @@ extension RunReviewService {
                     kind: .waiver,
                     decision: decision.rawValue,
                     targetID: item.waiverReviewID,
-                    targetPath: item.artifact.reference.locator.location.value,
+                    targetPath: item.artifact.binding.circuitStudioPresentationPath,
                     reason: note
                 )
             )
@@ -69,10 +70,10 @@ extension RunReviewService {
             runID: runID,
             workspaceID: try await workspaceID(store: store)
         )
-        let summary = try waiverReview(
+        let summary = try await waiverReview(
             bundle: bundle,
             actions: ledger.actions,
-            projectRoot: projectRoot
+            artifactReader: store
         )
         guard let item = summary.items.first(where: { $0.waiverReviewID == waiverReviewID }) else {
             throw RunReviewServiceError.waiverReviewNotFound(waiverReviewID: waiverReviewID)
@@ -123,10 +124,10 @@ extension RunReviewService {
             runID: runID,
             workspaceID: try await workspaceID(store: store)
         )
-        let summary = try waiverReview(
+        let summary = try await waiverReview(
             bundle: bundle,
             actions: ledger.actions,
-            projectRoot: projectRoot
+            artifactReader: store
         )
         guard let item = summary.items.first(where: { $0.waiverReviewID == waiverReviewID }) else {
             throw RunReviewServiceError.waiverReviewNotFound(waiverReviewID: waiverReviewID)
@@ -141,7 +142,8 @@ extension RunReviewService {
         let appliedEdit = try prepareEdit(
             proposal: proposal,
             runID: runID,
-            projectRoot: projectRoot
+            projectRoot: projectRoot,
+            store: store
         )
         let record = FlowRunActionRecord(
             actionID: "waiver-edit-proposal-application-\(UUID().uuidString)",
@@ -200,10 +202,10 @@ extension RunReviewService {
             runID: runID,
             workspaceID: try await workspaceID(store: store)
         )
-        let summary = try waiverReview(
+        let summary = try await waiverReview(
             bundle: bundle,
             actions: ledger.actions,
-            projectRoot: projectRoot
+            artifactReader: store
         )
         guard let item = summary.items.first(where: { $0.waiverReviewID == waiverReviewID }) else {
             throw RunReviewServiceError.waiverReviewNotFound(waiverReviewID: waiverReviewID)
@@ -243,7 +245,8 @@ extension RunReviewService {
             kind: .report,
             format: .json,
             safeProposalID: safeProposalID,
-            runID: runID
+            runID: runID,
+            store: store
         )
         let layoutTrustArtifact: XcircuitePreparedArtifact?
         if let layoutTrustReportURL {
@@ -256,7 +259,8 @@ extension RunReviewService {
                 kind: .report,
                 format: .json,
                 safeProposalID: safeProposalID,
-                runID: runID
+                runID: runID,
+                store: store
             )
         } else {
             layoutTrustArtifact = nil
@@ -265,15 +269,20 @@ extension RunReviewService {
             application: application,
             actions: ledger.actions
         )
+        let targetBinding = try exactLedgerBinding(
+            for: targetReference,
+            in: ledger.artifacts,
+            path: application.targetPath
+        )
         let feedback = try await prepareWaiverEditPlanningFeedback(
             runID: runID,
             waiverReviewID: item.waiverReviewID,
             proposalID: proposalID,
             application: application,
-            targetReference: targetReference,
+            targetBinding: targetBinding,
             verificationReport: verificationReport,
-            verificationReference: verificationArtifact.reference,
-            layoutTrustReference: layoutTrustArtifact?.reference,
+            verificationBinding: verificationArtifact.binding,
+            layoutTrustBinding: layoutTrustArtifact?.binding,
             actions: ledger.actions,
             store: store
         )
@@ -417,24 +426,28 @@ extension RunReviewService {
     func waiverReview(
         bundle: FlowRunReviewBundle,
         actions: [FlowRunActionRecord],
-        projectRoot: URL
-    ) throws -> RunReviewWaiverSummary {
+        artifactReader: any XcircuiteArtifactBindingReading
+    ) async throws -> RunReviewWaiverSummary {
         let decisions = waiverDecisionsByReviewID(from: actions)
         let editProposalSelections = waiverEditProposalSelectionsByReviewID(from: actions)
-        let editApplications = try waiverEditApplicationsByReviewID(from: actions)
-        let editVerifications = try waiverEditVerificationsByReviewID(
+        let editApplications = try waiverEditApplicationsByReviewID(
             from: actions,
-            projectRoot: projectRoot
+            artifacts: bundle.artifacts
+        )
+        let editVerifications = try await waiverEditVerificationsByReviewID(
+            from: actions,
+            artifacts: bundle.artifacts,
+            artifactReader: artifactReader
         )
         var items: [RunReviewWaiverItem] = []
         var decodeIssues: [RunReviewArtifactDecodeIssue] = []
 
-        for artifact in bundle.artifacts where artifact.reference.locator.format == .json {
+        for artifact in bundle.artifacts where artifact.binding.format == .json {
             switch waiverArtifactKind(for: artifact) {
             case .drc:
-                appendWaiverItem(
+                await appendWaiverItem(
                     artifact: artifact,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decisions: decisions,
                     editProposalSelections: editProposalSelections,
                     editApplications: editApplications,
@@ -444,9 +457,9 @@ extension RunReviewService {
                     makeItem: drcWaiverItem
                 )
             case .lvs:
-                appendWaiverItem(
+                await appendWaiverItem(
                     artifact: artifact,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decisions: decisions,
                     editProposalSelections: editProposalSelections,
                     editApplications: editApplications,
@@ -465,7 +478,7 @@ extension RunReviewService {
                 if left.domain != right.domain {
                     return left.domain < right.domain
                 }
-                return left.artifact.reference.locator.location.value < right.artifact.reference.locator.location.value
+                return left.artifact.binding.circuitStudioPresentationPath < right.artifact.binding.circuitStudioPresentationPath
             },
             decodeIssues: decodeIssues
         )
@@ -473,7 +486,7 @@ extension RunReviewService {
 
     private func appendWaiverItem<Document: Decodable>(
         artifact: FlowRunReviewArtifact,
-        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         decisions: [String: RunReviewWaiverDecision],
         editProposalSelections: [String: [RunReviewWaiverEditProposalSelection]],
         editApplications: [String: [RunReviewWaiverEditApplication]],
@@ -488,10 +501,10 @@ extension RunReviewService {
             [RunReviewWaiverEditApplication],
             [RunReviewWaiverEditVerification]
         ) -> RunReviewWaiverItem?
-    ) {
+    ) async {
         do {
             try validateWaiverArtifactIntegrity(artifact)
-            let data = try Data(contentsOf: waiverArtifactURL(for: artifact, projectRoot: projectRoot))
+            let data = try await artifactReader.loadArtifactContent(for: artifact.binding)
             let document = try JSONDecoder().decode(Document.self, from: data)
             let reviewID = waiverReviewID(domain: waiverDomain(for: artifact), artifact: artifact)
             if let item = makeItem(
@@ -508,7 +521,7 @@ extension RunReviewService {
             decodeIssues.append(
                 RunReviewArtifactDecodeIssue(
                     artifactRole: artifact.purpose.rawValue,
-                    artifactPath: artifact.reference.locator.location.value,
+                    artifactPath: artifact.binding.circuitStudioPresentationPath,
                     message: error.localizedDescription
                 )
             )
@@ -518,14 +531,14 @@ extension RunReviewService {
     private func validateWaiverArtifactIntegrity(_ artifact: FlowRunReviewArtifact) throws {
         guard let integrity = artifact.integrity else {
             throw RunReviewServiceError.waiverArtifactIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 status: "missing",
                 message: "Artifact integrity was not recorded."
             )
         }
         guard integrity.status == .verified else {
             throw RunReviewServiceError.waiverArtifactIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 status: integrity.status.rawValue,
                 message: integrity.message
             )
@@ -618,8 +631,8 @@ extension RunReviewService {
 
 
     private func waiverArtifactKind(for artifact: FlowRunReviewArtifact) -> WaiverArtifactKind? {
-        let artifactID = artifact.reference.id.rawValue
-        let path = artifact.reference.locator.location.value.lowercased()
+        let artifactID = artifact.binding.logicalID
+        let path = artifact.binding.circuitStudioPresentationPath.lowercased()
         if artifactID == "drc-summary" || path.hasSuffix("drc-summary.json") {
             return .drc
         }
@@ -641,7 +654,7 @@ extension RunReviewService {
     }
 
     private func waiverReviewID(domain: String, artifact: FlowRunReviewArtifact) -> String {
-        "\(domain.lowercased())-waiver:\(artifact.reference.locator.location.value)"
+        "\(domain.lowercased())-waiver:\(artifact.binding.circuitStudioPresentationPath)"
     }
 
     private func waiverStatus(
@@ -663,14 +676,15 @@ extension RunReviewService {
         waiverReviewID: String,
         proposalID: String,
         application: RunReviewWaiverEditApplication,
-        targetReference: ArtifactReference,
+        targetBinding: FlowArtifactBinding,
         verificationReport: DesignFlowVerificationReport,
-        verificationReference: ArtifactReference,
-        layoutTrustReference: ArtifactReference?,
+        verificationBinding: FlowArtifactBinding,
+        layoutTrustBinding: FlowArtifactBinding?,
         actions: [FlowRunActionRecord],
         store: XcircuiteWorkspaceStore
     ) async throws -> WaiverEditPlanningFeedback {
         let safeProposalID = safeIdentifierComponent(proposalID)
+        let verificationReference = verificationBinding.reference
         let verificationToken = verificationReference.digest.hexadecimalValue
         let planID = "\(runID)-waiver-edit-\(safeProposalID)"
         let problemID = "\(runID)-waiver-edit-problem-\(safeProposalID)"
@@ -684,7 +698,7 @@ extension RunReviewService {
             "post-waiver-edit-ready-for-pex",
         ]
         let stepID = "apply-waiver-edit-\(safeProposalID)"
-        let candidatePlan = XcircuiteCandidatePlan(
+        let candidatePlan = XcircuitePlanningCandidateDraft(
             planID: planID,
             problemID: problemID,
             runID: runID,
@@ -750,7 +764,8 @@ extension RunReviewService {
         let candidatePlanArtifact = try preparePlanningFeedbackArtifact(
             candidatePlan,
             path: candidatePlanPath,
-            artifactID: "post-waiver-edit-candidate-plan-\(safeProposalID)-\(verificationToken)"
+            artifactID: "post-waiver-edit-candidate-plan-\(safeProposalID)-\(verificationToken)",
+            store: store
         )
         let candidatePlanRef = candidatePlanArtifact.reference
 
@@ -760,7 +775,9 @@ extension RunReviewService {
             .filter { $0.status == "failed" }
             .map(\.gateID)
         let accepted = verificationReport.readyForPEX && failedGateIDs.isEmpty
-        let artifactRefs = [targetReference, verificationReference] + [layoutTrustReference].compactMap { $0 }
+        let artifactBindings = [targetBinding, verificationBinding]
+            + [layoutTrustBinding].compactMap { $0 }
+        let artifactRefs = artifactBindings.map(\.reference)
         let planVerification = XcircuitePlanVerification(
             problemID: problemID,
             planID: planID,
@@ -781,7 +798,7 @@ extension RunReviewService {
                 ),
             ],
             gateResults: gateResults,
-            artifactRefs: artifactRefs,
+            artifactBindings: artifactBindings,
             diagnostics: diagnostics,
             accepted: accepted,
             nextActions: accepted ? [] : failedGateIDs.map { "repair-verification-gate:\($0)" }
@@ -789,7 +806,8 @@ extension RunReviewService {
         let planVerificationArtifact = try preparePlanningFeedbackArtifact(
             planVerification,
             path: planVerificationPath,
-            artifactID: "post-waiver-edit-plan-verification-\(safeProposalID)-\(verificationToken)"
+            artifactID: "post-waiver-edit-plan-verification-\(safeProposalID)-\(verificationToken)",
+            store: store
         )
         let planVerificationRef = planVerificationArtifact.reference
 
@@ -841,23 +859,27 @@ extension RunReviewService {
     private func preparePlanningFeedbackArtifact<T: Encodable & Sendable>(
         _ value: T,
         path: String,
-        artifactID: String
+        artifactID: String,
+        store: XcircuiteWorkspaceStore
     ) throws -> XcircuitePreparedArtifact {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(value)
-        let reference = ArtifactReference(
-            id: try ArtifactID(rawValue: artifactID),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: path),
-                role: .output,
-                kind: .other,
-                format: .json
-            ),
+        let reference = try ArtifactReference(
             digest: try SHA256ContentDigester().digest(data: data, using: .sha256),
-            byteCount: UInt64(data.count)
+            byteCount: UInt64(data.count),
+            descriptor: ArtifactDescriptor(role: .output, kind: .other, format: .json)
         )
-        return XcircuitePreparedArtifact(reference: reference, content: data)
+        let binding = try FlowArtifactBinding(
+            logicalID: artifactID,
+            reference: reference,
+            availability: .local(
+                artifactID: reference.id,
+                rootID: store.artifactRootID,
+                relativePath: try artifactRelativePath(path)
+            )
+        )
+        return XcircuitePreparedArtifact(binding: binding, content: data)
     }
 
     private func prepareRejectedPlanSnapshot(
@@ -874,8 +896,14 @@ extension RunReviewService {
             }
         var content = Data()
         if let priorReference {
-            _ = try await store.verify(priorReference)
-            content = try await store.read(from: priorReference.path)
+            let ledger = try await store.loadRunLedger(runID: runID)
+            let priorBinding = try exactLedgerBinding(
+                for: priorReference,
+                in: ledger.artifacts,
+                path: XcircuitePlanningArtifactStore.rejectedPlansArtifactID
+            )
+            content = try await store.loadArtifactContent(for: priorBinding)
+            let priorPath = priorBinding.circuitStudioPresentationPath
             for (index, line) in String(decoding: content, as: UTF8.self)
                 .split(separator: "\n")
                 .enumerated() {
@@ -887,13 +915,13 @@ extension RunReviewService {
                     )
                 } catch {
                     throw RunReviewServiceError.invalidArtifactReference(
-                        path: priorReference.path,
+                        path: priorPath,
                         message: "Rejected-plan snapshot contains invalid JSON at line \(index + 1)."
                     )
                 }
                 guard existing.rejectionID != record.rejectionID else {
                     throw RunReviewServiceError.invalidArtifactReference(
-                        path: priorReference.path,
+                        path: priorPath,
                         message: "Rejected-plan snapshot contains duplicate rejection ID \(record.rejectionID)."
                     )
                 }
@@ -909,20 +937,21 @@ extension RunReviewService {
         let digest = try SHA256ContentDigester().digest(data: content, using: .sha256)
         let digestToken = String(digest.hexadecimalValue.prefix(16))
         let path = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/planning/rejected-plan-snapshots/\(digestToken).jsonl"
-        let reference = ArtifactReference(
-            id: try ArtifactID(
-                rawValue: XcircuitePlanningArtifactStore.rejectedPlansArtifactID
-            ),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: path),
-                role: .output,
-                kind: .other,
-                format: .text
-            ),
+        let reference = try ArtifactReference(
             digest: digest,
-            byteCount: UInt64(content.count)
+            byteCount: UInt64(content.count),
+            descriptor: ArtifactDescriptor(role: .output, kind: .other, format: .text)
         )
-        return XcircuitePreparedArtifact(reference: reference, content: content)
+        let binding = try FlowArtifactBinding(
+            logicalID: XcircuitePlanningArtifactStore.rejectedPlansArtifactID,
+            reference: reference,
+            availability: .local(
+                artifactID: reference.id,
+                rootID: store.artifactRootID,
+                relativePath: try artifactRelativePath(path)
+            )
+        )
+        return XcircuitePreparedArtifact(binding: binding, content: content)
     }
 
     private func waiverEditVerificationGateResults(
@@ -1073,7 +1102,8 @@ extension RunReviewService {
     private func prepareEdit(
         proposal: RunReviewWaiverEditProposal,
         runID: String,
-        projectRoot: URL
+        projectRoot: URL,
+        store: XcircuiteWorkspaceStore
     ) throws -> AppliedWaiverEdit {
         let targetURL = try waiverEditTargetURL(path: proposal.targetPath, projectRoot: projectRoot)
         let beforeData = try Data(contentsOf: targetURL, options: [.mappedIfSafe])
@@ -1102,7 +1132,8 @@ extension RunReviewService {
             kind: .other,
             format: format,
             safeProposalID: safeProposalID,
-            runID: runID
+            runID: runID,
+            store: store
         )
         let afterArtifact = try prepareWaiverEditEvidence(
             content: afterData,
@@ -1111,7 +1142,8 @@ extension RunReviewService {
             kind: .other,
             format: format,
             safeProposalID: safeProposalID,
-            runID: runID
+            runID: runID,
+            store: store
         )
         return AppliedWaiverEdit(
             targetPath: proposal.targetPath,
@@ -1130,24 +1162,52 @@ extension RunReviewService {
         kind: ArtifactKind,
         format: ArtifactFormat,
         safeProposalID: String,
-        runID: String
+        runID: String,
+        store: XcircuiteWorkspaceStore
     ) throws -> XcircuitePreparedArtifact {
         let digest = try SHA256ContentDigester().digest(data: content, using: .sha256)
         let digestToken = String(digest.hexadecimalValue.prefix(16))
         let fileExtension = format == .json ? "json" : "data"
         let path = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(runID)/review/waiver-edits/\(safeProposalID)/\(fileNamePrefix)-\(digestToken).\(fileExtension)"
-        let reference = ArtifactReference(
-            id: try ArtifactID(rawValue: "\(artifactIDPrefix)-\(safeProposalID)-\(digestToken)"),
-            locator: ArtifactLocator(
-                location: try ArtifactLocation(workspaceRelativePath: path),
-                role: .output,
-                kind: kind,
-                format: format
-            ),
+        let logicalID = "\(artifactIDPrefix)-\(safeProposalID)-\(digestToken)"
+        let reference = try ArtifactReference(
             digest: digest,
-            byteCount: UInt64(content.count)
+            byteCount: UInt64(content.count),
+            descriptor: ArtifactDescriptor(role: .output, kind: kind, format: format)
         )
-        return XcircuitePreparedArtifact(reference: reference, content: content)
+        let binding = try FlowArtifactBinding(
+            logicalID: logicalID,
+            reference: reference,
+            availability: .local(
+                artifactID: reference.id,
+                rootID: store.artifactRootID,
+                relativePath: try artifactRelativePath(path)
+            )
+        )
+        return XcircuitePreparedArtifact(binding: binding, content: content)
+    }
+
+    private func artifactRelativePath(_ path: String) throws -> ArtifactRelativePath {
+        try ArtifactRelativePath(
+            segments: path.split(separator: "/").map(String.init)
+        )
+    }
+
+    private func exactLedgerBinding(
+        for reference: ArtifactReference,
+        in artifacts: [FlowArtifactBinding],
+        path: String
+    ) throws -> FlowArtifactBinding {
+        let matches = Set(artifacts.filter { $0.reference == reference })
+        guard matches.count == 1, let binding = matches.first else {
+            throw RunReviewServiceError.invalidArtifactReference(
+                path: path,
+                message: matches.isEmpty
+                    ? "Artifact availability is missing from the run ledger."
+                    : "Artifact identity resolves to multiple run-ledger availability bindings."
+            )
+        }
+        return binding
     }
 
     private func waiverEditTargetURL(path: String, projectRoot: URL) throws -> URL {
@@ -1226,10 +1286,10 @@ extension RunReviewService {
     }
 
     private func waiverArtifactURL(for artifact: FlowRunReviewArtifact, projectRoot: URL) -> URL {
-        if artifact.reference.locator.location.value.hasPrefix("/") {
-            URL(filePath: artifact.reference.locator.location.value)
+        if artifact.binding.circuitStudioPresentationPath.hasPrefix("/") {
+            URL(filePath: artifact.binding.circuitStudioPresentationPath)
         } else {
-            projectRoot.appending(path: artifact.reference.locator.location.value)
+            projectRoot.appending(path: artifact.binding.circuitStudioPresentationPath)
         }
     }
 
@@ -1237,8 +1297,8 @@ extension RunReviewService {
         in artifacts: [FlowRunReviewArtifact]
     ) -> FlowRunReviewArtifact? {
         artifacts.last {
-            $0.reference.locator.format == .json
-                && ($0.reference.id.rawValue == "design-spec" || $0.reference.locator.location.value.hasSuffix("design-spec.json"))
+            $0.binding.format == .json
+                && ($0.binding.logicalID == "design-spec" || $0.binding.circuitStudioPresentationPath.hasSuffix("design-spec.json"))
         }
     }
 
@@ -1246,13 +1306,13 @@ extension RunReviewService {
         in artifacts: [FlowRunReviewArtifact]
     ) -> FlowRunReviewArtifact? {
         artifacts.last {
-            $0.reference.locator.kind == .layout
-                && $0.reference.locator.format == .json
+            $0.binding.kind == .layout
+                && $0.binding.format == .json
                 && (
-                    $0.reference.id.rawValue == "layout-document"
-                        || $0.reference.id.rawValue == "drc-layout"
-                        || $0.reference.id.rawValue.hasSuffix("-layout")
-                        || $0.reference.locator.location.value.hasSuffix("layout-document.json")
+                    $0.binding.logicalID == "layout-document"
+                        || $0.binding.logicalID == "drc-layout"
+                        || $0.binding.logicalID.hasSuffix("-layout")
+                        || $0.binding.circuitStudioPresentationPath.hasSuffix("layout-document.json")
                 )
         }
     }
@@ -1261,8 +1321,8 @@ extension RunReviewService {
         in artifacts: [FlowRunReviewArtifact]
     ) -> FlowRunReviewArtifact? {
         artifacts.last {
-            $0.reference.locator.format == .json
-                && ($0.reference.id.rawValue == "design-unit" || $0.reference.locator.location.value.hasSuffix("design-unit.json"))
+            $0.binding.format == .json
+                && ($0.binding.logicalID == "design-unit" || $0.binding.circuitStudioPresentationPath.hasSuffix("design-unit.json"))
         }
     }
 
@@ -1272,7 +1332,7 @@ extension RunReviewService {
     ) throws -> URL {
         let url = waiverArtifactURL(for: artifact, projectRoot: projectRoot)
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
-            throw RunReviewServiceError.waiverEditVerificationInputMissing(path: artifact.reference.locator.location.value)
+            throw RunReviewServiceError.waiverEditVerificationInputMissing(path: artifact.binding.circuitStudioPresentationPath)
         }
         return url
     }

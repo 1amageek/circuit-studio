@@ -1,6 +1,7 @@
 import CircuiteFoundation
 import Foundation
 import CircuitPhysicalDesign
+import DesignFlowKernel
 import LayoutCore
 import STAEngine
 import Testing
@@ -156,7 +157,7 @@ struct ArtifactSchemaContractTests {
     }
 
     @Test("Artifact integrity checker verifies bytes before JSON decode", .timeLimit(.minutes(1)))
-    func artifactIntegrityCheckerVerifiesBytesBeforeJSONDecode() throws {
+    func artifactIntegrityCheckerVerifiesBytesBeforeJSONDecode() async throws {
         let runDirectory = FileManager.default.temporaryDirectory
             .appending(path: "artifact-integrity-\(UUID().uuidString)")
         defer { removeTemporaryDirectory(runDirectory) }
@@ -172,7 +173,7 @@ struct ArtifactSchemaContractTests {
             kind: AntennaProtectionPlan.artifactKind,
             relativePath: "antenna/plan.json"
         )
-        let decoded = try ArtifactIntegrityChecker().decodeVerifiedJSON(
+        let decoded = try await ArtifactIntegrityChecker().decodeVerifiedJSON(
             AntennaProtectionPlan.self,
             for: record,
             in: runDirectory
@@ -183,8 +184,8 @@ struct ArtifactSchemaContractTests {
             to: runDirectory.appending(path: record.path),
             options: .atomic
         )
-        #expect(throws: ArtifactIntegrityError.self) {
-            try ArtifactIntegrityChecker().decodeVerifiedJSON(
+        await #expect(throws: ArtifactIntegrityError.self) {
+            try await ArtifactIntegrityChecker().decodeVerifiedJSON(
                 AntennaProtectionPlan.self,
                 for: record,
                 in: runDirectory
@@ -200,8 +201,9 @@ struct ArtifactSchemaContractTests {
         )
         #expect(throws: ArtifactPublicationRecordValidationError.unavailableStatusRequired) {
             _ = try ArtifactPublicationRecord(
-                id: ArtifactID(rawValue: "layout-summary"),
-                locator: locator,
+                logicalID: "layout-summary",
+                descriptor: locator.descriptor,
+                relativePath: ArtifactRelativePath(segments: ["layout", "summary.json"]),
                 status: .available
             )
         }
@@ -211,7 +213,7 @@ struct ArtifactSchemaContractTests {
     }
 
     @Test("Timing library payload is read through artifact integrity", .timeLimit(.minutes(1)))
-    func timingLibraryPayloadIsReadThroughArtifactIntegrity() throws {
+    func timingLibraryPayloadIsReadThroughArtifactIntegrity() async throws {
         let fixtures = try ArtifactFixture()
         let runDirectory = FileManager.default.temporaryDirectory
             .appending(path: "timing-integrity-\(UUID().uuidString)")
@@ -228,7 +230,7 @@ struct ArtifactSchemaContractTests {
             validationReports: []
         )
         let libraryRecord = try #require(result.record(id: "timing-library"))
-        _ = try ArtifactIntegrityChecker().decodeVerifiedJSON(
+        _ = try await ArtifactIntegrityChecker().decodeVerifiedJSON(
             TimingLibraryArtifact.self,
             for: libraryRecord,
             in: runDirectory
@@ -238,8 +240,8 @@ struct ArtifactSchemaContractTests {
             to: runDirectory.appending(path: libraryRecord.path),
             options: .atomic
         )
-        #expect(throws: ArtifactIntegrityError.self) {
-            try ArtifactIntegrityChecker().decodeVerifiedJSON(
+        await #expect(throws: ArtifactIntegrityError.self) {
+            try await ArtifactIntegrityChecker().decodeVerifiedJSON(
                 TimingLibraryArtifact.self,
                 for: libraryRecord,
                 in: runDirectory
@@ -503,19 +505,34 @@ struct ArtifactSchemaContractTests {
                 hexadecimalValue: try #require(sha256)
             )
             let count = try #require(byteCount)
-            return TimingArtifactRecord(
-                reference: ArtifactReference(
-                    id: try ArtifactID(rawValue: id),
-                    locator: locator,
+            let unsignedCount = try #require(UInt64(exactly: count))
+            let reference = try ArtifactReference(
                     digest: digest,
-                    byteCount: UInt64(count)
-                ),
+                    byteCount: unsignedCount,
+                    descriptor: locator.descriptor
+            )
+            let binding = try FlowArtifactBinding(
+                logicalID: id,
+                reference: reference,
+                availability: .local(
+                    artifactID: reference.id,
+                    rootID: ArtifactRootID(rawValue: "artifact-schema-tests"),
+                    relativePath: ArtifactRelativePath(
+                        segments: path.split(separator: "/").map(String.init)
+                    )
+                )
+            )
+            return try TimingArtifactRecord(
+                binding: binding,
                 kind: kind
             )
         case .omitted, .missing:
             return try TimingArtifactRecord(
-                id: ArtifactID(rawValue: id),
-                locator: locator,
+                logicalID: id,
+                descriptor: locator.descriptor,
+                relativePath: ArtifactRelativePath(
+                    segments: path.split(separator: "/").map(String.init)
+                ),
                 kind: kind,
                 status: status
             )
@@ -631,7 +648,7 @@ private struct ArtifactFixture {
             criticalPaths: [timingPath]
         )
         let timestamp = Date(timeIntervalSince1970: 1)
-        staExecutionResult = STAExecutionResult(
+        staExecutionResult = try STAExecutionResult(
             runID: "unit",
             status: .completed,
             payload: timingPayload,

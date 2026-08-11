@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import DesignFlowKernel
 import Foundation
 
 public enum ArtifactSetPublisherError: Error, LocalizedError, Equatable {
@@ -109,8 +110,8 @@ public struct ArtifactSetPublisher: Sendable {
         try validateUniqueItems(items)
         return try items.map { item in
             let artifactPath = try RoundTripArtifactPath(item.relativePath)
-            let reference = try ArtifactReference.circuitStudioReference(
-                id: item.id,
+            let binding = try FlowArtifactBinding.circuitStudioBinding(
+                logicalID: item.id,
                 kind: item.kind,
                 relativePath: artifactPath.value,
                 data: item.data
@@ -123,8 +124,8 @@ public struct ArtifactSetPublisher: Sendable {
                     data: item.data,
                     sourcePath: item.sourcePath
                 ),
-                record: ArtifactPublicationRecord(
-                    reference: reference,
+                record: try ArtifactPublicationRecord(
+                    binding: binding,
                     createdAt: createdAt,
                     sourcePath: item.sourcePath
                 )
@@ -257,8 +258,8 @@ public struct ArtifactSetPublisher: Sendable {
         let item = prepared.item
         let record = prepared.record
         let canonicalPath = try RoundTripArtifactPath(item.relativePath).value
-        let expectedReference = try ArtifactReference.circuitStudioReference(
-            id: item.id,
+        let expectedBinding = try FlowArtifactBinding.circuitStudioBinding(
+            logicalID: item.id,
             kind: item.kind,
             relativePath: canonicalPath,
             data: item.data
@@ -268,7 +269,7 @@ public struct ArtifactSetPublisher: Sendable {
             (record.kind == item.kind, "record kind '\(record.kind)' differs from item kind '\(item.kind)'"),
             (record.path == canonicalPath, "record path '\(record.path)' differs from item path '\(canonicalPath)'"),
             (record.status == .available, "record status must be available"),
-            (record.reference == expectedReference, "record ArtifactReference does not match payload bytes"),
+            (record.binding == expectedBinding, "record artifact binding does not match payload bytes or availability"),
             (record.sourcePath == item.sourcePath, "record sourcePath differs from item sourcePath"),
         ]
         if let failed = checks.first(where: { !$0.0 }) {

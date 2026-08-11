@@ -1,6 +1,7 @@
 import DesignFlowKernel
 import CircuiteFoundation
 import Foundation
+import Xcircuite
 
 extension RunReviewService {
     public func verifiedArtifactResource(
@@ -18,25 +19,28 @@ extension RunReviewService {
         guard let recordedArtifact = bundle.artifacts.first(where: { isSameArtifact($0, as: artifact) }) else {
             throw RunReviewServiceError.artifactResourceNotFound(
                 runID: runID,
-                artifactPath: artifact.reference.path
+                artifactPath: artifact.binding.circuitStudioPresentationPath
             )
         }
 
-        return try makeVerifiedArtifactResource(
+        return try await makeVerifiedArtifactResource(
             runID: runID,
             artifact: recordedArtifact,
-            projectRoot: projectRoot
+            projectRoot: projectRoot,
+            artifactReader: store
         )
     }
 
     private func makeVerifiedArtifactResource(
         runID: String,
         artifact: FlowRunReviewArtifact,
-        projectRoot: URL
-    ) throws -> RunReviewArtifactResource {
+        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading
+    ) async throws -> RunReviewArtifactResource {
+        let presentationPath = artifact.binding.circuitStudioPresentationPath
         guard let integrity = artifact.integrity, integrity.status == .verified else {
             throw RunReviewServiceError.artifactResourceIntegrityUnverified(
-                path: artifact.reference.path,
+                path: presentationPath,
                 status: artifact.integrity?.status.rawValue ?? "missing",
                 message: artifact.integrity?.message ?? "No recorded artifact integrity state is available."
             )
@@ -45,12 +49,12 @@ extension RunReviewService {
         do {
             url = try verifiedArtifactURL(for: artifact, projectRoot: projectRoot)
         } catch RunReviewServiceError.artifactPreviewEscapesProject(_) {
-            throw RunReviewServiceError.artifactResourceEscapesProject(path: artifact.reference.path)
+            throw RunReviewServiceError.artifactResourceEscapesProject(path: presentationPath)
         }
 
         let resolvedPath = url.path(percentEncoded: false)
         guard FileManager.default.fileExists(atPath: resolvedPath) else {
-            throw RunReviewServiceError.artifactResourceInputMissing(path: artifact.reference.path)
+            throw RunReviewServiceError.artifactResourceInputMissing(path: presentationPath)
         }
 
         let resourceValues: URLResourceValues
@@ -58,25 +62,32 @@ extension RunReviewService {
             resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
         } catch {
             throw RunReviewServiceError.artifactResourceUnreadable(
-                path: artifact.reference.path,
+                path: presentationPath,
                 message: error.localizedDescription
             )
         }
         guard resourceValues.isRegularFile == true else {
-            throw RunReviewServiceError.artifactResourceInputMissing(path: artifact.reference.path)
+            throw RunReviewServiceError.artifactResourceInputMissing(path: presentationPath)
         }
         guard resourceValues.fileSize.map({ $0 >= 0 }) == true else {
             throw RunReviewServiceError.artifactResourceUnreadable(
-                path: artifact.reference.path,
+                path: presentationPath,
                 message: "Artifact byte count is unavailable."
             )
         }
-        let verification = LocalArtifactVerifier().verify(artifact.reference, relativeTo: projectRoot)
-        guard verification.isVerified else {
+        do {
+            _ = try await artifactReader.loadArtifactContent(for: artifact.binding)
+        } catch XcircuiteWorkspaceStoreError.artifactIntegrityFailed(_, let issues) {
             throw RunReviewServiceError.artifactResourceIntegrityUnverified(
-                path: artifact.reference.path,
-                status: verification.issues.first?.code.rawValue ?? "integrity-failure",
-                message: verification.issues.map(\.code.rawValue).joined(separator: ", ")
+                path: presentationPath,
+                status: issues.first?.code.rawValue ?? "integrity-failure",
+                message: issues.map(\.code.rawValue).joined(separator: ", ")
+            )
+        } catch {
+            throw RunReviewServiceError.artifactResourceIntegrityUnverified(
+                path: presentationPath,
+                status: "integrity-failure",
+                message: error.localizedDescription
             )
         }
 

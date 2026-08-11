@@ -109,57 +109,68 @@ struct RunReviewPlanningReviewCard: View {
     }
 
     @ViewBuilder
-    private func candidatePlanDrilldown(_ plan: XcircuiteCandidatePlan) -> some View {
+    private func candidatePlanDrilldown(_ plan: XcircuitePlanningCandidateDraft) -> some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     planningStatusBadge(plan.executionReadiness)
                     Text(plan.strategy)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.caption.monospaced())
                     Spacer()
-                    Text("\(plan.steps.count) steps")
+                    Text("\(plan.steps.count) step(s)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                ForEach(plan.steps.sorted { $0.order < $1.order }, id: \.stepID) { step in
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
+                    GridRow {
+                        Text("Problem")
+                        Text(plan.problemID)
+                    }
+                    GridRow {
+                        Text("Source")
+                        Text(plan.sourceProblemRef.refID)
+                    }
+                    GridRow {
+                        Text("Verification gates")
+                        Text("\(plan.verificationGates.count)")
+                    }
+                }
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                if !plan.steps.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Text("#\(step.order)")
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
-                                .frame(width: 34, alignment: .leading)
-                            planningStatusBadge(step.readiness)
-                            Text(step.operationID)
-                                .font(.caption.weight(.semibold))
-                            Spacer()
-                            Text(step.domainID)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        if !step.reason.isEmpty {
-                            Text(step.reason)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                        if !step.verificationGates.isEmpty {
-                            Text(step.verificationGates.joined(separator: ", "))
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
+                        Text("Proposed Steps")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        ForEach(plan.steps.sorted { $0.order < $1.order }, id: \.stepID) { step in
+                            HStack(spacing: 6) {
+                                Text("#\(step.order)")
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                                Text(step.operationID)
+                                    .font(.caption)
+                                Spacer()
+                                planningStatusBadge(step.readiness)
+                            }
                         }
                     }
-                    .padding(.vertical, 2)
                 }
                 if !plan.riskClassifications.isEmpty {
                     riskClassificationList(plan.riskClassifications)
+                }
+                if !plan.blockers.isEmpty || !plan.unresolvedObjectives.isEmpty {
+                    Text(
+                        "Blocked: \((plan.blockers + plan.unresolvedObjectives).joined(separator: ", "))"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .lineLimit(3)
                 }
             }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "list.bullet.rectangle.portrait")
-                    .foregroundStyle(planningStatusColor(plan.executionReadiness))
+                    .foregroundStyle(Color.accentColor)
                 Text("Candidate Plan")
                     .font(.caption.weight(.semibold))
                 Text(plan.planID)
@@ -364,7 +375,7 @@ struct RunReviewPlanningReviewCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.caption.weight(.semibold))
-                Text(artifact.reference.locator.location.value)
+                Text(artifact.binding.circuitStudioPresentationPath)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(2)

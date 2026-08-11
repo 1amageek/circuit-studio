@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import DesignFlowKernel
 import Xcircuite
 @testable import CircuitStudioApp
@@ -62,7 +63,7 @@ struct XcircuiteSimulationRunRecorderTests {
         #expect(stage.stageID == "simulation")
         #expect(stage.status == .succeeded)
         #expect(stage.artifacts.contains { $0.artifactID == "simulation-summary" })
-        #expect(ledger.evidence?.artifacts == ledger.artifacts)
+        #expect(ledger.evidence?.artifacts == ledger.artifacts.map(\.reference))
         let provenance = try #require(ledger.evidence?.provenance)
         #expect(provenance.producer.version.hasPrefix("sha256-"))
         #expect(provenance.producer.version.count == 71)
@@ -103,7 +104,7 @@ struct XcircuiteSimulationRunRecorderTests {
         #expect(ledger.stages.first?.artifacts.contains {
             $0.artifactID == "simulation-error"
         } == true)
-        #expect(ledger.evidence?.artifacts == ledger.artifacts)
+        #expect(ledger.evidence?.artifacts == ledger.artifacts.map(\.reference))
     }
 
     @Test func duplicateRunIdentifierDoesNotOverwriteRecordedInputs() async throws {
@@ -242,7 +243,7 @@ struct XcircuiteSimulationRunRecorderTests {
         #expect(ledger.stages.first?.artifacts.contains {
             $0.artifactID == "simulation-error"
         } == true)
-        #expect(ledger.evidence?.artifacts == ledger.artifacts)
+        #expect(ledger.evidence?.artifacts == ledger.artifacts.map(\.reference))
     }
 
     @Test @MainActor func interactiveRunRequiresAProjectForCanonicalRecording() async {
@@ -303,10 +304,45 @@ struct XcircuiteSimulationRunRecorderTests {
             )
             Issue.record("Expected a missing provenance executable to be rejected.")
         } catch let error as CircuitStudioExecutionEnvironmentError {
-            #expect(error == .executableIsNotARegularFile(missingPath))
+            guard case .executableOpenFailed(let path, let reason) = error else {
+                Issue.record("Expected a typed open failure, got \(error).")
+                return
+            }
+            #expect(path == missingPath)
+            #expect(!reason.isEmpty)
         } catch {
             Issue.record("Expected a typed provenance error, got \(error).")
         }
+    }
+
+    @Test func symlinkExecutableIsFingerprintedThroughOneStableDescriptor() async throws {
+        let root = try makeTemporaryRoot("provenance-symlink")
+        defer { removeTemporaryRoot(root) }
+        let executableURL = root.appending(path: "tool")
+        let symlinkURL = root.appending(path: "tool-link")
+        let executableData = Data("#!/bin/sh\nexit 0\n".utf8)
+        try executableData.write(to: executableURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: executableURL.path(percentEncoded: false)
+        )
+        try FileManager.default.createSymbolicLink(
+            at: symlinkURL,
+            withDestinationURL: executableURL
+        )
+
+        let identity = try await CircuitStudioExecutionEnvironment.producerIdentity(
+            kind: .tool,
+            identifier: "symlink-tool",
+            executablePath: symlinkURL.path(percentEncoded: false)
+        )
+        let digest = try SHA256ContentDigester().digest(
+            data: executableData,
+            using: .sha256
+        )
+
+        #expect(identity.version == "sha256-\(digest.hexadecimalValue)")
+        #expect(identity.build == identity.version)
     }
 
     @Test func executionEnvironmentFingerprintBindsEffectiveEnvironment() async throws {
@@ -322,57 +358,89 @@ struct XcircuiteSimulationRunRecorderTests {
         #expect(first.environmentDigest != second.environmentDigest)
     }
 
-    @Test func artifactMergePreservesDistinctRolesAtTheSameLocation() throws {
+    @Test func artifactMergePreservesDistinctRolesAtTheSameAvailability() throws {
         let payload = Data("shared netlist".utf8)
         let digest = try SHA256ContentDigester().digest(data: payload, using: .sha256)
-        let location = try ArtifactLocation(workspaceRelativePath: "design/shared.cir")
-        let input = ArtifactReference(
-            id: try ArtifactID(rawValue: "shared-netlist-input"),
-            locator: ArtifactLocator(
-                location: location,
+        let relativePath = try ArtifactRelativePath(segments: ["design", "shared.cir"])
+        let inputReference = try ArtifactReference(
+            digest: digest,
+            byteCount: UInt64(payload.count),
+            descriptor: ArtifactDescriptor(
                 role: .input,
                 kind: .netlist,
                 format: .spice
-            ),
-            digest: digest,
-            byteCount: UInt64(payload.count)
+            )
         )
-        let output = ArtifactReference(
-            id: try ArtifactID(rawValue: "shared-netlist-output"),
-            locator: ArtifactLocator(
-                location: location,
+        let outputReference = try ArtifactReference(
+            digest: digest,
+            byteCount: UInt64(payload.count),
+            descriptor: ArtifactDescriptor(
                 role: .output,
                 kind: .netlist,
                 format: .spice
-            ),
-            digest: digest,
-            byteCount: UInt64(payload.count)
+            )
+        )
+        let rootID = try ArtifactRootID(rawValue: "simulation-test")
+        let input = try FlowArtifactBinding(
+            logicalID: "shared-netlist-input",
+            reference: inputReference,
+            availability: .local(
+                artifactID: inputReference.id,
+                rootID: rootID,
+                relativePath: relativePath
+            )
+        )
+        let output = try FlowArtifactBinding(
+            logicalID: "shared-netlist-output",
+            reference: outputReference,
+            availability: .local(
+                artifactID: outputReference.id,
+                rootID: rootID,
+                relativePath: relativePath
+            )
         )
 
         let merged = try XcircuiteSimulationRunRecorder.mergeArtifacts([output, input])
 
         #expect(merged.count == 2)
-        #expect(Set(merged.map(\.locator.role)) == [.input, .output])
+        #expect(Set(merged.map(\.role)) == [.input, .output])
     }
 
-    @Test func artifactMergeRejectsConflictingMetadataForTheSameLocator() throws {
-        let locator = ArtifactLocator(
-            location: try ArtifactLocation(workspaceRelativePath: "design/shared.cir"),
+    @Test func artifactMergeRejectsConflictingContentForTheSameLogicalMaterialization() throws {
+        let descriptor = ArtifactDescriptor(
             role: .output,
             kind: .netlist,
             format: .spice
         )
-        let first = ArtifactReference(
-            id: try ArtifactID(rawValue: "shared-netlist"),
-            locator: locator,
+        let relativePath = try ArtifactRelativePath(segments: ["design", "shared.cir"])
+        let rootID = try ArtifactRootID(rawValue: "simulation-test")
+        let firstReference = try ArtifactReference(
             digest: try SHA256ContentDigester().digest(data: Data("first".utf8), using: .sha256),
-            byteCount: 5
+            byteCount: 5,
+            descriptor: descriptor
         )
-        let conflicting = ArtifactReference(
-            id: first.id,
-            locator: locator,
+        let conflictingReference = try ArtifactReference(
             digest: try SHA256ContentDigester().digest(data: Data("second".utf8), using: .sha256),
-            byteCount: 6
+            byteCount: 6,
+            descriptor: descriptor
+        )
+        let first = try FlowArtifactBinding(
+            logicalID: "shared-netlist",
+            reference: firstReference,
+            availability: .local(
+                artifactID: firstReference.id,
+                rootID: rootID,
+                relativePath: relativePath
+            )
+        )
+        let conflicting = try FlowArtifactBinding(
+            logicalID: "shared-netlist",
+            reference: conflictingReference,
+            availability: .local(
+                artifactID: conflictingReference.id,
+                rootID: rootID,
+                relativePath: relativePath
+            )
         )
 
         #expect(throws: XcircuiteWorkspaceStoreError.self) {

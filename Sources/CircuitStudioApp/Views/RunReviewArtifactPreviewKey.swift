@@ -6,10 +6,10 @@ enum RunReviewArtifactPreviewKey {
             runID,
             artifact.stageID ?? "",
             artifact.purpose.rawValue,
-            artifact.reference.id.rawValue,
-            artifact.reference.locator.kind.rawValue,
-            artifact.reference.locator.format.rawValue,
-            artifact.reference.locator.location.value,
+            artifact.binding.logicalID,
+            artifact.binding.kind.rawValue,
+            artifact.binding.format.rawValue,
+            artifact.binding.circuitStudioPresentationPath,
         ].map(escape).joined(separator: "#")
     }
 

@@ -132,10 +132,6 @@ struct CircuitStudioFlowRunner {
                                   Apply a selected waiver edit proposal, then run linked DRC/LVS/pre-PEX verification
           --run-post-waiver-edit-verification
                                   Run DRC/LVS/pre-PEX verification and link it to an applied waiver edit
-          --formulate-signoff-repair-planning
-                                  Compile DRC/LVS repair hint reports into planning artifacts and record the action
-          --run-signoff-repair-candidate-cycle
-                                  Compile signoff repair planning artifacts, generate a candidate plan, execute it, and verify it
           --run-goal-layout-agent
                                   Close a .subckt intent through layout goal commands (place/bind/finish/repair), gate on trust + replay determinism, and export evidence + GDS
           --scaffold-design-spec
@@ -179,19 +175,6 @@ struct CircuitStudioFlowRunner {
                            Waiver edit proposal ID for --apply-waiver-edit, --apply-waiver-edit-and-verify, or --run-post-waiver-edit-verification
           --actor-kind VALUE
                            Actor kind for review actions. Values: human, agent, cli, system. Default: human
-          --drc-repair-hints PATH
-                           Project-relative DRC repair hint report for --formulate-signoff-repair-planning
-          --lvs-repair-hints PATH
-                           Project-relative LVS repair hint report for --formulate-signoff-repair-planning
-          --formulation-id ID
-                           Optional repair formulation artifact ID for --formulate-signoff-repair-planning
-          --intent-id ID   Optional repair intent ID for --formulate-signoff-repair-planning
-          --intent TEXT    Optional repair intent text for --formulate-signoff-repair-planning
-          --problem-id ID  Optional planning problem ID for --formulate-signoff-repair-planning
-          --candidate-strategy TEXT
-                           Candidate generation strategy for --run-signoff-repair-candidate-cycle
-          --candidate-verification-mode TEXT
-                           Candidate verification mode for --run-signoff-repair-candidate-cycle. Default: post-execution
           --history-assessment-profile PATH
                            JSON profile that defines retained-history assessment thresholds for --assess-signoff-repair-cycles
           --min-history-runs COUNT

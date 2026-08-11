@@ -16,11 +16,11 @@ struct RunReviewSignoffArtifactIndex {
             }
 
             let searchable = [
-                artifact.reference.id.rawValue,
+                artifact.binding.logicalID,
                 artifact.purpose.rawValue,
-                artifact.reference.locator.location.value,
-                artifact.reference.locator.kind.rawValue,
-                artifact.reference.locator.format.rawValue,
+                artifact.binding.circuitStudioPresentationPath,
+                artifact.binding.kind.rawValue,
+                artifact.binding.format.rawValue,
             ]
             .map { $0.lowercased() }
             .joined(separator: " ")
@@ -50,16 +50,16 @@ struct RunReviewSignoffArtifactIndex {
         var seenPaths = Set<String>()
         return candidates
             .filter { candidate in
-                let path = candidate.reference.locator.location.value
-                return path != artifact.reference.locator.location.value
+                let path = candidate.binding.circuitStudioPresentationPath
+                return path != artifact.binding.circuitStudioPresentationPath
                     && seenPaths.insert(path).inserted
             }
             .sorted { left, right in
                 if left.purpose != right.purpose {
                     return left.purpose.rawValue < right.purpose.rawValue
                 }
-                return left.reference.locator.location.value
-                    < right.reference.locator.location.value
+                return left.binding.circuitStudioPresentationPath
+                    < right.binding.circuitStudioPresentationPath
             }
     }
 

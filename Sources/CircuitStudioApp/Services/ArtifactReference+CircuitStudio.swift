@@ -1,14 +1,16 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
+import CircuiteFoundationFileSystem
+import CircuiteFoundationFoundation
+import DesignFlowKernel
 import Foundation
 
 extension ArtifactReference {
     static func circuitStudioReference(
-        id: String,
         kind: String,
         relativePath: String,
         data: Data,
         role: ArtifactRole = .output,
-        producer: ProducerIdentity? = nil,
         digester: any ContentDigesting = SHA256ContentDigester()
     ) throws -> ArtifactReference {
         let locator = try circuitStudioLocator(
@@ -17,22 +19,18 @@ extension ArtifactReference {
             role: role
         )
         let digest = try digester.digest(data: data, using: .sha256)
-        return ArtifactReference(
-            id: try ArtifactID(rawValue: id),
-            locator: locator,
+        return try ArtifactReference(
             digest: digest,
             byteCount: UInt64(data.count),
-            producer: producer
+            descriptor: locator.descriptor
         )
     }
 
     static func circuitStudioReference(
-        id: String,
         kind: String,
         relativePath: String,
         fileURL: URL,
         role: ArtifactRole = .output,
-        producer: ProducerIdentity? = nil,
         referencer: any ArtifactReferencing = LocalArtifactReferencer()
     ) throws -> ArtifactReference {
         let locator = try circuitStudioLocator(
@@ -46,17 +44,9 @@ extension ArtifactReference {
             kind: locator.kind,
             format: locator.format
         )
-        let fileReference = try referencer.reference(
+        return try referencer.reference(
             fileLocator,
-            relativeTo: nil,
-            producer: producer
-        )
-        return ArtifactReference(
-            id: try ArtifactID(rawValue: id),
-            locator: locator,
-            digest: fileReference.digest,
-            byteCount: fileReference.byteCount,
-            producer: producer
+            relativeTo: nil
         )
     }
 
@@ -71,10 +61,6 @@ extension ArtifactReference {
             kind: try ArtifactKind(rawValue: kind),
             format: try ArtifactFormat(rawValue: circuitStudioFormat(for: relativePath))
         )
-    }
-
-    var circuitStudioPath: String {
-        locator.location.value
     }
 
     var circuitStudioSHA256: String {
@@ -100,5 +86,87 @@ extension ArtifactReference {
         default:
             return ArtifactFormat.unknown.rawValue
         }
+    }
+}
+
+extension FlowArtifactBinding {
+    var circuitStudioPresentationPath: String {
+        switch availability {
+        case .local(_, _, let relativePath):
+            relativePath.stringValue
+        case .service:
+            availabilityDescription
+        }
+    }
+
+    static func circuitStudioBinding(
+        logicalID: String,
+        kind: String,
+        relativePath: String,
+        data: Data,
+        role: ArtifactRole = .output,
+        producer: ProducerIdentity? = nil,
+        digester: any ContentDigesting = SHA256ContentDigester()
+    ) throws -> FlowArtifactBinding {
+        let canonicalPath = try RoundTripArtifactPath(relativePath).value
+        let reference = try ArtifactReference.circuitStudioReference(
+            kind: kind,
+            relativePath: canonicalPath,
+            data: data,
+            role: role,
+            digester: digester
+        )
+        return try makeCircuitStudioBinding(
+            logicalID: logicalID,
+            reference: reference,
+            relativePath: canonicalPath,
+            producer: producer
+        )
+    }
+
+    static func circuitStudioBinding(
+        logicalID: String,
+        kind: String,
+        relativePath: String,
+        fileURL: URL,
+        role: ArtifactRole = .output,
+        producer: ProducerIdentity? = nil,
+        referencer: any ArtifactReferencing = LocalArtifactReferencer()
+    ) throws -> FlowArtifactBinding {
+        let canonicalPath = try RoundTripArtifactPath(relativePath).value
+        let reference = try ArtifactReference.circuitStudioReference(
+            kind: kind,
+            relativePath: canonicalPath,
+            fileURL: fileURL,
+            role: role,
+            referencer: referencer
+        )
+        return try makeCircuitStudioBinding(
+            logicalID: logicalID,
+            reference: reference,
+            relativePath: canonicalPath,
+            producer: producer
+        )
+    }
+
+    private static func makeCircuitStudioBinding(
+        logicalID: String,
+        reference: ArtifactReference,
+        relativePath: String,
+        producer: ProducerIdentity?
+    ) throws -> FlowArtifactBinding {
+        let availabilityPath = try ArtifactRelativePath(
+            segments: relativePath.split(separator: "/").map(String.init)
+        )
+        return try FlowArtifactBinding(
+            logicalID: logicalID,
+            reference: reference,
+            availability: .local(
+                artifactID: reference.id,
+                rootID: ArtifactRootID(rawValue: "circuit-studio-run-directory"),
+                relativePath: availabilityPath
+            ),
+            producer: producer
+        )
     }
 }

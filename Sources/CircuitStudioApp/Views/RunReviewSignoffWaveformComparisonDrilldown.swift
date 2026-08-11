@@ -9,7 +9,7 @@ struct RunReviewSignoffWaveformComparisonDrilldown: View {
     let loadArtifactPreviews: ([FlowRunReviewArtifact]) -> Void
 
     private var waveformArtifacts: [FlowRunReviewArtifact] {
-        card.relatedArtifacts.filter { $0.reference.locator.kind == .waveform }
+        card.relatedArtifacts.filter { $0.binding.kind == .waveform }
     }
 
     var body: some View {
@@ -56,7 +56,7 @@ struct RunReviewSignoffWaveformComparisonDrilldown: View {
                             alignment: .leading,
                             spacing: 3
                         ) {
-                            ForEach(sources, id: \.artifact.reference.locator.location.value) { source in
+                            ForEach(sources, id: \.artifact.binding.circuitStudioPresentationPath) { source in
                                 if let signal = source.preview.signals.first(where: { $0.name == signalName }) {
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(source.label)
@@ -159,9 +159,9 @@ struct RunReviewSignoffWaveformComparisonDrilldown: View {
 
     private func waveformSourceLabel(_ artifact: FlowRunReviewArtifact) -> String {
         let searchable = [
-            artifact.reference.id.rawValue,
+            artifact.binding.logicalID,
             artifact.purpose.rawValue,
-            artifact.reference.locator.location.value,
+            artifact.binding.circuitStudioPresentationPath,
         ]
         .map { $0.lowercased() }
         .joined(separator: " ")
@@ -171,6 +171,6 @@ struct RunReviewSignoffWaveformComparisonDrilldown: View {
         if searchable.contains("post-layout") {
             return "post"
         }
-        return artifact.reference.id.rawValue
+        return artifact.binding.logicalID
     }
 }

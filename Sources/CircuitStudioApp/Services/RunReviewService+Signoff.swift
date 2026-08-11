@@ -10,23 +10,23 @@ extension RunReviewService {
     func signoffReview(
         bundle: FlowRunReviewBundle,
         actions: [FlowRunActionRecord],
-        projectRoot: URL
-    ) throws -> RunReviewSignoffSummary {
+        artifactReader: any XcircuiteArtifactBindingReading
+    ) async throws -> RunReviewSignoffSummary {
         var cards: [RunReviewSignoffCard] = []
         var decodeIssues: [RunReviewArtifactDecodeIssue] = []
         let artifactIndex = RunReviewSignoffArtifactIndex(artifacts: bundle.artifacts)
-        let actionDomainCatalog = try signoffActionDomainCatalog(
+        let actionDomainCatalog = try await signoffActionDomainCatalog(
             bundle: bundle,
-            projectRoot: projectRoot
+            artifactReader: artifactReader
         )
 
-        for artifact in bundle.artifacts where artifact.reference.locator.format == .json {
+        for artifact in bundle.artifacts where artifact.binding.format == .json {
             switch signoffArtifactKind(for: artifact) {
             case .drc:
-                appendDecodedCard(
+                await appendDecodedCard(
                     artifact: artifact,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
                     makeCard: {
@@ -38,10 +38,10 @@ extension RunReviewService {
                     }
                 )
             case .lvs:
-                appendDecodedCard(
+                await appendDecodedCard(
                     artifact: artifact,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
                     makeCard: {
@@ -53,10 +53,10 @@ extension RunReviewService {
                     }
                 )
             case .pex:
-                appendDecodedCard(
+                await appendDecodedCard(
                     artifact: artifact,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
                     makeCard: {
@@ -68,28 +68,28 @@ extension RunReviewService {
                     }
                 )
             case .generatedLayoutSignoffCorpus:
-                appendDecodedCard(
+                await appendDecodedCard(
                     artifact: artifact,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
                     makeCard: generatedLayoutSignoffCorpusCard
                 )
             case .retainedSignoffReport:
-                appendDecodedCard(
+                await appendDecodedCard(
                     artifact: artifact,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
                     makeCard: retainedSignoffReportCard
                 )
             case .simulationMetric:
-                appendDecodedCard(
+                await appendDecodedCard(
                     artifact: artifact,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
                     makeCard: {
@@ -101,19 +101,19 @@ extension RunReviewService {
                     }
                 )
             case .simulationMeasurement:
-                appendDecodedCard(
+                await appendDecodedCard(
                     artifact: artifact,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
                     makeCard: simulationMeasurementCard
                 )
             case .postLayoutComparison:
-                appendDecodedCard(
+                await appendDecodedCard(
                     artifact: artifact,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards,
                     makeCard: {
@@ -125,38 +125,38 @@ extension RunReviewService {
                     }
                 )
             case .signoffBundle:
-                appendReleaseSignoffBundleCards(
+                await appendReleaseSignoffBundleCards(
                     artifact: artifact,
                     allArtifacts: bundle.artifacts,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards
                 )
             case .releaseAuthorization:
-                appendReleaseAuthorizationCard(
+                await appendReleaseAuthorizationCard(
                     artifact: artifact,
                     allArtifacts: bundle.artifacts,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards
                 )
             case .tapeoutResult:
-                appendTapeoutCard(
+                await appendTapeoutCard(
                     artifact: artifact,
                     allArtifacts: bundle.artifacts,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards
                 )
             case .foundryHandoff:
-                appendFoundryHandoffCard(
+                await appendFoundryHandoffCard(
                     artifact: artifact,
                     allArtifacts: bundle.artifacts,
                     artifactIndex: artifactIndex,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     decodeIssues: &decodeIssues,
                     cards: &cards
                 )
@@ -170,11 +170,12 @@ extension RunReviewService {
                 if left.domain != right.domain {
                     return signoffDomainRank(left.domain) < signoffDomainRank(right.domain)
                 }
-                return left.artifact.reference.locator.location.value < right.artifact.reference.locator.location.value
+                return left.artifact.binding.circuitStudioPresentationPath < right.artifact.binding.circuitStudioPresentationPath
             },
-            repairCandidateCycles: try signoffRepairCandidateCycles(
+            repairCandidateCycles: try await signoffRepairCandidateCycles(
                 from: actions,
-                projectRoot: projectRoot
+                artifacts: bundle.artifacts,
+                artifactReader: artifactReader
             ),
             decodeIssues: decodeIssues
         )
@@ -182,11 +183,11 @@ extension RunReviewService {
 
     private func signoffActionDomainCatalog(
         bundle: FlowRunReviewBundle,
-        projectRoot: URL
-    ) throws -> RunReviewActionDomainCatalog {
+        artifactReader: any XcircuiteArtifactBindingReading
+    ) async throws -> RunReviewActionDomainCatalog {
         let retainedSnapshots = bundle.artifacts.filter {
             $0.purpose == .planningActionDomain
-                || $0.reference.id.rawValue == XcircuitePlanningArtifactStore.actionDomainArtifactID
+                || $0.binding.logicalID == XcircuitePlanningArtifactStore.actionDomainArtifactID
         }
         guard retainedSnapshots.count <= 1 else {
             throw RunReviewServiceError.invalidActionDomainSnapshot(
@@ -195,13 +196,16 @@ extension RunReviewService {
             )
         }
         guard let retainedSnapshot = retainedSnapshots.first else {
-            return try RunReviewActionDomainCatalog.canonical(runID: bundle.runID)
+            return .empty
         }
 
-        try validateSignoffArtifactIntegrity(retainedSnapshot, projectRoot: projectRoot)
+        let data = try await verifiedSignoffArtifactData(
+            retainedSnapshot,
+            artifactReader: artifactReader
+        )
         let snapshot = try JSONDecoder().decode(
             XcircuitePlanningActionDomainSnapshot.self,
-            from: Data(contentsOf: artifactURL(for: retainedSnapshot, projectRoot: projectRoot))
+            from: data
         )
         guard snapshot.schemaVersion == 1 else {
             throw RunReviewServiceError.invalidActionDomainSnapshot(
@@ -220,20 +224,33 @@ extension RunReviewService {
 
     private func signoffRepairCandidateCycles(
         from actions: [FlowRunActionRecord],
-        projectRoot: URL
-    ) throws -> [RunReviewSignoffRepairCandidateCycleHistoryItem] {
+        artifacts: [FlowRunReviewArtifact],
+        artifactReader: any XcircuiteArtifactBindingReading
+    ) async throws -> [RunReviewSignoffRepairCandidateCycleHistoryItem] {
         var cycles: [RunReviewSignoffRepairCandidateCycleHistoryItem] = []
         for action in actions where action.actionKind == "review.runSignoffRepairCandidateCycle" {
-            guard let artifact = action.outputs.first(where: {
-                $0.artifactID.hasPrefix("signoff-repair-candidate-cycle-")
-            }) else {
+            let outputReferences = Set(action.outputs)
+            let matches = artifacts.filter {
+                $0.binding.logicalID.hasPrefix("signoff-repair-candidate-cycle-")
+                    && outputReferences.contains($0.reference)
+            }
+            guard !matches.isEmpty else {
                 continue
             }
-            let artifactURL = projectRoot.appending(path: artifact.locator.location.value)
+            guard matches.count == 1, let artifact = matches.first else {
+                throw RunReviewServiceError.invalidArtifactReference(
+                    path: action.actionID,
+                    message: "Candidate-cycle action output resolves to multiple review artifact bindings."
+                )
+            }
+            let data = try await verifiedSignoffArtifactData(
+                artifact,
+                artifactReader: artifactReader
+            )
             cycles.append(
                 try JSONDecoder().decode(
                     RunReviewSignoffRepairCandidateCycleHistoryItem.self,
-                    from: Data(contentsOf: artifactURL)
+                    from: data
                 )
             )
         }
@@ -248,14 +265,16 @@ extension RunReviewService {
     private func appendDecodedCard<Document: Decodable>(
         artifact: FlowRunReviewArtifact,
         artifactIndex: RunReviewSignoffArtifactIndex,
-        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         decodeIssues: inout [RunReviewArtifactDecodeIssue],
         cards: inout [RunReviewSignoffCard],
         makeCard: (Document, FlowRunReviewArtifact) -> RunReviewSignoffCard
-    ) {
+    ) async {
         do {
-            try validateSignoffArtifactIntegrity(artifact, projectRoot: projectRoot)
-            let data = try Data(contentsOf: artifactURL(for: artifact, projectRoot: projectRoot))
+            let data = try await verifiedSignoffArtifactData(
+                artifact,
+                artifactReader: artifactReader
+            )
             let document = try JSONDecoder().decode(Document.self, from: data)
             let artifactKind = signoffArtifactKind(for: artifact)
             var card = makeCard(document, artifact)
@@ -263,10 +282,10 @@ extension RunReviewService {
                 for: artifact,
                 artifactKind: artifactKind
             )
-            let evaluationProjection = artifactEvaluationProjection(
+            let evaluationProjection = await artifactEvaluationProjection(
                 for: artifact,
                 relatedArtifacts: relatedArtifacts,
-                projectRoot: projectRoot,
+                artifactReader: artifactReader,
                 decodeIssues: &decodeIssues
             )
             card = RunReviewSignoffCard(
@@ -294,7 +313,7 @@ extension RunReviewService {
             decodeIssues.append(
                 RunReviewArtifactDecodeIssue(
                     artifactRole: artifact.purpose.rawValue,
-                    artifactPath: artifact.reference.locator.location.value,
+                    artifactPath: artifact.binding.circuitStudioPresentationPath,
                     message: error.localizedDescription
                 )
             )
@@ -305,14 +324,17 @@ extension RunReviewService {
         artifact: FlowRunReviewArtifact,
         allArtifacts: [FlowRunReviewArtifact],
         artifactIndex: RunReviewSignoffArtifactIndex,
-        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         decodeIssues: inout [RunReviewArtifactDecodeIssue],
         cards: inout [RunReviewSignoffCard]
-    ) {
+    ) async {
         do {
-            let data = try verifiedSignoffArtifactData(artifact, projectRoot: projectRoot)
+            let data = try await verifiedSignoffArtifactData(
+                artifact,
+                artifactReader: artifactReader
+            )
             try requireProducer(
-                artifact.reference,
+                artifact.binding,
                 kind: .engine,
                 identifier: "native.release.signoff",
                 version: "2.0.0",
@@ -328,10 +350,10 @@ extension RunReviewService {
                 )
             }
             for evidenceArtifact in bundle.evidenceArtifacts {
-                _ = try requireRetainedArtifact(
+                _ = try await requireRetainedArtifact(
                     evidenceArtifact,
                     allArtifacts: allArtifacts,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     document: "signoff evidence"
                 )
             }
@@ -352,18 +374,21 @@ extension RunReviewService {
         artifact: FlowRunReviewArtifact,
         allArtifacts: [FlowRunReviewArtifact],
         artifactIndex: RunReviewSignoffArtifactIndex,
-        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         decodeIssues: inout [RunReviewArtifactDecodeIssue],
         cards: inout [RunReviewSignoffCard]
-    ) {
+    ) async {
         do {
-            let data = try verifiedSignoffArtifactData(artifact, projectRoot: projectRoot)
+            let data = try await verifiedSignoffArtifactData(
+                artifact,
+                artifactReader: artifactReader
+            )
             let result = try releaseJSONDecoder().decode(ReleaseAuthorizationResult.self, from: data)
-            try validateReleaseAuthorization(
+            try await validateReleaseAuthorization(
                 result,
                 artifact: artifact,
                 allArtifacts: allArtifacts,
-                projectRoot: projectRoot
+                artifactReader: artifactReader
             )
             let related = artifactIndex.relatedArtifacts(
                 for: artifact,
@@ -379,18 +404,21 @@ extension RunReviewService {
         artifact: FlowRunReviewArtifact,
         allArtifacts: [FlowRunReviewArtifact],
         artifactIndex: RunReviewSignoffArtifactIndex,
-        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         decodeIssues: inout [RunReviewArtifactDecodeIssue],
         cards: inout [RunReviewSignoffCard]
-    ) {
+    ) async {
         do {
-            let data = try verifiedSignoffArtifactData(artifact, projectRoot: projectRoot)
+            let data = try await verifiedSignoffArtifactData(
+                artifact,
+                artifactReader: artifactReader
+            )
             let result = try releaseJSONDecoder().decode(TapeoutResult.self, from: data)
-            try validateTapeoutResult(
+            try await validateTapeoutResult(
                 result,
                 artifact: artifact,
                 allArtifacts: allArtifacts,
-                projectRoot: projectRoot
+                artifactReader: artifactReader
             )
             let related = artifactIndex.relatedArtifacts(
                 for: artifact,
@@ -406,14 +434,17 @@ extension RunReviewService {
         artifact: FlowRunReviewArtifact,
         allArtifacts: [FlowRunReviewArtifact],
         artifactIndex: RunReviewSignoffArtifactIndex,
-        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         decodeIssues: inout [RunReviewArtifactDecodeIssue],
         cards: inout [RunReviewSignoffCard]
-    ) {
+    ) async {
         do {
-            let data = try verifiedSignoffArtifactData(artifact, projectRoot: projectRoot)
+            let data = try await verifiedSignoffArtifactData(
+                artifact,
+                artifactReader: artifactReader
+            )
             try requireProducer(
-                artifact.reference,
+                artifact.binding,
                 kind: .engine,
                 identifier: "native.release.tapeout",
                 version: "2.0.0",
@@ -421,10 +452,10 @@ extension RunReviewService {
             )
             let manifest = try FoundryHandoffManifest.decodeCanonical(from: data)
             for retainedArtifact in manifest.artifacts {
-                _ = try requireRetainedArtifact(
+                _ = try await requireRetainedArtifact(
                     retainedArtifact,
                     allArtifacts: allArtifacts,
-                    projectRoot: projectRoot,
+                    artifactReader: artifactReader,
                     document: "foundry handoff evidence"
                 )
             }
@@ -440,10 +471,10 @@ extension RunReviewService {
 
     private func verifiedSignoffArtifactData(
         _ artifact: FlowRunReviewArtifact,
-        projectRoot: URL
-    ) throws -> Data {
-        try validateSignoffArtifactIntegrity(artifact, projectRoot: projectRoot)
-        return try Data(contentsOf: artifactURL(for: artifact, projectRoot: projectRoot))
+        artifactReader: any XcircuiteArtifactBindingReading
+    ) async throws -> Data {
+        try validateRecordedSignoffArtifactIntegrity(artifact)
+        return try await artifactReader.loadArtifactContent(for: artifact.binding)
     }
 
     private func releaseJSONDecoder() -> JSONDecoder {
@@ -459,19 +490,19 @@ extension RunReviewService {
     ) {
         decodeIssues.append(RunReviewArtifactDecodeIssue(
             artifactRole: artifact.purpose.rawValue,
-            artifactPath: artifact.reference.locator.location.value,
+            artifactPath: artifact.binding.circuitStudioPresentationPath,
             message: error.localizedDescription
         ))
     }
 
     private func requireProducer(
-        _ reference: ArtifactReference,
+        _ binding: FlowArtifactBinding,
         kind: ProducerKind,
         identifier: String,
         version: String,
         document: String
     ) throws {
-        guard let producer = reference.producer,
+        guard let producer = binding.producer,
               producer.kind == kind,
               producer.identifier == identifier,
               producer.version == version,
@@ -495,8 +526,8 @@ extension RunReviewService {
         _ result: ReleaseAuthorizationResult,
         artifact: FlowRunReviewArtifact,
         allArtifacts: [FlowRunReviewArtifact],
-        projectRoot: URL
-    ) throws {
+        artifactReader: any XcircuiteArtifactBindingReading
+    ) async throws {
         guard result.schemaVersion == ReleaseAuthorizationResult.currentSchemaVersion else {
             throw RunReviewReleaseDocumentError.unsupportedSchema(
                 document: "release authorization",
@@ -505,45 +536,51 @@ extension RunReviewService {
             )
         }
         try requireProducer(
-            artifact.reference,
+            artifact.binding,
             kind: .engine,
             identifier: "native.release.authorization",
             version: "2.0.0",
             document: "release authorization"
         )
-        guard artifact.reference.producer == result.evidence.provenance.producer,
+        guard artifact.binding.producer == result.evidence.provenance.producer,
               result.evidence.artifacts == result.artifacts else {
             throw RunReviewReleaseDocumentError.producerMismatch(document: "release authorization")
         }
         switch result.status {
         case .authorized:
             guard let bundleReference = result.signoffBundle,
-                  result.artifacts == [bundleReference.artifact],
+                  result.artifactBindings == [bundleReference.artifact],
                   result.approval.verdict == .approved,
                   result.approval.reviewerKind == .human,
                   !result.approval.reviewer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  result.approval.evidence.stageResult == bundleReference.artifact,
+                  releaseBinding(
+                    bundleReference.artifact,
+                    matches: result.approval.evidence.stageResult
+                  ),
                   !result.diagnostics.contains(where: { $0.severity == .error }) else {
                 throw RunReviewReleaseDocumentError.invalidContent(
                     document: "release authorization",
                     reason: "An authorized result must retain an exact signoff bundle and identified human approval without error diagnostics."
                 )
             }
-            let retainedBundle = try requireRetainedArtifact(
+            let retainedBundle = try await requireRetainedArtifact(
                 bundleReference.artifact,
                 allArtifacts: allArtifacts,
-                projectRoot: projectRoot,
+                artifactReader: artifactReader,
                 document: "release authorization signoff bundle"
             )
             try requireProducer(
-                retainedBundle.reference,
+                retainedBundle.binding,
                 kind: .engine,
                 identifier: "native.release.signoff",
                 version: "2.0.0",
                 document: "release authorization signoff bundle"
             )
             let bundle = try SignoffBundle.decodeCanonical(
-                from: try Data(contentsOf: artifactURL(for: retainedBundle, projectRoot: projectRoot))
+                from: try await verifiedSignoffArtifactData(
+                    retainedBundle,
+                    artifactReader: artifactReader
+                )
             )
             guard bundle.designDigest == bundleReference.designDigest,
                   bundle.pdkDigest == bundleReference.pdkDigest,
@@ -569,8 +606,8 @@ extension RunReviewService {
         _ result: TapeoutResult,
         artifact: FlowRunReviewArtifact,
         allArtifacts: [FlowRunReviewArtifact],
-        projectRoot: URL
-    ) throws {
+        artifactReader: any XcircuiteArtifactBindingReading
+    ) async throws {
         guard result.schemaVersion == TapeoutRequest.currentSchemaVersion else {
             throw RunReviewReleaseDocumentError.unsupportedSchema(
                 document: "tapeout result",
@@ -586,13 +623,13 @@ extension RunReviewService {
             )
         }
         try requireProducer(
-            artifact.reference,
+            artifact.binding,
             kind: .engine,
             identifier: "native.release.tapeout",
             version: "2.0.0",
             document: "tapeout result"
         )
-        guard artifact.reference.producer == result.provenance.producer else {
+        guard artifact.binding.producer == result.provenance.producer else {
             throw RunReviewReleaseDocumentError.producerMismatch(document: "tapeout result")
         }
         guard result.artifacts.count == Set(result.artifacts).count else {
@@ -605,38 +642,43 @@ extension RunReviewService {
         case .completed:
             guard result.payload.completed,
                   let handoff = result.payload.handoff,
-                  let handoffArtifact = result.payload.handoffArtifact,
+                  let handoffBinding = result.payload.handoffBinding,
                   result.payload.checksum == handoff.manifestDigest,
                   result.payload.layoutDigest == handoff.layoutDigest,
                   result.payload.pdkDigest == handoff.pdkDigest,
-                  result.artifacts.contains(handoffArtifact),
+                  result.artifactBindings.contains(handoffBinding),
                   Set(handoff.artifacts).isSubset(of: Set(result.artifacts)),
                   handoff.isSelfConsistent,
                   let streamOut = result.payload.streamOut,
                   streamOut.schemaVersion == StreamOutManifest.currentSchemaVersion,
-                  result.artifacts.contains(streamOut.streamedArtifact),
-                  result.payload.xorResult?.isTapeoutQualified(at: result.provenance.completedAt) == true,
+                  result.artifactBindings.contains(streamOut.streamedArtifact),
+                  result.payload.xorResult?.isTapeoutQualified(
+                    at: Date(timeIntervalSince1970: result.provenance.completedAt.secondsSinceUnixEpoch)
+                  ) == true,
                   !result.diagnostics.contains(where: { $0.severity == .error }) else {
                 throw RunReviewReleaseDocumentError.invalidContent(
                     document: "tapeout result",
                     reason: "A completed result must retain qualified stream-out, XOR, and self-consistent handoff evidence."
                 )
             }
-            let retainedHandoff = try requireRetainedArtifact(
-                handoffArtifact,
+            let retainedHandoff = try await requireRetainedArtifact(
+                handoffBinding,
                 allArtifacts: allArtifacts,
-                projectRoot: projectRoot,
+                artifactReader: artifactReader,
                 document: "tapeout handoff manifest"
             )
             try requireProducer(
-                retainedHandoff.reference,
+                retainedHandoff.binding,
                 kind: .engine,
                 identifier: "native.release.tapeout",
                 version: "2.0.0",
                 document: "tapeout handoff manifest"
             )
             let persistedHandoff = try FoundryHandoffManifest.decodeCanonical(
-                from: try Data(contentsOf: artifactURL(for: retainedHandoff, projectRoot: projectRoot))
+                from: try await verifiedSignoffArtifactData(
+                    retainedHandoff,
+                    artifactReader: artifactReader
+                )
             )
             guard persistedHandoff == handoff else {
                 throw RunReviewReleaseDocumentError.invalidContent(
@@ -659,46 +701,70 @@ extension RunReviewService {
     private func requireRetainedArtifact(
         _ reference: ArtifactReference,
         allArtifacts: [FlowRunReviewArtifact],
-        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         document: String
-    ) throws -> FlowRunReviewArtifact {
+    ) async throws -> FlowRunReviewArtifact {
         guard let retained = allArtifacts.first(where: { $0.reference == reference }) else {
             throw RunReviewReleaseDocumentError.invalidContent(
                 document: document,
                 reason: "The exact referenced artifact is not retained in the run ledger."
             )
         }
-        try validateSignoffArtifactIntegrity(retained, projectRoot: projectRoot)
+        _ = try await verifiedSignoffArtifactData(
+            retained,
+            artifactReader: artifactReader
+        )
         return retained
     }
 
-    private func validateSignoffArtifactIntegrity(
-        _ artifact: FlowRunReviewArtifact,
-        projectRoot: URL
+    private func requireRetainedArtifact(
+        _ binding: ReleaseArtifactBinding,
+        allArtifacts: [FlowRunReviewArtifact],
+        artifactReader: any XcircuiteArtifactBindingReading,
+        document: String
+    ) async throws -> FlowRunReviewArtifact {
+        let matches = allArtifacts.filter {
+            releaseBinding(binding, matches: $0.binding)
+        }
+        guard matches.count == 1, let retained = matches.first else {
+            throw RunReviewReleaseDocumentError.invalidContent(
+                document: document,
+                reason: matches.isEmpty
+                    ? "The exact artifact binding is not retained in the run ledger."
+                    : "The exact artifact binding resolves to multiple retained artifacts."
+            )
+        }
+        _ = try await verifiedSignoffArtifactData(
+            retained,
+            artifactReader: artifactReader
+        )
+        return retained
+    }
+
+    private func releaseBinding(
+        _ release: ReleaseArtifactBinding,
+        matches flow: FlowArtifactBinding
+    ) -> Bool {
+        release.logicalID == flow.logicalID
+            && release.reference == flow.reference
+            && release.availability == flow.availability
+    }
+
+    private func validateRecordedSignoffArtifactIntegrity(
+        _ artifact: FlowRunReviewArtifact
     ) throws {
         guard let integrity = artifact.integrity else {
             throw RunReviewServiceError.signoffArtifactIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 status: "missing",
                 message: "No recorded artifact integrity state is available."
             )
         }
         guard integrity.status == .verified else {
             throw RunReviewServiceError.signoffArtifactIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 status: integrity.status.rawValue,
                 message: integrity.message
-            )
-        }
-        let currentIntegrity = LocalArtifactVerifier().verify(
-            artifact.reference,
-            relativeTo: projectRoot
-        )
-        guard currentIntegrity.isVerified else {
-            throw RunReviewServiceError.signoffArtifactIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
-                status: currentIntegrity.issues.first?.code.rawValue ?? "integrity-failure",
-                message: currentIntegrity.issues.map(\.code.rawValue).joined(separator: ", ")
             )
         }
     }
@@ -1307,7 +1373,7 @@ extension RunReviewService {
         return actionDomainCatalog.repairHint(
             domainID: "layout-edit",
             operationID: operationID,
-            reason: "Generate a DRC repair candidate for \(drcBucketLabel(bucket)) through the planning problem builder."
+            reason: "Route \(drcBucketLabel(bucket)) through the registered planning and candidate runtime."
         ).map { [$0] } ?? []
     }
 
@@ -1555,7 +1621,7 @@ extension RunReviewService {
                         ]
                     )]
                 ),
-                releaseArtifactLineageSection(artifact.reference),
+                releaseArtifactLineageSection(artifact.binding),
             ]
         )
     }
@@ -1656,7 +1722,7 @@ extension RunReviewService {
                         ]
                     )]
                 ),
-                releaseArtifactLineageSection(artifact.reference),
+                releaseArtifactLineageSection(artifact.binding),
             ],
             issues: releaseDiagnosticIssues(result.diagnostics, evidenceArtifacts: [artifact] + relatedArtifacts)
         )
@@ -1691,12 +1757,12 @@ extension RunReviewService {
                             ("Layout SHA-256", result.payload.layoutDigest),
                             ("PDK SHA-256", result.payload.pdkDigest),
                             ("Handoff SHA-256", result.payload.checksum),
-                            ("Handoff artifact", result.payload.handoffArtifact?.path),
-                            ("Streamed artifact", result.payload.streamOut?.streamedArtifact.path),
+                            ("Handoff artifact", result.payload.handoffBinding?.materializationDescription),
+                            ("Streamed artifact", result.payload.streamOut?.streamedArtifact.materializationDescription),
                         ])
                     )]
                 ),
-                releaseArtifactLineageSection(artifact.reference),
+                releaseArtifactLineageSection(artifact.binding),
             ],
             issues: releaseDiagnosticIssues(result.diagnostics, evidenceArtifacts: [artifact] + relatedArtifacts)
         )
@@ -1734,7 +1800,7 @@ extension RunReviewService {
                         ]
                     )]
                 ),
-                releaseArtifactLineageSection(artifact.reference),
+                releaseArtifactLineageSection(artifact.binding),
             ]
         )
     }
@@ -1763,20 +1829,21 @@ extension RunReviewService {
     }
 
     private func releaseArtifactLineageSection(
-        _ reference: ArtifactReference
+        _ binding: FlowArtifactBinding
     ) -> RunReviewSignoffDetailSection {
-        RunReviewSignoffDetailSection(
+        let reference = binding.reference
+        return RunReviewSignoffDetailSection(
             title: "Artifact Lineage",
             rows: [RunReviewSignoffDetailRow(
-                label: reference.id.rawValue,
+                label: binding.logicalID,
                 metrics: compactMetrics([
-                    ("Path", reference.path),
+                    ("Path", binding.path),
                     ("SHA-256", reference.digest.hexadecimalValue),
                     ("Bytes", String(reference.byteCount)),
-                    ("Producer kind", reference.producer?.kind.rawValue),
-                    ("Producer", reference.producer?.identifier),
-                    ("Version", reference.producer?.version),
-                    ("Build", reference.producer?.build),
+                    ("Producer kind", binding.producer?.kind.rawValue),
+                    ("Producer", binding.producer?.identifier),
+                    ("Version", binding.producer?.version),
+                    ("Build", binding.producer?.build),
                 ])
             )]
         )
@@ -1813,8 +1880,8 @@ extension RunReviewService {
     }
 
     private func signoffArtifactKind(for artifact: FlowRunReviewArtifact) -> SignoffArtifactKind? {
-        let artifactID = artifact.reference.id.rawValue
-        let path = artifact.reference.locator.location.value.lowercased()
+        let artifactID = artifact.binding.logicalID
+        let path = artifact.binding.circuitStudioPresentationPath.lowercased()
         if artifactID == "release-authorization-result"
             || path.contains("release.authorization") && path.hasSuffix("result.json") {
             return .releaseAuthorization
@@ -1823,12 +1890,12 @@ extension RunReviewService {
             || path.contains("release.tapeout") && path.hasSuffix("result.json") {
             return .tapeoutResult
         }
-        if artifact.reference.locator.kind == .release,
-           artifact.reference.producer?.identifier == "native.release.signoff" {
+        if artifact.binding.kind == .release,
+           artifact.binding.producer?.identifier == "native.release.signoff" {
             return .signoffBundle
         }
-        if artifact.reference.locator.kind == .release,
-           artifact.reference.producer?.identifier == "native.release.tapeout" {
+        if artifact.binding.kind == .release,
+           artifact.binding.producer?.identifier == "native.release.tapeout" {
             return .foundryHandoff
         }
         if artifactID == "drc-summary" || path.hasSuffix("drc-summary.json") {
@@ -1860,7 +1927,7 @@ extension RunReviewService {
         if artifactID == "planning-simulation-summary" || path.hasSuffix("simulation-summary.json") {
             return .simulationMetric
         }
-        if artifact.reference.locator.kind == .measurement && path.hasSuffix("measurements.json") {
+        if artifact.binding.kind == .measurement && path.hasSuffix("measurements.json") {
             return .simulationMeasurement
         }
         if artifactID == "post-layout-comparison" || path.hasSuffix("comparison-report.json") {
@@ -1875,7 +1942,7 @@ extension RunReviewService {
     ) -> [FlowRunReviewArtifact] {
         var seenPaths = Set<String>()
         return ([primary] + relatedArtifacts).filter { artifact in
-            seenPaths.insert(artifact.reference.locator.location.value).inserted
+            seenPaths.insert(artifact.binding.circuitStudioPresentationPath).inserted
         }
     }
 
@@ -1929,14 +1996,6 @@ extension RunReviewService {
 
     private func lvsBucketLabel(_ bucket: LVSReviewBucket) -> String {
         bucket.ruleID ?? bucket.category ?? bucket.componentSignature ?? "lvs-mismatch"
-    }
-
-    private func artifactURL(for artifact: FlowRunReviewArtifact, projectRoot: URL) -> URL {
-        if artifact.reference.locator.location.value.hasPrefix("/") {
-            URL(filePath: artifact.reference.locator.location.value)
-        } else {
-            projectRoot.appending(path: artifact.reference.locator.location.value)
-        }
     }
 
 }

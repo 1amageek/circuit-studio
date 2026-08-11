@@ -31,7 +31,7 @@ struct ActivityArtifactPreview: View {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(artifact.reference.path, forType: .string)
+                    NSPasteboard.general.setString(artifact.reference.id.description, forType: .string)
                 } label: {
                     Image(systemName: "doc.on.doc")
                 }
@@ -39,7 +39,7 @@ struct ActivityArtifactPreview: View {
             }
         }
         .task(
-            id: "\(activity.id):\(artifact.reference.path):\(artifact.reference.digest.hexadecimalValue)"
+            id: "\(activity.id):\(artifact.reference.id.description)"
         ) {
             await load()
         }
@@ -55,14 +55,14 @@ struct ActivityArtifactPreview: View {
                 Text(artifact.direction.title)
                     .font(.caption)
                     .foregroundStyle(artifact.direction.statusColor)
-                Text(artifact.reference.kind.rawValue)
+                Text(artifact.reference.descriptor.kind.rawValue)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(artifact.reference.format.rawValue)
+                Text(artifact.reference.descriptor.format.rawValue)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Text(artifact.reference.path)
+            Text(artifact.reference.id.description)
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
@@ -100,8 +100,8 @@ struct ActivityArtifactPreview: View {
             ArtifactCanvas(
                 url: resource.url,
                 type: typeResolver.artifactType(
-                    kind: resource.artifact.reference.locator.kind,
-                    format: resource.artifact.reference.locator.format
+                    kind: resource.artifact.binding.kind,
+                    format: resource.artifact.binding.format
                 ),
                 title: artifactTitle(resource.artifact)
             )
@@ -134,7 +134,7 @@ struct ActivityArtifactPreview: View {
                 projectRoot: projectRoot
             )
             guard let artifact = bundle.artifacts.first(where: matches) else {
-                throw ActivityArtifactPreviewError.notFound(path: artifact.reference.path)
+                throw ActivityArtifactPreviewError.notFound(path: artifact.reference.id.description)
             }
             let loadedResource = try await artifactResourceLoader.load(
                 runID: runID,
@@ -150,19 +150,15 @@ struct ActivityArtifactPreview: View {
     }
 
     private func matches(_ artifact: FlowRunReviewArtifact) -> Bool {
-        artifact.reference.locator.location.value == self.artifact.reference.path
-            && artifact.purpose.rawValue == self.artifact.reference.locator.role.rawValue
-            && artifact.reference.locator.kind.rawValue == self.artifact.reference.kind.rawValue
-            && artifact.reference.locator.format.rawValue == self.artifact.reference.format.rawValue
-            && artifact.reference.digest == self.artifact.reference.digest
+        artifact.reference == self.artifact.reference
     }
 
     private func artifactTitle(_ artifact: FlowRunReviewArtifact) -> String {
-        let artifactID = artifact.reference.id.rawValue
+        let artifactID = artifact.binding.logicalID
         if !artifactID.isEmpty {
             return artifactID
         }
-        return URL(filePath: artifact.reference.locator.location.value).lastPathComponent
+        return URL(filePath: artifact.binding.circuitStudioPresentationPath).lastPathComponent
     }
 }
 
@@ -179,8 +175,7 @@ private enum ActivityArtifactPreviewError: LocalizedError {
 
 private extension Activity.Artifact {
     var displayName: String {
-        let name = URL(filePath: reference.path).lastPathComponent
-        return name.isEmpty ? reference.path : name
+        "\(reference.descriptor.kind.rawValue)-\(reference.digest.hexadecimalValue.prefix(12))"
     }
 }
 

@@ -1,5 +1,6 @@
 import DesignFlowKernel
 import Foundation
+import Xcircuite
 
 public struct RunReviewSignoffSummary: Sendable, Hashable {
     public let cards: [RunReviewSignoffCard]
@@ -40,7 +41,7 @@ public struct RunReviewSignoffCard: Sendable, Hashable, Identifiable {
 
     public var id: String {
         [
-            artifact.reference.id.rawValue,
+            artifact.binding.logicalID,
             domain,
             title,
         ].joined(separator: "::")
@@ -214,7 +215,7 @@ public struct RunReviewSignoffIssue: Sendable, Hashable {
 public struct RunReviewSignoffRepairActionHint: Sendable, Hashable {
     public let domainID: String
     public let operationID: String
-    public let maturity: String
+    public let readinessState: XcircuiteOperationReadinessState
     public let reason: String
     public let requiredInputRefs: [String]
     public let verificationGates: [String]
@@ -222,14 +223,14 @@ public struct RunReviewSignoffRepairActionHint: Sendable, Hashable {
     public init(
         domainID: String,
         operationID: String,
-        maturity: String,
+        readinessState: XcircuiteOperationReadinessState,
         reason: String,
         requiredInputRefs: [String],
         verificationGates: [String]
     ) {
         self.domainID = domainID
         self.operationID = operationID
-        self.maturity = maturity
+        self.readinessState = readinessState
         self.reason = reason
         self.requiredInputRefs = requiredInputRefs
         self.verificationGates = verificationGates

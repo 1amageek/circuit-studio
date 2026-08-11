@@ -823,21 +823,24 @@ public struct SignoffRepairHistoryAssessor: Sendable {
     public func persist(
         _ report: Report,
         forProjectAt projectRoot: URL
-    ) async throws -> ArtifactReference {
+    ) async throws -> FlowArtifactBinding {
         let workspaceStore = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let projectRelativePath = "\(XcircuiteWorkspaceLayout.directoryName)/\(Self.reportRelativePath)"
-        return try await workspaceStore.persistProjectArtifact(
+        let binding = try await workspaceStore.persistProjectArtifact(
             content: encoder.encode(report),
-            id: ArtifactID(rawValue: Self.reportArtifactID),
-            locator: ArtifactLocator(
-                location: ArtifactLocation(workspaceRelativePath: projectRelativePath),
+            logicalID: Self.reportArtifactID,
+            relativePath: ArtifactRelativePath(
+                segments: projectRelativePath.split(separator: "/").map(String.init)
+            ),
+            descriptor: ArtifactDescriptor(
                 role: .output,
                 kind: .report,
                 format: .json
             ),
             mode: .replaceable
         )
+        return binding
     }
 }

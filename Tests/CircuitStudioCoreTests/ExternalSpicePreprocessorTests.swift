@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Foundation
 import OpenVAFSupport
 import Testing
@@ -36,8 +37,8 @@ struct ExternalSpicePreprocessorTests {
     let netlist = try String(contentsOf: prepared.netlistURL, encoding: .utf8)
     let requests = await compiler.requests()
     let results = await compiler.results()
-    let outputArtifact = try #require(results.first?.outputArtifact)
-    let outputURL = try outputArtifact.locator.location.resolvedFileURL()
+    let outputBinding = try #require(results.first?.outputBinding)
+    let outputURL = try outputBinding.localFileURL()
 
     #expect(requests.map(\.sourceURL) == [sourceURL])
     #expect(
@@ -328,14 +329,15 @@ private actor RecordingOpenVAFCompiler: OpenVAFCompiler {
         identifier: "test.openvaf",
         version: "test"
       )
-      let artifact = try LocalArtifactReferencer().reference(
-        ArtifactLocator(
-          location: try ArtifactLocation(fileURL: outputURL),
+      let outputData = try Data(contentsOf: outputURL)
+      let artifact = try ArtifactReference(
+        digest: try SHA256ContentDigester().digest(data: outputData, using: .sha256),
+        byteCount: UInt64(outputData.count),
+        descriptor: ArtifactDescriptor(
           role: .output,
           kind: .model,
           format: try ArtifactFormat(rawValue: "osdi")
-        ),
-        producer: producer
+        )
       )
       let provenance = try ExecutionProvenance(
         producer: producer,
@@ -348,7 +350,12 @@ private actor RecordingOpenVAFCompiler: OpenVAFCompiler {
         completedAt: now
       )
       let result = OpenVAFCompilationResult(
-        artifacts: [artifact],
+        artifactBindings: [
+          try OpenVAFArtifactBinding.local(
+            reference: artifact,
+            fileURL: outputURL
+          )
+        ],
         diagnostics: [],
         provenance: provenance,
         openVAFVersion: "test",
@@ -396,7 +403,7 @@ private struct FailingOpenVAFCompiler: OpenVAFCompiler {
         version: "test"
       )
       failure = OpenVAFCompilationFailure(
-        artifacts: [],
+        artifactBindings: [],
         diagnostics: [DesignDiagnostic(
           code: .trusted("test.openvaf.compilation.failed"),
           severity: .error,

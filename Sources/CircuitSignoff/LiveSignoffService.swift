@@ -93,7 +93,7 @@ public struct LiveSignoffService: Sendable {
                 topCell: topCell,
                 workingDirectory: artifactDirectory,
                 backendSelection: LVSBackendSelection(backendID: lvs.backendID),
-                executionInputArtifacts: [layoutNetlist.netlist]
+                executionInputBindings: [layoutNetlist.netlist]
             )
         )
 

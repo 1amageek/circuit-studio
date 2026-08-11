@@ -32,12 +32,12 @@ extension RunReviewService {
                 continue
             }
 
-            let linkedItems = itemsByArtifactPath[artifact.reference.locator.location.value, default: []]
+            let linkedItems = itemsByArtifactPath[artifact.binding.circuitStudioPresentationPath, default: []]
             appendState(
                 &states,
                 seenStateIDs: &seenStateIDs,
                 RunReviewFailureStateSummary.State(
-                    stateID: "\(kind.rawValue):\(artifact.reference.locator.location.value)",
+                    stateID: "\(kind.rawValue):\(artifact.binding.circuitStudioPresentationPath)",
                     kind: kind,
                     severity: severity(for: kind),
                     title: title(for: kind),
@@ -394,7 +394,7 @@ extension RunReviewService {
         role: String,
         bundle: FlowRunReviewBundle
     ) -> [RunReviewFailureStateSummary.ArtifactSummary] {
-        let refs = bundle.artifacts.filter { $0.reference.locator.location.value == path }
+        let refs = bundle.artifacts.filter { $0.binding.circuitStudioPresentationPath == path }
         if !refs.isEmpty {
             return refs.map(failureArtifactReference).sorted(by: artifactReferenceSortOrder)
         }
@@ -417,11 +417,11 @@ extension RunReviewService {
     ) -> RunReviewFailureStateSummary.ArtifactSummary {
         RunReviewFailureStateSummary.ArtifactSummary(
             role: artifact.purpose.rawValue,
-            artifactID: artifact.reference.id.rawValue,
+            artifactID: artifact.binding.logicalID,
             stageID: artifact.stageID,
-            path: artifact.reference.locator.location.value,
-            kind: artifact.reference.locator.kind.rawValue,
-            format: artifact.reference.locator.format.rawValue,
+            path: artifact.binding.circuitStudioPresentationPath,
+            kind: artifact.binding.kind.rawValue,
+            format: artifact.binding.format.rawValue,
             integrityStatus: artifact.integrity?.status.rawValue,
             integrityMessage: artifact.integrity?.message
         )
@@ -470,7 +470,7 @@ extension RunReviewService {
         if left.purpose != right.purpose {
             return left.purpose.rawValue < right.purpose.rawValue
         }
-        return left.reference.locator.location.value < right.reference.locator.location.value
+        return left.binding.circuitStudioPresentationPath < right.binding.circuitStudioPresentationPath
     }
 
     private func stageSortOrder(_ left: StageReview, _ right: StageReview) -> Bool {

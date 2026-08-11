@@ -1,5 +1,6 @@
 import DesignFlowKernel
 import Foundation
+import Xcircuite
 
 struct RunReviewArtifactEvaluationProjection: Sendable, Hashable {
     let evidence: [RunReviewArtifactEvaluationEvidence]
@@ -10,18 +11,18 @@ extension RunReviewService {
     func artifactEvaluationProjection(
         for artifact: FlowRunReviewArtifact,
         relatedArtifacts: [FlowRunReviewArtifact],
-        projectRoot: URL,
+        artifactReader: any XcircuiteArtifactBindingReading,
         decodeIssues: inout [RunReviewArtifactDecodeIssue]
-    ) -> RunReviewArtifactEvaluationProjection {
+    ) async -> RunReviewArtifactEvaluationProjection {
         var evidence: [RunReviewArtifactEvaluationEvidence] = []
         var sections: [RunReviewSignoffDetailSection] = []
         let envelopeArtifacts = relatedArtifacts.filter(isArtifactEvaluationEnvelope)
 
         for envelopeArtifact in envelopeArtifacts {
             do {
-                let envelope = try loadArtifactEvaluationEnvelope(
+                let envelope = try await loadArtifactEvaluationEnvelope(
                     envelopeArtifact,
-                    projectRoot: projectRoot
+                    artifactReader: artifactReader
                 )
                 guard artifactEvaluationEnvelope(envelope, references: artifact) else {
                     continue
@@ -37,7 +38,7 @@ extension RunReviewService {
                 decodeIssues.append(
                     RunReviewArtifactDecodeIssue(
                         artifactRole: envelopeArtifact.purpose.rawValue,
-                        artifactPath: envelopeArtifact.reference.locator.location.value,
+                        artifactPath: envelopeArtifact.binding.circuitStudioPresentationPath,
                         message: error.localizedDescription
                     )
                 )
@@ -51,26 +52,26 @@ extension RunReviewService {
     }
 
     private func isArtifactEvaluationEnvelope(_ artifact: FlowRunReviewArtifact) -> Bool {
-        guard artifact.reference.locator.format == .json else {
+        guard artifact.binding.format == .json else {
             return false
         }
         let searchable = [
-            artifact.reference.id.rawValue,
+            artifact.binding.logicalID,
             artifact.purpose.rawValue,
-            artifact.reference.locator.location.value,
+            artifact.binding.availabilityDescription,
         ]
         .compactMap { $0?.lowercased() }
         .joined(separator: " ")
         return searchable.contains("envelope")
-            || artifact.reference.locator.location.value.lowercased().contains("/evidence/")
+            || artifact.binding.availabilityDescription.lowercased().contains("/evidence/")
     }
 
     private func loadArtifactEvaluationEnvelope(
         _ artifact: FlowRunReviewArtifact,
-        projectRoot: URL
-    ) throws -> FlowArtifactEnvelope {
+        artifactReader: any XcircuiteArtifactBindingReading
+    ) async throws -> FlowArtifactEnvelope {
         try validateArtifactEvaluationEnvelopeIntegrity(artifact)
-        let data = try Data(contentsOf: artifactEvaluationURL(for: artifact, projectRoot: projectRoot))
+        let data = try await artifactReader.loadArtifactContent(for: artifact.binding)
         let envelope = try JSONDecoder().decode(FlowArtifactEnvelope.self, from: data)
         try FlowArtifactEnvelopeValidator().validate(envelope)
         return envelope
@@ -81,40 +82,30 @@ extension RunReviewService {
     ) throws {
         guard let integrity = artifact.integrity else {
             throw RunReviewServiceError.artifactEvaluationEnvelopeIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 status: "missing",
                 message: "No recorded artifact integrity state is available."
             )
         }
         guard integrity.status == .verified else {
             throw RunReviewServiceError.artifactEvaluationEnvelopeIntegrityUnverified(
-                path: artifact.reference.locator.location.value,
+                path: artifact.binding.circuitStudioPresentationPath,
                 status: integrity.status.rawValue,
                 message: integrity.message
             )
         }
     }
 
-    private func artifactEvaluationURL(
-        for artifact: FlowRunReviewArtifact,
-        projectRoot: URL
-    ) -> URL {
-        if artifact.reference.locator.location.value.hasPrefix("/") {
-            return URL(filePath: artifact.reference.locator.location.value)
-        }
-        return projectRoot.appending(path: artifact.reference.locator.location.value)
-    }
-
     private func artifactEvaluationEnvelope(
         _ envelope: FlowArtifactEnvelope,
         references artifact: FlowRunReviewArtifact
     ) -> Bool {
-        if envelope.reference.path == artifact.reference.locator.location.value {
+        if envelope.binding.availability == artifact.binding.availability {
             return true
         }
-        let artifactID = artifact.reference.id.rawValue
+        let artifactID = artifact.binding.logicalID
         return envelope.artifactID == artifactID
-            || envelope.reference.artifactID == artifactID
+            || envelope.binding.logicalID == artifactID
     }
 
     private func artifactEvaluationEvidence(

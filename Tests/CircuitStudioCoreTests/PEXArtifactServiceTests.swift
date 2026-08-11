@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 import CircuiteFoundation
+import CircuiteFoundationFoundation
+import CircuiteFoundationCrypto
 @testable import CircuitStudioCore
 import PEXEngine
 
@@ -352,22 +354,37 @@ struct PEXArtifactServiceTests {
             format: ArtifactFormat
         ) throws -> PEXArtifactRecord {
             let data = artifactDataByPath[path] ?? Data()
-            let reference = ArtifactReference(
-                id: try ArtifactID(rawValue: id),
-                locator: ArtifactLocator(
-                    location: try ArtifactLocation(workspaceRelativePath: path),
-                    role: .output,
-                    kind: try ArtifactKind(rawValue: kind.foundationRawValue),
-                    format: format
-                ),
+            let descriptor = ArtifactDescriptor(
+                role: .output,
+                kind: try ArtifactKind(rawValue: kind.foundationRawValue),
+                format: format
+            )
+            let relativePath = try ArtifactRelativePath(
+                segments: path.split(separator: "/").map(String.init)
+            )
+            let reference = try ArtifactReference(
                 digest: try ContentDigest(
                     algorithm: .sha256,
                     hexadecimalValue: artifactDigest(data)
                 ),
-                byteCount: UInt64(data.count)
+                byteCount: UInt64(data.count),
+                descriptor: descriptor
             )
-            return PEXArtifactRecord(
-                payload: .available(reference),
+            let available = try PEXAvailableArtifact(
+                reference: reference,
+                availability: .local(
+                    artifactID: reference.id,
+                    rootID: ArtifactRootID(rawValue: "pex-test-run"),
+                    relativePath: relativePath
+                )
+            )
+            return try PEXArtifactRecord(
+                declaration: PEXArtifactDeclaration(
+                    id: try PEXArtifactRecordID(rawValue: id),
+                    descriptor: descriptor,
+                    relativePath: relativePath
+                ),
+                payload: .available(available),
                 stage: stage,
                 cornerID: corner,
                 createdAt: createdAt
@@ -402,13 +419,28 @@ struct PEXArtifactServiceTests {
         guard let identifier = UUID(uuidString: "00000000-0000-0000-0000-000000000001") else {
             throw StudioError.projectLoadFailed("Invalid PEX manifest fixture run identifier.")
         }
-        let manifest = PEXArtifactManifest(
+        let finishedAt = createdAt.addingTimeInterval(1)
+        let provenance = try ExecutionProvenance(
+            producer: ProducerIdentity(
+                kind: .engine,
+                identifier: "pex-artifact-service-tests",
+                version: "1.0.0"
+            ),
+            startedAt: createdAt,
+            completedAt: finishedAt
+        )
+        let evidence = try EvidenceManifest.contentAddressed(
+            provenance: provenance,
+            artifacts: records.compactMap(\.reference),
+            digester: SHA256ContentDigester()
+        )
+        let manifest = try PEXArtifactManifest(
             runID: PEXRunID(identifier),
             requestHash: PEXRequestHash("abc"),
             backendID: "mock",
             status: .success,
             startedAt: createdAt,
-            finishedAt: createdAt.addingTimeInterval(1),
+            finishedAt: finishedAt,
             corners: [
                 PEXArtifactCorner(
                     cornerID: corner,
@@ -417,7 +449,9 @@ struct PEXArtifactServiceTests {
                 ),
             ],
             artifacts: records,
-            warnings: [PEXWarning(stage: .reporting, message: "low confidence")]
+            warnings: [PEXWarning(stage: .reporting, message: "low confidence")],
+            provenance: provenance,
+            evidence: evidence
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

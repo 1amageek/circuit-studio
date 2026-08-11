@@ -568,7 +568,8 @@ public struct DesignFlowService: Sendable {
                 profile: profile,
                 profilePath: profilePath
             )
-            let artifact = try await assessmentService.persist(report, forProjectAt: projectRoot)
+            let artifactBinding = try await assessmentService.persist(report, forProjectAt: projectRoot)
+            let artifact = artifactBinding.reference
             return DesignFlowCommandResult(
                 kind: command.kind,
                 projectRootPath: projectRoot.path(percentEncoded: false),
@@ -576,7 +577,7 @@ public struct DesignFlowService: Sendable {
                 signoffRepairCandidateCycleHistoryAssessment: report.attachingArtifactReference(artifact),
                 signoffRepairCandidateCycleHistoryAssessmentArtifact: artifact,
                 signoffRepairCandidateCycleHistoryAssessmentPath: try absolutePath(
-                    for: artifact,
+                    for: artifactBinding,
                     projectRoot: projectRoot
                 )
             )
@@ -617,10 +618,6 @@ public struct DesignFlowService: Sendable {
             return try await runPostWaiverEditVerification(command)
         case .applyWaiverEditProposalAndRunPostVerification:
             return try await applyWaiverEditProposalAndRunPostVerification(command)
-        case .formulateSignoffRepairPlanningProblem:
-            return try await formulateSignoffRepairPlanningProblem(command)
-        case .runSignoffRepairCandidateCycle:
-            return try await runSignoffRepairCandidateCycle(command)
         case .runGoalLayoutAgent:
             return try runGoalLayoutAgent(command)
         case .scaffoldDesignSpec:

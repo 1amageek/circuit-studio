@@ -1,6 +1,9 @@
 import CircuitSignoff
 import Foundation
 import CircuiteFoundation
+import CircuiteFoundationCrypto
+import CircuiteFoundationFileSystem
+import CircuiteFoundationFoundation
 import CircuitStudioCore
 import CircuitPhysicalDesign
 import CoreSpiceWaveform
@@ -991,15 +994,16 @@ public final class HeadlessRoundTripService {
             ),
             to: failureURL
         )
-        let failureReference = try artifactReference(
-            artifactID: "headless-error",
+        let failureBinding = try artifactBinding(
+            logicalID: "headless-error",
             path: "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(configuration.runID)/headless-error.json",
             kind: .report,
             format: .json,
             projectRoot: configuration.projectRoot
         )
         let integrity = LocalArtifactVerifier().verify(
-            failureReference,
+            failureBinding.reference,
+            at: try artifactLocator(for: failureBinding),
             relativeTo: configuration.projectRoot
         )
         guard integrity.isVerified else {
@@ -1023,7 +1027,7 @@ public final class HeadlessRoundTripService {
                     diagnostics: [diagnostic]
                 ),
             ],
-            artifacts: [failureReference]
+            artifacts: [failureBinding]
         )
         let producer = try await CircuitStudioExecutionEnvironment.producerIdentity(
             kind: .engine,
@@ -1032,13 +1036,13 @@ public final class HeadlessRoundTripService {
         let recordedAt = Date()
         let provenance = try ExecutionProvenance(
             producer: producer,
-            inputs: ledger.artifacts.filter { $0.locator.role == .input },
+            inputs: ledger.artifacts.filter { $0.role == .input }.map(\.reference),
             invocation: try .inProcess(entryPoint: "HeadlessRoundTripService.run"),
             environment: try await CircuitStudioExecutionEnvironment.current(),
             startedAt: configuration.createdAt,
             completedAt: recordedAt
         )
-        let artifacts = ledger.artifacts + [failureReference]
+        let artifacts = ledger.artifacts + [failureBinding]
         let finalStages = ledger.stages + [failureStage]
         var existingToolchainStages: [String: FlowToolchainStageRecord] = [:]
         for record in ledger.toolchain?.stages ?? [] {
@@ -1063,7 +1067,11 @@ public final class HeadlessRoundTripService {
             status: .failed,
             stages: finalStages,
             toolchain: toolchain,
-            evidence: EvidenceManifest(provenance: provenance, artifacts: artifacts),
+            evidence: try EvidenceManifest.contentAddressed(
+                provenance: provenance,
+                artifacts: artifacts.map(\.reference),
+                digester: SHA256ContentDigester()
+            ),
             artifacts: artifacts,
             at: recordedAt
         )
@@ -1085,7 +1093,7 @@ public final class HeadlessRoundTripService {
         configuration: Configuration,
         externallyExecutedTools: [ProducerIdentity] = []
     ) async throws {
-        let references = try canonicalArtifactReferences(
+        let bindings = try canonicalArtifactBindings(
             domainManifestURL: domainManifestURL,
             artifacts: artifacts,
             configuration: configuration
@@ -1094,7 +1102,7 @@ public final class HeadlessRoundTripService {
             canonicalStageResult(
                 $0,
                 domainArtifacts: artifacts,
-                canonicalReferences: references
+                canonicalBindings: bindings
             )
         }
         let toolchain = canonicalToolchainManifest(
@@ -1110,7 +1118,7 @@ public final class HeadlessRoundTripService {
             supportingTools: try await canonicalSupportingTools(
                 externallyExecutedTools: externallyExecutedTools
             ),
-            inputs: references.filter { $0.locator.role == .input },
+            inputs: bindings.filter { $0.role == .input }.map(\.reference),
             invocation: try .inProcess(entryPoint: "HeadlessRoundTripService.run"),
             environment: try await CircuitStudioExecutionEnvironment.current(),
             startedAt: configuration.createdAt,
@@ -1122,22 +1130,26 @@ public final class HeadlessRoundTripService {
             status: status,
             stages: stageResults,
             toolchain: toolchain,
-            evidence: EvidenceManifest(provenance: provenance, artifacts: references),
-            artifacts: references
+            evidence: try EvidenceManifest.contentAddressed(
+                provenance: provenance,
+                artifacts: bindings.map(\.reference),
+                digester: SHA256ContentDigester()
+            ),
+            artifacts: bindings
         )
     }
 
     private func canonicalStageResult(
         _ stage: Stage,
         domainArtifacts: [Artifact],
-        canonicalReferences: [ArtifactReference]
+        canonicalBindings: [FlowArtifactBinding]
     ) -> FlowStageResult {
         let artifactIDs = Set(domainArtifacts.compactMap { artifact in
             canonicalArtifactKinds(forStage: stage.name).contains(artifact.kind)
                 ? canonicalArtifactID(for: artifact)
                 : nil
         })
-        let stageArtifacts = canonicalReferences.filter { artifactIDs.contains($0.id.rawValue) }
+        let stageArtifacts = canonicalBindings.filter { artifactIDs.contains($0.logicalID) }
         switch stage.status {
         case .passed:
             return FlowStageResult(
@@ -1246,11 +1258,11 @@ public final class HeadlessRoundTripService {
         return identities.values.sorted { $0.identifier < $1.identifier }
     }
 
-    private func canonicalArtifactReferences(
+    private func canonicalArtifactBindings(
         domainManifestURL: URL,
         artifacts: [Artifact],
         configuration: Configuration
-    ) throws -> [CircuiteFoundation.ArtifactReference] {
+    ) throws -> [FlowArtifactBinding] {
         let runPrefix = "\(XcircuiteWorkspaceLayout.directoryName)/runs/\(configuration.runID)"
         let manifestPath = try RoundTripArtifactResolver(
             runDirectory: try XcircuiteWorkspaceLayout(projectRoot: configuration.projectRoot)
@@ -1261,18 +1273,18 @@ public final class HeadlessRoundTripService {
                 "The canonical round-trip manifest resolved to an unexpected run path: \(manifestPath)"
             )
         }
-        var references = try artifacts.map { artifact in
-            try artifactReference(
-                artifactID: canonicalArtifactID(for: artifact),
+        var bindings = try artifacts.map { artifact in
+            try artifactBinding(
+                logicalID: canonicalArtifactID(for: artifact),
                 path: "\(runPrefix)/\(artifact.path)",
-                role: artifact.reference.locator.role,
+                role: artifact.binding.role,
                 kind: canonicalFileKind(for: artifact.kind),
                 format: canonicalFileFormat(for: artifact.path),
                 projectRoot: configuration.projectRoot
             )
         }
-        references.append(try artifactReference(
-            artifactID: "round-trip-manifest",
+        bindings.append(try artifactBinding(
+            logicalID: "round-trip-manifest",
             path: "\(runPrefix)/\(manifestPath)",
             role: .output,
             kind: .report,
@@ -1280,18 +1292,19 @@ public final class HeadlessRoundTripService {
             projectRoot: configuration.projectRoot
         ))
 
-        for reference in references {
+        for binding in bindings {
             let integrity = LocalArtifactVerifier().verify(
-                reference,
+                binding.reference,
+                at: try artifactLocator(for: binding),
                 relativeTo: configuration.projectRoot
             )
             guard integrity.isVerified else {
                 throw StudioError.projectSaveFailed(
-                    "Canonical run artifact integrity failed for \(reference.locator.location.value): \(integrityMessage(integrity))"
+                    "Canonical run artifact integrity failed for \(binding.availabilityDescription): \(integrityMessage(integrity))"
                 )
             }
         }
-        return references
+        return bindings
     }
 
     private func integrityMessage(_ integrity: ArtifactIntegrity) -> String {
@@ -1304,14 +1317,14 @@ public final class HeadlessRoundTripService {
         }.joined(separator: "; ")
     }
 
-    private func artifactReference(
-        artifactID: String,
+    private func artifactBinding(
+        logicalID: String,
         path: String,
         role: ArtifactRole = .output,
         kind: ArtifactKind,
         format: ArtifactFormat,
         projectRoot: URL
-    ) throws -> CircuiteFoundation.ArtifactReference {
+    ) throws -> FlowArtifactBinding {
         let locator = ArtifactLocator(
             location: try ArtifactLocation(workspaceRelativePath: path),
             role: role,
@@ -1319,23 +1332,43 @@ public final class HeadlessRoundTripService {
             format: format
         )
         let captured = try LocalArtifactReferencer().reference(locator, relativeTo: projectRoot)
-        return ArtifactReference(
-            id: try ArtifactID(rawValue: artifactID),
-            locator: captured.locator,
-            digest: captured.digest,
-            byteCount: captured.byteCount,
-            producer: captured.producer
+        let relativePath = try ArtifactRelativePath(
+            segments: path.split(separator: "/").map(String.init)
+        )
+        let workspaceStore = try XcircuiteWorkspaceStore(projectRoot: projectRoot)
+        return try FlowArtifactBinding(
+            logicalID: logicalID,
+            reference: captured,
+            availability: .local(
+                artifactID: captured.id,
+                rootID: workspaceStore.artifactRootID,
+                relativePath: relativePath
+            )
+        )
+    }
+
+    private func artifactLocator(for binding: FlowArtifactBinding) throws -> ArtifactLocator {
+        let relativePath = try binding.requireLocalRelativePath()
+        return ArtifactLocator(
+            location: try ArtifactLocation(workspaceRelativePath: relativePath.stringValue),
+            role: binding.role,
+            kind: binding.kind,
+            format: binding.format
         )
     }
 
     private func canonicalArtifactID(for artifact: Artifact) -> String {
+        artifact.binding.logicalID
+    }
+
+    private func canonicalArtifactID(kind: String, path: String) throws -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let sanitizedKind = String(artifact.kind.unicodeScalars.map {
+        let sanitizedKind = String(kind.unicodeScalars.map {
             allowed.contains($0) ? Character(String($0)) : "-"
         })
         let kind = sanitizedKind.isEmpty ? "headless-artifact" : sanitizedKind
-        let pathDigest = ArtifactID(stableKey: artifact.path).rawValue.suffix(12)
-        return "\(kind)-\(pathDigest)"
+        let digest = try SHA256ContentDigester().digest(data: Data(path.utf8), using: .sha256)
+        return "\(kind.prefix(96))-\(digest.hexadecimalValue.prefix(24))"
     }
 
     private func canonicalFileKind(for kind: String) -> ArtifactKind {
@@ -1751,15 +1784,15 @@ public final class HeadlessRoundTripService {
         let path = try RoundTripArtifactResolver(
             runDirectory: runDirectory
         ).relativePath(for: url)
-        let reference = try ArtifactReference.circuitStudioReference(
-            id: "\(kind)-\(path)",
+        let binding = try FlowArtifactBinding.circuitStudioBinding(
+            logicalID: canonicalArtifactID(kind: kind, path: path),
             kind: kind,
             relativePath: path,
             fileURL: url,
             role: role
         )
         return Artifact(
-            reference: reference,
+            binding: binding,
             sourcePath: sourcePath
         )
     }

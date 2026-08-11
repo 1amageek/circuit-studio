@@ -119,23 +119,23 @@ extension RunReviewService {
         var items: [RunReviewInteractiveSignoffDrilldown.Item] = []
         var waveformArtifacts: [FlowRunReviewArtifact] = []
         for card in cards {
-            for artifact in [card.artifact] + card.relatedArtifacts where artifact.reference.locator.kind == .waveform {
-                guard seenPaths.insert(artifact.reference.locator.location.value).inserted else {
+            for artifact in [card.artifact] + card.relatedArtifacts where artifact.binding.kind == .waveform {
+                guard seenPaths.insert(artifact.binding.circuitStudioPresentationPath).inserted else {
                     continue
                 }
                 waveformArtifacts.append(artifact)
             }
         }
         waveformArtifacts.sort { left, right in
-            left.reference.id.rawValue < right.reference.id.rawValue
+            left.binding.logicalID < right.binding.logicalID
         }
 
         for artifact in waveformArtifacts {
             items.append(
                 RunReviewInteractiveSignoffDrilldown.Item(
-                    itemID: "waveform:\(artifact.reference.locator.location.value)",
+                    itemID: "waveform:\(artifact.binding.circuitStudioPresentationPath)",
                     domain: .waveform,
-                    title: artifact.reference.id.rawValue,
+                    title: artifact.binding.logicalID,
                     status: artifact.integrity?.status.rawValue ?? "available",
                     passed: artifact.integrity?.status == .verified ? true : nil,
                     stageID: artifact.stageID,
@@ -143,7 +143,7 @@ extension RunReviewService {
                     artifactReferences: drilldownArtifactReferences([artifact]),
                     metrics: compactDrilldownMetrics([
                         ("Role", artifact.purpose.rawValue),
-                        ("Format", artifact.reference.locator.format.rawValue),
+                        ("Format", artifact.binding.format.rawValue),
                         ("Bytes", String(artifact.reference.byteCount)),
                         ("Integrity", artifact.integrity?.status.rawValue),
                     ])
@@ -153,13 +153,13 @@ extension RunReviewService {
 
         for card in cards {
             let comparisonArtifacts = ([card.artifact] + card.relatedArtifacts)
-                .filter { $0.reference.locator.kind == .waveform }
+                .filter { $0.binding.kind == .waveform }
             guard comparisonArtifacts.count >= 2 else {
                 continue
             }
             items.append(
                 RunReviewInteractiveSignoffDrilldown.Item(
-                    itemID: "waveform-comparison:\(card.artifact.reference.locator.location.value)",
+                    itemID: "waveform-comparison:\(card.artifact.binding.circuitStudioPresentationPath)",
                     domain: .waveform,
                     title: "\(card.title) waveform comparison",
                     status: card.status,
@@ -423,7 +423,7 @@ extension RunReviewService {
         if card.issues.contains(where: { !$0.repairActionHints.isEmpty }) {
             interactions.append(.repairActionSelection)
         }
-        if ([card.artifact] + card.relatedArtifacts).filter({ $0.reference.locator.kind == .waveform }).count >= 2 {
+        if ([card.artifact] + card.relatedArtifacts).filter({ $0.binding.kind == .waveform }).count >= 2 {
             interactions.append(.waveformComparison)
         }
         return interactions
@@ -517,7 +517,7 @@ extension RunReviewService {
     ) -> [RunReviewInteractiveSignoffDrilldown.ArtifactSummary] {
         var seenPaths = Set<String>()
         return artifacts.filter { artifact in
-            seenPaths.insert(artifact.reference.locator.location.value).inserted
+            seenPaths.insert(artifact.binding.circuitStudioPresentationPath).inserted
         }.map(drilldownArtifactReference)
     }
 
@@ -550,14 +550,14 @@ extension RunReviewService {
         _ artifact: FlowRunReviewArtifact
     ) -> RunReviewInteractiveSignoffDrilldown.ArtifactSummary {
         RunReviewInteractiveSignoffDrilldown.ArtifactSummary(
-            refID: artifact.reference.id.rawValue,
+            refID: artifact.binding.logicalID,
             source: "run-ledger",
             role: artifact.purpose.rawValue,
-            artifactID: artifact.reference.id.rawValue,
+            artifactID: artifact.binding.logicalID,
             stageID: artifact.stageID,
-            path: artifact.reference.locator.location.value,
-            kind: artifact.reference.locator.kind.rawValue,
-            format: artifact.reference.locator.format.rawValue,
+            path: artifact.binding.circuitStudioPresentationPath,
+            kind: artifact.binding.kind.rawValue,
+            format: artifact.binding.format.rawValue,
             sha256: artifact.reference.digest.hexadecimalValue,
             byteCount: artifact.reference.byteCount,
             integrityStatus: artifact.integrity?.status.rawValue,

@@ -12,7 +12,7 @@ struct MultiConstraintSignoffTests {
 
     private func result(setupSlack: Double, holdSlack: Double = 5e-12) throws -> STAExecutionResult {
         let timestamp = Date(timeIntervalSince1970: 1)
-        return STAExecutionResult(
+        return try STAExecutionResult(
             runID: "unit",
             status: .completed,
             payload: STAPayload(

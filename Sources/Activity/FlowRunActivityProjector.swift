@@ -370,6 +370,13 @@ public struct FlowRunActivityProjector: Sendable {
         boundedReferences(references.map { activityArtifact($0, direction: direction) })
     }
 
+    private func artifactReferences(
+        _ bindings: [FlowArtifactBinding],
+        direction: Activity.ArtifactDirection
+    ) -> (references: [Activity.Artifact], omittedCount: Int) {
+        boundedReferences(bindings.map { activityArtifact($0, direction: direction) })
+    }
+
     private func boundedReferences(
         _ references: [Activity.Artifact]
     ) -> (references: [Activity.Artifact], omittedCount: Int) {
@@ -386,6 +393,16 @@ public struct FlowRunActivityProjector: Sendable {
     ) -> Activity.Artifact {
         Activity.Artifact(
             reference: reference,
+            direction: direction
+        )
+    }
+
+    private func activityArtifact(
+        _ binding: FlowArtifactBinding,
+        direction: Activity.ArtifactDirection
+    ) -> Activity.Artifact {
+        Activity.Artifact(
+            binding: binding,
             direction: direction
         )
     }

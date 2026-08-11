@@ -1,5 +1,6 @@
 import DesignFlowKernel
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Foundation
 import Testing
 import Xcircuite
@@ -47,7 +48,7 @@ struct RunReviewArtifactResourceTests {
         }
     }
 
-    @Test func rejectsAnArtifactOutsideTheProjectRoot() async throws {
+    @Test func rejectsAbsoluteArtifactAvailabilityBeforeReview() async throws {
         let fixture = try await RunReviewArtifactResourceFixture.make(contents: "inside")
         defer { fixture.remove() }
         let outsideDirectory = FileManager.default.temporaryDirectory
@@ -64,24 +65,12 @@ struct RunReviewArtifactResourceTests {
         let outsideData = Data("outside".utf8)
         try outsideData.write(to: outsideFile)
         let outsideDigest = try SHA256ContentDigester().digest(data: outsideData, using: .sha256)
-        let outsideArtifact = try fixture.artifact(
-            path: outsideFile.path(percentEncoded: false),
-            digest: outsideDigest,
-            byteCount: UInt64(outsideData.count)
-        )
-        let service = fixture.service(artifact: outsideArtifact)
-
-        do {
-            _ = try await service.verifiedArtifactResource(
-                runID: fixture.runID,
-                artifact: outsideArtifact,
-                projectRoot: fixture.root
+        #expect(throws: ArtifactRelativePathError.self) {
+            _ = try fixture.artifact(
+                path: outsideFile.path(percentEncoded: false),
+                digest: outsideDigest,
+                byteCount: UInt64(outsideData.count)
             )
-            Issue.record("An artifact outside the project root was exposed to the renderer.")
-        } catch let error as RunReviewServiceError {
-            #expect(error == .artifactResourceEscapesProject(path: outsideArtifact.reference.path))
-        } catch {
-            Issue.record("Unexpected error type: \(error)")
         }
     }
 }
@@ -154,21 +143,32 @@ private struct RunReviewArtifactResourceFixture {
         digest: ContentDigest,
         byteCount: UInt64
     ) throws -> FlowRunReviewArtifact {
-        let reference = ArtifactReference(
-            id: try ArtifactID(rawValue: "waveform"),
-            locator: ArtifactLocator(
-                location: path.hasPrefix("/")
-                    ? try ArtifactLocation(fileURL: URL(filePath: path))
-                    : try ArtifactLocation(workspaceRelativePath: path),
+        let reference = try ArtifactReference(
+            digest: digest,
+            byteCount: byteCount,
+            descriptor: ArtifactDescriptor(
                 role: try ArtifactRole(validatingRawValue: "waveform"),
                 kind: .waveform,
                 format: .csv
-            ),
-            digest: digest,
-            byteCount: byteCount
+            )
+        )
+        let relativePath = try ArtifactRelativePath(
+            segments: path.split(
+                separator: "/",
+                omittingEmptySubsequences: false
+            ).map(String.init)
+        )
+        let binding = try FlowArtifactBinding(
+            logicalID: "waveform",
+            reference: reference,
+            availability: .local(
+                artifactID: reference.id,
+                rootID: ArtifactRootID(rawValue: "xcircuite-project"),
+                relativePath: relativePath
+            )
         )
         return FlowRunReviewArtifact(
-            reference: reference,
+            binding: binding,
             purpose: try FlowRunReviewArtifactPurpose(validatingRawValue: "waveform"),
             stageID: "simulation",
             integrity: FlowRunReviewArtifactIntegrity(

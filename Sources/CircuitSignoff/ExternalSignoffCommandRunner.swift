@@ -1,4 +1,5 @@
 import CircuiteFoundation
+import CircuiteFoundationCrypto
 import Darwin
 import Foundation
 import SignoffToolSupport

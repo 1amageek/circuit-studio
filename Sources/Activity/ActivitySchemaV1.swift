@@ -2,5 +2,7 @@ import Database
 
 enum ActivitySchemaV1: VersionedSchema {
     static let versionIdentifier = Schema.Version(1, 0, 0)
-    static let models: [any Persistable.Type] = [ActivityRecord.self]
+    static var entities: [Schema.Entity] {
+        get throws(SchemaEntityError) { [try ActivityRecord.schemaEntity] }
+    }
 }
