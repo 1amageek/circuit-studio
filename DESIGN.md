@@ -12,6 +12,15 @@ The cockpit displays domain results, diffs, diagnostics and waveform/layout
 projections, and submits explicit human decisions. It owns presentation state,
 not canonical design storage, extraction, simulation, trust or release decisions.
 
+GoalDrivenLayoutAgent open-net diagnostics preserve the connectivity owner's scoped
+NetReference (occurrence index plus local net UUID). A root-cell name is attached
+only to the exact reference returned by ConnectivityAnalysis.rootNetReference;
+child or unresolved references retain their scoped identity without a root-name
+alias. The wiringIncomplete error and open count remain unchanged. The focused
+GoalDrivenLayoutAgentTests.scopedOpenDiagnostics test covers identical UUIDs in
+root and child occurrences without exercising routing or closure qualification.
+
+
 ## Related Designs
 
 | Design | Relationship | Contract used | Caution |

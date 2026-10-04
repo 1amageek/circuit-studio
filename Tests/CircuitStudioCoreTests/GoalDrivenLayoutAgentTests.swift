@@ -4,6 +4,7 @@ import LayoutCore
 import LayoutEditor
 import LayoutTech
 import LayoutIO
+import LayoutVerify
 @testable import CircuitStudioApp
 
 /// C5 gate: the agent closes a `.subckt` intent through the editor's
@@ -14,6 +15,21 @@ import LayoutIO
 @MainActor
 @Suite("Goal-driven layout agent", .timeLimit(.minutes(3)))
 struct GoalDrivenLayoutAgentTests {
+    @Test(.timeLimit(.minutes(1)))
+    func scopedOpenDiagnostics() throws {
+        let id = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let root = LayoutConductorSnapshot.NetReference(occurrenceIndex: 0, netID: id)
+        let child = LayoutConductorSnapshot.NetReference(occurrenceIndex: 1, netID: id)
+        let failure = GoalDrivenLayoutAgent.wiringIncomplete(
+            netReferences: [root, child], rootNames: [root: "CLOCK"], reason: "captured disconnection")
+        #expect(failure == .wiringIncomplete(opens: 2, detail:
+            "open nets [CLOCK [occurrence=0, net=00000000-0000-0000-0000-000000000001], [occurrence=1, net=00000000-0000-0000-0000-000000000001]]: captured disconnection"))
+        let unresolved = GoalDrivenLayoutAgent.wiringIncomplete(
+            netReferences: [child], rootNames: [:], reason: nil)
+        #expect(unresolved == .wiringIncomplete(opens: 1, detail:
+            "open nets [[occurrence=1, net=00000000-0000-0000-0000-000000000001]]: no surfaced reason"))
+    }
+
 
     private static let chainIntent = """
     .subckt chain a mid out gnd

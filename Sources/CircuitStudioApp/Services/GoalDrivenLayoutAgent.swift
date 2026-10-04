@@ -128,21 +128,22 @@ public struct GoalDrivenLayoutAgent {
         if editor.connectivityAnalysis?.opens.isEmpty == false {
             editor.execute(.finishAllNets)
         }
-        let remainingOpens = editor.connectivityAnalysis?.opens ?? []
+        let connectivity = editor.connectivityAnalysis
+        let remainingOpens = connectivity?.opens ?? []
         guard remainingOpens.isEmpty else {
-            var netNames: [String] = []
+            var rootNames: [LayoutConductorSnapshot.NetReference: String] = [:]
             if let cellID = editor.activeCellID,
                let cell = editor.editor.document.cell(withID: cellID) {
-                let namesByID = Dictionary(
-                    cell.nets.map { ($0.id, $0.name) },
-                    uniquingKeysWith: { first, _ in first }
-                )
-                netNames = remainingOpens.map { namesByID[$0.netID] ?? $0.netID.uuidString }
+                for net in cell.nets {
+                    if let reference = connectivity?.rootNetReference(for: net.id) {
+                        rootNames[reference] = net.name
+                    }
+                }
             }
-            throw AgentError.wiringIncomplete(
-                opens: remainingOpens.count,
-                detail: "open nets [\(netNames.joined(separator: ", "))]: "
-                    + (editor.lastError ?? "no surfaced reason")
+            throw Self.wiringIncomplete(
+                netReferences: remainingOpens.map(\.netID),
+                rootNames: rootNames,
+                reason: editor.lastError
             )
         }
 
@@ -187,6 +188,25 @@ public struct GoalDrivenLayoutAgent {
     }
 
     // MARK: - Internals
+
+    static func wiringIncomplete(
+        netReferences: [LayoutConductorSnapshot.NetReference],
+        rootNames: [LayoutConductorSnapshot.NetReference: String],
+        reason: String?
+    ) -> AgentError {
+        let netNames = netReferences.map { reference in
+            let identity = "occurrence=\(reference.occurrenceIndex), net=\(reference.netID.uuidString)"
+            if let name = rootNames[reference] {
+                return "\(name) [\(identity)]"
+            }
+            return "[\(identity)]"
+        }
+        return .wiringIncomplete(
+            opens: netReferences.count,
+            detail: "open nets [\(netNames.joined(separator: ", "))]: "
+                + (reason ?? "no surfaced reason")
+        )
+    }
 
     private func makeEditor(intent subckt: String) -> LayoutEditorViewModel {
         let top = LayoutCell(name: designName)
