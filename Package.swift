@@ -24,7 +24,7 @@ let package = Package(
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "dca952187a09dc46678a248985ac5b8710a7fbc0"),
+        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "186d8c0c25b0afb60082c3387a69cb299b9c00b4"),
         releasedDependency(
             named: "CircuiteFoundation",
             exactVersion: "26.812.0"
@@ -37,13 +37,13 @@ let package = Package(
             named: "SignoffToolSupport",
             exactVersion: "26.812.0"
         ),
-        .package(url: "https://github.com/1amageek/CoreSpice.git", revision: "8fbcee58575b37a01795e11110731cfc16566520"),
-        .package(url: "https://github.com/1amageek/semiconductor-layout.git", revision: "688ffac1839a0705e907e8a5ed665f32e591b057"),
-        .package(url: "https://github.com/1amageek/PEXEngine.git", revision: "fe1895d30958127d6c59ee5d55567159f4cd40c6"),
-        .package(url: "https://github.com/1amageek/DRCEngine.git", revision: "0d4aeeaacff159560d81e1386d67aad22177fc7d"),
-        .package(url: "https://github.com/1amageek/LVSEngine.git", revision: "71866eeb5a13b03f92c9c1654e5d90583488d8aa"),
-        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "9dad85f41c7f8e3ad596ef80ac2904cf20d6852d"),
-        .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "d63588704e835a13210d66df96cb45591891ae68"),
+        .package(url: "https://github.com/1amageek/CoreSpice.git", revision: "305d0933018f8a987c73c5186f53740ca315a516"),
+        .package(url: "https://github.com/1amageek/semiconductor-layout.git", revision: "dde1fb35d5d7db7f7da7746d29235fc8c21105b5"),
+        .package(url: "https://github.com/1amageek/PEXEngine.git", revision: "3610774dd3c0675e7f5d9289d5efd69fd60cfb43"),
+        .package(url: "https://github.com/1amageek/DRCEngine.git", revision: "a329a4db3050e27d237afed6050ece15f454aad6"),
+        .package(url: "https://github.com/1amageek/LVSEngine.git", revision: "01994968adfa260d1f4f3645248df796d0329bc9"),
+        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "122f474f1e5ee8c012537f44dc61ce588ddc9bb1"),
+        .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "0584ebb8b2382d2dac192629533a8ea0afe618c4"),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
             exact: "0.17.0"
