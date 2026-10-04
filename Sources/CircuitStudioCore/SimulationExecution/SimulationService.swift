@@ -83,7 +83,7 @@ public final class SimulationService: SimulationRunning, Sendable {
                 in: pipeline.netlist,
                 processConfiguration: processConfiguration
             ) ?? .op
-            let transientExecution = try admitTransient(command: command, netlist: pipeline.netlist)
+            let transientExecution = try admitTransient(command: command, options: pipeline.options)
             let waveform = try await executeAnalysis(
                 command: command,
                 pipeline: pipeline,
@@ -98,7 +98,7 @@ public final class SimulationService: SimulationRunning, Sendable {
                 status: .completed,
                 finishedAt: Date(),
                 waveform: waveform,
-                logMessages: transientExecution?.diagnostics ?? [],
+                logMessages: pipeline.options.diagnostics.map(\.message),
                 transientExecutionPolicy: transientExecution?.policy
             )
 
@@ -171,9 +171,10 @@ public final class SimulationService: SimulationRunning, Sendable {
             let pipeline = try await loadPipeline(
                 source: source,
                 fileName: fileName,
-                processConfiguration: processConfiguration
+                processConfiguration: processConfiguration,
+                command: command
             )
-            let transientExecution = try admitTransient(command: command, netlist: pipeline.netlist)
+            let transientExecution = try admitTransient(command: command, options: pipeline.options)
             let waveform = try await executeAnalysis(
                 command: command,
                 pipeline: pipeline,
@@ -187,7 +188,7 @@ public final class SimulationService: SimulationRunning, Sendable {
                 status: .completed,
                 finishedAt: Date(),
                 waveform: waveform,
-                logMessages: transientExecution?.diagnostics ?? [],
+                logMessages: pipeline.options.diagnostics.map(\.message),
                 transientExecutionPolicy: transientExecution?.policy
             )
 
@@ -264,6 +265,9 @@ public final class SimulationService: SimulationRunning, Sendable {
 
     private struct Pipeline {
         let netlist: ParsedNetlist
+        let options: SPICEAnalysisOptions
+        let registry: DeviceRegistry
+        let operatingConditions: OperatingConditions
         let ir: CircuitIR
         let plan: ExecutionPlan
         let devices: [any BoundDevice]
@@ -274,7 +278,8 @@ public final class SimulationService: SimulationRunning, Sendable {
     private func loadPipeline(
         source: String,
         fileName: String?,
-        processConfiguration: ProcessConfiguration?
+        processConfiguration: ProcessConfiguration?,
+        command: AnalysisCommand? = nil
     ) async throws -> Pipeline {
         let parseResult = await parseNetlist(
             source: source,
@@ -288,13 +293,26 @@ public final class SimulationService: SimulationRunning, Sendable {
             throw StudioError.parseFailure("\(error)")
         }
 
+        var options = try SPICEAnalysisOptions.resolve(from: netlist)
+        if let processConfiguration {
+            options.temperatureCelsius = processConfiguration.effectiveTemperature(
+                defaultValue: options.loweringConfiguration().temperature
+            )
+        }
+        if case .noise? = command {
+            options.bsim4NoisePreparationRequested = true
+        }
+        let registry = options.deviceRegistry()
+        let operatingConditions = try options.operatingConditions()
+        var loweringConfig = options.loweringConfiguration()
+        if let processConfiguration {
+            loweringConfig.parameterOverrides = processConfiguration.effectiveParameters()
+        }
         let ir: CircuitIR
         do {
-            let loweringConfig = loweringConfiguration(
-                for: netlist,
-                processConfiguration: processConfiguration
-            )
             ir = try SPICEIO.lower(netlist, configuration: loweringConfig)
+        } catch let error as BSIM4DeviceError {
+            throw error
         } catch {
             throw StudioError.loweringFailure("\(error)")
         }
@@ -309,7 +327,9 @@ public final class SimulationService: SimulationRunning, Sendable {
 
         let devices: [any BoundDevice]
         do {
-            devices = try Self.bindDevices(plan: plan)
+            devices = try Self.bindDevices(plan: plan, registry: registry, operatingConditions: operatingConditions)
+        } catch let error as BSIM4DeviceError {
+            throw error
         } catch {
             throw StudioError.deviceBindingFailure("\(error)")
         }
@@ -319,6 +339,9 @@ public final class SimulationService: SimulationRunning, Sendable {
 
         return Pipeline(
             netlist: netlist,
+            options: options,
+            registry: registry,
+            operatingConditions: operatingConditions,
             ir: ir,
             plan: plan,
             devices: devices,
@@ -360,52 +383,6 @@ public final class SimulationService: SimulationRunning, Sendable {
         )
     }
 
-    private func loweringConfiguration(
-        for netlist: ParsedNetlist,
-        processConfiguration: ProcessConfiguration?
-    ) -> NetlistLowering.Configuration {
-        var config = NetlistLowering.Configuration.default
-        let netlistTemp = extractTemperature(from: netlist)
-
-        if let processConfiguration {
-            config.parameterOverrides = processConfiguration.effectiveParameters()
-            let resolvedTemp = processConfiguration.temperatureOverride
-                ?? processConfiguration.effectiveCorner()?.temperature
-                ?? processConfiguration.technology?.defaultTemperature
-                ?? netlistTemp
-                ?? config.temperature
-            config.temperature = resolvedTemp
-        } else if let netlistTemp {
-            config.temperature = netlistTemp
-        }
-
-        return config
-    }
-
-    private func extractTemperature(from netlist: ParsedNetlist) -> Double? {
-        var resolved: Double?
-        for control in netlist.controls {
-            if case .temp(let value, _) = control,
-               let numeric = numericValue(from: value) {
-                resolved = numeric
-            }
-        }
-        return resolved
-    }
-
-    private func numericValue(from value: ParsedParameterValue) -> Double? {
-        switch value {
-        case .numeric(let n):
-            return n
-        case .string(let s):
-            return Double(s)
-        case .boolean(let b):
-            return b ? 1.0 : 0.0
-        case .expression, .numericVector:
-            return nil
-        }
-    }
-
     /// Builds node-name provenance from parsed netlist nodes and matching IR instances.
     private static func buildNodeNameMaps(
         netlist: ParsedNetlist,
@@ -443,13 +420,11 @@ public final class SimulationService: SimulationRunning, Sendable {
     private struct TransientExecution {
         let config: TransientConfig
         let convergenceConfig: ConvergenceConfig
-        let diagnostics: [String]
         let policy: SimulationTransientExecutionPolicy
     }
 
-    private func admitTransient(command: AnalysisCommand, netlist: ParsedNetlist) throws -> TransientExecution? {
+    private func admitTransient(command: AnalysisCommand, options: SPICEAnalysisOptions) throws -> TransientExecution? {
         guard case .tran(let spec) = command else { return nil }
-        let options = try SPICEAnalysisOptions.resolve(from: netlist)
         let limits: TransientExecutionLimits
         let source: SimulationTransientExecutionPolicy.Source
         if let deckLimits = options.executionLimits {
@@ -469,7 +444,6 @@ public final class SimulationService: SimulationRunning, Sendable {
         )
         return TransientExecution(
             config: config, convergenceConfig: options.convergence,
-            diagnostics: options.diagnostics.map(\.message),
             policy: SimulationTransientExecutionPolicy(source: source, limits: limits)
         )
     }
@@ -584,15 +558,7 @@ public final class SimulationService: SimulationRunning, Sendable {
 
         try validate(command: command, nativeBackend: true)
 
-        // Robust convergence config for circuits with nonlinear devices
-        // (MOSFETs, BJTs, diodes). Slightly elevated gmin and iteration
-        // limit compared to defaults to handle threshold transitions.
-        let convergenceConfig = ConvergenceConfig(
-            reltol: 1e-3,
-            vntol: 1e-4,
-            maxIterations: 150,
-            gmin: 1e-9
-        )
+        let convergenceConfig = pipeline.options.convergence
 
         switch command {
         case .op:
@@ -695,7 +661,7 @@ public final class SimulationService: SimulationRunning, Sendable {
             case .linear:
                 sweep = .linear(start: spec.startFrequency, stop: spec.stopFrequency, points: spec.numberOfPoints)
             }
-            let analysis = ACAnalysis(sweep: sweep)
+            let analysis = ACAnalysis(sweep: sweep, dcConfig: convergenceConfig)
             let result = try await analysis.run(
                 plan: plan, devices: devices, solver: solver,
                 observer: nil, cancellation: cancellation
@@ -716,6 +682,8 @@ public final class SimulationService: SimulationRunning, Sendable {
             for value in values {
                 let overrideDevices = try Self.bindDevices(
                     plan: plan,
+                    registry: pipeline.registry,
+                    operatingConditions: pipeline.operatingConditions,
                     overrideSource: (spec.source, value)
                 )
                 let dc = DCAnalysis(config: convergenceConfig)
@@ -746,7 +714,8 @@ public final class SimulationService: SimulationRunning, Sendable {
             let analysis = NoiseAnalysis(
                 outputNode: outputNode,
                 inputSourceName: spec.inputSource,
-                sweep: sweep
+                sweep: sweep,
+                dcConfig: convergenceConfig
             )
             let result = try await analysis.run(
                 plan: plan, devices: devices, solver: solver,
@@ -761,7 +730,8 @@ public final class SimulationService: SimulationRunning, Sendable {
             let outputNode = try resolveNode(name: spec.output, pipeline: pipeline)
             let analysis = TransferFunctionAnalysis(
                 outputNode: outputNode,
-                inputSourceName: spec.input
+                inputSourceName: spec.input,
+                dcConfig: convergenceConfig
             )
             let result = try await analysis.run(
                 plan: plan, devices: devices, solver: solver,
@@ -776,7 +746,8 @@ public final class SimulationService: SimulationRunning, Sendable {
             let outputNode = try resolveNode(name: spec.outputNode, pipeline: pipeline)
             let analysis = PoleZeroAnalysis(
                 outputNode: outputNode,
-                inputSourceName: spec.inputNode
+                inputSourceName: spec.inputNode,
+                dcConfig: convergenceConfig
             )
             let result = try await analysis.run(
                 plan: plan, devices: devices, solver: solver,
@@ -982,12 +953,14 @@ public final class SimulationService: SimulationRunning, Sendable {
 
     private static func bindDevices(
         plan: ExecutionPlan,
+        registry: DeviceRegistry,
+        operatingConditions: OperatingConditions,
         overrideSource: (String, Double)? = nil
     ) throws -> [any BoundDevice] {
-        let registry = DeviceRegistry.standard()
         var context = BindingContext(
             variableMap: plan.topology.variableMap,
-            matrixDimension: plan.topology.dimension
+            matrixDimension: plan.topology.dimension,
+            operatingConditions: operatingConditions
         )
 
         var devices: [any BoundDevice] = []

@@ -24,7 +24,10 @@ capacity discovery, Metal backend, qualification or canonical storage.
 
 ```text
 App/test composition -> explicit immutable caller limits or explicit nil
-SPICE source -> existing parser -> SPICEAnalysisOptions
+SPICE source + optional typed analysis -> existing parser -> SPICEAnalysisOptions
+    -> explicit process temperature priority / typed noise intent
+    -> loweringConfiguration + deviceRegistry + operatingConditions
+    -> one immutable invocation Pipeline / same factories for every DC rebind
     -> complete deck limits / absent deck caller limits / partial deck failure
     -> one TransientExecution(config + exact policy provenance)
     -> CoreSpice CPU MNA -> waveform + SimulationResult policy
@@ -43,7 +46,23 @@ by SPICEAnalysisOptions, never reparsed or reconstructed here. Parsed convergenc
 options also configure the native transient solver through that same owner.
 Options reported as unapplied retain their diagnostics in result logMessages.
 Scalar metadata queries do not coerce numeric vectors. CoreSpice options admission
-validates temperature controls before native transient execution.
+validates temperature controls for every native analysis. ProcessConfiguration
+retains its existing temperature priority: explicit override, selected corner,
+technology, deck, CoreSpice nominal. That selected temperature updates the resolved
+options before both lowering and operatingConditions; no separate temperature
+parser remains. Parameter overrides remain a lowering-only process contract.
+
+The pipeline resolves deck options once. Its registry and operating conditions are
+created once and reused in initial binding and every DC source rebind. Level54
+preparation policy is the explicit deck policy; no application budget is fabricated.
+Parsed noise intent and an explicit typed .noise command both request preparation
+before lowering, including a typed command with no deck .noise directive. All
+native analyses use the admitted convergence options, and unapplied diagnostics
+retain their messages in the actual SimulationResult. Missing preparation policy
+propagates as BSIM4DeviceError, rather than a successful/default model or a string
+failure; other existing parser/compiler error routing and cancellation stay owned
+by this service. The recorder consumes the actual result without reconstructing
+policy or model intent.
 
 The admitted TransientConfig and result policy share the exact same selected limits.
 The result retains the source (caller/deckOptions) and all seven values. Invalid,
@@ -83,3 +102,8 @@ SimulationService lifecycle tests cover stream shutdown and active-job cleanup. 
 preset values, source precedence, failure routing or transient options requires these
 focused timeout-bounded checks. This change claims CPU macOS execution, not GPU,
 WASM/Embedded, external ngspice or signoff qualification.
+
+[BSIM4SimulationCompositionTests](../../../Tests/CircuitStudioCoreTests/BSIM4SimulationCompositionTests.swift)
+proves native Level54 OP and DC rebinds, typed missing policy, explicit noise intent,
+and shared selected temperature. This is public composition evidence; numerical
+model qualification remains in CoreSpice.
