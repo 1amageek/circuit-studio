@@ -24,7 +24,7 @@ let package = Package(
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "41bc36f049246885d03a73dc3fc0debae4965c0c"),
+        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "80cd44b821d0f0a65abdbfc84af1e1bdee04087c"),
         releasedDependency(
             named: "CircuiteFoundation",
             exactVersion: "26.812.0"
@@ -41,15 +41,12 @@ let package = Package(
             named: "CoreSpice",
             exactVersion: "26.812.0"
         ),
-        .package(url: "https://github.com/1amageek/semiconductor-layout.git", revision: "7ca3dc4ac2fd821a5cabc321597ffd7fe8138b46"),
-        releasedDependency(
-            named: "PEXEngine",
-            exactVersion: "26.812.0"
-        ),
-        .package(url: "https://github.com/1amageek/DRCEngine.git", revision: "9a25e3a52e0a3be5c906c34500f4a056feb73126"),
-        .package(url: "https://github.com/1amageek/LVSEngine.git", revision: "21c67a1be283f0ddc0df08e23ad8739b7ec60a4c"),
-        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "c009525b407781e28b5d8c667e8d47b4b08c311b"),
-        .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "18e42711d69626b7695a52170af96c9132bd57bb"),
+        .package(url: "https://github.com/1amageek/semiconductor-layout.git", revision: "688ffac1839a0705e907e8a5ed665f32e591b057"),
+        .package(url: "https://github.com/1amageek/PEXEngine.git", revision: "fe1895d30958127d6c59ee5d55567159f4cd40c6"),
+        .package(url: "https://github.com/1amageek/DRCEngine.git", revision: "0d4aeeaacff159560d81e1386d67aad22177fc7d"),
+        .package(url: "https://github.com/1amageek/LVSEngine.git", revision: "71866eeb5a13b03f92c9c1654e5d90583488d8aa"),
+        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "9dad85f41c7f8e3ad596ef80ac2904cf20d6852d"),
+        .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "5559faae1659ca258ce517ebb24361d7b9e0793c"),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
             exact: "0.17.0"
