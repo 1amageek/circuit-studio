@@ -20,7 +20,6 @@ alias. The wiringIncomplete error and open count remain unchanged. The focused
 GoalDrivenLayoutAgentTests.scopedOpenDiagnostics test covers identical UUIDs in
 root and child occurrences without exercising routing or closure qualification.
 
-
 ## Related Designs
 
 | Design | Relationship | Contract used | Caution |
@@ -29,6 +28,9 @@ root and child occurrences without exercising routing or closure qualification.
 | [Xcircuite](../Xcircuite/DESIGN.md) | depends on | Exact state, artifacts and run ledger | Preserve reviewed identity through resume |
 | [DesignFlowKernel](../DesignFlowKernel/DESIGN.md) | depends on | Approval/rejection/resume | Bind decisions to the exact reviewed result |
 | [ReleaseEngine](../ReleaseEngine/DESIGN.md) | coordinates with | Release eligibility and authorization | UI cannot issue trust on behalf of the owner |
+
+[CircuitStudioCore](Sources/CircuitStudioCore/DESIGN.md) owns the typed simulation
+projection, including explicit caller policy and retained native transient limits.
 
 ## Architecture
 
@@ -42,7 +44,10 @@ Canonical revision + domain results + ledger -> UI projections
 Human review must identify the candidate, process profile, diff, diagnostics and
 raw evidence actually used by the run. A decision against another revision or
 bundle cannot authorize the current candidate. A displayed success must retain
-its actual domain scope and qualification status.
+its actual domain scope and qualification status. The simulation recorder's schema-2
+summary retains each completed native transient result's exact execution policy
+source and seven ceilings from SimulationResult; it does not reconstruct policy
+from application defaults or from partial source options.
 
 ## State, Ownership, and Lifecycle
 

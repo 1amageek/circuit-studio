@@ -85,7 +85,7 @@ public struct SpecDrivenDesignLoop: Sendable {
     private let netlistGenerator: NetlistGenerator
 
     public init(
-        simulation: any SimulationRunning = SimulationService(),
+        simulation: any SimulationRunning = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview),
         editor: DesignFlowDesignEditService = DesignFlowDesignEditService(),
         netlistGenerator: NetlistGenerator = NetlistGenerator()
     ) {

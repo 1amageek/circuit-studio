@@ -77,7 +77,8 @@ let package = Package(
                 .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
                 .product(name: "OpenVAFSupport", package: "swift-openvaf"),
                 .product(name: "VerilogACompiler", package: "swift-openvaf"),
-            ]
+            ],
+            exclude: ["DESIGN.md", "SimulationExecution/DESIGN.md"]
         ),
         .target(
             name: "SchematicEditor",

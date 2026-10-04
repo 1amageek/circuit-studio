@@ -761,10 +761,10 @@ struct HierarchicalSimulationTests {
             testbench: inverterTestbench
         )
 
-        let hierarchical = try await SimulationService().runSPICE(
+        let hierarchical = try await SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview).runSPICE(
             source: hierarchicalNetlist, fileName: "hier-inv.cir"
         )
-        let flat = try await SimulationService().runSPICE(
+        let flat = try await SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview).runSPICE(
             source: flatNetlist, fileName: "flat-inv.cir"
         )
         #expect(hierarchical.status == .completed)

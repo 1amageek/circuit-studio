@@ -21,7 +21,7 @@ public final class ServiceContainer {
 
     public init() {
         let catalog = DeviceCatalog.standard()
-        let simulationService = SimulationService()
+        let simulationService = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
         self.catalog = catalog
         self.designFlowService = DesignFlowService(
             simulationService: simulationService,

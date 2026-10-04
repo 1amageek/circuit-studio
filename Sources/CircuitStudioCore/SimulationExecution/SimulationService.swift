@@ -15,11 +15,15 @@ public final class SimulationService: SimulationRunning, Sendable {
 
     private let state = Mutex(State())
     private let externalSimulator = ExternalSpiceSimulator()
+    private let transientExecutionLimits: TransientExecutionLimits?
 
     /// The currently running job ID, if any. Used by UI to cancel.
     public var activeJobID: UUID? { state.withLock { $0.activeJobID } }
 
-    public init() {}
+    /// Select caller-owned native transient limits explicitly; nil requires a complete deck policy.
+    public init(transientExecutionLimits: TransientExecutionLimits?) {
+        self.transientExecutionLimits = transientExecutionLimits
+    }
 
     // MARK: - Run from SPICE source (auto-detect analysis)
 
@@ -79,9 +83,11 @@ public final class SimulationService: SimulationRunning, Sendable {
                 in: pipeline.netlist,
                 processConfiguration: processConfiguration
             ) ?? .op
+            let transientExecution = try admitTransient(command: command, netlist: pipeline.netlist)
             let waveform = try await executeAnalysis(
                 command: command,
                 pipeline: pipeline,
+                transientExecution: transientExecution,
                 cancellation: token,
                 jobID: jobID,
                 onWaveformUpdate: onWaveformUpdate
@@ -91,11 +97,19 @@ public final class SimulationService: SimulationRunning, Sendable {
                 experimentID: experimentID,
                 status: .completed,
                 finishedAt: Date(),
-                waveform: waveform
+                waveform: waveform,
+                logMessages: transientExecution?.diagnostics ?? [],
+                transientExecutionPolicy: transientExecution?.policy
             )
 
             emit(jobID: jobID, event: .completed)
             return result
+        } catch AnalysisError.cancelled {
+            emit(jobID: jobID, event: .cancelled)
+            throw StudioError.cancelled
+        } catch is CancellationError {
+            emit(jobID: jobID, event: .cancelled)
+            throw StudioError.cancelled
         } catch let error as StudioError where error == .cancelled {
             emit(jobID: jobID, event: .cancelled)
             throw error
@@ -159,9 +173,11 @@ public final class SimulationService: SimulationRunning, Sendable {
                 fileName: fileName,
                 processConfiguration: processConfiguration
             )
+            let transientExecution = try admitTransient(command: command, netlist: pipeline.netlist)
             let waveform = try await executeAnalysis(
                 command: command,
                 pipeline: pipeline,
+                transientExecution: transientExecution,
                 cancellation: token,
                 jobID: jobID
             )
@@ -170,11 +186,19 @@ public final class SimulationService: SimulationRunning, Sendable {
                 experimentID: experimentID,
                 status: .completed,
                 finishedAt: Date(),
-                waveform: waveform
+                waveform: waveform,
+                logMessages: transientExecution?.diagnostics ?? [],
+                transientExecutionPolicy: transientExecution?.policy
             )
 
             emit(jobID: jobID, event: .completed)
             return result
+        } catch AnalysisError.cancelled {
+            emit(jobID: jobID, event: .cancelled)
+            throw StudioError.cancelled
+        } catch is CancellationError {
+            emit(jobID: jobID, event: .cancelled)
+            throw StudioError.cancelled
         } catch let error as StudioError where error == .cancelled {
             emit(jobID: jobID, event: .cancelled)
             throw error
@@ -377,7 +401,7 @@ public final class SimulationService: SimulationRunning, Sendable {
             return Double(s)
         case .boolean(let b):
             return b ? 1.0 : 0.0
-        case .expression:
+        case .expression, .numericVector:
             return nil
         }
     }
@@ -414,6 +438,40 @@ public final class SimulationService: SimulationRunning, Sendable {
         }
 
         return (nodeByName, nameByNodeID)
+    }
+
+    private struct TransientExecution {
+        let config: TransientConfig
+        let convergenceConfig: ConvergenceConfig
+        let diagnostics: [String]
+        let policy: SimulationTransientExecutionPolicy
+    }
+
+    private func admitTransient(command: AnalysisCommand, netlist: ParsedNetlist) throws -> TransientExecution? {
+        guard case .tran(let spec) = command else { return nil }
+        let options = try SPICEAnalysisOptions.resolve(from: netlist)
+        let limits: TransientExecutionLimits
+        let source: SimulationTransientExecutionPolicy.Source
+        if let deckLimits = options.executionLimits {
+            limits = deckLimits
+            source = .deckOptions
+        } else {
+            guard !options.executionLimitOptionsPresent, let callerLimits = transientExecutionLimits else {
+                throw TransientExecutionError.missingExecutionLimits
+            }
+            limits = callerLimits
+            source = .caller
+        }
+        let config = try options.transientConfig(
+            executionLimits: limits, stopTime: spec.stopTime, stepTime: spec.stepTime,
+            startTime: spec.startTime, maxStep: spec.maxStep,
+            useInitialConditions: spec.useInitialConditions
+        )
+        return TransientExecution(
+            config: config, convergenceConfig: options.convergence,
+            diagnostics: options.diagnostics.map(\.message),
+            policy: SimulationTransientExecutionPolicy(source: source, limits: limits)
+        )
     }
 
     // MARK: - Analysis Execution
@@ -513,6 +571,7 @@ public final class SimulationService: SimulationRunning, Sendable {
     private func executeAnalysis(
         command: AnalysisCommand,
         pipeline: Pipeline,
+        transientExecution: TransientExecution?,
         cancellation: CancellationToken,
         jobID: UUID,
         onWaveformUpdate: (@Sendable (WaveformData) -> Void)? = nil
@@ -547,13 +606,11 @@ public final class SimulationService: SimulationRunning, Sendable {
                 nodeNamesByID: nodeNamesByID
             )
 
-        case .tran(let spec):
-            let config = TransientConfig(
-                stopTime: spec.stopTime,
-                maxTimeStep: spec.maxStep ?? spec.stepTime ?? spec.stopTime / 50.0,
-                initialTimeStep: spec.stepTime ?? spec.maxStep ?? spec.stopTime / 50.0,
-                useInitialConditions: spec.useInitialConditions
-            )
+        case .tran:
+            guard let transientExecution else {
+                throw TransientExecutionError.missingExecutionLimits
+            }
+            let config = transientExecution.config
 
             // Pull-based streaming: channel + polling task (decoupled from simulation)
             let channel = TransientProgressChannel()
@@ -600,7 +657,7 @@ public final class SimulationService: SimulationRunning, Sendable {
 
             let analysis = TransientAnalysis(
                 config: config,
-                convergenceConfig: convergenceConfig,
+                convergenceConfig: transientExecution.convergenceConfig,
                 onStepAccepted: { time, solution in
                     channel.append(time: time, solution: solution)
                 }

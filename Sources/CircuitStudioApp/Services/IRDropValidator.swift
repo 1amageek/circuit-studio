@@ -40,7 +40,7 @@ public struct IRDropValidator: Sendable {
     private let external: ExternalSpiceSimulator
 
     public init(analyzer: IRDropAnalyzer = IRDropAnalyzer(),
-                simulation: any SimulationRunning = SimulationService(),
+                simulation: any SimulationRunning = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview),
                 external: ExternalSpiceSimulator = ExternalSpiceSimulator()) {
         self.analyzer = analyzer
         self.simulation = simulation

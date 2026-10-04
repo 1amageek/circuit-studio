@@ -41,7 +41,7 @@ public struct PostLayoutOracleService: Sendable, PostLayoutOracleChecking {
     private let external: ExternalSpiceSimulator
 
     public init(
-        simulation: any SimulationRunning = SimulationService(),
+        simulation: any SimulationRunning = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview),
         external: ExternalSpiceSimulator = ExternalSpiceSimulator()
     ) {
         self.simulation = simulation

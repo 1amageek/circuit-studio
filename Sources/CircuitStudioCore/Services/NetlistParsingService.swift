@@ -159,7 +159,7 @@ public final class NetlistParsingService: Sendable {
         return nil
     }
 
-    private static func formatParameterValue(_ value: ParsedParameterValue) -> String {
+    private static func formatParameterValue(_ value: ParsedParameterValue) -> String? {
         switch value {
         case .numeric(let n):
             return formatEngineering(n)
@@ -169,6 +169,8 @@ public final class NetlistParsingService: Sendable {
             return "{\(expr)}"
         case .boolean(let b):
             return b ? "true" : "false"
+        case .numericVector:
+            return nil
         }
     }
 

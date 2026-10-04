@@ -9,6 +9,38 @@ import Xcircuite
 
 @Suite("Xcircuite simulation run recorder")
 struct XcircuiteSimulationRunRecorderTests {
+    @Test("recorded transient summary preserves the actual admitted policy", .timeLimit(.minutes(1)))
+    func recordsActualTransientPolicy() async throws {
+        let root = try makeTemporaryRoot("transient-policy")
+        defer { removeTemporaryRoot(root) }
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
+        defer { service.shutdown() }
+        let source = """
+        Retained transient policy
+        V1 in 0 1
+        R1 in 0 1k
+        .tran 1n 10n
+        .end
+        """
+        let result = try await service.runSPICE(source: source, fileName: nil)
+        let actual = try #require(result.transientExecutionPolicy)
+        let recorder = XcircuiteSimulationRunRecorder(
+            actor: FlowRunActor(kind: .human, identifier: "simulation-engineer"), runID: { "transient-policy" })
+        let context = try await recorder.begin(projectRoot: root, intent: "Retain transient resource policy.",
+            source: source, fileName: nil, startedAt: result.startedAt)
+        try await recorder.complete(context: context, source: nil, records: [AnalysisRunRecord(
+            analysis: .tran(TranSpec(stopTime: 10e-9, stepTime: 1e-9)), status: .completed,
+            result: result, startedAt: result.startedAt, finishedAt: result.finishedAt)])
+        let bytes = try Data(contentsOf: root.appending(path: ".xcircuite/runs/transient-policy/simulation-summary.json"))
+        let json = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+        #expect(json["schemaVersion"] as? Int == 2)
+        let records = try #require(json["records"] as? [[String: Any]])
+        let policyObject = try #require(records.first?["transientExecutionPolicy"] as? [String: Any])
+        let retained = try JSONDecoder().decode(SimulationTransientExecutionPolicy.self,
+            from: JSONSerialization.data(withJSONObject: policyObject))
+        #expect(retained == actual)
+    }
+
     @Test func completedSimulationUsesCanonicalRunLifecycle() async throws {
         let root = try makeTemporaryRoot("completed")
         defer { removeTemporaryRoot(root) }

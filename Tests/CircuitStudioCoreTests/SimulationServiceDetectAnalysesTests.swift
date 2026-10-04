@@ -20,7 +20,7 @@ struct SimulationServiceDetectAnalysesTests {
             .end
             """
 
-        let analyses = try await SimulationService().detectAnalyses(
+        let analyses = try await SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview).detectAnalyses(
             source: source,
             fileName: "multi.cir"
         )
@@ -69,7 +69,7 @@ struct SimulationServiceDetectAnalysesTests {
             .end
             """
 
-        let analyses = try await SimulationService().detectAnalyses(
+        let analyses = try await SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview).detectAnalyses(
             source: source,
             fileName: "plain.cir"
         )
@@ -89,7 +89,7 @@ struct SimulationServiceDetectAnalysesTests {
             .end
             """
 
-        let analyses = try await SimulationService().detectAnalyses(
+        let analyses = try await SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview).detectAnalyses(
             source: source,
             fileName: "parameterized.cir"
         )
@@ -117,7 +117,7 @@ struct SimulationServiceDetectAnalysesTests {
             """
 
         do {
-            _ = try await SimulationService().detectAnalyses(
+            _ = try await SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview).detectAnalyses(
                 source: source,
                 fileName: "unresolved.cir"
             )

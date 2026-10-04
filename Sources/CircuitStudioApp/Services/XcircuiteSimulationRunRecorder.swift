@@ -517,7 +517,7 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
     }
 
     private struct SimulationSummary: Sendable, Encodable {
-        let schemaVersion: Int = 1
+        let schemaVersion: Int = 2
         let runID: String
         let startedAt: Date
         let records: [SimulationRecordSummary]
@@ -540,6 +540,8 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
         let startedAt: Date
         let finishedAt: Date?
         let simulationResultID: UUID?
+        let transientExecutionPolicy: SimulationTransientExecutionPolicy?
+        let logMessages: [String]
         let waveformPath: String?
 
         init(record: AnalysisRunRecord, waveformPath: String?) {
@@ -552,6 +554,8 @@ public struct XcircuiteSimulationRunRecorder: SimulationRunRecording {
             startedAt = record.startedAt
             finishedAt = record.finishedAt
             simulationResultID = record.result?.id
+            transientExecutionPolicy = record.result?.transientExecutionPolicy
+            logMessages = record.result?.logMessages ?? []
             self.waveformPath = waveformPath
         }
     }

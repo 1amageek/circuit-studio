@@ -33,7 +33,7 @@ struct CMOSInverterFlowTests {
         #expect(baseNetlist.contains("MN1"))
         #expect(baseNetlist.contains(".tran"))
 
-        let preLayoutResult = try await SimulationService().runSPICE(
+        let preLayoutResult = try await SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview).runSPICE(
             source: baseNetlist,
             fileName: "cmos_inverter_pre.cir"
         )

@@ -35,7 +35,7 @@ public struct CellTimingCharacterizer: Sendable {
 
     public init(
         model: Level1DeviceModel,
-        simulation: any SimulationRunning = SimulationService(),
+        simulation: any SimulationRunning = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview),
         inputSlews: [Double] = [20e-12, 80e-12, 320e-12],
         outputLoads: [Double] = [0.5e-15, 2e-15, 8e-15]
     ) {
@@ -46,7 +46,7 @@ public struct CellTimingCharacterizer: Sendable {
     }
 
     public init(
-        simulation: any SimulationRunning = SimulationService(),
+        simulation: any SimulationRunning = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview),
         inputSlews: [Double] = [20e-12, 80e-12, 320e-12],
         outputLoads: [Double] = [0.5e-15, 2e-15, 8e-15]
     ) throws {

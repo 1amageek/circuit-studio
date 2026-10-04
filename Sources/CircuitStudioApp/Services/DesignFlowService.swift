@@ -19,7 +19,7 @@ public struct DesignFlowService: Sendable {
     public let layoutEngineCatalog: any LayoutEngineCataloging
 
     public init(
-        simulationService: SimulationService = SimulationService(),
+        simulationService: SimulationService = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview),
         netlistGenerator: NetlistGenerator = NetlistGenerator(),
         layoutTrustEvaluator: any LayoutTrustEvaluating = LayoutTrustEvaluationService(),
         layoutTrustArtifactWriter: any LayoutTrustArtifactWriting = LayoutTrustArtifactWriter(),

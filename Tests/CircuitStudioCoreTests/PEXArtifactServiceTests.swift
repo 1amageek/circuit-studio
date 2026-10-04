@@ -274,7 +274,7 @@ struct PEXArtifactServiceTests {
         .op
         .end
         """
-        let preLayoutResult = try await SimulationService().runSPICE(source: baseNetlist, fileName: nil)
+        let preLayoutResult = try await SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview).runSPICE(source: baseNetlist, fileName: nil)
         let postLayoutService = PostLayoutSimulationService()
         let comparisonService = PostLayoutComparisonService()
         let limits = PostLayoutComparisonLimits(maxAbsoluteDelta: 1.0e-6, maxRelativeDelta: 1.0e-6)
@@ -521,9 +521,7 @@ struct PEXArtifactServiceTests {
                 TechnologyLayer(
                     name: "M1",
                     order: 0,
-                    thickness: 0.1,
-                    material: "copper",
-                    resistivity: 1.7e-8
+                    material: "copper"
                 ),
             ],
             logicalToPhysicalLayerMap: [:],
@@ -599,13 +597,13 @@ private struct FixturePEXExtractor: PEXExtracting {
         *END
         """
         try Data(spef.utf8).write(to: outputURL, options: .atomic)
-        return PEXAdapterExecutionResult(
-            rawOutput: PEXRawOutput(
+        return try PEXAdapterExecutionResult(
+            output: .raw(PEXRawOutput(
                 format: .spef,
                 fileURLs: [outputURL],
                 logURL: nil,
                 metadata: ["source": "fixture"]
-            ),
+            )),
             generatedArtifacts: [
                 PEXGeneratedArtifact(
                     kind: .rawOutput,

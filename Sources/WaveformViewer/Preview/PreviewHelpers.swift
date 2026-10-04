@@ -139,7 +139,7 @@ public struct SimulationPreviewView: View {
             }
         }
         .task {
-            let service = SimulationService()
+            let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
             do {
                 let result = try await service.runSPICE(source: spiceSource, fileName: nil)
                 if let waveform = result.waveform {

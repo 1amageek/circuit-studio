@@ -71,7 +71,7 @@ struct NewProjectTemplateTests {
     func templateNetlistSimulatesToCompletion() async throws {
         let content = try NewProjectTemplate.cmosInverter()
 
-        let result = try await SimulationService().runSPICE(
+        let result = try await SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview).runSPICE(
             source: content.netlist,
             fileName: content.netlistFileName
         )

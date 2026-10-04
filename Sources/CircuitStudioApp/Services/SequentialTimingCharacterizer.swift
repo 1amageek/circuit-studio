@@ -68,7 +68,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
     public init(
         model: Level1DeviceModel,
         technologyContext: TimingTechnologyContext? = nil,
-        simulation: any SimulationRunning = SimulationService(),
+        simulation: any SimulationRunning = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview),
         clockSlew: Double = 80e-12,
         dataSlew: Double = 80e-12,
         outputLoads: [Double] = [1e-15, 4e-15, 12e-15],
@@ -95,7 +95,7 @@ public struct SequentialTimingCharacterizer: SequentialTimingCharacterizing {
 
     public init(
         technologyContext: TimingTechnologyContext? = nil,
-        simulation: any SimulationRunning = SimulationService(),
+        simulation: any SimulationRunning = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview),
         clockSlew: Double = 80e-12,
         dataSlew: Double = 80e-12,
         outputLoads: [Double] = [1e-15, 4e-15, 12e-15],

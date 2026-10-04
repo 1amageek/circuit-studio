@@ -9,7 +9,7 @@ import CoreSpiceWaveform
 @Suite("End-to-End SPICE Tests")
 struct EndToEndTests {
 
-    private let service = SimulationService()
+    private let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
 
     // MARK: - Helpers
 

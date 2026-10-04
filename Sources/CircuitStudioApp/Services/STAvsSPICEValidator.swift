@@ -54,12 +54,12 @@ public struct STAvsSPICEValidator: TimingPathValidating {
     private let logic = GateLevelLogicSimulator()
 
     public init(model: Level1DeviceModel,
-                simulation: any SimulationRunning = SimulationService()) {
+                simulation: any SimulationRunning = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)) {
         self.model = model
         self.simulation = simulation
     }
 
-    public init(simulation: any SimulationRunning = SimulationService()) throws {
+    public init(simulation: any SimulationRunning = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)) throws {
         self.init(model: try Level1DeviceModel.loadBundledDefault(), simulation: simulation)
     }
 

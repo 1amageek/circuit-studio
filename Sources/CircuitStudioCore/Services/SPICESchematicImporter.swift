@@ -123,6 +123,21 @@ public struct SPICESchematicImporter: Sendable {
         models: [ParsedModel],
         catalog: DeviceCatalog
     ) throws -> SchematicDocument {
+        var vectorComponents: [String] = []
+        for component in body.components {
+            if component.parameters.values.contains(where: { value in
+                if case .numericVector = value { return true }
+                return false
+            }) {
+                vectorComponents.append("\(component.name)(numeric vector parameters)")
+            }
+        }
+        // FIXME(INCOMPLETE_IMPLEMENTATION): Vector schematic parameters are unavailable.
+        // importTopLevel reaches this refusal before materialization. Accepting vectors
+        // requires verified lossless schematic projection and netlist serialization.
+        guard vectorComponents.isEmpty else {
+            throw SPICESchematicImportError.unsupportedComponents(vectorComponents.sorted())
+        }
         let modelByName = Dictionary(
             models.map { ($0.name.lowercased(), $0) },
             uniquingKeysWith: { first, _ in first }
@@ -326,10 +341,10 @@ public struct SPICESchematicImporter: Sendable {
         }
         let parameterKeys = Set(component.parameters.keys.map { $0.lowercased() })
         let hasPulse = !parameterKeys.isDisjoint(with: [
-            "v1", "v2", "tr", "tf", "pw", "per",
+            "v1", "v2", "i1", "i2", "tr", "tf", "pw", "per",
         ]) || parameterKeys.contains(where: { $0.hasPrefix("pulse_") })
         let hasSine = !parameterKeys.isDisjoint(with: [
-            "vo", "va", "freq", "phase", "theta",
+            "vo", "va", "io", "ia", "freq", "phase", "theta",
         ]) || parameterKeys.contains(where: { $0.hasPrefix("sin_") })
 
         if schemaID.hasPrefix("pulse_") && !hasPulse {
@@ -342,9 +357,9 @@ public struct SPICESchematicImporter: Sendable {
         case "dc":
             return [schemaID, componentType == .voltageSource ? "v" : "i"]
         case "pulse_v1":
-            return [schemaID, "v1"]
+            return [schemaID, componentType == .voltageSource ? "v1" : "i1"]
         case "pulse_v2":
-            return [schemaID, "v2"]
+            return [schemaID, componentType == .voltageSource ? "v2" : "i2"]
         case "pulse_td":
             return [schemaID, "td"]
         case "pulse_tr":
@@ -356,9 +371,9 @@ public struct SPICESchematicImporter: Sendable {
         case "pulse_per":
             return [schemaID, "per"]
         case "sin_vo":
-            return [schemaID, "vo"]
+            return [schemaID, componentType == .voltageSource ? "vo" : "io"]
         case "sin_va":
-            return [schemaID, "va"]
+            return [schemaID, componentType == .voltageSource ? "va" : "ia"]
         case "sin_freq":
             return [schemaID, "freq"]
         case "sin_td":
@@ -397,7 +412,7 @@ private extension ParsedParameterValue {
             return value
         case .boolean(let value):
             return value ? 1 : 0
-        case .string, .expression:
+        case .string, .expression, .numericVector:
             return nil
         }
     }

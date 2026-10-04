@@ -524,7 +524,7 @@ struct SimulationServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     func runOPAnalysis() async throws {
-        let service = SimulationService()
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
         let source = """
         Simple voltage divider
         V1 in 0 5
@@ -541,7 +541,7 @@ struct SimulationServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     func runTranAnalysis() async throws {
-        let service = SimulationService()
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
         let source = """
         RC circuit
         V1 in 0 PULSE(0 5 0 1n 1n 5u 10u)
@@ -562,7 +562,7 @@ struct SimulationServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     func runTranAnalysisPreviewCircuit() async throws {
-        let service = SimulationService()
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
         let source = """
         * RC Lowpass Filter
         V1 in 0 PULSE(0 5 1u 0.1u 0.1u 10u 20u)
@@ -583,7 +583,7 @@ struct SimulationServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     func runACAnalysis() async throws {
-        let service = SimulationService()
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
         let source = """
         RC lowpass filter
         V1 in 0 AC 1
@@ -629,7 +629,7 @@ struct SimulationServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     func runExplicitAnalysisCommand() async throws {
-        let service = SimulationService()
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
         let source = """
         Voltage divider
         V1 in 0 5
@@ -649,7 +649,7 @@ struct SimulationServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     func simulationFailureClearsActiveJobAndSurfacesTypedError() async throws {
-        let service = SimulationService()
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
         let source = """
         Invalid resistor
         V1 in 0 5
@@ -677,7 +677,7 @@ struct SimulationServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     func cancellingRegisteredJobEmitsCancellationEvent() async {
-        let service = SimulationService()
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
         let jobID = UUID()
         let stream = service.events(jobID: jobID)
         var iterator = stream.makeAsyncIterator()
@@ -696,7 +696,7 @@ struct SimulationServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     func shutdownFinishesEveryRegisteredEventStream() async {
-        let service = SimulationService()
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
         var first = service.events(jobID: UUID()).makeAsyncIterator()
         var second = service.events(jobID: UUID()).makeAsyncIterator()
 
@@ -708,7 +708,7 @@ struct SimulationServiceTests {
 
     @Test(.timeLimit(.minutes(1)))
     func shutdownClosesFutureRunsAndEventStreams() async {
-        let service = SimulationService()
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
         service.shutdown()
 
         await #expect(throws: StudioError.simulationServiceClosed) {

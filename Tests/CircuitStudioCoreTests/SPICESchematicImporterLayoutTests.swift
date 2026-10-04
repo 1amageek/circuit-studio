@@ -1,10 +1,47 @@
 import CoreGraphics
+import CoreSpiceIO
 import Testing
 @testable import CircuitStudioCore
 @testable import SchematicEditor
 
 @Suite("SPICE Schematic Import Layout")
 struct SPICESchematicImporterLayoutTests {
+    @Test("Scalar source amplitudes survive schematic serialization", .timeLimit(.minutes(1)), arguments: ["v1", "i1"], ["PULSE", "SIN"])
+    func scalarWaveformRoundTrip(_ name: String, _ waveform: String) async throws {
+        let vector = waveform == "PULSE" ? "(0 20u 0 1n 1n 2n 4n)" : "(0 20u 1k 0 0)"
+        let result = try await SPICESchematicImporter().importTopLevel(source: """
+        Scalar waveform
+        \(name) in 0 \(waveform)\(vector)
+        r1 in 0 1k
+        .end
+        """, fileName: nil, topCellName: "scalar-source")
+        let document = try #require(result.cells.first?.schematic)
+        let source = try NetlistGenerator().generate(from: document, title: "source-round-trip")
+        let parsed = await SPICEParser().parse(source: source)
+        #expect(!parsed.hasErrors)
+        let component = try #require(parsed.netlist?.components.first { $0.name == name })
+        let key = waveform == "PULSE" ? (name == "v1" ? "v2" : "i2") : (name == "v1" ? "va" : "ia")
+        guard case .numeric(let amplitude) = component.parameters[key] else {
+            Issue.record("The scalar source amplitude was not retained.")
+            return
+        }
+        #expect(abs(amplitude - 20e-6) < 1e-15)
+    }
+
+    @Test("PWL vectors cannot become scalar schematic sources", .timeLimit(.minutes(1)), arguments: ["v1", "i1"])
+    func refusesVectorSources(_ name: String) async throws {
+        let source = """
+        Vector source refusal
+        \(name) in 0 PWL(0 0 1n 1 2n 0)
+        R1 in 0 1k
+        .end
+        """
+        await #expect(throws: SPICESchematicImportError.unsupportedComponents(["\(name)(numeric vector parameters)"])) {
+            _ = try await SPICESchematicImporter().importTopLevel(
+                source: source, fileName: nil, topCellName: "vector-source")
+        }
+    }
+
     @Test("Five-stage CMOS ring oscillator materializes as a readable signal chain")
     func ringOscillatorUsesCMOSStagesAndOrthogonalRouting() async throws {
         let result = try await SPICESchematicImporter().importTopLevel(

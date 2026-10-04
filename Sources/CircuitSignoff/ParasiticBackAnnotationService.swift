@@ -41,7 +41,7 @@ public struct ParasiticBackAnnotationService: Sendable {
 
     private let simulation: any SimulationRunning
 
-    public init(simulation: any SimulationRunning = SimulationService()) {
+    public init(simulation: any SimulationRunning = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)) {
         self.simulation = simulation
     }
 

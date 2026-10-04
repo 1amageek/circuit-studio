@@ -38,7 +38,7 @@ public struct PostLayoutSimulationService: Sendable {
         parasitics: ParasiticIR,
         command: AnalysisCommand,
         processConfiguration: ProcessConfiguration? = nil,
-        simulationService: SimulationService = SimulationService()
+        simulationService: SimulationService = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
     ) async throws -> SimulationResult {
         let netlist = buildPostLayoutNetlist(baseNetlist: baseNetlist, parasitics: parasitics)
         return try await simulationService.runAnalysis(
@@ -67,7 +67,7 @@ public struct PostLayoutSimulationService: Sendable {
         topCell: String? = nil,
         command: AnalysisCommand,
         processConfiguration: ProcessConfiguration? = nil,
-        simulationService: SimulationService = SimulationService()
+        simulationService: SimulationService = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
     ) async throws -> SimulationResult {
         let netlist = try buildHierarchicalPostLayoutNetlist(
             baseNetlist: baseNetlist,

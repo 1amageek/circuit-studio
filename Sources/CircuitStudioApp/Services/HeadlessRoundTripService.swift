@@ -269,7 +269,7 @@ public final class HeadlessRoundTripService {
         let preLayoutResult: SimulationResult
         let preLayoutSimulationStartedAt = Date()
         do {
-            preLayoutResult = try await SimulationService().runSPICE(
+            preLayoutResult = try await SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview).runSPICE(
                 source: baseNetlist,
                 fileName: "\(configuration.runID)-pre.cir",
                 processConfiguration: configuration.processConfiguration

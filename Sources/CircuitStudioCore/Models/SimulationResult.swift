@@ -10,6 +10,7 @@ public struct SimulationResult: Sendable, Identifiable {
     public let finishedAt: Date?
     public var waveform: WaveformData?
     public var logMessages: [String]
+    public let transientExecutionPolicy: SimulationTransientExecutionPolicy?
 
     public init(
         id: UUID = UUID(),
@@ -18,7 +19,8 @@ public struct SimulationResult: Sendable, Identifiable {
         startedAt: Date = Date(),
         finishedAt: Date? = nil,
         waveform: WaveformData? = nil,
-        logMessages: [String] = []
+        logMessages: [String] = [],
+        transientExecutionPolicy: SimulationTransientExecutionPolicy? = nil
     ) {
         self.id = id
         self.experimentID = experimentID
@@ -27,6 +29,7 @@ public struct SimulationResult: Sendable, Identifiable {
         self.finishedAt = finishedAt
         self.waveform = waveform
         self.logMessages = logMessages
+        self.transientExecutionPolicy = transientExecutionPolicy
     }
 }
 
