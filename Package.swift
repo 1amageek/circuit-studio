@@ -24,7 +24,7 @@ let package = Package(
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "d2ac0fe4ff4f210d3a4d7f67160e56c8e256fbcc"),
+        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "dca952187a09dc46678a248985ac5b8710a7fbc0"),
         releasedDependency(
             named: "CircuiteFoundation",
             exactVersion: "26.812.0"
