@@ -62,3 +62,6 @@ then exercise exact human review and resume in the cumulative system path.
 Accessibility and large-run review remain measured UI obligations. Changes to
 domain diagnostics, artifacts or approval identity require corresponding cockpit
 projection checks.
+
+[CircuitPhysicalDesign](Sources/CircuitPhysicalDesign/DESIGN.md) owns explicit
+native device-context composition for synthesis, repair and pre-PEX verification.

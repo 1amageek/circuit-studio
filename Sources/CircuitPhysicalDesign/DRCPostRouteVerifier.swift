@@ -13,7 +13,11 @@ struct DRCPostRouteVerifier: PostRouteVerifier {
     let tech: LayoutTechDatabase
 
     func verify(document: LayoutDocument) throws -> [PostRouteViolation] {
-        let result = LayoutDRCService().run(document: document, tech: tech)
+        let result = LayoutDRCService().run(document: document, tech: tech,
+            electricalContext: DeviceElectricalVerificationContext.select(tech: tech))
+        guard !result.diagnostics.contains(where: { $0.severity == .error }) else {
+            throw LayoutDRCServiceError.geometryOperationFailed(message: result.diagnostics.map(\.message).joined(separator: "; "))
+        }
         // Antenna violations are excluded: rip-up and reroute reproduces the
         // same topology and cannot reduce charge-collection area, so they are
         // handled by the dedicated jumper-insertion pass after this loop.

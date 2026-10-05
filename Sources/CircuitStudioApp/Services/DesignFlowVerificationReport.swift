@@ -1,3 +1,4 @@
+import LayoutVerify
 import Foundation
 import CircuitPhysicalDesign
 
@@ -47,11 +48,13 @@ public struct DesignFlowDRCVerificationSummary: Sendable, Hashable, Codable {
     public let passed: Bool
     public let violationCount: Int
     public let violationsByKind: [String: Int]
+    public let nativeResult: LayoutDRCResult?
 
     public init(report: DRCVerificationReport) {
         self.passed = report.passed
         self.violationCount = report.violationCount
         self.violationsByKind = report.violationsByKind
+        self.nativeResult = report.nativeResult
     }
 }
 

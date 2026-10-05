@@ -178,7 +178,8 @@ public final class CircuitLayoutSynthesizer {
 
         // The loop's verifier only carries errors; rerun full DRC so the
         // reported result keeps warnings as well.
-        var drcResult = LayoutDRCService().run(document: layoutDoc, tech: tech)
+        var drcResult = LayoutDRCService().run(document: layoutDoc, tech: tech,
+            electricalContext: DeviceElectricalVerificationContext.select(tech: tech))
 
         // 9. Antenna mitigation: the repair loop excludes antenna violations
         // because rip-up reproduces the same topology; instead, insert layer
@@ -295,7 +296,8 @@ public final class CircuitLayoutSynthesizer {
             failures = result.failures.map(\.description)
             guard result.insertedJumpers > 0 else { break }
             insertedJumpers += result.insertedJumpers
-            drcResult = LayoutDRCService().run(document: document, tech: tech)
+            drcResult = LayoutDRCService().run(document: document, tech: tech,
+            electricalContext: DeviceElectricalVerificationContext.select(tech: tech))
         }
 
         // A failure is only meaningful while its violation survives; when

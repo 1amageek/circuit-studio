@@ -111,7 +111,8 @@ let package = Package(
                 .product(name: "LayoutTech", package: "semiconductor-layout"),
                 .product(name: "LayoutVerify", package: "semiconductor-layout"),
                 .product(name: "LayoutEngine", package: "semiconductor-layout"),
-            ]
+            ],
+            exclude: ["DESIGN.md", "DeviceElectricalVerification/DESIGN.md"]
         ),
         .target(
             name: "Activity",

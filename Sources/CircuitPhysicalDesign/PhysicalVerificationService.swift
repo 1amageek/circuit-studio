@@ -9,8 +9,9 @@ public struct PhysicalVerificationService: Sendable {
     public init() {}
 
     public func runDRC(document: LayoutDocument, tech: LayoutTechDatabase) -> DRCVerificationReport {
-        let result = LayoutDRCService().run(document: document, tech: tech)
-        return makeDRCReport(violations: Self.physicalRuleViolations(in: result))
+        let result = LayoutDRCService().run(document: document, tech: tech,
+            electricalContext: DeviceElectricalVerificationContext.select(tech: tech))
+        return makeDRCReport(violations: Self.physicalRuleViolations(in: result), nativeResult: result)
     }
 
     /// DRC violations that gate physical signoff. Annotation-based
@@ -22,7 +23,7 @@ public struct PhysicalVerificationService: Sendable {
         result.violations.filter { $0.kind != .disconnectedOpen }
     }
 
-    public func makeDRCReport(violations: [LayoutViolation]) -> DRCVerificationReport {
+    public func makeDRCReport(violations: [LayoutViolation], nativeResult: LayoutDRCResult? = nil) -> DRCVerificationReport {
         var counts: [String: Int] = [:]
         for violation in violations {
             counts[violation.kind.rawValue, default: 0] += 1
@@ -30,7 +31,8 @@ public struct PhysicalVerificationService: Sendable {
         return DRCVerificationReport(
             violationCount: violations.count,
             violationsByKind: counts,
-            passed: violations.isEmpty
+            passed: violations.isEmpty,
+            nativeResult: nativeResult
         )
     }
 
