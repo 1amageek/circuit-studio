@@ -22,7 +22,7 @@ struct ProjectServiceTests {
         #expect(!fileExists(".xcircuite/studio-session.json", in: root))
         #expect(fileExists(".xcircuite/pex.json", in: root))
         #expect(fileExists(".xcircuite/pex/runs", in: root, isDirectory: true))
-        #expect(fileExists("pex.toml", in: root))
+        #expect(!fileExists("pex.toml", in: root))
         #expect(fileExists("tech.json", in: root))
 
         let packageManifest = try String(
@@ -42,8 +42,7 @@ struct ProjectServiceTests {
         #expect(pex.normalizedCorners == ["tt_25c_1v0"])
         #expect(pex.options.strictValidation)
 
-        let pexTOML = try String(contentsOf: service.pexTOMLURL(inProjectAt: root), encoding: .utf8)
-        #expect(pexTOML.contains("backend = \"\""))
+
     }
 
     @Test func saveAndLoadWorkspaceCellsAndSimulationConfigs() async throws {
@@ -157,7 +156,7 @@ struct ProjectServiceTests {
         #expect(!fileExists(".xcircuite/studio-session.json", in: root))
     }
 
-    @Test func savePEXProjectConfigWritesJSONAndTOML() async throws {
+    @Test func savePEXProjectConfigPreservesDocumentRelativeJSON() async throws {
         let root = try makeTemporaryProjectRoot("pex")
         defer { removeTemporaryProjectRoot(root) }
 
@@ -166,20 +165,26 @@ struct ProjectServiceTests {
 
         let config = PEXProjectConfig(
             enabled: true,
+            executablePath: "tools/magic",
             topCell: "AMP_TOP",
             backendID: "magic",
             processProfile: PEXProcessProfileReference(
                 profileID: "sky130",
+                pdkRoot: "pdk/root",
+                primaryDeckPath: "pdk/default.magicrc",
                 cornerDeckPaths: [
                     "tt": "pdk/sky130A.magicrc",
                     "ss": "pdk/sky130B.magicrc",
-                ]
+                ],
+                requiredViewPaths: ["technologyLEF": "pdk/technology.lef"],
+                metadata: ["authority": "project-fixture"]
             ),
             corners: ["tt", "ss"],
             inputs: .init(
                 layout: "layout/amp.oas",
                 netlist: "netlists/amp.cir",
-                technology: "pdk/tech.json"
+                technology: "pdk/tech.json",
+                technologyByCorner: ["tt": "pdk/tt.json", "ss": "/absolute/ss.json"]
             ),
             output: .init(workspace: ".xcircuite/pex/runs"),
             options: .init(
@@ -196,18 +201,47 @@ struct ProjectServiceTests {
         let loaded = try service.loadPEXProjectConfig(forProjectAt: root)
         #expect(loaded == config)
 
-        let toml = try String(contentsOf: service.pexTOMLURL(inProjectAt: root), encoding: .utf8)
-        #expect(toml.contains("layout = \"layout/amp.oas\""))
-        #expect(toml.contains("netlist = \"netlists/amp.cir\""))
-        #expect(toml.contains("top_cell = \"AMP_TOP\""))
-        #expect(toml.contains("backend = \"magic\""))
-        #expect(toml.contains("max_jobs = 1"))
-        #expect(toml.contains("include_coupling = false"))
-        #expect(toml.contains("min_cap_f = 1e-15"))
-        #expect(toml.contains("min_res_ohm = 0.25"))
-        #expect(toml.contains("strict = true"))
-        #expect(toml.contains("id = \"tt\""))
-        #expect(toml.contains("id = \"ss\""))
+        let configURL = try service.pexConfigURL(inProjectAt: root)
+        let persisted = try JSONDecoder().decode(PEXProjectConfig.self, from: Data(contentsOf: configURL))
+        let persistedProfile = try #require(persisted.processProfile)
+        let originalProfile = try #require(config.processProfile)
+        var pathPairs: [(String, String)] = [
+            (config.inputs.layout, persisted.inputs.layout),
+            (config.inputs.netlist, persisted.inputs.netlist),
+            (config.inputs.technology, persisted.inputs.technology),
+            (config.output.workspace, persisted.output.workspace),
+        ]
+        let executable = try #require(config.executablePath)
+        let persistedExecutable = try #require(persisted.executablePath)
+        pathPairs.append((executable, persistedExecutable))
+        let pdkRoot = try #require(originalProfile.pdkRoot)
+        let persistedPDKRoot = try #require(persistedProfile.pdkRoot)
+        pathPairs.append((pdkRoot, persistedPDKRoot))
+        let primaryDeck = try #require(originalProfile.primaryDeckPath)
+        let persistedPrimaryDeck = try #require(persistedProfile.primaryDeckPath)
+        pathPairs.append((primaryDeck, persistedPrimaryDeck))
+        for (corner, projectPath) in config.inputs.technologyByCorner {
+            let documentPath = try #require(persisted.inputs.technologyByCorner[corner])
+            pathPairs.append((projectPath, documentPath))
+        }
+        for (corner, projectPath) in originalProfile.cornerDeckPaths {
+            let documentPath = try #require(persistedProfile.cornerDeckPaths[corner])
+            pathPairs.append((projectPath, documentPath))
+        }
+        for (view, projectPath) in originalProfile.requiredViewPaths {
+            let documentPath = try #require(persistedProfile.requiredViewPaths[view])
+            pathPairs.append((projectPath, documentPath))
+        }
+        for (projectPath, documentPath) in pathPairs {
+            let expected = projectPath.hasPrefix("/") ? URL(filePath: projectPath) : root.appending(path: projectPath)
+            let actual = documentPath.hasPrefix("/") ? URL(filePath: documentPath)
+                : configURL.deletingLastPathComponent().appending(path: documentPath)
+            #expect(expected.standardizedFileURL == actual.standardizedFileURL)
+        }
+        #expect(persisted.inputs.technologyByCorner["ss"] == "/absolute/ss.json")
+        #expect(persistedProfile.metadata == originalProfile.metadata)
+
+
     }
 
     @Test func saveNetlistCreatesIntermediateDirectories() async throws {

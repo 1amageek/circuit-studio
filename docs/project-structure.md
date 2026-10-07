@@ -242,14 +242,13 @@ PEXEngine の導入時、CircuitStudio は以下のファイルをプロジェ�
 ```
 my-design/
 ├── .xcircuite/
-│   ├── pex.json            # CircuitStudio 側の PEX 設定
+│   ├── pex.json            # Shared CLI / Studio configuration
 │   └── pex/
 │       └── runs/           # pexengine 実行成果物
-├── pex.toml                # pexengine 用標準設定
 └── tech.json               # 技術情報テンプレート (未存在時のみ生成)
 ```
 
 `.xcircuite/pex.json` の `inputs.technologyByCorner` にはcorner別の技術JSONを、
 `processProfile.cornerDeckPaths` にはMagicなどのcorner別抽出deckを指定できる。
 相対パスは設定ファイル基準で解決され、PEXEngineのrun artifactへimmutable inputとして保存される。
-`pex.toml` は外部の `pexengine` CLI から直接利用可能な形式とし、CircuitStudio 内の設定 (`.xcircuite/pex.json`) と同期される。
+CLI と Studio は同じ `.xcircuite/pex.json` を実行する。`pexengine extract --config .xcircuite/pex.json` で直接実行できる。GUI の project-relative な編集値は、保存時に config-document-relative な値へ変換する。`inputs.nativeInput` は native reference document のパスであり、その document 内の configuration／calibration URL は変更しない。

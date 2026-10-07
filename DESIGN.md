@@ -27,6 +27,7 @@ root and child occurrences without exercising routing or closure qualification.
 | [LSI](../DESIGN.md) | parent | Human intervention in the native flow | Presentation is not signoff evidence |
 | [Xcircuite](../Xcircuite/DESIGN.md) | depends on | Exact state, artifacts and run ledger | Preserve reviewed identity through resume |
 | [DesignFlowKernel](../DesignFlowKernel/DESIGN.md) | depends on | Approval/rejection/resume | Bind decisions to the exact reviewed result |
+| [PEXEngine](../PEXEngine/DESIGN.md) | depends on | Typed persisted config, native request admission, run results and artifact resolver | Preserve native selection and complete failed-run evidence through cockpit commands |
 | [ReleaseEngine](../ReleaseEngine/DESIGN.md) | coordinates with | Release eligibility and authorization | UI cannot issue trust on behalf of the owner |
 
 [CircuitStudioCore](Sources/CircuitStudioCore/DESIGN.md) owns the typed simulation
@@ -62,6 +63,8 @@ then exercise exact human review and resume in the cumulative system path.
 Accessibility and large-run review remain measured UI obligations. Changes to
 domain diagnostics, artifacts or approval identity require corresponding cockpit
 projection checks.
+
+[CircuitStudioApp](Sources/CircuitStudioApp/DESIGN.md) owns project configuration persistence and command composition, using the lower typed PEX intake contract.
 
 [CircuitPhysicalDesign](Sources/CircuitPhysicalDesign/DESIGN.md) owns explicit
 native device-context composition for synthesis, repair and pre-PEX verification.

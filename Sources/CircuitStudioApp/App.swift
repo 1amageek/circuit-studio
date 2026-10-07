@@ -951,9 +951,7 @@ public struct CircuitStudioApp: App {
             let extraction = try await Task.detached(priority: .userInitiated) {
                 try await designFlowService.runPEXExtraction(DesignFlowPEXExtractionRequest(
                     configURL: configURL,
-                    projectDirectory: projectRoot,
-                    cornerID: config.normalizedCorners.first ?? "tt_25c_1v0",
-                    executablePath: config.executablePath
+                    cornerID: config.normalizedCorners.first ?? "tt_25c_1v0"
                 ))
             }.value
 

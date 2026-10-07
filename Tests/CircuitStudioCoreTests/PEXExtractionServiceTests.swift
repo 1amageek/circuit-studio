@@ -66,18 +66,34 @@ struct PEXExtractionServiceTests {
         let configURL = root.appending(path: "pex-config.json")
         try writeConfig(to: configURL, enabled: true)
 
+        let runner = RequestRecordingRunner(result: runResult)
         let result = try await PEXExtractionService(
-            engine: StubPEXRunner(result: runResult)
+            engine: runner
         ).extract(PEXExtractionRequest(
             configURL: configURL,
             workspaceDirectory: root.appending(path: "workspace"),
             cornerID: "tt_25c_1v0",
-            executablePath: "/opt/pex/mock"
+            executablePath: "tools/mock"
         ))
 
         #expect(result.runResult == runResult)
         #expect(result.manifestURL == manifestURL)
         #expect(result.ir.elements.count == canonicalIR.elements.count)
+        let mappedRequest = try #require(await runner.request)
+        #expect(mappedRequest.backendSelection.executablePath == URL(filePath: "tools/mock").path)
+        #expect(mappedRequest.workingDirectory == root.appending(path: "workspace"))
+    }
+
+    private actor RequestRecordingRunner: PEXRunning {
+        let result: PEXRunResult
+        private(set) var request: PEXRunRequest?
+
+        init(result: PEXRunResult) { self.result = result }
+
+        func run(_ request: PEXRunRequest) async throws -> PEXRunResult {
+            self.request = request
+            return result
+        }
     }
 
     @Test func disabledConfigurationIsRejectedBeforeExecution() async throws {

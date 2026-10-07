@@ -20,23 +20,29 @@ public struct PEXExtractionService: Sendable {
         }
         config.corners = [request.cornerID]
         if let executablePath = request.executablePath {
-            config.executablePath = executablePath
+            config.executablePath = URL(filePath: executablePath).path(percentEncoded: false)
         }
         if let workspaceDirectory = request.workspaceDirectory {
             config.output.workspace = workspaceDirectory.path(percentEncoded: false)
         }
 
-        let mappingURL = request.projectDirectory?
-            .appending(path: request.configURL.lastPathComponent)
-            ?? request.configURL
         let runRequest = try configMapper.mapToRunRequest(
             config: config,
-            configFileURL: mappingURL
+            configFileURL: request.configURL
         )
         let runResult = try await engine.run(runRequest)
+        guard runResult.status == .success else {
+            throw PEXExtractionError.executionFailed(runResult)
+        }
         guard let corner = runResult.cornerResults.first(where: {
             $0.cornerID == PEXCornerID(request.cornerID)
-        }), let canonicalIR = corner.ir else {
+        }) else {
+            throw PEXExtractionError.missingCorner(request.cornerID)
+        }
+        guard corner.status == .success else {
+            throw PEXExtractionError.executionFailed(runResult)
+        }
+        guard let canonicalIR = corner.ir else {
             throw PEXExtractionError.missingCorner(request.cornerID)
         }
         return PEXExtractionResult(

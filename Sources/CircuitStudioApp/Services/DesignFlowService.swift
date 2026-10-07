@@ -283,7 +283,6 @@ public struct DesignFlowService: Sendable {
     ) async throws -> PEXExtractionResult {
         try await PEXExtractionService(engine: pexRunner).extract(PEXExtractionRequest(
             configURL: request.configURL,
-            projectDirectory: request.projectDirectory,
             workspaceDirectory: request.workspaceDirectory,
             cornerID: request.cornerID,
             executablePath: request.executablePath

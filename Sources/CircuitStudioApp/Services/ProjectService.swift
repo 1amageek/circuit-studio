@@ -13,7 +13,6 @@ public struct ProjectService: Sendable {
     private static let pexConfigFileName = "pex.json"
     private static let pexDirectoryName = "pex"
     private static let pexRunsDirectoryName = "runs"
-    private static let pexTOMLFileName = "pex.toml"
     private static let studioSessionManifestFileName = "studio-session.json"
     private static let layoutTechFileName = "layout-tech.json"
     private static let cellsDirectoryName = "cells"
@@ -235,7 +234,6 @@ public struct ProjectService: Sendable {
     ///
     /// Files created:
     /// - `.xcircuite/pex.json`
-    /// - `pex.toml`
     /// - `tech.json` (if missing and config points to default relative path)
     /// - `.xcircuite/pex/runs/`
     func ensurePEXProjectFiles(forProjectAt projectRoot: URL) throws {
@@ -275,19 +273,22 @@ public struct ProjectService: Sendable {
             try savePEXProjectConfig(config, forProjectAt: projectRoot)
         }
 
-        try writePEXTOML(config: config, forProjectAt: projectRoot)
         try writeDefaultTechTemplateIfNeeded(forProjectAt: projectRoot, config: config)
     }
 
+    /// Saves a project-relative application value as document-relative executable JSON.
     func savePEXProjectConfig(_ config: PEXProjectConfig, forProjectAt projectRoot: URL) throws {
         let url = try pexConfigurationURL(inProjectAt: projectRoot)
-        try writeJSON(config, to: url, forProjectAt: projectRoot)
-        try writePEXTOML(config: config, forProjectAt: projectRoot)
+        let persisted = PEXProjectPathProjection.project(config, from: projectRoot,
+            to: url.deletingLastPathComponent())
+        try writeJSON(persisted, to: url, forProjectAt: projectRoot)
     }
 
+    /// Loads executable JSON into the project-relative application path context.
     func loadPEXProjectConfig(forProjectAt projectRoot: URL) throws -> PEXProjectConfig {
         let url = try pexConfigurationURL(inProjectAt: projectRoot)
-        return try readJSON(PEXProjectConfig.self, from: url)
+        let persisted = try readJSON(PEXProjectConfig.self, from: url)
+        return PEXProjectPathProjection.project(persisted, from: url.deletingLastPathComponent(), to: projectRoot)
     }
 
     /// Points the PEX and tapeout flows at `topCell` by name. OASIS carries
@@ -305,10 +306,6 @@ public struct ProjectService: Sendable {
         guard config.topCell != topCell else { return }
         config.topCell = topCell
         try savePEXProjectConfig(config, forProjectAt: projectRoot)
-    }
-
-    func pexTOMLURL(inProjectAt projectRoot: URL) -> URL {
-        projectRoot.appending(path: Self.pexTOMLFileName)
     }
 
     func pexConfigURL(inProjectAt projectRoot: URL) throws -> URL {
@@ -550,12 +547,6 @@ public struct ProjectService: Sendable {
         }
     }
 
-    private func writePEXTOML(config: PEXProjectConfig, forProjectAt projectRoot: URL) throws {
-        let tomlURL = pexTOMLURL(inProjectAt: projectRoot)
-        let contents = renderPEXTOML(config: config)
-        try writeText(contents, to: tomlURL)
-    }
-
     private func writeDefaultTechTemplateIfNeeded(
         forProjectAt projectRoot: URL,
         config: PEXProjectConfig
@@ -612,56 +603,6 @@ public struct ProjectService: Sendable {
             return false
         }
         return true
-    }
-
-    private func renderPEXTOML(config: PEXProjectConfig) -> String {
-        var lines: [String] = []
-
-        lines.append("[project]")
-        lines.append("name = \"circuit-studio\"")
-
-        lines.append("")
-        lines.append("[inputs]")
-        lines.append("layout = \"\(escapeTOML(config.inputs.layout))\"")
-        lines.append("netlist = \"\(escapeTOML(config.inputs.netlist))\"")
-        lines.append("top_cell = \"\(escapeTOML(config.topCell))\"")
-
-        lines.append("")
-        lines.append("[technology]")
-        lines.append("path = \"\(escapeTOML(config.inputs.technology))\"")
-
-        lines.append("")
-        lines.append("[runtime]")
-        let backendID = config.backendID.trimmingCharacters(in: .whitespacesAndNewlines)
-        lines.append("backend = \"\(escapeTOML(backendID))\"")
-        lines.append("max_jobs = \(max(1, config.options.maxParallelJobs))")
-        lines.append("include_coupling = \(config.options.includeCouplingCaps)")
-
-        if let minCapacitance = config.options.minCapacitanceF {
-            lines.append("min_cap_f = \(minCapacitance)")
-        }
-        if let minResistance = config.options.minResistanceOhm {
-            lines.append("min_res_ohm = \(minResistance)")
-        }
-        lines.append("strict = \(config.options.strictValidation)")
-
-        lines.append("")
-        lines.append("[output]")
-        lines.append("workspace = \"\(escapeTOML(config.output.workspace))\"")
-
-        for corner in config.normalizedCorners {
-            lines.append("")
-            lines.append("[[corners]]")
-            lines.append("id = \"\(escapeTOML(corner))\"")
-        }
-
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    private func escapeTOML(_ string: String) -> String {
-        string
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     private func writeJSON<T: Encodable>(_ value: T, to url: URL, forProjectAt projectRoot: URL) throws {

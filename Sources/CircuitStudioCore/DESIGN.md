@@ -46,11 +46,36 @@ Application composition -> SimulationRunning -> SimulationExecution -> CoreSpice
 
 ## Contracts and Invariants
 
+PEXExtractionService projects the actual PEXRunning result. Only a successful run
+and successful selected corner with canonical IR become PEXExtractionResult.
+Failed or partially successful runs and failed selected corners throw
+PEXExtractionError.executionFailed carrying the complete PEXRunResult, including
+the manifest URL, observed producer, captured inputs and backend diagnostics.
+missingCorner describes only a successful run missing the requested canonical
+corner. PEXRuntime owns native reference loading and bounded input admission;
+Studio does not decode, rewrite or synthesize native configuration/calibration.
+Explicit caller executable overrides resolve against the caller's current directory
+before replacing a persisted document-relative executable path. GUI uses the saved
+config and does not resubmit a project-view executable as an override.
+
+```text
+JSON config + explicit path context -> PEXConfigMapper -> PEXRunning
+    -> success + canonical corner -> PEXExtractionResult
+    -> failed run/corner -> executionFailed(actual PEXRunResult)
+```
+
 Transient callers explicitly select an operational policy. Completed native transient
 results retain its exact provenance. Missing, partial and exhausted policy cannot be
 projected as completed. Component contracts own detailed admission and lifecycle rules.
 
 ## Verification and Change Impact
+
+[StudioNativePEXConfigurationTests](../../Tests/CircuitStudioCoreTests/StudioNativePEXConfigurationTests.swift)
+owns native config composition through the actual default engine, retained
+canonical/standard artifacts, native input absence and retained backend failure.
+Its single two-port analytical sheet fixture defines a nonproduction law; it
+does not establish process accuracy or foundry qualification. Existing injected
+runner tests continue to prove dependency injection, not native extraction.
 
 SimulationServiceExecutionTests, EndToEndTests and SimulationServiceTests own the
 native CPU numerical and lifecycle proofs. Composition changes must preserve the

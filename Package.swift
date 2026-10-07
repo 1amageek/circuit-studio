@@ -182,6 +182,7 @@ let package = Package(
                 .product(name: "LayoutEngine", package: "semiconductor-layout"),
                 .product(name: "MacComponent", package: "mac-component"),
             ],
+            exclude: ["DESIGN.md", "ProjectConfiguration/DESIGN.md"],
             resources: [
                 .copy("Resources/antenna.tcl"),
                 .copy("Resources/density.tcl"),
@@ -271,6 +272,11 @@ let package = Package(
                 .product(name: "OpenVAFSupport", package: "swift-openvaf"),
                 .product(name: "VerilogACompiler", package: "swift-openvaf"),
                 .product(name: "PEXEngine", package: "PEXEngine"),
+                .product(name: "PEXCLICore", package: "PEXEngine"),
+                .product(name: "PEXNative", package: "PEXEngine"),
+                .product(name: "LayoutTech", package: "semiconductor-layout"),
+                .product(name: "LayoutIO", package: "semiconductor-layout"),
+                .product(name: "LayoutVerify", package: "semiconductor-layout"),
                 .product(name: "SignoffToolSupport", package: "SignoffToolSupport"),
             ],
             resources: [
