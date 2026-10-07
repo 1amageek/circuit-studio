@@ -39,7 +39,7 @@ let package = Package(
         .package(url: "https://github.com/1amageek/PEXEngine.git", revision: "9ddde373a60aad753aa3d6268cf4988cb8b0bb73"),
         .package(url: "https://github.com/1amageek/DRCEngine.git", revision: "6f70e080e96ed53ca44e77d9c30b49465fe9598c"),
         .package(url: "https://github.com/1amageek/LVSEngine.git", revision: "db9449426d3d2ba2ac48a2f5de75fca25a542eb9"),
-        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "d8e4d364d01393773e09fc95006a42c769968a52"),
+        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "c2ab78d2d218a4af5dc2d162ec1ec395371051cb"),
         .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "3ec4c27c439d4fe8318c28d9f2b33bb28db07e8d"),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
