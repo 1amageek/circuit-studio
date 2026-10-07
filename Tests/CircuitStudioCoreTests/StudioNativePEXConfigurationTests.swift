@@ -167,7 +167,11 @@ struct StudioNativePEXConfigurationTests {
         #expect(calibration.reference?.id == fixture.calibrationID)
         #expect(try Data(contentsOf: resolver.validatedURL(for: calibration)) == Data(contentsOf: #require(fixture.reference.calibrations.first).url))
         let configuration = try #require(resolver.records(kind: .nativeConfigurationInput, availability: .available).first)
-        #expect(try Data(contentsOf: resolver.validatedURL(for: configuration)) == Data(contentsOf: fixture.reference.configurationURL))
+        let configurationBytes = try Data(contentsOf: resolver.validatedURL(for: configuration))
+        #expect(configurationBytes == (try Data(contentsOf: fixture.reference.configurationURL)))
+        let retainedConfiguration = try JSONDecoder().decode(NativePEXConfiguration.self, from: configurationBytes)
+        #expect(retainedConfiguration.version == 3)
+        #expect(retainedConfiguration.netBindings == fixture.configuration.netBindings)
         let captured = try PEXArtifactStore(workspace: .init(baseURL: resolver.runDirectory.deletingLastPathComponent(),
             runID: resolver.manifest.runID)).loadRequest()
         #expect(captured.backendSelection.backendID == "native")

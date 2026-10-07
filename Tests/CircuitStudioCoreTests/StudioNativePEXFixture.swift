@@ -47,7 +47,8 @@ struct StudioNativePEXFixture {
         configuration = try NativePEXConfiguration(layoutTechnology: tech,
             layers: [.init(layerID: layer, electricalName: "M1", isConductive: true)],
             supplementalPins: pins,
-            netBindings: [.init(occurrenceIndex: 0, netID: netID, netName: NetName("SIGNAL"))],
+            netBindings: [.init(selector: .supplemental(occurrenceIndex: 0,
+                expectedCellName: "TOP", netID: netID), netName: NetName("SIGNAL"))],
             electrodeBindings: [
                 .init(pinIndex: 0, terminal: .init(netName: NetName("SIGNAL"), nodeName: NodeName("A")),
                     faces: [.init(side: .minX, coordinate: 0, begin: 0, end: fullWidth)]),
