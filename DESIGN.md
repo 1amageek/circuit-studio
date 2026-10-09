@@ -68,3 +68,14 @@ projection checks.
 
 [CircuitPhysicalDesign](Sources/CircuitPhysicalDesign/DESIGN.md) owns explicit
 native device-context composition for synthesis, repair and pre-PEX verification.
+
+## Qualification Fixture Retention
+
+[Release review projection tests](Tests/CircuitStudioCoreTests/RunReviewReleaseProjectionTests.swift)
+verify that the model-free XOR review fixture retains both canonical original
+outputs, their producer bindings and metric phases in its handoff inventory and
+payload map. Release admission and schema authority remain in
+[ReleaseEngine](../ReleaseEngine/DESIGN.md) and
+[ToolQualification](../ToolQualification/DESIGN.md). This fixture establishes
+retained review projection on native CPU, not actual geometric-XOR, GUI or
+physical qualification.

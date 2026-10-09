@@ -47,6 +47,18 @@ struct RunReviewReleaseProjectionTests {
             layoutDigest: hashes.layout,
             evaluatedAt: Date(timeIntervalSince1970: 0)
         )
+        let originals = xorFixture.retainedBindings.filter { $0.logicalID.hasSuffix("-original") }
+        #expect(originals.count == 2)
+        #expect(Set(originals.map(\.reference)).isSubset(of: Set(xorFixture.retainedArtifacts)))
+        for binding in originals {
+            let path = try binding.requireLocalRelativePath().stringValue
+            let bytes = try #require(xorFixture.artifactPayloads[path])
+            let execution = try ToolQualificationCaseExecution.decodeCanonical(from: bytes)
+            #expect(execution.phaseIDs == ["xor"])
+            #expect(execution.metricPhaseIDs == ["difference-count": ["xor"]])
+            #expect(execution.modelReceiptArtifacts.isEmpty)
+            #expect(binding.producer == execution.producer)
+        }
         let evidenceData = Data("{\"status\":\"passed\"}".utf8)
         let evidenceArtifact = try RunReviewTestSupport.artifactReference(
             artifactID: "qualified-release-evidence",

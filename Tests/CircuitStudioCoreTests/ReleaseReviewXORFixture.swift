@@ -154,8 +154,19 @@ struct ReleaseReviewXORFixture {
                 binaryDigest: oracleTool.digest.hexadecimalValue
             )
         )
+        let primaryOriginal = try artifact(id: "xor-primary-original", name: "primary-original.json",
+            payload: ToolQualificationCaseExecution(caseID: "xor-zero-difference", executionID: "xor-primary",
+                producer: toolProducer, executableArtifact: tool, inputArtifacts: [input], phaseIDs: ["xor"],
+                metricPhaseIDs: ["difference-count": ["xor"]], modelReceiptArtifacts: [],
+                observedMetrics: ["difference-count": 0]).canonicalData(), kind: .evidence, producer: toolProducer)
+        let oracleOriginal = try artifact(id: "xor-oracle-original", name: "oracle-original.json",
+            payload: ToolQualificationCaseExecution(caseID: "xor-zero-difference", executionID: "xor-oracle",
+                producer: oracleProducer, executableArtifact: oracleTool, inputArtifacts: [input], phaseIDs: ["xor"],
+                metricPhaseIDs: ["difference-count": ["xor"]], modelReceiptArtifacts: [],
+                observedMetrics: ["difference-count": 0]).canonicalData(), kind: .evidence, producer: oracleProducer)
         let outcome = ToolQualificationCaseOutcome(
             caseID: "xor-zero-difference",
+            originalExecutionArtifact: primaryOriginal,
             coverageTags: ["release"],
             comparisons: [ToolQualificationMetricComparison(
                 metricID: "difference-count",
@@ -163,6 +174,8 @@ struct ReleaseReviewXORFixture {
                 expected: 0
             )]
         )
+        let oracleOutcome = ToolQualificationCaseOutcome(caseID: outcome.caseID,
+            originalExecutionArtifact: oracleOriginal, coverageTags: outcome.coverageTags, comparisons: outcome.comparisons)
         let corpus = ToolCorpusQualificationResult(
             resultID: "xor-corpus",
             qualificationID: "release-review-xor",
@@ -170,7 +183,7 @@ struct ReleaseReviewXORFixture {
             scope: scope,
             issuer: issuer,
             inputArtifacts: [input],
-            outputArtifacts: [report],
+            outputArtifacts: [report, primaryOriginal],
             cases: [outcome],
             checkedAt: evaluatedAt
         )
@@ -182,12 +195,12 @@ struct ReleaseReviewXORFixture {
             scope: scope,
             issuer: issuer,
             inputArtifacts: [input],
-            primaryOutputArtifacts: [report],
-            oracleOutputArtifacts: [oracleOutput],
+            primaryOutputArtifacts: [report, primaryOriginal],
+            oracleOutputArtifacts: [oracleOutput, oracleOriginal],
             cases: [ToolOracleCaseComparison(
                 caseID: outcome.caseID,
                 primary: outcome,
-                oracle: outcome,
+                oracle: oracleOutcome,
                 agreementComparisons: [ToolOracleMetricComparison(
                     metricID: "difference-count",
                     primaryObserved: 0,
@@ -243,7 +256,7 @@ struct ReleaseReviewXORFixture {
                 oracleResultArtifacts: [oracleArtifact],
                 healthResultArtifacts: [healthArtifact],
                 inputArtifacts: [input],
-                outputArtifacts: [report, oracleOutput],
+                outputArtifacts: [report, oracleOutput, primaryOriginal, oracleOriginal],
                 qualifiedAt: evaluatedAt.addingTimeInterval(-1),
                 expiresAt: evaluatedAt.addingTimeInterval(60)
             ),
