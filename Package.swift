@@ -25,10 +25,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "a9078b6f53fae2c0423a725a599a0abfd376be2a"),
-        releasedDependency(
-            named: "CircuiteFoundation",
-            exactVersion: "26.812.0"
-        ),
+        .package(url: "https://github.com/1amageek/CircuiteFoundation.git", revision: "ae88104c556f5802819713ed741f5b2fffffc2d9"),
         .package(url: "https://github.com/1amageek/DesignFlowKernel.git", revision: "04c3fbb3b8d3e144e974a51b6460fc12e576ca35"),
         releasedDependency(
             named: "SignoffToolSupport",
