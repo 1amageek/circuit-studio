@@ -29,16 +29,16 @@ let package = Package(
             named: "CircuiteFoundation",
             exactVersion: "26.812.0"
         ),
-        .package(url: "https://github.com/1amageek/DesignFlowKernel.git", revision: "8a1ea1883454e4c3ea8c5f59ebca57db0a1f8369"),
+        .package(url: "https://github.com/1amageek/DesignFlowKernel.git", revision: "04c3fbb3b8d3e144e974a51b6460fc12e576ca35"),
         releasedDependency(
             named: "SignoffToolSupport",
             exactVersion: "26.812.0"
         ),
-        .package(url: "https://github.com/1amageek/CoreSpice.git", revision: "305d0933018f8a987c73c5186f53740ca315a516"),
-        .package(url: "https://github.com/1amageek/semiconductor-layout.git", revision: "3782d80a8038118ec0e4d18d550391d4e6587da1"),
-        .package(url: "https://github.com/1amageek/PEXEngine.git", revision: "65fb74aa49c05706c19d4c6cb2eea039f128a4bd"),
-        .package(url: "https://github.com/1amageek/DRCEngine.git", revision: "034ced8f40d92d79bcd523063e4508fe80374158"),
-        .package(url: "https://github.com/1amageek/LVSEngine.git", revision: "69c6238cdf84979804d5e3f6b7afb0c2cc955a41"),
+        .package(url: "https://github.com/1amageek/CoreSpice.git", revision: "fce8ca02194eabc63b4455f80070c1b8847a3377"),
+        .package(url: "https://github.com/1amageek/semiconductor-layout.git", revision: "17278fb7340e98a7af5a960766083c0e0c39f69b"),
+        .package(url: "https://github.com/1amageek/PEXEngine.git", revision: "6fdd2e1a6a8183e5e1196455bc8741063111206e"),
+        .package(url: "https://github.com/1amageek/DRCEngine.git", revision: "dc29ff96621024e391bbd0d1191f0b44fde0a380"),
+        .package(url: "https://github.com/1amageek/LVSEngine.git", revision: "b7b267d3136cf85e079317203f8f67d5b0a7b6ec"),
         .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "98a4f62c7186c955521e09fcf424b6ef8d217555"),
         .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "ad00f0906306115f39f10bee2a237abd221a65b9"),
         .package(
