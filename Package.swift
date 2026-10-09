@@ -24,7 +24,7 @@ let package = Package(
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "8deddd5c981918dba0cd5141d0dde44a656168c1"),
+        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "a9078b6f53fae2c0423a725a599a0abfd376be2a"),
         releasedDependency(
             named: "CircuiteFoundation",
             exactVersion: "26.812.0"
@@ -39,8 +39,8 @@ let package = Package(
         .package(url: "https://github.com/1amageek/PEXEngine.git", revision: "65fb74aa49c05706c19d4c6cb2eea039f128a4bd"),
         .package(url: "https://github.com/1amageek/DRCEngine.git", revision: "034ced8f40d92d79bcd523063e4508fe80374158"),
         .package(url: "https://github.com/1amageek/LVSEngine.git", revision: "69c6238cdf84979804d5e3f6b7afb0c2cc955a41"),
-        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "a0123d5f8429387616c053d9610590f8b2e019d6"),
-        .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "a2c75542ee98468e4c7693b88bfd2a9c306d63c0"),
+        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "98a4f62c7186c955521e09fcf424b6ef8d217555"),
+        .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "ad00f0906306115f39f10bee2a237abd221a65b9"),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
             exact: "0.17.0"
