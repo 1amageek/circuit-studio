@@ -26,8 +26,9 @@ capacity discovery, Metal backend, qualification or canonical storage.
 App/test composition -> explicit immutable caller limits or explicit nil
 SPICE source + optional typed analysis -> existing parser -> SPICEAnalysisOptions
     -> explicit process temperature priority / typed noise intent
-    -> loweringConfiguration + deviceRegistry + operatingConditions
-    -> one immutable invocation Pipeline / same factories for every DC rebind
+    -> one lowering session + deviceRegistry + operatingConditions
+    -> immutable Pipeline + consumed PreparedNativeCircuit
+    -> DC source-only updates preserve prepared device state
     -> complete deck limits / absent deck caller limits / partial deck failure
     -> one TransientExecution(config + exact policy provenance)
     -> CoreSpice CPU MNA -> waveform + SimulationResult policy
@@ -53,7 +54,8 @@ options before both lowering and operatingConditions; no separate temperature
 parser remains. Parameter overrides remain a lowering-only process contract.
 
 The pipeline resolves deck options once. Its registry and operating conditions are
-created once and reused in initial binding and every DC source rebind. Level54
+created once and passed to the domain preparation owner. DC source updates retain
+that prepared owner without repeating MOS setup. Level54
 preparation policy is the explicit deck policy; no application budget is fabricated.
 Parsed noise intent and an explicit typed .noise command both request preparation
 before lowering, including a typed command with no deck .noise directive. All
@@ -104,6 +106,46 @@ focused timeout-bounded checks. This change claims CPU macOS execution, not GPU,
 WASM/Embedded, external ngspice or signoff qualification.
 
 [BSIM4SimulationCompositionTests](../../../Tests/CircuitStudioCoreTests/BSIM4SimulationCompositionTests.swift)
-proves native Level54 OP and DC rebinds, typed missing policy, explicit noise intent,
+proves native Level54 OP and source-only DC sweeps, typed missing policy, explicit noise intent,
 and shared selected temperature. This is public composition evidence; numerical
 model qualification remains in CoreSpice.
+
+## S4 Common Native Composition
+
+The application compiles source once and owns one exclusive lowering session for
+options, the selected static analysis command, process overrides and circuit emission.
+It retains LoweredCircuit for inspection and asks CoreSpice NativeCircuitPreparer to
+prepare, allocate auxiliary topology, compile and bind each invocation once. Pipeline
+metadata is immutable; the numerical owner is consumed by a concrete Analysis operation.
+DC sweeps use the domain source-only update operation and retain MOS cold preparation.
+AC, noise, transfer-function and pole-zero analyses retain their existing public behavior.
+Transient onStepAccepted still feeds the existing progress channel; success and failure
+cancel and await polling before returning. Job and continuation isolation stays Mutex.
+
+The named interactive native policy selects finite lowering/preparation/resource and
+non-transient numerical ceilings. Complete deck transient ceilings retain precedence.
+Selected process temperature and parameter overrides enter the sole frontend session;
+preparation conditions use exact selected ambient/nominal values and requested analysis
+capabilities. Source inventory and selection metadata are not completed execution facts.
+
+Existing execution/composition tests cover physical output and cancellation; new MOS
+fixtures cover family selection and repeated DC points without per-point cold setup.
+
+### Source node voltage admission
+
+The ordinary caller resolves initial conditions and node sets from canonical scalar
+slots after circuit lowering and before consuming the same evaluation session.
+Component operands, IC and nodeset expressions share one memo and random stream.
+UIC transient applies exact initial node voltages. OP/DC apply node sets as Newton
+guesses; ordinary transient applies them to its DC initialization. Initial conditions
+without UIC and node sets on other analyses fail explicitly after expression evaluation.
+Node sets with UIC also fail with the IO unsupportedCapability cause because UIC
+skips the DC stage that applies those guesses; expressions still resolve before this
+policy check, so undefined parameters keep their original typed failure.
+Source errors
+retain the IO node-voltage error and underlying typed evaluation cause.
+
+The caller regression suites exercise UIC initial voltage, undefined IC and nodeset,
+shared component-to-IC random order, and caller lifecycle cleanup. The source review
+counterexample is retained in the task verification artifacts; runtime RED was not
+executed while numerical dependencies were mutable. Public-path GREEN is required.

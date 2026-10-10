@@ -1,6 +1,7 @@
 import Foundation
 import Synchronization
 import CoreSpice
+import CoreSpiceIO
 import Testing
 
 @testable import CircuitStudioCore
@@ -39,6 +40,7 @@ struct SimulationServiceExecutionTests {
     @Test(.timeLimit(.minutes(1)))
     func runDCSweepRejectsMissingSource() async throws {
         let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
+        defer { service.shutdown() }
         let source = """
         Voltage divider
         V1 in 0 5
@@ -60,20 +62,17 @@ struct SimulationServiceExecutionTests {
                 ))
             )
             Issue.record("Expected missing DC sweep source to fail")
-        } catch let error as StudioError {
-            guard case .simulationFailure(let message) = error else {
-                Issue.record("Expected simulationFailure, got \(error)")
-                return
-            }
-            #expect(message.contains("was not found"))
-        } catch {
-            Issue.record("Expected StudioError, got \(error)")
+        } catch let error as SPICENativeExecutionError {
+            guard case .unsupportedCapability(let message) = error else { throw error }
+            #expect(message == "Missing DC source")
         }
+        #expect(service.activeJobID == nil)
     }
 
     @Test(.timeLimit(.minutes(1)))
     func runDCSweepRejectsNonSourceComponent() async throws {
         let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
+        defer { service.shutdown() }
         let source = """
         Voltage divider
         V1 in 0 5
@@ -95,15 +94,11 @@ struct SimulationServiceExecutionTests {
                 ))
             )
             Issue.record("Expected non-source DC sweep target to fail")
-        } catch let error as StudioError {
-            guard case .simulationFailure(let message) = error else {
-                Issue.record("Expected simulationFailure, got \(error)")
-                return
-            }
-            #expect(message.contains("not an independent source"))
-        } catch {
-            Issue.record("Expected StudioError, got \(error)")
+        } catch let error as SPICENativeExecutionError {
+            guard case .unsupportedCapability(let message) = error else { throw error }
+            #expect(message == "DC sweep requires an independent source")
         }
+        #expect(service.activeJobID == nil)
     }
 
     @Test("native transient records the exact explicit caller policy and waveform", .timeLimit(.minutes(1)))
@@ -179,9 +174,17 @@ struct SimulationServiceExecutionTests {
         policy.maximumSavedScalars = 1
         let service = SimulationService(transientExecutionLimits: policy)
         defer { service.shutdown() }
-        await #expect(throws: TransientExecutionError.limitExceeded(resource: "savedScalars", limit: 1, requested: 4)) {
-            _ = try await service.runSPICE(source: Self.transientSource, fileName: nil)
+        let sawWaveform = Mutex(false)
+        do {
+            _ = try await service.runSPICE(source: Self.transientSource, fileName: nil,
+                onWaveformUpdate: { _ in sawWaveform.withLock { $0 = true } })
+            Issue.record("An insufficient saved-scalar policy unexpectedly completed")
+        } catch let failure as SPICENativeExecutionError {
+            guard case .resource(let cause) = failure,
+                  let numerical = cause as? TransientExecutionError else { throw failure }
+            #expect(numerical == .invalidLimit(name: "savedScalars", value: 1))
         }
+        #expect(!sawWaveform.withLock { $0 })
         #expect(service.activeJobID == nil)
     }
 
@@ -208,6 +211,89 @@ struct SimulationServiceExecutionTests {
     }
 
     private static let deckLimits = ".options tranmaxaccepted=200 tranmaxattempts=1000 tranmaxiterations=10000 tranmaxscalars=10000 tranmaxdimension=16 tranmaxwork=1000000 tranmaxbreakpoints=100"
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func sourceInitialConditionReachesImplicitAndExplicitTransient(_ explicit: Bool) async throws {
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
+        defer { service.shutdown() }
+        let result: SimulationResult
+        if explicit {
+            result = try await service.runAnalysis(source: Self.initialConditionSource, fileName: nil,
+                command: .tran(.init(stopTime: 10e-9, stepTime: 1e-9, useInitialConditions: true)))
+        } else {
+            result = try await service.runSPICE(source: Self.initialConditionSource, fileName: nil)
+        }
+        let waveform = try #require(result.waveform)
+        let node = try #require(waveform.variableIndex(named: "V(out)"))
+        #expect(abs(try #require(waveform.realValue(variable: node, point: 0)) - 2) < 1e-12)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [".ic", ".nodeset"])
+    func undefinedSourceNodeVoltageFailsBeforeCompletion(_ directive: String) async throws {
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
+        defer { service.shutdown() }
+        let source = Self.initialConditionSource.replacingOccurrences(of: ".ic V(out)=2",
+            with: "\(directive) V(out)={missing_voltage}")
+        do {
+            _ = try await service.runSPICE(source: source, fileName: nil)
+            Issue.record("Undefined source node voltage unexpectedly completed")
+        } catch let failure as SPICENodeVoltageResolutionError {
+            guard case .evaluation(let node, let cause) = failure,
+                  let resolution = cause as? MOSResolutionFailure, case .undefinedParameter = resolution else { throw failure }
+            #expect(node.lowercased() == "out")
+        }
+        #expect(service.activeJobID == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func initialConditionSharesCircuitRandomStream() async throws {
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
+        defer { service.shutdown() }
+        let source = Self.initialConditionSource.replacingOccurrences(of: "R1 out 0 1k", with: "R1 out 0 {1000+rand()}")
+            .replacingOccurrences(of: ".ic V(out)=2", with: ".ic V(out)={rand()}")
+        let waveform = try #require(try await service.runSPICE(source: source, fileName: nil).waveform)
+        let node = try #require(waveform.variableIndex(named: "V(out)"))
+        #expect(abs(try #require(waveform.realValue(variable: node, point: 0)) - 0.33112028100185353) < 1e-12)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func sourceInitialConditionWithoutUICIsExplicitlyRefused() async throws {
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
+        defer { service.shutdown() }
+        await #expect(throws: StudioError.simulationFailure("IC requires transient UIC")) {
+            _ = try await service.runSPICE(source: Self.initialConditionSource.replacingOccurrences(of: " uic", with: ""), fileName: nil)
+        }
+        #expect(service.activeJobID == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func sourceNodesetWithUICIsExplicitlyRefused(_ explicit: Bool) async throws {
+        let service = SimulationService(transientExecutionLimits: StudioTransientExecutionPolicy.interactivePreview)
+        defer { service.shutdown() }
+        let source = Self.initialConditionSource.replacingOccurrences(of: ".ic V(out)=2",
+            with: ".nodeset V(out)=2")
+        do {
+            if explicit {
+                _ = try await service.runAnalysis(source: source, fileName: nil,
+                    command: .tran(.init(stopTime: 10e-9, stepTime: 1e-9, useInitialConditions: true)))
+            } else {
+                _ = try await service.runSPICE(source: source, fileName: nil)
+            }
+            Issue.record("UIC skipped the source node set without refusing it")
+        } catch let failure as SPICESimulationPreparationError {
+            guard case .unsupportedCapability(let capability) = failure else { throw failure }
+            #expect(capability == "Nodeset with UIC skips its DC application")
+        }
+        #expect(service.activeJobID == nil)
+    }
+
+    private static let initialConditionSource = """
+    Studio source initial condition
+    R1 out 0 1k
+    C1 out 0 1n
+    .ic V(out)=2
+    .tran 1n 10n uic
+    .end
+    """
     private static let transientSource = """
     Explicit transient fixture
     V1 in 0 PWL(0 0 1n 0 2n 1 10n 1)

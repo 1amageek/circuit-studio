@@ -58,6 +58,13 @@ host-ledger projections; a view's lifetime does not own the canonical run.
 
 ## Verification and Change Impact
 
+The [CI workflow](.github/workflows/realtool.yml) consumes the
+[CoreSpice host deployment contract](../CoreSpice/DESIGN.md#responsibilities-and-boundaries)
+for its runner and compiler selection. Setup verifies the host OS and architecture,
+the official installer signature, and the selected release compiler before the
+existing verification steps. Configuration alone is not executed CI or process
+qualification evidence.
+
 Verify affected UI actions through the same domain/ledger contracts as the CLI,
 then exercise exact human review and resume in the cumulative system path.
 Accessibility and large-run review remain measured UI obligations. Changes to

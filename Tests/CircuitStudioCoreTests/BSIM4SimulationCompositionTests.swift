@@ -94,4 +94,20 @@ struct BSIM4SimulationCompositionTests {
         #expect(result.status == .completed)
         #expect(result.logMessages.contains { $0.contains("host_unapplied") && $0.contains("not applied") })
     }
+    @Test func selectedFamilyMatchesExactModelAndProcessOverrideFeedsDependentGeometry() async throws {
+        let service = SimulationService(transientExecutionLimits: nil)
+        defer { service.shutdown() }
+        let base = source(analysis: ".dc VG 0.8 1.0 0.1\n.ac lin 1 {missing_unused} 1k", policy: "")
+            .replacingOccurrences(of: ".model process nmos level=54 version=4.8.3 vth0=0.7 u0=0.05 toxe=10n",
+                with: ".param length=0.5u dependent=length\n.model process nmos level=49 version=3.3.0 vth0=0.4 u0=500 tox=10n")
+            .replacingOccurrences(of: "l=1u", with: "l={dependent}")
+        let binned = base.replacingOccurrences(of: ".model process nmos level=49 version=3.3.0 vth0=0.4 u0=500 tox=10n",
+            with: ".model process.1 nmos level=49 version=3.3.0 lmin=0.1u lmax=2u wmin=1u wmax=20u vth0=0.4 u0=500 tox=10n\n.model process.2 nmos level=49 version=3.3.0 lmin=3u lmax=5u wmin=1u wmax=20u vth0=0.9 u0=500 tox=10n")
+        let exact = try drainCurrent(try await service.runSPICE(source: base.replacingOccurrences(of: "length=0.5u", with: "length=1u"), fileName: nil))
+        let selected = try drainCurrent(try await service.runSPICE(source: binned, fileName: nil,
+            processConfiguration: ProcessConfiguration(parameterOverrides: ["length": 1e-6])))
+        #expect(exact.count == 3 && selected.count == 3)
+        for index in exact.indices { #expect(abs(exact[index] - selected[index]) < 1e-12) }
+    }
+
 }

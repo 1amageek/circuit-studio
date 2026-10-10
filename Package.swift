@@ -1,4 +1,4 @@
-// swift-tools-version: 6.3
+// swift-tools-version: 6.4
 import PackageDescription
 
 func releasedDependency(named name: String, exactVersion: Version) -> Package.Dependency {
@@ -10,7 +10,7 @@ func releasedDependency(named name: String, exactVersion: Version) -> Package.De
 
 let package = Package(
     name: "CircuitStudio",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS("27.0")],
     products: [
         .library(name: "CircuitStudioCore", targets: ["CircuitStudioCore"]),
         .library(name: "CircuitSignoff", targets: ["CircuitSignoff"]),
@@ -24,20 +24,20 @@ let package = Package(
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "a6e5cfaa883c2d83715212133ec776bc801e1e40"),
+        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "cf2bcde5e547794a748979d53b6d779c3be5229a"),
         .package(url: "https://github.com/1amageek/CircuiteFoundation.git", revision: "ae88104c556f5802819713ed741f5b2fffffc2d9"),
         .package(url: "https://github.com/1amageek/DesignFlowKernel.git", revision: "dcd570de03206aaa982a3daecce901d2bfafd9c1"),
         releasedDependency(
             named: "SignoffToolSupport",
             exactVersion: "26.812.0"
         ),
-        .package(url: "https://github.com/1amageek/CoreSpice.git", revision: "d2eefa69cd1980087fcb29787aa1f71ccc276b0f"),
+        .package(url: "https://github.com/1amageek/CoreSpice.git", revision: "60543b6fca295827d568a5d73a3e8134e6419997"),
         .package(url: "https://github.com/1amageek/semiconductor-layout.git", revision: "17278fb7340e98a7af5a960766083c0e0c39f69b"),
         .package(url: "https://github.com/1amageek/PEXEngine.git", revision: "6fdd2e1a6a8183e5e1196455bc8741063111206e"),
         .package(url: "https://github.com/1amageek/DRCEngine.git", revision: "dc29ff96621024e391bbd0d1191f0b44fde0a380"),
         .package(url: "https://github.com/1amageek/LVSEngine.git", revision: "b7b267d3136cf85e079317203f8f67d5b0a7b6ec"),
-        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "b419a09995174289545132048451ac9d2acc372b"),
-        .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "40835f91e97aba4c4b0fd78b921fe05e7ca26267"),
+        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "bcaaa735207fa77a0b76ad8105d59100612f6c0d"),
+        .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "8df984fdab3b3479685f5a098fbe92a8d87e7854"),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
             exact: "0.17.0"

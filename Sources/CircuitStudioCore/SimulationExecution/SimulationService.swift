@@ -79,11 +79,9 @@ public final class SimulationService: SimulationRunning, Sendable {
                 fileName: fileName,
                 processConfiguration: processConfiguration
             )
-            let command = try detectAnalysis(
-                in: pipeline.netlist,
-                processConfiguration: processConfiguration
-            ) ?? .op
-            let transientExecution = try admitTransient(command: command, options: pipeline.options)
+            let command = pipeline.command ?? .op
+            let transientExecution = try admitTransient(command: command, options: pipeline.options,
+                initialNodeVoltages: pipeline.initialNodeVoltages, nodeVoltageGuesses: pipeline.nodeVoltageGuesses)
             let waveform = try await executeAnalysis(
                 command: command,
                 pipeline: pipeline,
@@ -104,6 +102,9 @@ public final class SimulationService: SimulationRunning, Sendable {
 
             emit(jobID: jobID, event: .completed)
             return result
+        } catch SPICENativeExecutionError.cancelled {
+            emit(jobID: jobID, event: .cancelled)
+            throw StudioError.cancelled
         } catch AnalysisError.cancelled {
             emit(jobID: jobID, event: .cancelled)
             throw StudioError.cancelled
@@ -114,6 +115,10 @@ public final class SimulationService: SimulationRunning, Sendable {
             emit(jobID: jobID, event: .cancelled)
             throw error
         } catch {
+            if token.isCancelled || Task.isCancelled {
+                emit(jobID: jobID, event: .cancelled)
+                throw StudioError.cancelled
+            }
             emit(jobID: jobID, event: .failed(error.localizedDescription))
             throw error
         }
@@ -174,7 +179,8 @@ public final class SimulationService: SimulationRunning, Sendable {
                 processConfiguration: processConfiguration,
                 command: command
             )
-            let transientExecution = try admitTransient(command: command, options: pipeline.options)
+            let transientExecution = try admitTransient(command: command, options: pipeline.options,
+                initialNodeVoltages: pipeline.initialNodeVoltages, nodeVoltageGuesses: pipeline.nodeVoltageGuesses)
             let waveform = try await executeAnalysis(
                 command: command,
                 pipeline: pipeline,
@@ -194,6 +200,9 @@ public final class SimulationService: SimulationRunning, Sendable {
 
             emit(jobID: jobID, event: .completed)
             return result
+        } catch SPICENativeExecutionError.cancelled {
+            emit(jobID: jobID, event: .cancelled)
+            throw StudioError.cancelled
         } catch AnalysisError.cancelled {
             emit(jobID: jobID, event: .cancelled)
             throw StudioError.cancelled
@@ -204,6 +213,10 @@ public final class SimulationService: SimulationRunning, Sendable {
             emit(jobID: jobID, event: .cancelled)
             throw error
         } catch {
+            if token.isCancelled || Task.isCancelled {
+                emit(jobID: jobID, event: .cancelled)
+                throw StudioError.cancelled
+            }
             emit(jobID: jobID, event: .failed(error.localizedDescription))
             throw error
         }
@@ -269,8 +282,10 @@ public final class SimulationService: SimulationRunning, Sendable {
         let registry: DeviceRegistry
         let operatingConditions: OperatingConditions
         let ir: CircuitIR
-        let plan: ExecutionPlan
-        let devices: [any BoundDevice]
+        let lowered: LoweredCircuit
+        let command: AnalysisCommand?
+        let initialNodeVoltages: [Node: Double]
+        let nodeVoltageGuesses: [Node: Double]
         let nodeNameMap: [String: Node]
         let nodeNamesByID: [Int: String]
     }
@@ -293,46 +308,44 @@ public final class SimulationService: SimulationRunning, Sendable {
             throw StudioError.parseFailure("\(error)")
         }
 
-        var options = try SPICEAnalysisOptions.resolve(from: netlist)
+        let limits = try StudioNativeExecutionPolicy.resolutionLimits()
+        let overrides = processConfiguration?.effectiveParameters() ?? [:]
+        let compiled = try NetlistLowering.compile(netlist, additionalOverrideNames: overrides.keys.sorted(), limits: limits)
+        var session = try NetlistLowering.beginEvaluation(compiled, profile: StudioNativeExecutionPolicy.profile,
+            limits: limits, seed: StudioNativeExecutionPolicy.seed, parameterOverrides: overrides)
+        var options = try SPICEAnalysisOptions.resolve(from: compiled, session: &session)
         if let processConfiguration {
             options.temperatureCelsius = processConfiguration.effectiveTemperature(
-                defaultValue: options.loweringConfiguration().temperature
-            )
+                defaultValue: options.temperatureCelsius ?? 27)
         }
-        if case .noise? = command {
-            options.bsim4NoisePreparationRequested = true
-        }
+        let selectedCommand: AnalysisCommand?
+        if let command { selectedCommand = command }
+        else { selectedCommand = try detectAnalyses(in: compiled, session: &session, firstOnly: true).first }
+        if case .noise? = selectedCommand { options.bsim4NoisePreparationRequested = true }
         let registry = options.deviceRegistry()
         let operatingConditions = try options.operatingConditions()
-        var loweringConfig = options.loweringConfiguration()
-        if let processConfiguration {
-            loweringConfig.parameterOverrides = processConfiguration.effectiveParameters()
+        try session.lower(geometryScale: options.geometryScale)
+        guard let emitted = session.circuit else { throw StudioError.simulationFailure("Missing lowered circuit") }
+        let resolver = SPICENodeVoltageResolver()
+        let initial = try resolver.resolve(.initialConditions, compiled: compiled, session: &session, circuit: emitted)
+        let guesses = try resolver.resolve(.nodeSets, compiled: compiled, session: &session, circuit: emitted)
+        switch selectedCommand ?? .op {
+        case .tran(let spec):
+            guard initial.isEmpty || spec.useInitialConditions else {
+                throw StudioError.simulationFailure("IC requires transient UIC")
+            }
+            guard !spec.useInitialConditions || guesses.isEmpty else {
+                throw SPICESimulationPreparationError.unsupportedCapability("Nodeset with UIC skips its DC application")
+            }
+        case .op, .dcSweep:
+            guard initial.isEmpty else { throw StudioError.simulationFailure("IC requires transient UIC") }
+        default:
+            guard initial.isEmpty, guesses.isEmpty else {
+                throw StudioError.simulationFailure("Source node voltages are unsupported for this analysis")
+            }
         }
-        let ir: CircuitIR
-        do {
-            ir = try SPICEIO.lower(netlist, configuration: loweringConfig)
-        } catch let error as BSIM4DeviceError {
-            throw error
-        } catch {
-            throw StudioError.loweringFailure("\(error)")
-        }
-
-        let compiler = StandardCompiler()
-        let plan: ExecutionPlan
-        do {
-            plan = try compiler.compile(ir: ir)
-        } catch {
-            throw StudioError.compilationFailure("\(error)")
-        }
-
-        let devices: [any BoundDevice]
-        do {
-            devices = try Self.bindDevices(plan: plan, registry: registry, operatingConditions: operatingConditions)
-        } catch let error as BSIM4DeviceError {
-            throw error
-        } catch {
-            throw StudioError.deviceBindingFailure("\(error)")
-        }
+        let lowered = try session.finish()
+        let ir = lowered.circuit
 
         // Build node name provenance from parsed components + IR instances.
         let nodeNameMaps = Self.buildNodeNameMaps(netlist: netlist, ir: ir)
@@ -343,8 +356,10 @@ public final class SimulationService: SimulationRunning, Sendable {
             registry: registry,
             operatingConditions: operatingConditions,
             ir: ir,
-            plan: plan,
-            devices: devices,
+            lowered: lowered,
+            command: selectedCommand,
+            initialNodeVoltages: initial,
+            nodeVoltageGuesses: guesses,
             nodeNameMap: nodeNameMaps.nodeByName,
             nodeNamesByID: nodeNameMaps.nameByNodeID
         )
@@ -423,7 +438,8 @@ public final class SimulationService: SimulationRunning, Sendable {
         let policy: SimulationTransientExecutionPolicy
     }
 
-    private func admitTransient(command: AnalysisCommand, options: SPICEAnalysisOptions) throws -> TransientExecution? {
+    private func admitTransient(command: AnalysisCommand, options: SPICEAnalysisOptions,
+        initialNodeVoltages: [Node: Double], nodeVoltageGuesses: [Node: Double]) throws -> TransientExecution? {
         guard case .tran(let spec) = command else { return nil }
         let limits: TransientExecutionLimits
         let source: SimulationTransientExecutionPolicy.Source
@@ -440,7 +456,8 @@ public final class SimulationService: SimulationRunning, Sendable {
         let config = try options.transientConfig(
             executionLimits: limits, stopTime: spec.stopTime, stepTime: spec.stepTime,
             startTime: spec.startTime, maxStep: spec.maxStep,
-            useInitialConditions: spec.useInitialConditions
+            useInitialConditions: spec.useInitialConditions,
+            initialNodeVoltages: initialNodeVoltages, nodeVoltageGuesses: nodeVoltageGuesses
         )
         return TransientExecution(
             config: config, convergenceConfig: options.convergence,
@@ -550,23 +567,40 @@ public final class SimulationService: SimulationRunning, Sendable {
         jobID: UUID,
         onWaveformUpdate: (@Sendable (WaveformData) -> Void)? = nil
     ) async throws -> WaveformData {
-        let plan = pipeline.plan
-        let devices = pipeline.devices
+        var capabilities: MOSAnalysisCapabilities = [.dc]
+        switch command {
+        case .ac, .pz: capabilities.insert(.ac)
+        case .noise: capabilities.formUnion([.ac, .noise])
+        case .tran: capabilities.insert(.transient)
+        default: break
+        }
+        let numerical = try transientExecution?.config.requiredExecutionLimits()
+            ?? pipeline.options.executionLimits ?? StudioNativeExecutionPolicy.numericalLimits
+        if pipeline.options.bsim4PreparationPolicy == nil,
+           let instance = pipeline.lowered.circuit.instances.first(where: { if case .resolved(let resolved) = $0.mos { return resolved.release == .bsim4_4_8_3 }; return false }),
+           case .resolved(let resolved) = instance.mos {
+            throw BSIM4DeviceError.missingPreparationPolicy(resolved.symbolNames[Int(resolved.selectedName.rawValue)])
+        }
+        let circuit = try NativeCircuitPreparer().prepare(ir: pipeline.lowered.circuit,
+            registry: pipeline.registry, operatingConditions: pipeline.operatingConditions,
+            limits: StudioNativeExecutionPolicy.nativeLimits(options: pipeline.options, capabilities: capabilities),
+            numericalLimits: numerical, resources: StudioNativeExecutionPolicy.resources())
+        let plan = circuit.plan
         let solver = SparseLUSolver()
         let topology = plan.topology.circuitTopology
         let nodeNamesByID = pipeline.nodeNamesByID
-
         try validate(command: command, nativeBackend: true)
-
         let convergenceConfig = pipeline.options.convergence
 
         switch command {
         case .op:
-            let analysis = DCAnalysis(config: convergenceConfig)
-            let result = try await analysis.run(
-                plan: plan, devices: devices, solver: solver,
+            let analysis = DCAnalysis(config: convergenceConfig, nodeInitialGuess: pipeline.nodeVoltageGuesses)
+            let completedRun = try await analysis.run(
+                circuit: consume circuit, solver: solver,
                 observer: nil, cancellation: cancellation
             )
+            defer { withExtendedLifetime(completedRun) {} }
+            let result = completedRun.result
             return Self.applyingNodeNames(
                 WaveformData.from(dcResult: result, topology: topology, title: "Operating Point"),
                 nodeNamesByID: nodeNamesByID
@@ -632,10 +666,12 @@ public final class SimulationService: SimulationRunning, Sendable {
             // Run simulation. Both paths cancel + await the polling task
             // to ensure no callbacks fire after this scope exits.
             do {
-                let result = try await analysis.run(
-                    plan: plan, devices: devices, solver: solver,
+                let completedRun = try await analysis.run(
+                    circuit: consume circuit, solver: solver,
                     observer: nil, cancellation: cancellation
                 )
+                defer { withExtendedLifetime(completedRun) {} }
+                let result = completedRun.result
                 pollingTask.cancel()
                 await pollingTask.value
                 if let progressFailure = channel.takeFailure() {
@@ -662,10 +698,12 @@ public final class SimulationService: SimulationRunning, Sendable {
                 sweep = .linear(start: spec.startFrequency, stop: spec.stopFrequency, points: spec.numberOfPoints)
             }
             let analysis = ACAnalysis(sweep: sweep, dcConfig: convergenceConfig)
-            let result = try await analysis.run(
-                plan: plan, devices: devices, solver: solver,
+            let completedRun = try await analysis.run(
+                circuit: consume circuit, solver: solver,
                 observer: nil, cancellation: cancellation
             )
+            defer { withExtendedLifetime(completedRun) {} }
+            let result = completedRun.result
             return Self.applyingNodeNames(
                 WaveformData.from(acResult: result, topology: topology, title: "AC"),
                 nodeNamesByID: nodeNamesByID
@@ -676,25 +714,11 @@ public final class SimulationService: SimulationRunning, Sendable {
                 throw StudioError.simulationFailure("DC sweep step cannot be zero")
             }
             let values = strideInclusive(from: spec.startValue, through: spec.stopValue, by: spec.stepValue)
-            var results: [DCResult] = []
-            results.reserveCapacity(values.count)
-
-            for value in values {
-                let overrideDevices = try Self.bindDevices(
-                    plan: plan,
-                    registry: pipeline.registry,
-                    operatingConditions: pipeline.operatingConditions,
-                    overrideSource: (spec.source, value)
-                )
-                let dc = DCAnalysis(config: convergenceConfig)
-                let result = try await dc.run(
-                    plan: plan, devices: overrideDevices, solver: solver,
-                    observer: nil, cancellation: cancellation
-                )
-                results.append(result)
-            }
-
-            let sweepResult = SweepResult(parameterName: spec.source, values: values, results: results)
+            let completedSweep = try await DCAnalysis(config: convergenceConfig, nodeInitialGuess: pipeline.nodeVoltageGuesses).runSweep(
+                circuit: consume circuit, source: spec.source, values: values,
+                solver: solver, observer: nil, cancellation: cancellation)
+            defer { withExtendedLifetime(completedSweep) {} }
+            let sweepResult = completedSweep.result
             return Self.applyingNodeNames(
                 WaveformData.from(sweepResult: sweepResult, topology: topology, title: "DC Sweep"),
                 nodeNamesByID: nodeNamesByID
@@ -717,10 +741,12 @@ public final class SimulationService: SimulationRunning, Sendable {
                 sweep: sweep,
                 dcConfig: convergenceConfig
             )
-            let result = try await analysis.run(
-                plan: plan, devices: devices, solver: solver,
+            let completedRun = try await analysis.run(
+                circuit: consume circuit, solver: solver,
                 observer: nil, cancellation: cancellation
             )
+            defer { withExtendedLifetime(completedRun) {} }
+            let result = completedRun.result
             return Self.applyingNodeNames(
                 Self.waveformFromNoiseResult(result, title: "Noise"),
                 nodeNamesByID: nodeNamesByID
@@ -733,10 +759,12 @@ public final class SimulationService: SimulationRunning, Sendable {
                 inputSourceName: spec.input,
                 dcConfig: convergenceConfig
             )
-            let result = try await analysis.run(
-                plan: plan, devices: devices, solver: solver,
+            let completedRun = try await analysis.run(
+                circuit: consume circuit, solver: solver,
                 observer: nil, cancellation: cancellation
             )
+            defer { withExtendedLifetime(completedRun) {} }
+            let result = completedRun.result
             return Self.applyingNodeNames(
                 WaveformData.from(transferFunctionResult: result, title: "Transfer Function"),
                 nodeNamesByID: nodeNamesByID
@@ -749,10 +777,12 @@ public final class SimulationService: SimulationRunning, Sendable {
                 inputSourceName: spec.inputNode,
                 dcConfig: convergenceConfig
             )
-            let result = try await analysis.run(
-                plan: plan, devices: devices, solver: solver,
+            let completedRun = try await analysis.run(
+                circuit: consume circuit, solver: solver,
                 observer: nil, cancellation: cancellation
             )
+            defer { withExtendedLifetime(completedRun) {} }
+            let result = completedRun.result
             return Self.applyingNodeNames(
                 Self.waveformFromPoleZeroResult(result, title: "Pole-Zero"),
                 nodeNamesByID: nodeNamesByID
@@ -949,71 +979,6 @@ public final class SimulationService: SimulationRunning, Sendable {
         )
     }
 
-    // MARK: - Device Binding
-
-    private static func bindDevices(
-        plan: ExecutionPlan,
-        registry: DeviceRegistry,
-        operatingConditions: OperatingConditions,
-        overrideSource: (String, Double)? = nil
-    ) throws -> [any BoundDevice] {
-        var context = BindingContext(
-            variableMap: plan.topology.variableMap,
-            matrixDimension: plan.topology.dimension,
-            operatingConditions: operatingConditions
-        )
-
-        var devices: [any BoundDevice] = []
-        devices.reserveCapacity(plan.ir.instances.count)
-
-        let overrideName = overrideSource?.0.lowercased()
-        let overrideValue = overrideSource?.1
-        var didApplyOverride = false
-
-        for instance in plan.ir.instances {
-            let inst: Instance
-            if let overrideName, let overrideValue, instance.name.lowercased() == overrideName {
-                guard instance.typeName == "vsource" || instance.typeName == "isource" else {
-                    throw StudioError.simulationFailure(
-                        "DC sweep source '\(instance.name)' is a \(instance.typeName), not an independent source"
-                    )
-                }
-
-                var params = instance.parameters
-                switch instance.typeName {
-                case "vsource":
-                    params["v"] = .real(overrideValue)
-                case "isource":
-                    params["i"] = .real(overrideValue)
-                default:
-                    params["v"] = .real(overrideValue)
-                }
-                inst = Instance(
-                    name: instance.name,
-                    typeName: instance.typeName,
-                    nodes: instance.nodes,
-                    parameters: params
-                )
-                didApplyOverride = true
-            } else {
-                inst = instance
-            }
-
-            guard let desc = registry.descriptor(for: inst.typeName) else {
-                throw StudioError.deviceBindingFailure("No descriptor for device type: \(inst.typeName)")
-            }
-            devices.append(try desc.bind(instance: inst, context: &context))
-        }
-
-        if let overrideName, !didApplyOverride {
-            throw StudioError.simulationFailure(
-                "DC sweep source '\(overrideName)' was not found in the compiled circuit"
-            )
-        }
-
-        return devices
-    }
-
     // MARK: - Analysis Detection from Parsed Netlist
 
     /// Parses the source and returns every analysis command the netlist
@@ -1035,32 +1000,25 @@ public final class SimulationService: SimulationRunning, Sendable {
         } catch {
             throw StudioError.parseFailure("\(error)")
         }
-        return try detectAnalyses(
-            in: netlist,
-            processConfiguration: processConfiguration
-        )
+        let limits = try StudioNativeExecutionPolicy.resolutionLimits()
+        let overrides = processConfiguration?.effectiveParameters() ?? [:]
+        let compiled = try NetlistLowering.compile(netlist, additionalOverrideNames: overrides.keys.sorted(), limits: limits)
+        var session = try NetlistLowering.beginEvaluation(compiled, profile: StudioNativeExecutionPolicy.profile,
+            limits: limits, seed: StudioNativeExecutionPolicy.seed, parameterOverrides: overrides)
+        _ = try SPICEAnalysisOptions.resolve(from: compiled, session: &session)
+        return try detectAnalyses(in: compiled, session: &session)
     }
 
-    private func detectAnalysis(
-        in netlist: ParsedNetlist,
-        processConfiguration: ProcessConfiguration?
-    ) throws -> AnalysisCommand? {
-        try detectAnalyses(
-            in: netlist,
-            processConfiguration: processConfiguration
-        ).first
-    }
-
-    private func detectAnalyses(
-        in netlist: ParsedNetlist,
-        processConfiguration: ProcessConfiguration?
-    ) throws -> [AnalysisCommand] {
-        let resolver = try AnalysisValueResolver(
-            netlist: netlist,
-            processConfiguration: processConfiguration
-        )
+    private func detectAnalyses(in compiled: CompiledNetlist, session: inout NetlistLoweringSession,
+                               firstOnly: Bool = false) throws -> [AnalysisCommand] {
+        let resolver = AnalysisValueValidator()
         var commands: [AnalysisCommand] = []
-        for analysis in netlist.analyses {
+        for (index, original) in compiled.source.analyses.enumerated() {
+            switch original {
+            case .monteCarlo, .sensitivity, .fourier: continue
+            default: break
+            }
+            let analysis = try SPICEAnalysisCommands.resolve(original, at: index, from: compiled, session: &session)
             switch analysis {
             case .op:
                 commands.append(.op)
@@ -1135,6 +1093,7 @@ public final class SimulationService: SimulationRunning, Sendable {
             case .monteCarlo, .sensitivity, .fourier:
                 continue
             }
+            if firstOnly && !commands.isEmpty { break }
         }
         return commands
     }
@@ -1208,43 +1167,7 @@ private extension RunStatus {
     }
 }
 
-private struct AnalysisValueResolver {
-    private let evaluator: ExpressionEvaluator
-
-    init(
-        netlist: ParsedNetlist,
-        processConfiguration: ProcessConfiguration?
-    ) throws {
-        let context = LoweringContext()
-        let deterministicRandom: @Sendable () -> Double = { 0.5 }
-
-        for control in netlist.controls {
-            if case .function(let name, let parameters, let body, _) = control {
-                context.registerFunction(name: name, parameters: parameters, body: body)
-            }
-        }
-
-        do {
-            try ParameterExpressionResolver(
-                context: context,
-                randomUniform: deterministicRandom
-            ).resolveGlobal(netlist.parameters)
-        } catch {
-            throw StudioError.simulationFailure(
-                "Could not resolve analysis parameter environment: \(error.localizedDescription)"
-            )
-        }
-
-        if let processConfiguration {
-            context.setParameters(processConfiguration.effectiveParameters())
-        }
-
-        self.evaluator = ExpressionEvaluator(
-            context: context,
-            randomUniform: deterministicRandom
-        )
-    }
-
+private struct AnalysisValueValidator {
     func finite(_ value: ParsedParameterValue, name: String) throws -> Double {
         let result = try evaluate(value, name: name)
         guard result.isFinite else {
@@ -1276,13 +1199,10 @@ private struct AnalysisValueResolver {
     }
 
     private func evaluate(_ value: ParsedParameterValue, name: String) throws -> Double {
-        do {
-            return try evaluator.evaluate(value)
-        } catch {
-            throw StudioError.simulationFailure(
-                "Could not resolve analysis value '\(name)': \(error.localizedDescription)"
-            )
+        guard case .numeric(let number) = value else {
+            throw StudioError.simulationFailure("Unresolved static analysis value '\(name)'")
         }
+        return number
     }
 }
 
