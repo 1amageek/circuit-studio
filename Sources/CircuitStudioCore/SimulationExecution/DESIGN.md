@@ -149,3 +149,15 @@ The caller regression suites exercise UIC initial voltage, undefined IC and node
 shared component-to-IC random order, and caller lifecycle cleanup. The source review
 counterexample is retained in the task verification artifacts; runtime RED was not
 executed while numerical dependencies were mutable. Public-path GREEN is required.
+
+### BSIM45 Dependency Adoption
+
+The exact CoreSpice revision owns BSIM4 4.5.0 preparation and numerical state.
+The service uses its existing consumed NativeCircuitPreparer path for this release;
+inline Level54 inputs do not select the external simulator. The composition tests
+exercise DC, complex AC, transient NQS and noise through runSPICE with the existing
+explicit transient policy, verify physical output and idle job state, and require
+unknown 4.62 to propagate its exact typed schema refusal. Both 4.5 and 4.8.3
+require the explicit source preparation policy; absence cannot select the
+operational stress default. No service resource,
+synchronization, backend-selection or process-qualification contract changes.

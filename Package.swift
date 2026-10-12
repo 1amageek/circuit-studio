@@ -24,20 +24,20 @@ let package = Package(
         .executable(name: "signoff", targets: ["SignoffRunner"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "1be3b0d72578f82f6fc4a1aeec7e31837a1462a8"),
+        .package(url: "https://github.com/1amageek/Xcircuite.git", revision: "b9919dcb4aee68378dd7837dd5dac9f55a3c987d"),
         .package(url: "https://github.com/1amageek/CircuiteFoundation.git", revision: "ae88104c556f5802819713ed741f5b2fffffc2d9"),
         .package(url: "https://github.com/1amageek/DesignFlowKernel.git", revision: "dcd570de03206aaa982a3daecce901d2bfafd9c1"),
         releasedDependency(
             named: "SignoffToolSupport",
             exactVersion: "26.812.0"
         ),
-        .package(url: "https://github.com/1amageek/CoreSpice.git", revision: "45c096048866e9320395b9b92c6a0e4c35156d14"),
+        .package(url: "https://github.com/1amageek/CoreSpice.git", revision: "f2bd5861610cfc10aae2395d287b0c6a5789c6ed"),
         .package(url: "https://github.com/1amageek/semiconductor-layout.git", revision: "17278fb7340e98a7af5a960766083c0e0c39f69b"),
         .package(url: "https://github.com/1amageek/PEXEngine.git", revision: "6fdd2e1a6a8183e5e1196455bc8741063111206e"),
         .package(url: "https://github.com/1amageek/DRCEngine.git", revision: "dc29ff96621024e391bbd0d1191f0b44fde0a380"),
         .package(url: "https://github.com/1amageek/LVSEngine.git", revision: "b7b267d3136cf85e079317203f8f67d5b0a7b6ec"),
-        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "f238359ce6f9e251fe9bef5623956ad35fac6b24"),
-        .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "9dc346974580a64d850d543e7e9455ff1f5f8cce"),
+        .package(url: "https://github.com/1amageek/TimingEngine.git", revision: "1e16c86c6e6240922f7e38315b5cd2fadf2643f8"),
+        .package(url: "https://github.com/1amageek/ReleaseEngine.git", revision: "e916f61643b412ab179d36f9d4565b8836780ad0"),
         .package(
             url: "https://github.com/1amageek/swift-artifact.git",
             exact: "0.17.0"

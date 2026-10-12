@@ -577,7 +577,7 @@ public final class SimulationService: SimulationRunning, Sendable {
         let numerical = try transientExecution?.config.requiredExecutionLimits()
             ?? pipeline.options.executionLimits ?? StudioNativeExecutionPolicy.numericalLimits
         if pipeline.options.bsim4PreparationPolicy == nil,
-           let instance = pipeline.lowered.circuit.instances.first(where: { if case .resolved(let resolved) = $0.mos { return resolved.release == .bsim4_4_8_3 }; return false }),
+           let instance = pipeline.lowered.circuit.instances.first(where: { if case .resolved(let resolved) = $0.mos { return resolved.release == .bsim4_4_5 || resolved.release == .bsim4_4_8_3 }; return false }),
            case .resolved(let resolved) = instance.mos {
             throw BSIM4DeviceError.missingPreparationPolicy(resolved.symbolNames[Int(resolved.selectedName.rawValue)])
         }
